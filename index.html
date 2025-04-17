@@ -34,14 +34,11 @@
         <option>Nurburgring Nordchleiffe</option>
       </select>
 
-      
-
-      
       <select id="carClass" class="w-full p-2 border rounded" required>
-  <option value="">Select Car Class</option>
-  <option value="GT3">GT3</option>
-  <option value="GT4">GT4</option>
-</select>
+        <option value="">Select Car Class</option>
+        <option value="GT3">GT3</option>
+        <option value="GT4">GT4</option>
+      </select>
 
       <label for="weather" class="block text-left text-sm font-medium text-gray-700">Weather</label>
       <select id="weather" class="w-full p-2 border rounded" required onchange="document.getElementById('weatherNote').style.display = this.value === 'wet' ? 'block' : 'none';">
@@ -49,7 +46,7 @@
         <option value="wet">Wet</option>
       </select>
 
-      <input type="text" id="lapTime" placeholder="Lap Time (e.g. 1:47.382)" class="w-full p-2 border rounded" required pattern="^[0-9]{1,2}:[0-5][0-9](\.[0-9]{1,3})?$" title="Please enter time in the format m:ss.sss (e.g. 1:47.382)" />
+      <input type="text" id="lapTime" placeholder="Lap Time (e.g. 1:47.382)" class="w-full p-2 border rounded" required pattern="^[0-9]:[0-5][0-9]\.[0-9]{3}$" title="Please enter time in the format m:ss.sss (e.g. 1:47.382)" />
 
       <p id="weatherNote" class="text-sm text-blue-600 mt-1 hidden">Note: Wet weather adds a 5% buffer to your lap time for fairer classification.</p>
 
@@ -63,88 +60,137 @@
     <div id="simgridPromo" class="mt-6 hidden bg-gray-800 p-4 rounded-lg">
       <a href="https://www.thesimgrid.com/communities/ifwl" target="_blank">
         <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSU9g8cfuSLVQToXqGY4VHMhIsTNT7WTEJ7Bw&s" alt="Join IFWL on SimGrid" class="mx-auto h-16">
-        
       </a>
     </div>
+    <button onclick="downloadCSV()" class="mt-4 bg-green-600 text-white p-2 rounded hover:bg-green-700">Download Submissions CSV</button>
   </div>
 
+  <button onclick="downloadCSV()" class="mt-4 bg-green-600 text-white p-2 rounded hover:bg-green-700">
+    Download Submissions CSV
+  </button>
+
   <script>
-  document.getElementById("simgridPromo").classList.add("hidden");
-    const classificationData = {
-  "Monza": { "GT3": ["1:45.7", "1:47.7", "1:49.7", "1:51.7", "1:53.7"] },
-  "Spa Francorchamps": { "GT3": ["2:15.0", "2:17.0", "2:19.0", "2:21.0", "2:23.0"] },
-  "Silverstone": { "GT3": ["1:56.437", "1:58.437", "2:00.437", "2:02.437", "2:04.437"] },
-  "Nurburgring GP": { "GT3": ["1:52.1", "1:54.1", "1:56.1", "1:58.1", "2:00.1"] },
-  "Barcelona": { "GT3": ["1:41.6", "1:43.6", "1:45.6", "1:47.6", "1:49.6"] },
-  "Zandvoort": { "GT3": ["1:33.5", "1:35.5", "1:37.5", "1:39.5", "1:41.5"] },
-  "Suzuka": { "GT3": ["1:58.270", "2:00.270", "2:02.270", "2:04.270", "2:06.270"] },
-  "Paul Ricard": { "GT3": ["1:51.9", "1:53.9", "1:55.9", "1:57.9", "1:59.9"] },
-  "Imola": { "GT3": ["1:38.972", "1:40.972", "1:42.972", "1:44.972", "1:46.972"] },
-  "Mount Panorama": { "GT3": ["1:59.847", "2:01.847", "2:03.847", "2:05.847", "2:07.847"] },
-  "Misano": { "GT3": ["1:31.592", "1:33.592", "1:35.592", "1:37.592", "1:39.592"] },
-  "Kyalami": { "GT3": ["1:39.720", "1:41.720", "1:43.720", "1:45.720", "1:47.720"] },
-  "Brands Hatch": { "GT3": ["1:21.300", "1:23.300", "1:25.300", "1:27.300", "1:29.300"] },
-  "Donnington Park": { "GT3": ["1:24.991", "1:26.991", "1:28.991", "1:30.991", "1:32.991"] },
-  "Valencia": { "GT3": ["1:28.475", "1:30.475", "1:32.475", "1:34.475", "1:36.475"] },
-  "Laguna Seca": { "GT3": ["1:20.427", "1:22.427", "1:24.427", "1:26.427", "1:28.427"] },
-  "Watkins Glen": { "GT3": ["1:42.510", "1:44.510", "1:46.510", "1:48.510", "1:50.510"] },
-  "Zolder": { "GT3": ["1:25.307", "1:27.307", "1:29.307", "1:31.307", "1:33.307"] },
-  "Red Bull Ring": { "GT3": ["1:25.000", "1:27.000", "1:29.000", "1:31.000", "1:33.000"] },
-  "Hungaroring": { "GT3": ["1:40.105", "1:42.105", "1:44.105", "1:46.105", "1:48.105"] },
-  "Nurburgring Nordchleiffe": { "GT3": ["8:16.347", "8:18.347", "8:20.347", "8:22.347", "8:24.347"] }
-};
+  const submissionLog = [];
+    const submissionLog = [];
+    document.getElementById("simgridPromo").classList.add("hidden");
 
     function timeToSeconds(timeStr) {
       const [min, sec] = timeStr.split(":");
-      return (parseInt(min) * 60) + parseFloat(sec);
+      return parseInt(min) * 60 + parseFloat(sec);
     }
 
     function classify(track, carClass, lapTime) {
       const weather = document.getElementById("weather").value;
-      const rainImpact = weather === "wet" ? 1.05 : 1; // 5% slower if raining
+      const rainImpact = weather === "wet" ? 1.05 : 1;
       if (!classificationData[track] || !classificationData[track][carClass]) return "No data for selected track/class";
       const thresholds = classificationData[track][carClass].map(timeToSeconds);
       const userTime = timeToSeconds(lapTime) / rainImpact;
       const classes = [
-  "Rookie - IFWL.NET Beginner series is ideal for you - click the simgrid logo below to head to IFWL's simgrid community  ",
-  "AM - IFWL.NET Pro - am series is ideal for you - click the simgrid logo below to head to IFWL's simgrid community ",
-  " high end - AM - IFWL.NET Pro - am series is ideal for you - click the simgrid logo below to head to IFWL's simgrid community ",
-  "Pro - IFWL.NET Pro am may suit your race pace - click the simgrid logo below to head to IFWL's simgrid community ",
-  "Alien - consider getting a real race car ! :)  unless you are lying? :O"
-];
-
+        "Rookie - IFWL.NET Beginner series is ideal for you ",
+        "AM - IFWL.NET Pro - am series is ideal for you",
+        " high end - AM - IFWL.NET Pro - am series is ideal for you",
+        "Pro - IFWL.NET Pro am may suit your race pace",
+        "Alien - consider getting a real race car ! :) "
+      ];
       for (let i = 0; i < thresholds.length; i++) {
         if (userTime <= thresholds[i]) return classes[i];
       }
-      return "error code : max verstappen - this time is outside out permitted times.";
+      return "Alien";
     }
 
     document.getElementById("classificationForm").addEventListener("submit", function (e) {
-      document.getElementById("simgridPromo").classList.remove("hidden");
       e.preventDefault();
       const track = document.getElementById("track").value;
       const carClass = document.getElementById("carClass").value;
       const lapTime = document.getElementById("lapTime").value.trim();
-
-      const result = classify(track, carClass, lapTime);
-      const thresholds = classificationData[track][carClass].map(timeToSeconds);
-      const fastestAllowedTime = thresholds[0];
       const weather = document.getElementById("weather").value;
       const rainImpact = weather === "wet" ? 1.05 : 1;
+
+      const thresholds = classificationData[track][carClass].map(timeToSeconds);
+      const fastestAllowedTime = thresholds[0];
+      const bufferTime = fastestAllowedTime * 0.95;
       const userTime = timeToSeconds(lapTime) / rainImpact;
 
-      const bufferTime = fastestAllowedTime * 0.95;
       if (userTime < bufferTime) {
-        document.getElementById("result").textContent = "⚠️ error code 33/01 : max verstappen ⚠️ - this time is outside out permitted times..";
+        document.getElementById("result").textContent = "⚠️ This time is deemed unrealistic. Please check your entry.";
         document.getElementById("result").classList.add("text-red-600");
       } else if (userTime < fastestAllowedTime) {
         document.getElementById("result").textContent = `You're classified as: Alien - consider getting a real race car ! :)`;
         document.getElementById("result").classList.remove("text-red-600");
+        document.getElementById("simgridPromo").classList.remove("hidden");
       } else {
+        const result = classify(track, carClass, lapTime);
         document.getElementById("result").classList.remove("text-red-600");
         document.getElementById("result").textContent = `You're classified as: ${result}`;
+      submissionLog.push({
+        name: document.getElementById("driverName").value,
+        track,
+        carClass,
+        lapTime,
+        weather,
+        result
+      });
+        document.getElementById("simgridPromo").classList.remove("hidden");
+
+        submissionLog.push({
+          name: document.getElementById("driverName").value,
+          track,
+          carClass,
+          lapTime,
+          weather,
+          result
+        });
       }
     });
-  </script>
+
+    function downloadCSV() {
+      const headers = "Driver Name,Track,Car Class,Lap Time,Weather,Result\n";
+      const rows = submissionLog.map(entry => `${entry.name},${entry.track},${entry.carClass},${entry.lapTime},${entry.weather},${entry.result}`).join("\n");
+      const blob = new Blob([headers + rows], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ifwl_submissions.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    const classificationData = {
+      "Monza": { "GT3": ["1:45.7", "1:47.7", "1:49.7", "1:51.7", "1:53.7"] },
+      "Spa Francorchamps": { "GT3": ["2:15.0", "2:17.0", "2:19.0", "2:21.0", "2:23.0"] },
+      "Silverstone": { "GT3": ["1:56.437", "1:58.437", "2:00.437", "2:02.437", "2:04.437"] },
+      "Nurburgring GP": { "GT3": ["1:52.1", "1:54.1", "1:56.1", "1:58.1", "2:00.1"] },
+      "Barcelona": { "GT3": ["1:41.6", "1:43.6", "1:45.6", "1:47.6", "1:49.6"] },
+      "Zandvoort": { "GT3": ["1:33.5", "1:35.5", "1:37.5", "1:39.5", "1:41.5"] },
+      "Suzuka": { "GT3": ["1:58.270", "2:00.270", "2:02.270", "2:04.270", "2:06.270"] },
+      "Paul Ricard": { "GT3": ["1:51.9", "1:53.9", "1:55.9", "1:57.9", "1:59.9"] },
+      "Imola": { "GT3": ["1:38.972", "1:40.972", "1:42.972", "1:44.972", "1:46.972"] },
+      "Mount Panorama": { "GT3": ["1:59.847", "2:01.847", "2:03.847", "2:05.847", "2:07.847"] },
+      "Misano": { "GT3": ["1:31.592", "1:33.592", "1:35.592", "1:37.592", "1:39.592"] },
+      "Kyalami": { "GT3": ["1:39.720", "1:41.720", "1:43.720", "1:45.720", "1:47.720"] },
+      "Brands Hatch": { "GT3": ["1:21.300", "1:23.300", "1:25.300", "1:27.300", "1:29.300"] },
+      "Donnington Park": { "GT3": ["1:24.991", "1:26.991", "1:28.991", "1:30.991", "1:32.991"] },
+      "Valencia": { "GT3": ["1:28.475", "1:30.475", "1:32.475", "1:34.475", "1:36.475"] },
+      "Laguna Seca": { "GT3": ["1:20.427", "1:22.427", "1:24.427", "1:26.427", "1:28.427"] },
+      "Watkins Glen": { "GT3": ["1:42.510", "1:44.510", "1:46.510", "1:48.510", "1:50.510"] },
+      "Zolder": { "GT3": ["1:25.307", "1:27.307", "1:29.307", "1:31.307", "1:33.307"] },
+      "Red Bull Ring": { "GT3": ["1:25.000", "1:27.000", "1:29.000", "1:31.000", "1:33.000"] },
+      "Hungaroring": { "GT3": ["1:40.105", "1:42.105", "1:44.105", "1:46.105", "1:48.105"] },
+      "Nurburgring Nordchleiffe": { "GT3": ["8:16.347", "8:18.347", "8:20.347", "8:22.347", "8:24.347"] }
+    };
+  function downloadCSV() {
+  const headers = "Driver Name,Track,Car Class,Lap Time,Weather,Result
+";
+  const rows = submissionLog.map(entry => `${entry.name},${entry.track},${entry.carClass},${entry.lapTime},${entry.weather},${entry.result}`).join("
+");
+  const blob = new Blob([headers + rows], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ifwl_submissions.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
 </body>
 </html>
