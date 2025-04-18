@@ -10,7 +10,7 @@
 
   <!-- ✅ Version Number -->
   <div class="fixed top-2 left-2 text-xs text-gray-500 font-mono bg-white bg-opacity-80 px-2 py-1 rounded shadow">
-    Beta 0.0.0105
+    Beta 0.0.0106
   </div>
 
   <div class="mb-6">
@@ -18,7 +18,7 @@
       <img src="./ifwl_logo.png" alt="IFWL Logo" class="w-32 h-32 object-contain mx-auto">
     </a>
   </div>
-  
+
   <div class="bg-white p-8 rounded-2xl shadow-md w-full max-w-lg">
     <h1 class="text-2xl font-bold mb-4">ACC Driver Classification</h1>
     <form id="classificationForm" class="space-y-4">
@@ -84,26 +84,93 @@
   </button>
 
 <script>
-const classificationData = { ... }; // kept unchanged for brevity
+const classificationData = {
+  "Monza": { "GT3": ["1:53.7", "1:51.7", "1:49.7", "1:47.7", "1:45.7"] },
+  "Spa Francorchamps": { "GT3": ["2:23.0", "2:21.0", "2:19.0", "2:17.0", "2:15.0"] },
+  "Silverstone": { "GT3": ["2:04.437", "2:02.437", "2:00.437", "1:58.437", "1:56.437"] },
+  "Nurburgring GP": { "GT3": ["2:00.1", "1:58.1", "1:56.1", "1:54.1", "1:52.1"] },
+  "Barcelona": { "GT3": ["1:49.6", "1:47.6", "1:45.6", "1:43.6", "1:41.6"] },
+  "Zandvoort": { "GT3": ["1:41.5", "1:39.5", "1:37.5", "1:35.5", "1:33.5"] },
+  "Suzuka": { "GT3": ["2:06.270", "2:04.270", "2:02.270", "2:00.270", "1:58.270"] },
+  "Paul Ricard": { "GT3": ["1:59.9", "1:57.9", "1:55.9", "1:53.9", "1:51.9"] },
+  "Imola": { "GT3": ["1:46.972", "1:44.972", "1:42.972", "1:40.972", "1:38.972"] },
+  "Mount Panorama": { "GT3": ["2:07.847", "2:05.847", "2:03.847", "2:01.847", "1:59.847"] },
+  "Misano": { "GT3": ["1:39.592", "1:37.592", "1:35.592", "1:33.592", "1:31.592"] },
+  "Kyalami": { "GT3": ["1:47.720", "1:45.720", "1:43.720", "1:41.720", "1:39.720"] },
+  "Brands Hatch": { "GT3": ["1:29.300", "1:27.300", "1:25.300", "1:23.300", "1:21.300"] },
+  "Donnington Park": { "GT3": ["1:32.991", "1:30.991", "1:28.991", "1:26.991", "1:24.991"] },
+  "Valencia": { "GT3": ["1:36.475", "1:34.475", "1:32.475", "1:30.475", "1:28.475"] },
+  "Laguna Seca": { "GT3": ["1:28.427", "1:26.427", "1:24.427", "1:22.427", "1:20.427"] },
+  "Watkins Glen": { "GT3": ["1:50.510", "1:48.510", "1:46.510", "1:44.510", "1:42.510"] },
+  "Zolder": { "GT3": ["1:33.307", "1:31.307", "1:29.307", "1:27.307", "1:25.307"] },
+  "Red Bull Ring": { "GT3": ["1:33.000", "1:31.000", "1:29.000", "1:27.000", "1:25.000"] },
+  "Hungaroring": { "GT3": ["1:48.105", "1:46.105", "1:44.105", "1:42.105", "1:40.105"] },
+  "Nurburgring Nordchleiffe": { "GT3": ["8:24.347", "8:22.347", "8:20.347", "8:18.347", "8:16.347"] }
+};
 
-const classes = [ ... ]; // unchanged
-
-const submissionLog = [];
-
-function timeToSeconds(timeStr) { ... } // unchanged
-
-function classify(track, carClass, lapTime) { ... } // unchanged
+const classes = [
+  "unrealistic - please check your time entry",
+  "require improvement - this time is too slow to classify",
+  "beginner - IFWL.NET Beginner series is ideal for you",
+  "AM - IFWL.NET Pro - am series is ideal for you",
+  "high end - AM - IFWL.NET Pro - am series is ideal for you",
+  "Pro - IFWL.NET Pro am may suit your race pace",
+  "Alien - consider getting a real race car ! :) "
+];
 
 const tips = [
-  "🏎 Tip: Focus on smooth throttle and brake inputs to maintain car balance through corners.",
+  "🏁 Tip: Focus on smooth throttle and brake inputs to maintain car balance through corners.",
   "🧠 Tip: Learn your braking points and slowly push them deeper as you gain confidence.",
   "🎯 Tip: Consistency is key – aim for clean laps before chasing ultimate pace.",
   "🔍 Tip: Use your track map and replays to spot where you're losing time.",
-  "🚞 Tip: Trail braking helps rotate the car – practice easing off the brake into the apex."
+  "🛞 Tip: Trail braking helps rotate the car – practice easing off the brake into the apex."
 ];
 
 function getRandomTip() {
   return tips[Math.floor(Math.random() * tips.length)];
+}
+
+function timeToSeconds(timeStr) {
+  const [min, sec] = timeStr.split(":");
+  const [seconds, ms] = sec.split(".");
+  return parseInt(min) * 60 + parseInt(seconds) + parseFloat(`0.${ms}`);
+}
+
+function classify(track, carClass, lapTime) {
+  const weather = document.getElementById("weather").value;
+  const rainImpact = weather === "wet" ? 1.05 : 1;
+  const thresholds = classificationData[track][carClass].map(timeToSeconds);
+  const userTime = timeToSeconds(lapTime) / rainImpact;
+
+  let classification = classes[classes.length - 1];
+  let gapInfo = "";
+
+  for (let i = 0; i < thresholds.length; i++) {
+    if (userTime >= thresholds[i]) {
+      classification = classes[i + 1] || classes[classes.length - 1];
+
+      const fasterGap = (i > 0) ? Math.abs((userTime - thresholds[i - 1]).toFixed(3)) : null;
+      const slowerGap = (i < thresholds.length - 1) ? Math.abs((thresholds[i + 1] - userTime).toFixed(3)) : null;
+
+      if (fasterGap !== null && slowerGap !== null) {
+        gapInfo = `
+          You are <span class="bg-red-200 text-red-800 px-1 rounded">${fasterGap} s slower</span> than the faster category, 
+          and <span class="bg-green-200 text-green-800 px-1 rounded">${slowerGap} s faster</span> than the slower category.
+        `;
+      } else if (fasterGap === null) {
+        gapInfo = `
+          You are <span class="bg-green-200 text-green-800 px-1 rounded">${slowerGap} s faster</span> than the next category.
+        `;
+      } else {
+        gapInfo = `
+          You are <span class="bg-red-200 text-red-800 px-1 rounded">${fasterGap} s slower</span> than the top category.
+        `;
+      }
+      break;
+    }
+  }
+
+  return { classification, gapInfo };
 }
 
 document.getElementById("classificationForm").addEventListener("submit", function (e) {
@@ -141,7 +208,26 @@ document.getElementById("classificationForm").addEventListener("submit", functio
   });
 });
 
-function downloadCSV() { ... } // unchanged
+function downloadCSV() {
+  const password = prompt("Enter password to download submissions:");
+  if (password !== "69420") {
+    alert("Incorrect password. Access denied.");
+    return;
+  }
+
+  const headers = "Driver Name,Track,Car Class,Lap Time,Weather,Result\n";
+  const rows = submissionLog.map(entry =>
+    `${entry.name},${entry.track},${entry.carClass},${entry.lapTime},${entry.weather},${entry.result}`
+  ).join("\n");
+
+  const blob = new Blob([headers + rows], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ifwl_submissions.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 </body>
 </html>
