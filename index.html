@@ -114,19 +114,37 @@ function timeToSeconds(timeStr) {
 function classify(track, carClass, lapTime) {
   const weather = document.getElementById("weather").value;
   const rainImpact = weather === "wet" ? 1.05 : 1;
-  if (!classificationData[track] || !classificationData[track][carClass]) return "No data for selected track/class";
+  if (!classificationData[track] || !classificationData[track][carClass]) return { classification: "No data for selected track/class", gapInfo: "" };
 
   const rawThresholds = classificationData[track][carClass].map(timeToSeconds);
   const userTime = timeToSeconds(lapTime) / rainImpact;
 
-  if (isNaN(userTime)) return "Invalid time format";
+  if (isNaN(userTime)) return { classification: "Invalid time format", gapInfo: "" };
 
   const thresholds = rawThresholds;
 
+  let classification = classes[classes.length - 1];
+  let gapInfo = "";
+
   for (let i = 0; i < thresholds.length; i++) {
-    if (userTime >= thresholds[i]) return classes[i + 1]; // slower = lower class
+    if (userTime >= thresholds[i]) {
+      classification = classes[i + 1];
+
+      const fasterGap = (i > 0) ? (userTime - thresholds[i - 1]).toFixed(3) : null;
+      const slowerGap = (i < thresholds.length - 1) ? (thresholds[i + 1] - userTime).toFixed(3) : null;
+
+      if (fasterGap !== null && slowerGap !== null) {
+        gapInfo = `You are +${fasterGap}s slower than the faster category, and -${slowerGap}s faster than the slower category.`;
+      } else if (fasterGap === null) {
+        gapInfo = `You are -${slowerGap}s faster than the next category.`;
+      } else {
+        gapInfo = `You are +${fasterGap}s slower than the top category.`;
+      }
+      break;
+    }
   }
-  return classes[classes.length - 1]; // Alien
+
+  return { classification, gapInfo };
 }
 
 document.getElementById("classificationForm").addEventListener("submit", function (e) {
@@ -137,11 +155,14 @@ document.getElementById("classificationForm").addEventListener("submit", functio
   const carClass = document.getElementById("carClass").value;
   const lapTime = document.getElementById("lapTime").value.trim();
 
-  const result = classify(track, carClass, lapTime);
-  document.getElementById("result").innerText = `${driverName}, your classification is: ${result}`;
+  const resultData = classify(track, carClass, lapTime);
+  document.getElementById("result").innerHTML = `
+    ${driverName}, your classification is:<br><strong>${resultData.classification}</strong><br>
+    <span class="text-sm text-gray-600">${resultData.gapInfo}</span>
+  `;
 
   const simgridPromo = document.getElementById("simgridPromo");
-  if (["AM", "high end - AM", "Pro", "Alien"].some(level => result.includes(level))) {
+  if (["AM", "high end - AM", "Pro", "Alien"].some(level => resultData.classification.includes(level))) {
     simgridPromo.classList.remove("hidden");
   } else {
     simgridPromo.classList.add("hidden");
