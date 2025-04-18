@@ -1,9 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IFWL ACC Driver Classifier</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
 <body class="bg-gray-100 min-h-screen flex flex-col justify-center items-center text-center">
+
+  <!-- ✅ Version Number -->
+  <div class="fixed top-2 left-2 text-xs text-gray-500 font-mono bg-white bg-opacity-80 px-2 py-1 rounded shadow">
+    Beta 0.0.0098
+  </div>
+
   <div class="mb-6">
     <a href="https://www.ifwl.net" target="_blank">
       <img src="./ifwl_logo.png" alt="IFWL Logo" class="w-32 h-32 object-contain mx-auto">
     </a>
   </div>
+  
   <div class="bg-white p-8 rounded-2xl shadow-md w-full max-w-lg">
     <h1 class="text-2xl font-bold mb-4">ACC Driver Classification</h1>
     <form id="classificationForm" class="space-y-4">
@@ -103,32 +118,26 @@ const classes = [
   "Alien - consider getting a real race car ! :) "
 ];
 
+const submissionLog = [];
+
 function timeToSeconds(timeStr) {
-  const parts = timeStr.split(":");
-  if (parts.length !== 2) return NaN;
-  const [minutes, rest] = parts;
-  const [seconds, milliseconds] = rest.split(".");
-  return parseInt(minutes) * 60 + parseInt(seconds) + parseInt(milliseconds) / 1000;
+  const [min, sec] = timeStr.split(":");
+  const [seconds, ms] = sec.split(".");
+  return parseInt(min) * 60 + parseInt(seconds) + parseFloat(`0.${ms}`);
 }
 
 function classify(track, carClass, lapTime) {
   const weather = document.getElementById("weather").value;
   const rainImpact = weather === "wet" ? 1.05 : 1;
-  if (!classificationData[track] || !classificationData[track][carClass]) return { classification: "No data for selected track/class", gapInfo: "" };
-
-  const rawThresholds = classificationData[track][carClass].map(timeToSeconds);
+  const thresholds = classificationData[track][carClass].map(timeToSeconds);
   const userTime = timeToSeconds(lapTime) / rainImpact;
-
-  if (isNaN(userTime)) return { classification: "Invalid time format", gapInfo: "" };
-
-  const thresholds = rawThresholds;
 
   let classification = classes[classes.length - 1];
   let gapInfo = "";
 
   for (let i = 0; i < thresholds.length; i++) {
     if (userTime >= thresholds[i]) {
-      classification = classes[i + 1];
+      classification = classes[i + 1] || classes[classes.length - 1];
 
       const fasterGap = (i > 0) ? (userTime - thresholds[i - 1]).toFixed(3) : null;
       const slowerGap = (i < thresholds.length - 1) ? (thresholds[i + 1] - userTime).toFixed(3) : null;
@@ -143,30 +152,63 @@ function classify(track, carClass, lapTime) {
       break;
     }
   }
-
   return { classification, gapInfo };
 }
 
 document.getElementById("classificationForm").addEventListener("submit", function (e) {
   e.preventDefault();
 
-  const driverName = document.getElementById("driverName").value.trim();
+  const name = document.getElementById("driverName").value.trim();
   const track = document.getElementById("track").value;
   const carClass = document.getElementById("carClass").value;
   const lapTime = document.getElementById("lapTime").value.trim();
+  const weather = document.getElementById("weather").value;
 
   const resultData = classify(track, carClass, lapTime);
+
   document.getElementById("result").innerHTML = `
-    ${driverName}, your classification is:<br><strong>${resultData.classification}</strong><br>
+    ${name}, your classification is:<br><strong>${resultData.classification}</strong><br>
     <span class="text-sm text-gray-600">${resultData.gapInfo}</span>
   `;
 
-  const simgridPromo = document.getElementById("simgridPromo");
-  if (["AM", "high end - AM", "Pro", "Alien"].some(level => resultData.classification.includes(level))) {
-    simgridPromo.classList.remove("hidden");
-  } else {
-    simgridPromo.classList.add("hidden");
-  }
+  document.getElementById("simgridPromo").classList.remove("hidden");
+
+  const entry = { name, track, carClass, lapTime, weather, result: resultData.classification };
+  submissionLog.push(entry);
+
+  fetch("https://script.google.com/macros/s/AKfycbyITdZAsY0oaeG48PK5r120i1d4Qp_4GUw4QgQygAFihv1NkIMcIpctOaxdjD9Ru0wr/exec", {
+    method: "POST",
+    mode: "no-cors",
+    body: JSON.stringify(entry),
+    headers: { "Content-Type": "application/json" }
+  })
+  .then(() => alert("✅ Entry submitted to Google Sheets."))
+  .catch(error => {
+    console.error("❌ Failed to save entry:", error);
+    alert("❌ Failed to save to Google Sheets.");
+  });
 });
+
+function downloadCSV() {
+  const password = prompt("Enter password to download submissions:");
+  if (password !== "69420") {
+    alert("Incorrect password. Access denied.");
+    return;
+  }
+
+  const headers = "Driver Name,Track,Car Class,Lap Time,Weather,Result\n";
+  const rows = submissionLog.map(entry =>
+    `${entry.name},${entry.track},${entry.carClass},${entry.lapTime},${entry.weather},${entry.result}`
+  ).join("\n");
+
+  const blob = new Blob([headers + rows], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ifwl_submissions.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 </body>
+</html>
