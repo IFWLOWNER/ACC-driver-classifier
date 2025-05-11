@@ -13,7 +13,7 @@
   <div class="sticky top-0 z-50 bg-white shadow flex justify-between items-center px-6 py-3">
     <div class="flex items-center gap-4">
       <img src="ifwl_logo.png" alt="IFWL Logo" class="h-10">
-      <span class="text-sm text-gray-600 font-mono">Beta 0.0.08</span>
+      <span class="text-sm text-gray-600 font-mono">Beta 0.0.09</span>
     </div>
     <div class="flex gap-2">
       <button onclick="scrollToSection('leaderboard')" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">Beginner Times</button>
@@ -28,19 +28,380 @@
     <div id="leaderboard" class="bg-white rounded-2xl shadow p-6 w-full">
       <h2 class="text-xl font-bold mb-4">Live Leaderboard (Beginner Times)</h2>
       
+<!-- Version Badge -->
+<div class="fixed top-2 left-2 bg-gray-800 text-white text-xs px-3 py-1 rounded-full shadow">
+    Beta 0.0.08
+  </div>
+<div class="max-w-6xl mx-auto">
+<!-- IFWL Logo and Header -->
+<div class="flex items-center justify-between mb-6">
 
-  <!-- Version Badge -->
-   <!-- Remove embedded sponsors -->
+<h1 class="text-3xl font-bold">IFWL.NET Console Beginner server live timings</h1>
+</div>
+<!-- Home Button -->
+<div class="mb-4">
+<a class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow" href="leaderboard.html">
+        ← Home
+      </a>
+</div>
+<!-- Track and Driver Filters -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+<div>
+<label class="block mb-1 font-medium">Select Track:</label>
+<select class="w-full p-2 rounded border border-gray-300" id="trackSelect"></select>
+</div>
+<div>
+<label class="block mb-1 font-medium">Select Driver:</label>
+<select class="w-full p-2 rounded border border-gray-300" disabled="" id="driverSelect"></select>
+</div>
+</div>
+<!-- Results Table -->
+<div class="overflow-x-auto">
+<table class="min-w-full bg-white rounded shadow-md overflow-hidden">
+<thead class="bg-gray-200">
+<tr>
+<th class="px-4 py-2 text-left">Date</th>
+<th class="px-4 py-2 text-left">Session</th>
+<th class="px-4 py-2 text-left">Driver Name</th>
+<th class="px-4 py-2 text-left">Car</th>
+<th class="px-4 py-2 text-left">Best Lap</th>
+<th class="px-4 py-2 text-left">Total Time</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-100" id="resultsTable"></tbody>
+</table>
+</div>
+<!-- Sponsor Logos -->
+<div class="mt-12 text-center">
+<h2 class="text-lg font-semibold mb-2">Proudly Sponsored By</h2>
+<div class="flex justify-center flex-wrap gap-6">
+
+
+
+
+</div>
+</div>
+</div>
+<script>
+    const SHEET_ID = "1i5qJ0GaRp_tGUb0rzXUBzGq0RowtbQSVDjAyNASyh4g";
+    const SHEET_NAME = "Results";
+    const API_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${SHEET_NAME}`;
+
+    const carMap = {
+      0: "AMR V8 Vantage", 1: "Audi R8 LMS (2015)", 2: "BMW M6 GT3", 3: "Bentley Continental GT3 (2015)",
+      4: "Bentley Continental GT3 (2018)", 5: "Jaguar G3", 6: "Lamborghini Huracán GT3", 7: "McLaren 650S GT3",
+      8: "Mercedes-AMG GT3", 9: "Nissan GT-R Nismo GT3 (2015)", 10: "Porsche 911 GT3 R (2018)",
+      11: "Reiter Engineering R-EX GT3", 12: "Honda NSX GT3", 13: "Lexus RC F GT3", 14: "Lamborghini Huracán GT3 Evo",
+      15: "Honda NSX GT3 Evo", 16: "McLaren 720S GT3", 17: "Audi R8 LMS Evo", 18: "Ferrari 488 GT3",
+      19: "Ferrari 488 GT3 Evo 2020", 20: "Porsche 991 II GT3 R", 21: "Lamborghini Huracán Super Trofeo",
+      22: "Audi R8 LMS GT4", 23: "BMW M4 GT4", 24: "Chevrolet Camaro GT4", 25: "Ginetta G55 GT4",
+      26: "KTM X-Bow GT4", 27: "Maserati GranTurismo MC GT4", 28: "McLaren 570S GT4", 29: "Mercedes-AMG GT4",
+      30: "Porsche 718 Cayman GT4", 31: "Alpine A110 GT4", 32: "BMW M2 CS Racing", 50: "Porsche 991 GT3 Cup",
+      51: "Porsche 992 GT3 Cup", 60: "Lamborghini Huracán Super Trofeo Evo2", 61: "Ferrari 296 GT3",
+      62: "Porsche 992 GT3 R", 63: "McLaren 720S GT3 Evo", 64: "Mercedes-AMG GT3 Evo (2020)",
+      65: "Audi R8 LMS Evo II", 66: "Lamborghini Huracán GT3 Evo2", 67: "BMW M4 GT3",
+      68: "Aston Martin Vantage V8 Evo", 69: "McLaren Artura GT4", 70: "Alpine A110 GT4 Evo",
+      71: "Mercedes-AMG GT2", 72: "Porsche 935", 73: "Maserati MC20 GT2", 74: "Audi R8 LMS GT2",
+      75: "KTM X-Bow GT2"
+    };
+
+    let allData = [];
+
+    async function loadData() {
+      const res = await fetch(API_URL);
+      const text = await res.text();
+      const json = JSON.parse(text.substring(47).slice(0, -2));
+      const rows = json.table.rows.map(r => r.c.map(c => c ? c.v : ""));
+      allData = rows;
+
+      const tracks = [...new Set(rows.map(r => r[0]))].sort();
+      const trackSelect = document.getElementById("trackSelect");
+      tracks.forEach(track => {
+        const opt = document.createElement("option");
+        opt.value = track;
+        opt.textContent = track;
+        trackSelect.appendChild(opt);
+      });
+
+      trackSelect.addEventListener("change", onTrackChange);
+      document.getElementById("driverSelect").addEventListener("change", updateTable);
+    }
+
+    function onTrackChange() {
+      const track = document.getElementById("trackSelect").value;
+      const drivers = [...new Set(allData.filter(r => r[0] === track).map(r => r[3]))].sort();
+
+      const driverSelect = document.getElementById("driverSelect");
+      driverSelect.innerHTML = "";
+      driverSelect.disabled = false;
+
+      drivers.forEach(driver => {
+        const opt = document.createElement("option");
+        opt.value = driver;
+        opt.textContent = driver;
+        driverSelect.appendChild(opt);
+      });
+
+      updateTable();
+    }
+
+    function updateTable() {
+      const track = document.getElementById("trackSelect").value;
+      const driver = document.getElementById("driverSelect").value;
+
+      const filtered = allData.filter(r => r[0] === track && r[3] === driver);
+      const tbody = document.getElementById("resultsTable");
+      tbody.innerHTML = "";
+
+      filtered.forEach(row => {
+        const tr = document.createElement("tr");
+        row.forEach((cell, i) => {
+          if (i > 0) {
+            const td = document.createElement("td");
+            td.textContent = (i === 3 && carMap[cell]) ? carMap[cell] : cell;
+            td.className = "px-4 py-2";
+            tr.appendChild(td);
+          }
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    loadData();
+  </script>
+
     </div>
 
     <!-- Right: Classifier -->
     <div id="classifier" class="bg-white rounded-2xl shadow p-6 w-full">
       <h2 class="text-xl font-bold mb-4">ACC Driver Classification</h2>
       
+<!-- ✅ Version Number -->
+<div class="fixed top-2 left-2 text-xs text-gray-500 font-mono bg-white bg-opacity-80 px-2 py-1 rounded shadow">
+    Beta 0.0.0155
+  </div>
+<div class="mb-6">
+<a href="https://www.ifwl.net" target="_blank">
 
+</a>
+</div>
+<div class="bg-white p-8 rounded-2xl shadow-md w-full max-w-lg">
+<!-- 🔗 Sponsor & Affiliates Moved Up -->
+<div class="mb-6 text-center">
+<h2 class="text-lg font-semibold mb-4 text-gray-700">Proudly Sponsored &amp; Affiliated With</h2>
+<div class="flex justify-center gap-4 flex-wrap items-center">
+<a href="https://www.g-portal.com/en?ref=ifwl" target="_blank" title="G-Portal (Main Sponsor)">
+</a>
+<a href="https://www.fanatec.com/eu/en?utm_medium=FAP%20Banner&amp;utm_source=IFWL&amp;utm_campaign=General%20Links&amp;a_aid=IFWL" target="_blank" title="Fanatec Affiliate">
 
-  <!-- ✅ Version Number -->
-   <!-- Remove embedded sponsors -->
+</a>
+<a href="https://www.cdkeys.com/?irclickid=WjSVYp0TKxyKRityly0JazM8UksUvt0O5Syr3k0&amp;utm_source=impact&amp;utm_medium=affiliate&amp;utm_campaign=IFWL.NET&amp;utm_id=5473508&amp;irgwc=1" target="_blank" title="CDKeys Affiliate">
+
+</a>
+<a href="https://mozaracing.com/?ref=IFWL" target="_blank" title="Moza Racing Affiliate">
+
+</a>
+</div>
+</div>
+<h1 class="text-2xl font-bold mb-4">ACC Driver Classification</h1>
+<form class="space-y-4" id="classificationForm">
+<input class="w-full p-2 border rounded" id="driverName" placeholder="Driver Name" required="" type="text"/>
+<select class="w-full p-2 border rounded" id="track" required="">
+<option value="">Select Track</option>
+<option>Monza</option>
+<option>Spa Francorchamps</option>
+<option>Silverstone</option>
+<option>Nurburgring GP</option>
+<option>Barcelona</option>
+<option>Zandvoort</option>
+<option>Suzuka</option>
+<option>Paul Ricard</option>
+<option>Imola</option>
+<option>Mount Panorama</option>
+<option>Misano</option>
+<option>Kyalami</option>
+<option>Brands Hatch</option>
+<option>Donnington Park</option>
+<option>Valencia</option>
+<option>Laguna Seca</option>
+<option>Watkins Glen</option>
+<option>Zolder</option>
+<option>Red Bull Ring</option>
+<option>Hungaroring</option>
+<option>Nurburgring Nordchleiffe</option>
+</select>
+<select class="w-full p-2 border rounded" id="carClass" required="">
+<option value="">Select Car Class</option>
+<option value="GT3">GT3</option>
+<option value="GT4">GT4 coming soon</option>
+</select>
+<label class="block text-left text-sm font-medium text-gray-700" for="weather">Weather</label>
+<select class="w-full p-2 border rounded" id="weather" onchange="document.getElementById('weatherNote').style.display = this.value === 'wet' ? 'block' : 'none';" required="">
+<option value="dry">Dry</option>
+<option value="wet">Wet</option>
+</select>
+<input class="w-full p-2 border rounded" id="lapTime" pattern="^[0-9]:[0-5][0-9]\.[0-9]{3}$" placeholder="Lap Time (e.g. 1:47.382)" required="" title="Please enter time in the format m:ss.sss (e.g. 1:47.382)" type="text"/>
+<p class="text-sm text-blue-600 mt-1 hidden" id="weatherNote">Note: Wet weather adds a 5% buffer to your lap time for fairer classification.</p>
+<button class="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700" type="submit">Classify Me</button>
+</form>
+<p class="text-sm text-gray-600 mt-6" id="bopNote">Note: These times are tailored for IFWL.NET, which uses LFM BOP. Other leagues may vary. In ACC, check "Driver &gt; Stats" — the top time is your best hotlap, the grey-boxed bottom time is your race pace. Use race pace for accurate classification</p>
+<div class="mt-4 text-lg font-semibold" id="result"></div>
+<div class="mt-6 hidden bg-gray-800 p-4 rounded-lg" id="simgridPromo">
+<a href="https://www.thesimgrid.com/communities/ifwl" target="_blank">
+
+</a>
+</div>
+<div class="flex gap-4 mt-6 justify-center">
+<a class="bg-blue-600 text-white px-4 py-2 rounded-xl shadow hover:bg-blue-700 transition" href="https://discord.gg/bBax4w29vS" target="_blank">
+    Join the League
+  </a>
+<a class="bg-blue-600 text-white px-4 py-2 rounded-xl shadow hover:bg-blue-700 transition" href="https://www.patreon.com/c/IFWL" target="_blank">
+    Support the League
+  </a>
+</div>
+<script>
+const classificationData = {
+  "Monza": { "GT3": ["1:53.7", "1:51.7", "1:49.7", "1:47.7", "1:45.7"] },
+  "Spa Francorchamps": { "GT3": ["2:23.0", "2:21.0", "2:19.0", "2:17.0", "2:15.0"] },
+  "Silverstone": { "GT3": ["2:04.437", "2:02.437", "2:00.437", "1:58.437", "1:56.437"] },
+  "Nurburgring GP": { "GT3": ["2:00.1", "1:58.1", "1:56.1", "1:54.1", "1:52.1"] },
+  "Barcelona": { "GT3": ["1:49.6", "1:47.6", "1:45.6", "1:43.6", "1:41.6"] },
+  "Zandvoort": { "GT3": ["1:41.5", "1:39.5", "1:37.5", "1:35.5", "1:33.5"] },
+  "Suzuka": { "GT3": ["2:06.270", "2:04.270", "2:02.270", "2:00.270", "1:58.270"] },
+  "Paul Ricard": { "GT3": ["1:59.9", "1:57.9", "1:55.9", "1:53.9", "1:51.9"] },
+  "Imola": { "GT3": ["1:46.972", "1:44.972", "1:42.972", "1:40.972", "1:38.972"] },
+  "Mount Panorama": { "GT3": ["2:07.847", "2:05.847", "2:03.847", "2:01.847", "1:59.847"] },
+  "Misano": { "GT3": ["1:39.592", "1:37.592", "1:35.592", "1:33.592", "1:31.592"] },
+  "Kyalami": { "GT3": ["1:47.720", "1:45.720", "1:43.720", "1:41.720", "1:39.720"] },
+  "Brands Hatch": { "GT3": ["1:29.300", "1:27.300", "1:25.300", "1:23.300", "1:21.300"] },
+  "Donnington Park": { "GT3": ["1:32.991", "1:30.991", "1:28.991", "1:26.991", "1:24.991"] },
+  "Valencia": { "GT3": ["1:36.475", "1:34.475", "1:32.475", "1:30.475", "1:28.475"] },
+  "Laguna Seca": { "GT3": ["1:28.427", "1:26.427", "1:24.427", "1:22.427", "1:20.427"] },
+  "Watkins Glen": { "GT3": ["1:50.510", "1:48.510", "1:46.510", "1:44.510", "1:42.510"] },
+  "Zolder": { "GT3": ["1:33.307", "1:31.307", "1:29.307", "1:27.307", "1:25.307"] },
+  "Red Bull Ring": { "GT3": ["1:33.000", "1:31.000", "1:29.000", "1:27.000", "1:25.000"] },
+  "Hungaroring": { "GT3": ["1:48.105", "1:46.105", "1:44.105", "1:42.105", "1:40.105"] },
+  "Nurburgring Nordchleiffe": { "GT3": ["8:24.347", "8:22.347", "8:20.347", "8:18.347", "8:16.347"] }
+};
+
+const classes = [
+  "unrealistic - please check your time entry",
+  "Beginner - keep practising and you'll soon be in the higher classification!.",
+  "beginner - IFWL.NET Beginner series is ideal for you - you are very close to the next classification",
+  "AM - IFWL.NET Pro - am series is ideal for you - look for small gains to be bumped up to the next classification",
+  "high end - AM - IFWL.NET Pro - am series is ideal for you",
+  "Pro - IFWL.NET Pro am may suit your race pace - keep your eyes peeled for IFWL.NET's new pro race series!",
+  "Alien - consider getting a real race car ! :) "
+];
+
+const tips = [
+  "🏁 Tip: Focus on smooth throttle and brake inputs to maintain car balance through corners.",
+  "ℹ️ Fun Facts: IFWL.NET website has had over 500,000 page hits in the last 12 months.",
+  "🏎️ Driver info : 'doing a klutz' was phrased on the 3rd corner of Zandvoort. ask him why in discord.",
+  "🧠 Tip: Learn your braking points and slowly push them deeper as you gain confidence.",
+  "ℹ️ Fun Facts: IFWL offers tailored training to members who wish to join the operations team",
+  "🏎️ Driver info : 'bananas' - A codeword used by driver #81 & #99 which was found to mean 'block them' - driver #75 fell foul to this alot",
+  "🎯 Tip: Consistency is key – aim for clean laps before chasing ultimate pace.",
+  "ℹ️ Fun Facts: IFWL has over £3000 in yearly outgoings. 1/3 of that was winnings to players",
+  "🏎️ Driver info : Driver #199 has been AFK since 2024 if you see him, inform IFWL officials.", 
+  "🔍 Tip: Use your track map and replays to spot where you're losing time.",
+  "ℹ️ Fun Facts: IFWL was the first league in the UK to establish affiliations with 3 big name gaming suppliers",
+  "🏎️ Driver info : when IFWL don't have a PC commentator, this is usually due to driver #652 wanting to race!",
+  "🛞 Tip: Trail braking helps rotate the car – practice easing off the brake into the apex.",
+  "ℹ️ Fun Facts: IFWL was started by 3 lads in 2022 when other leagues refused to race on weekends.",
+  "🏎️ Driver info : driver #66 thinks he has a chance of winning any wheelspin, to date - he's won ziltch."
+];
+
+function getRandomTip() {
+  return tips[Math.floor(Math.random() * tips.length)];
+}
+
+const submissionLog = [];
+
+function timeToSeconds(timeStr) {
+  const [min, sec] = timeStr.split(":");
+  const [seconds, ms] = sec.split(".");
+  return parseInt(min) * 60 + parseInt(seconds) + parseFloat(`0.${ms}`);
+}
+
+function classify(track, carClass, lapTime) {
+  const weather = document.getElementById("weather").value;
+  const rainImpact = weather === "wet" ? 1.05 : 1;
+  const thresholds = classificationData[track][carClass].map(timeToSeconds);
+  const userTime = timeToSeconds(lapTime) / rainImpact;
+
+  let classification = classes[classes.length - 1];
+  let gapInfo = "";
+
+  for (let i = 0; i < thresholds.length; i++) {
+    if (userTime >= thresholds[i]) {
+      classification = classes[i + 1] || classes[classes.length - 1];
+
+      const fasterGap = (i > 0) ? Math.abs((userTime - thresholds[i - 1]).toFixed(3)) : null;
+      const slowerGap = (i < thresholds.length - 1) ? Math.abs((thresholds[i + 1] - userTime).toFixed(3)) : null;
+
+      if (fasterGap !== null && slowerGap !== null) {
+        gapInfo = `
+          You are <span class="bg-red-200 text-red-800 px-1 rounded">${fasterGap} s slower</span> than the faster category, 
+          and <span class="bg-green-200 text-green-800 px-1 rounded">${slowerGap} s faster</span> than the slower category.
+        `;
+      } else if (fasterGap === null) {
+        gapInfo = `
+          You are <span class="bg-green-200 text-green-800 px-1 rounded">${slowerGap} s faster</span> than the next category.
+        `;
+      } else {
+        gapInfo = `
+          You are <span class="bg-red-200 text-red-800 px-1 rounded">${fasterGap} s slower</span> than the top category.
+        `;
+      }
+      break;
+    }
+  }
+
+  return { classification, gapInfo };
+}
+
+document.getElementById("classificationForm").addEventListener("submit", function (e) {
+  e.preventDefault();
+  document.getElementById("bopNote").style.display = "none";
+
+  const name = document.getElementById("driverName").value.trim();
+  const track = document.getElementById("track").value;
+  const carClass = document.getElementById("carClass").value;
+  const lapTime = document.getElementById("lapTime").value.trim();
+  const weather = document.getElementById("weather").value;
+
+  const resultData = classify(track, carClass, lapTime);
+  const classification = resultData.classification;
+
+  document.getElementById("result").innerHTML = `
+    ${name}, your classification is:<br><strong>${resultData.classification}</strong><br>
+    <span class="text-sm text-gray-600">${resultData.gapInfo}</span><br><br>
+    <span class="text-sm text-blue-700 italic">${getRandomTip()}</span>
+  `;
+
+  document.getElementById("simgridPromo").classList.remove("hidden");
+
+const formData = new URLSearchParams();
+formData.append("name", name);
+formData.append("track", track);
+formData.append("carClass", carClass);
+formData.append("lapTime", lapTime);
+formData.append("weather", weather);
+formData.append("result", resultData.classification);
+
+fetch("https://script.google.com/macros/s/AKfycbyITdZAsY0oaeG48PK5r120i1d4Qp_4GUw4QgQygAFihv1NkIMcIpctOaxdjD9Ru0wr/exec", {
+  method: "POST",
+  mode: "no-cors", // important for GitHub Pages
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded"
+  },
+  body: formData.toString()
+});
+});
+
+</script>
+</div>
     </div>
   </div>
 
