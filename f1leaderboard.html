@@ -16,7 +16,7 @@
 </head>
 <body>
 
-<div class="version">Version: Beta 0.0.08 (Sheet API Confirmed)</div>
+<div class="version">Version: Beta 0.0.09 (Sheet API + Unassigned Drivers)</div>
 
 <h1>IFWL F1 Leaderboard</h1>
 
@@ -47,6 +47,18 @@
   </tbody>
 </table>
 
+<h2>Unassigned Drivers</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Driver</th>
+    </tr>
+  </thead>
+  <tbody id="unassigned">
+    <tr><td>Loading...</td></tr>
+  </tbody>
+</table>
+
 <script>
   const apiUrl = 'https://docs.google.com/spreadsheets/d/1OxEy3fx4fW1P-aPlU-AHlPR8r23KJieLKxdtKy4koog/gviz/tq?tqx=out:json';
 
@@ -54,7 +66,7 @@
     try {
       const response = await fetch(apiUrl);
       const text = await response.text();
-      const json = JSON.parse(text.substring(47).slice(0, -2)); // Clean JSONP
+      const json = JSON.parse(text.substring(47).slice(0, -2));
 
       const data = json.table.rows.map(row => row.c.map(cell => cell ? cell.v : ''));
       console.log("Fetched Data:", data);
@@ -90,10 +102,24 @@
         constructorsTable.appendChild(row);
       });
 
+      const unassignedData = data.slice(1).filter(row => row[0] && !row[1]);
+      const unassignedTable = document.getElementById('unassigned');
+      unassignedTable.innerHTML = '';
+      if (unassignedData.length > 0) {
+        unassignedData.forEach(row => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${row[0]}</td>`;
+          unassignedTable.appendChild(tr);
+        });
+      } else {
+        unassignedTable.innerHTML = '<tr><td>No unassigned drivers</td></tr>';
+      }
+
     } catch (error) {
       console.error('Error:', error);
       document.getElementById('drivers').innerHTML = '<tr><td colspan="3">Error loading driver data</td></tr>';
       document.getElementById('constructors').innerHTML = '<tr><td colspan="2">Error loading constructor data</td></tr>';
+      document.getElementById('unassigned').innerHTML = '<tr><td>Error loading unassigned drivers</td></tr>';
     }
   }
 
