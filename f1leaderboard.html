@@ -15,7 +15,7 @@
 </head>
 <body>
 
-<div class="version">Version: Beta 0.0.01</div>
+<div class="version">Version: Beta 0.0.02</div>
 
 <h1>IFWL F1 Leaderboard</h1>
 
@@ -47,37 +47,48 @@
 </table>
 
 <script>
-  const apiUrl = 'https://script.google.com/macros/s/AKfycbyzy47hX-roRqeVZoxqCugWRZ543zRJnZXZiFn_1kgO8lFwiIXnrK5oT5ZU1TdHaFKY/exec';
+  const apiUrl = 'YOUR_RAW_SHEET_API_URL_HERE';
 
   async function fetchLeaderboard() {
     try {
       const response = await fetch(apiUrl);
       const data = await response.json();
 
-      if (!data.drivers || !data.constructors) throw new Error('Invalid JSON structure');
+      const driversData = data.slice(1).filter(row => row[0] && row[1]);
+      const driverStandings = driversData.map(row => ({
+        driver: row[0],
+        team: row[1],
+        totalPoints: row[18] || 0
+      })).sort((a, b) => b.totalPoints - a.totalPoints);
 
-      // Drivers
+      const constructorsMap = {};
+      driversData.forEach(row => {
+        const team = row[1];
+        const totalPoints = row[18] || 0;
+        if (!constructorsMap[team]) constructorsMap[team] = 0;
+        constructorsMap[team] += totalPoints;
+      });
+
+      const constructorStandings = Object.keys(constructorsMap).map(team => ({
+        team,
+        points: constructorsMap[team]
+      })).sort((a, b) => b.points - a.points);
+
+      // Render Drivers
       const driversTable = document.getElementById('drivers');
       driversTable.innerHTML = '';
-      data.drivers.sort((a, b) => b.totalPoints - a.totalPoints).forEach(driver => {
+      driverStandings.forEach(d => {
         const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${driver.driver}</td>
-          <td>${driver.team}</td>
-          <td>${driver.totalPoints}</td>
-        `;
+        row.innerHTML = `<td>${d.driver}</td><td>${d.team}</td><td>${d.totalPoints}</td>`;
         driversTable.appendChild(row);
       });
 
-      // Constructors
+      // Render Constructors
       const constructorsTable = document.getElementById('constructors');
       constructorsTable.innerHTML = '';
-      data.constructors.sort((a, b) => b.points - a.points).forEach(team => {
+      constructorStandings.forEach(t => {
         const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${team.team}</td>
-          <td>${team.points}</td>
-        `;
+        row.innerHTML = `<td>${t.team}</td><td>${t.points}</td>`;
         constructorsTable.appendChild(row);
       });
 
