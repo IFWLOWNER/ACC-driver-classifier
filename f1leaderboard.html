@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>IFWL F1 Leaderboard</title>
   <style>
     body {
@@ -57,148 +58,102 @@
     tr:hover {
       background: rgba(255, 255, 255, 0.05);
     }
+    img.logo {
+      height: 48px;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
     .driver-row {
       position: relative;
       background-size: 100px auto;
       background-position: right center;
       background-repeat: no-repeat;
     }
-    img.logo {
-      height: 48px;
-      vertical-align: middle;
-      margin-right: 8px;
-      opacity: 1 !important;
-      filter: none !important;
-      mix-blend-mode: normal !important;
-    }
-    .team-REDBULLRACING,
-    .team-RACINGBULLS {
+    .team-MERCEDES { background-color: #00D2BE; }
+    .team-MCLAREN { background-color: #FF8700; }
+    .team-FERRARI { background-color: #DC0000; }
+    .team-WILLIAMS { background-color: #005AFF; }
+    .team-HAAS { background-color: #B6BABD; }
+    .team-ASTON { background-color: #004940; }
+    .team-ASTON\ MARTIN { background-color: #004940; }
+    .team-KICK { background-color: #000000; }
+    .team-KICK\ SAUBER { background-color: #000000; }
+    .team-RESERVE { background-color: #FFFFFF; color: black; }
+    .team-RED\ BULL\ RACING,
+    .team-RACING\ BULLS {
       background-color: #1B1443;
     }
-    .team-RESERVE {
-      background-color: #FFFFFF;
-      color: #000;
-    }
-    .team-KICKSAUBER {
-      background-color: #000000;
-    }
-    .team-ASTONMARTIN {
-      background-color: #004940;
+    .team-logo {
+      height: 40px;
+      margin-left: 10px;
+      opacity: 1 !important;
+      filter: none !important;
     }
   </style>
 </head>
 <body>
   <div class="version">Version: Beta 0.0.21 (Logos via JS, Team Colors Fixed)</div>
   <div class="header">
-    <img src="ifwl_logo.png" alt="IFWL Logo" />
+    <img src="ifwl_logo.png" alt="IFWL Logo">
     <h1>IFWL F1 Leaderboard</h1>
-    <img src="ifwl_logo.png" alt="IFWL Logo" />
+    <img src="ifwl_logo.png" alt="IFWL Logo">
   </div>
-
-  <h2>Driver Standings</h2>
-  <table>
-    <thead>
-      <tr><th>Driver</th><th>Team</th><th>Total Points</th></tr>
-    </thead>
-    <tbody id="driver-standings"></tbody>
-  </table>
-
-  <h2>Constructors Standings</h2>
-  <table>
-    <thead>
-      <tr><th>Team</th><th>Total Points</th></tr>
-    </thead>
-    <tbody id="constructor-standings"></tbody>
-  </table>
-
-  <h2>Unassigned Drivers</h2>
-  <table>
-    <thead>
-      <tr><th>Driver</th></tr>
-    </thead>
-    <tbody id="unassigned-drivers"></tbody>
-  </table>
-
+  <div id="leaderboard">Loading leaderboard...</div>
   <script>
-    const teamCars = {
-      "MERCEDES": "MERCEDES.webp",
-      "ASTON MARTIN": "ASTON.webp",
-      "FERRARI": "FERRARI.webp",
-      "HAAS": "HAAS.webp",
-      "MCLAREN": "MCLAREN.webp",
-      "ALPINE": "ALPINE.webp",
-      "KICK SAUBER": "SAUBER.webp",
-      "WILLIAMS": "WILLIAMS.webp",
-      "RED BULL RACING": "RBR.webp",
-      "RACING BULLS": "RACINGBULLS.webp",
-      "RESERVE": "RESERVE.webp"
-    };
-
-    const teamBadges = {
-      "MERCEDES": "MERCEDESLOGO.webp",
-      "ASTON MARTIN": "ASTONLOGO.webp",
-      "FERRARI": "FERRARILOGO.webp",
-      "HAAS": "HAASLOGO.webp",
-      "MCLAREN": "MCLARENLOGO.webp",
-      "ALPINE": "ALPINELOGO.webp",
-      "KICK SAUBER": "KICKLOGO.webp",
-      "WILLIAMS": "WILLIAMSLOGO.webp",
-      "RED BULL RACING": "RBRLOGO.webp",
-      "RACING BULLS": "RBRLOGO.webp",
-      "RESERVE": "RESERVELOGO.webp"
-    };
-
-    const teamClass = name => "team-" + name.toUpperCase().replace(/ /g, "");
-
     const sheetID = "1OxEy3fx4fW1P-aPlU-AHlPR8r23KJieLKxdtKy4koog";
     const sheetName = "Sheet1";
-    const base = `https://docs.google.com/spreadsheets/d/${sheetID}/gviz/tq?sheet=${sheetName}`;
+    const url = `https://docs.google.com/spreadsheets/d/${sheetID}/gviz/tq?tqx=out:json&sheet=${sheetName}`;
 
-    fetch(base)
+    const teamColors = {
+      "ASTON MARTIN": "#004940",
+      "KICK SAUBER": "#000000",
+      "RESERVE": "#FFFFFF",
+      "RED BULL RACING": "#1B1443",
+      "RACING BULLS": "#1B1443",
+    };
+
+    const teamLogos = {
+      "ALPINE": "ALPINELOGO.webp",
+      "ASTON MARTIN": "ASTONLOGO.webp",
+      "FERRARI": "FERARRILOGO.webp",
+      "HAAS": "HAASLOGO.webp",
+      "MCLAREN": "MCLARENLOGO.webp",
+      "MERCEDES": "MERCEDESLOGO.webp",
+      "RACING BULLS": "RBLOGO.webp",
+      "RED BULL RACING": "RBRLOGO.webp",
+      "KICK SAUBER": "KICKLOGO.webp",
+      "RESERVE": "RESERVELOGO.webp",
+      "WILLIAMS": "WILLIAMSLOGO.webp"
+    };
+
+    fetch(url)
       .then(res => res.text())
-      .then(rep => {
-        const data = JSON.parse(rep.substr(47).slice(0, -2)).table.rows;
-        const rows = data.map(r => ({
-          driver: r.c[0]?.v,
-          team: r.c[1]?.v,
-          points: parseInt(r.c[18]?.v || 0)
-        })).filter(d => d.driver);
+      .then(data => {
+        const json = JSON.parse(data.substr(47).slice(0, -2));
+        const rows = json.table.rows.map(row => row.c.map(cell => cell?.v || ''));
+        let driverHTML = `<table><thead><tr><th>Driver</th><th>Team</th><th>Total Points</th></tr></thead><tbody>`;
+        const teamPoints = {};
 
-        const driverTable = document.getElementById("driver-standings");
-        const constructorTable = document.getElementById("constructor-standings");
-        const unassignedTable = document.getElementById("unassigned-drivers");
-
-        const teamTotals = {};
-
-        rows.forEach(({ driver, team, points }) => {
-          if (!team) {
-            const unr = document.createElement("tr");
-            unr.innerHTML = `<td>${driver}</td>`;
-            unassignedTable.appendChild(unr);
-            return;
-          }
-
-          const tr = document.createElement("tr");
-          tr.className = `driver-row ${teamClass(team)}`;
-          tr.innerHTML = `
-            <td>${driver}</td>
-            <td><img class="logo" src="${teamBadges[team] || ''}" /> ${team}</td>
-            <td>${points}</td>
-          `;
-          driverTable.appendChild(tr);
-
-          teamTotals[team] = (teamTotals[team] || 0) + points;
+        rows.forEach(row => {
+          const [driver, team, , , , , , , , , , , , , , , , , , , , , , , , points] = row;
+          if (!driver || !team) return;
+          const teamKey = team.toUpperCase();
+          const color = teamColors[teamKey] || "";
+          const logo = teamLogos[teamKey] ? `<img src="${teamLogos[teamKey]}" class="team-logo" alt="${team} Logo">` : "";
+          const rowStyle = `style="background-color: ${color};${teamKey === 'RESERVE' ? 'color: black;' : ''}"`;
+          driverHTML += `<tr ${rowStyle}><td>${driver}</td><td>${logo} ${team}</td><td>${points || 0}</td></tr>`;
+          teamPoints[teamKey] = (teamPoints[teamKey] || 0) + (parseInt(points) || 0);
         });
 
-        for (const [team, points] of Object.entries(teamTotals)) {
-          const tr = document.createElement("tr");
-          tr.className = `driver-row ${teamClass(team)}`;
-          tr.innerHTML = `
-            <td><img class="logo" src="${teamBadges[team] || ''}" /> ${team}</td>
-            <td>${points}</td>
-          `;
-          constructorTable.appendChild(tr);
-        }
+        driverHTML += `</tbody></table><h2>Constructors Standings</h2><table><thead><tr><th>Team</th><th>Total Points</th></tr></thead><tbody>`;
+        Object.entries(teamPoints).forEach(([team, points]) => {
+          const color = teamColors[team] || "";
+          const logo = teamLogos[team] ? `<img src="${teamLogos[team]}" class="team-logo" alt="${team} Logo">` : "";
+          const rowStyle = `style="background-color: ${color};${team === 'RESERVE' ? 'color: black;' : ''}"`;
+          driverHTML += `<tr ${rowStyle}><td>${logo} ${team}</td><td>${points}</td></tr>`;
+        });
+        driverHTML += `</tbody></table>`;
+        document.getElementById("leaderboard").innerHTML = driverHTML;
       });
   </script>
 </body>
