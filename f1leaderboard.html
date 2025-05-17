@@ -1,23 +1,69 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IFWL F1 Leaderboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0f0f0f; color: #fff; margin: 0; padding: 20px; }
+    h1, h2 { text-align: center; }
+    .version { position: fixed; top: 10px; left: 10px; font-size: 0.8em; color: #777; }
+    table { width: 100%; border-collapse: collapse; background: #1f1f1f; margin: 20px 0; border-radius: 8px; overflow: hidden; }
+    th, td { padding: 10px; text-align: center; border-bottom: 1px solid #333; }
+    th { background: #333; text-transform: uppercase; font-weight: bold; }
+    tr:hover { background: #2a2a2a; }
+  </style>
+</head>
+<body>
+
+<div class="version">Version: Beta 0.0.06 (Sheet API)</div>
+
+<h1>IFWL F1 Leaderboard</h1>
+
+<h2>Driver Standings</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Driver</th>
+      <th>Team</th>
+      <th>Total Points</th>
+    </tr>
+  </thead>
+  <tbody id="drivers">
+    <tr><td colspan="3">Loading...</td></tr>
+  </tbody>
+</table>
+
+<h2>Constructors Standings</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Team</th>
+      <th>Total Points</th>
+    </tr>
+  </thead>
+  <tbody id="constructors">
+    <tr><td colspan="2">Loading...</td></tr>
+  </tbody>
+</table>
+
 <script>
-  const apiUrl = 'https://script.google.com/macros/s/AKfycbyzy47hX-roRqeVZoxqCugWRZ543zRJnZXZiFn_1kgO8lFwiIXnrK5oT5ZU1TdHaFKY/exec';
+  const apiUrl = 'https://docs.google.com/spreadsheets/d/1x1G2wDT6DBbMIltMwX9lIV14XRkg9HLbWUhekaU55jQ/gviz/tq?tqx=out:json';
 
   async function fetchLeaderboard() {
     try {
       const response = await fetch(apiUrl);
-      const data = await response.json();
+      const text = await response.text();
+      const json = JSON.parse(text.substring(47).slice(0, -2)); // Clean JSONP
+
+      const data = json.table.rows.map(row => row.c.map(cell => cell ? cell.v : ''));
       console.log("Fetched Data:", data);
 
-      if (!Array.isArray(data) || data.length <= 1) {
-        throw new Error('Data is empty or invalid format');
-      }
-
       const driversData = data.slice(1).filter(row => row[0] && row[1]);
-      console.log("Filtered Drivers Data:", driversData);
-
       const drivers = driversData.map(row => ({ driver: row[0], team: row[1], totalPoints: row[18] || 0 }))
         .sort((a, b) => b.totalPoints - a.totalPoints);
 
-      const constructorsMap = {};
+      const constructorsMap = {}
       driversData.forEach(row => {
         const team = row[1];
         const totalPoints = row[18] || 0;
@@ -27,9 +73,6 @@
 
       const constructors = Object.keys(constructorsMap).map(team => ({ team, points: constructorsMap[team] }))
         .sort((a, b) => b.points - a.points);
-
-      console.log("Drivers:", drivers);
-      console.log("Constructors:", constructors);
 
       const driversTable = document.getElementById('drivers');
       driversTable.innerHTML = '';
@@ -56,3 +99,6 @@
 
   fetchLeaderboard();
 </script>
+
+</body>
+</html>
