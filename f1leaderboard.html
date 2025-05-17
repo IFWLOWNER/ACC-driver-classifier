@@ -76,7 +76,7 @@
 </head>
 <body>
 
-  <div class="version">Version: Beta 0.0.39 (Number Badge Moved)</div>
+  <div class="version">Version: Beta 0.0.39 (Ferrari Fix)</div>
 
   <div class="header">
     <img src="ifwl_logo.png" alt="IFWL Logo"/>
@@ -115,75 +115,86 @@
   <script>
     const sheetId = "1OxEy3fx4fW1P-aPlU-AHlPR8r23KJieLKxdtKy4koog";
     const teamCars = {
-      ALPINE:"ALPINE.webp","ASTON MARTIN":"ASTON.webp",FERRARI:"FERRARI.webp",
-      HAAS:"HAAS.webp",MCLAREN:"MCLAREN.webp",MERCEDES:"MERCEDES.webp",
-      "RACING BULLS":"RACINGBULLS.webp","RED BULL RACING":"RBR.webp",
-      "KICK SAUBER":"SAUBER.webp",RESERVE:"RESERVE.webp",WILLIAMS:"WILLIAMS.webp"
+      "ALPINE":"ALPINE.webp",
+      "ASTON MARTIN":"ASTON.webp",
+      "FERRARI":"FERRARI.webp",
+      "HAAS":"HAAS.webp",
+      "MCLAREN":"MCLAREN.webp",
+      "MERCEDES":"MERCEDES.webp",
+      "RACING BULLS":"RACINGBULLS.webp",
+      "RED BULL RACING":"RBR.webp",
+      "KICK SAUBER":"SAUBER.webp",
+      "RESERVE":"RESERVE.webp",
+      "WILLIAMS":"WILLIAMS.webp"
     };
     const teamLogos = {
-      ALPINE:"ALPINELOGO.webp","ASTON MARTIN":"ASTONLOGO.webp",FERRARI:"FERARRILOGO.webp",
-      HAAS:"HAASLOGO.webp",MCLAREN:"MCLARENLOGO.webp",MERCEDES:"MERCEDESLOGO.webp",
-      "RACING BULLS":"RBLOGO.webp","RED BULL RACING":"RBRLOGO.webp",
-      "KICK SAUBER":"KICKLOGO.webp",RESERVE:"RESERVELOGO.webp",WILLIAMS:"WILLIAMSLOGO.webp"
+      "ALPINE":"ALPINELOGO.webp",
+      "ASTON MARTIN":"ASTONLOGO.webp",
+      "FERRARI":"FERARRILOGO.webp",
+      "HAAS":"HAASLOGO.webp",
+      "MCLAREN":"MCLARENLOGO.webp",
+      "MERCEDES":"MERCEDESLOGO.webp",
+      "RACING BULLS":"RBLOGO.webp",
+      "RED BULL RACING":"RBRLOGO.webp",
+      "KICK SAUBER":"KICKLOGO.webp",
+      "RESERVE":"RESERVELOGO.webp",
+      "WILLIAMS":"WILLIAMSLOGO.webp"
     };
-    const safeClass = t=>"team-"+t.replace(/\s+/g,"-");
+    const safeClass = t => "driver-row team-" + t.replace(/\s+/g,"-");
 
     fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`)
-      .then(r=>r.text())
-      .then(t=>JSON.parse(t.substr(47).slice(0,-2)))
-      .then(j=>{
-        const rows = j.table.rows.map(r=>r.c.map(c=>c?.v||""));
+      .then(r => r.text())
+      .then(t => JSON.parse(t.substr(47).slice(0,-2)))
+      .then(j => {
+        const rows = j.table.rows.map(r => r.c.map(c => c?.v||""));
         const dBody = document.querySelector("#driver-table tbody");
         const cBody = document.querySelector("#constructor-table tbody");
         const uBody = document.querySelector("#unassigned-table tbody");
-        dBody.innerHTML=cBody.innerHTML=uBody.innerHTML="";
         const totals = {};
+        dBody.innerHTML = cBody.innerHTML = uBody.innerHTML = "";
 
-        rows.forEach(r=>{
-          const raw  = (r[0]||"")+"";
+        rows.forEach(r => {
+          const raw    = (r[0]||"")+"";
           if(!raw) return;
-          const pts  = parseInt(r[18])||0;
-          const team = (r[1]||"")+"";
+          const pts    = parseInt(r[18])||0;
+          const teamRaw= r[1]||"";
+          const team   = teamRaw.trim();
           // parse [NNN]
-          const m    = raw.match(/\[\s*(\d+)\s*\]/);
-          const num  = m? m[1] : "";
-          const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/,"");
-          if(!team.trim()){
-            uBody.innerHTML+=`<tr><td>${name}</td></tr>`;
-            return;
-          }
-          totals[team] = (totals[team]||0)+pts;
-          const U    = team.toUpperCase();
-          const cls  = safeClass(U);
-          const car  = teamCars[U]   || "";
-          const logo = teamLogos[U]  || "";
+          const m      = raw.match(/\[\s*(\d+)\s*\]/);
+          const num    = m? m[1] : "";
+          const name   = raw.replace(/\[\s*\d+\s*\]\s*-\s*/,"");
 
-          const tr   = document.createElement("tr");
-          tr.className = cls;
-          tr.innerHTML=`
+          if(!team) {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${name}</td>`;
+            return uBody.appendChild(tr);
+          }
+
+          totals[team] = (totals[team]||0) + pts;
+          const U   = team.toUpperCase();
+          const tr  = document.createElement("tr");
+          tr.className = safeClass(U);
+          tr.innerHTML = `
             <td>${name}</td>
             <td>
               ${num?`<span class="driver-number">${num}</span>`:""}
-              <img src="${car}" class="car" alt="${team}"/>
+              <img src="${teamCars[U]}" class="car" alt="${team}"/>
               ${team}
-              <img src="${logo}" class="logo" alt="${team}"/>
+              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
             </td>
             <td>${pts}</td>`;
           dBody.appendChild(tr);
         });
 
-        Object.entries(totals).forEach(([team,pts])=>{
-          const U    = team.toUpperCase();
-          const cls  = safeClass(U);
-          const car  = teamCars[U]   || "";
-          const logo = teamLogos[U]  || "";
-          const tr   = document.createElement("tr");
-          tr.className = cls;
-          tr.innerHTML=`
+        Object.entries(totals).forEach(([team,pts]) => {
+          const U  = team.toUpperCase();
+          const tr = document.createElement("tr");
+          tr.className = safeClass(U);
+          tr.innerHTML = `
             <td>
-              <img src="${car}" class="car" alt="${team}"/>
+              <img src="${teamCars[U]}" class="car" alt="${team}"/>
               ${team}
-              <img src="${logo}" class="logo" alt="${team}"/>
+              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
             </td>
             <td>${pts}</td>`;
           cBody.appendChild(tr);
