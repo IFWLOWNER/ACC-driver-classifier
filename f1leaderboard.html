@@ -39,7 +39,7 @@
     }
     tr:hover { background:rgba(255,255,255,0.1); }
     img.car {
-      height:48px; /* doubled from 24px */
+      height:48px; /* ← doubled from 24px */
       vertical-align:middle; margin-right:8px;
     }
     img.logo {
@@ -48,19 +48,20 @@
     }
     .driver-row { position:relative; }
 
-    /* Team Colors (UPDATED!) */
-    .team-ALPINE             { background-color: #0090FF; }
-    .team-ASTON\ MARTIN     { background-color: #004940; }
-    .team-KICK\ SAUBER      { background-color: #000000; }
-    .team-RED\ BULL\ RACING,
-    .team-RACING\ BULLS     { background-color: #1B1443; }
-    /* existing ones below: */
-    .team-MERCEDES           { background-color: #00D2BE; }
-    .team-MCLAREN            { background-color: #FF8700; }
-    .team-FERRARI            { background-color: #DC0000; }
-    .team-HAAS               { background-color: #B6BABD; }
-    .team-WILLIAMS           { background-color: #005AFF; }
-    .team-RESERVE            { background-color: #FFFFFF; color:black; }
+    /* TEAM COLORS */
+    .team-ALPINE          { background-color: #0090FF; }
+    .team-ASTON-MARTIN   { background-color: #004940; }
+    .team-KICK-SAUBER    { background-color: #000000; }
+    .team-RED-BULL-RACING,
+    .team-RACING-BULLS   { background-color: #1B1443; }
+
+    /* other teams unchanged */
+    .team-MERCEDES       { background-color: #00D2BE; }
+    .team-MCLAREN        { background-color: #FF8700; }
+    .team-FERRARI        { background-color: #DC0000; }
+    .team-HAAS           { background-color: #B6BABD; }
+    .team-WILLIAMS       { background-color: #005AFF; }
+    .team-RESERVE        { background-color: #FFFFFF; color:black; }
   </style>
 </head>
 <body>
@@ -114,27 +115,32 @@
       "WILLIAMS":"WILLIAMSLOGO.webp"
     };
 
-    function safeClass(t){return "team-"+t.toUpperCase().replace(/ /g,"\\ ");}
+    function safeClass(team) {
+      return "team-" + team.toUpperCase().replace(/ /g,"-");
+    }
+
     fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`)
-      .then(r=>r.text()).then(t=>JSON.parse(t.substr(47).slice(0,-2)))
+      .then(r=>r.text())
+      .then(t=>JSON.parse(t.substr(47).slice(0,-2)))
       .then(j=>{
-        const rows=j.table.rows.map(r=>r.c.map(c=>c?.v||""));
-        const dBody=document.querySelector("#driver-table tbody");
-        const cBody=document.querySelector("#constructor-table tbody");
-        const uBody=document.querySelector("#unassigned-table tbody");
-        dBody.innerHTML=cBody.innerHTML=uBody.innerHTML="";
-        const totals={};
-        rows.forEach(r=>{
-          const driver=r[0],team=r[1],pts=parseInt(r[18])||0;
-          if(!driver) return;
-          if(!team){
-            uBody.innerHTML+=`<tr><td>${driver}</td></tr>`;
+        const rows = j.table.rows.map(r=>r.c.map(c=>c?.v||""));
+        const dBody = document.querySelector("#driver-table tbody");
+        const cBody = document.querySelector("#constructor-table tbody");
+        const uBody = document.querySelector("#unassigned-table tbody");
+        dBody.innerHTML = cBody.innerHTML = uBody.innerHTML = "";
+        const totals = {};
+
+        rows.forEach(r => {
+          const driver = r[0], team = r[1], pts = parseInt(r[18])||0;
+          if (!driver) return;
+          if (!team) {
+            uBody.innerHTML += `<tr><td>${driver}</td></tr>`;
             return;
           }
-          totals[team]=(totals[team]||0)+pts;
-          const tr=document.createElement("tr");
-          tr.className=`driver-row ${safeClass(team)}`;
-          tr.innerHTML=`
+          totals[team] = (totals[team]||0) + pts;
+          const tr = document.createElement("tr");
+          tr.className = "driver-row " + safeClass(team);
+          tr.innerHTML = `
             <td>${driver}</td>
             <td>
               <img src="${teamCars[team]}" class="car" alt="${team}">
@@ -144,16 +150,17 @@
             <td>${pts}</td>`;
           dBody.appendChild(tr);
         });
-        Object.entries(totals).forEach(([team,pts])=>{
-          const tr=document.createElement("tr");
-          tr.className=`driver-row ${safeClass(team)}`;
-          tr.innerHTML=`
+
+        Object.entries(totals).forEach(([team, total]) => {
+          const tr = document.createElement("tr");
+          tr.className = "driver-row " + safeClass(team);
+          tr.innerHTML = `
             <td>
               <img src="${teamCars[team]}" class="car" alt="${team}">
               ${team}
               <img src="${teamLogos[team]}" class="logo" alt="${team}">
             </td>
-            <td>${pts}</td>`;
+            <td>${total}</td>`;
           cBody.appendChild(tr);
         });
       });
