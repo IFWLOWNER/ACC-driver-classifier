@@ -1,10 +1,11 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>IFWL F1 Leaderboard</title>
-  <style>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1.0" name="viewport"/>
+<title>IFWL F1 Leaderboard</title>
+<style>
     body {
       margin:0; padding:20px;
       font-family:Arial,sans-serif;
@@ -77,47 +78,47 @@
     .team-HAAS          { background-color:#B6BABD; }
     .team-WILLIAMS      { background-color:#005AFF; }
     .team-RESERVE       { background-color:#FFFFFF; color:#000; }
-  </style>
+  
+.arrow-icon {
+  height: 16px;
+  width: 16px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+</style>
 </head>
 <body>
-
-  <div class="version">Version: Beta 0.0.40 (Ferrari Fix)</div>
-
-  <div class="header">
-    <img src="ifwl_logo.png" alt="IFWL Logo"/>
-    <h1>IFWL F1 Leaderboard</h1>
-    <img src="ifwl_logo.png" alt="IFWL Logo"/>
-  </div>
-
-  <div class="join-series">
-    <a href="https://www.thesimgrid.com/championships/15239" target="_blank">
+<div class="version">Version: Beta 0.0.41 (Position Change Arrows)</div>
+<div class="header">
+<img alt="IFWL Logo" src="ifwl_logo.png"/>
+<h1>IFWL F1 Leaderboard</h1>
+<img alt="IFWL Logo" src="ifwl_logo.png"/>
+</div>
+<div class="join-series">
+<a href="https://www.thesimgrid.com/championships/15239" target="_blank">
       Join our latest series here
     </a>
-  </div>
-
-  <h2>Driver Standings</h2>
-  <table id="driver-table">
-    <thead>
-      <tr><th>DRIVER</th><th>TEAM</th><th>TOTAL POINTS</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-
-  <h2>Constructors Standings</h2>
-  <table id="constructor-table">
-    <thead>
-      <tr><th>TEAM</th><th>TOTAL POINTS</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-
-  <h2>Unassigned Drivers</h2>
-  <table id="unassigned-table">
-    <thead><tr><th>DRIVER</th></tr></thead>
-    <tbody></tbody>
-  </table>
-
-  <script>
+</div>
+<h2>Driver Standings</h2>
+<table id="driver-table">
+<thead>
+<tr><th>DRIVER</th><th>TEAM</th><th>TOTAL POINTS</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+<h2>Constructors Standings</h2>
+<table id="constructor-table">
+<thead>
+<tr><th>TEAM</th><th>TOTAL POINTS</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+<h2>Unassigned Drivers</h2>
+<table id="unassigned-table">
+<thead><tr><th>DRIVER</th></tr></thead>
+<tbody></tbody>
+</table>
+<script>
     const sheetId = "1OxEy3fx4fW1P-aPlU-AHlPR8r23KJieLKxdtKy4koog";
     const teamCars = {
       "ALPINE":"ALPINE.webp",
@@ -147,6 +148,22 @@
     };
     const safeClass = t => "driver-row team-" + t.replace(/\s+/g,"-");
 
+    
+    const previousDriverTotals = [];
+    const currentDriverTotals = [];
+    const previousConstructorTotals = {};
+    const currentConstructorTotals = {};
+
+    function calculatePreviousTotal(row) {
+      return row.slice(2, 17).reduce((sum, val) => sum + (parseInt(val) || 0), 0);
+    }
+
+    function rankDrivers(totals) {
+      return totals
+        .map((entry, index) => ({ name: entry.name, index, points: entry.points }))
+        .sort((a, b) => b.points - a.points)
+        .map((entry, i) => ({ ...entry, rank: i + 1 }));
+    }
     fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`)
       .then(r => r.text())
       .then(t => JSON.parse(t.substr(47).slice(0,-2)))
@@ -158,7 +175,105 @@
         const totals = {};
         dBody.innerHTML = cBody.innerHTML = uBody.innerHTML = "";
 
+        
         rows.forEach(r => {
+          const raw = (r[0] || "") + "";
+          const teamRaw = r[1] || "";
+          const team = teamRaw.trim();
+          const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
+          const prevTotal = calculatePreviousTotal(r);
+          const pts = parseInt(r[18]) || 0;
+
+          if (!team) return;
+
+          previousDriverTotals.push({ name, points: prevTotal });
+          currentDriverTotals.push({ name, points: pts });
+
+          previousConstructorTotals[team] = (previousConstructorTotals[team] || 0) + prevTotal;
+          currentConstructorTotals[team] = (currentConstructorTotals[team] || 0) + pts;
+        });
+
+        const previousDriverRanks = rankDrivers(previousDriverTotals);
+        const currentDriverRanks = rankDrivers(currentDriverTotals);
+        const driverRankMap = {};
+        previousDriverRanks.forEach(d => driverRankMap[d.name] = d.rank);
+        const driverCurrentMap = {};
+        currentDriverRanks.forEach(d => driverCurrentMap[d.name] = d.rank);
+
+        const driverTableBody = document.querySelector("#driver-table tbody");
+        driverTableBody.innerHTML = "";
+
+        rows.forEach(r => {
+          const raw = (r[0] || "") + "";
+          const pts = parseInt(r[18]) || 0;
+          const teamRaw = r[1] || "";
+          const team = teamRaw.trim();
+          const m = raw.match(/\[\s*(\d+)\s*\]/);
+          const num = m ? m[1] : "";
+          const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
+
+          if (!team) return;
+
+          const U = team.toUpperCase();
+          const tr = document.createElement("tr");
+          tr.className = safeClass(U);
+          const rankChange = (driverRankMap[name] || 0) - (driverCurrentMap[name] || 0);
+          let arrow = "";
+          if (rankChange > 0) {
+            arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="Up" />';
+          } else if (rankChange < 0) {
+            arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="Down" />';
+          }
+
+          tr.innerHTML = `
+            <td>${name}</td>
+            <td>
+              ${num ? `<span class="driver-number">${num}</span>` : ""}
+              <img src="${teamCars[U]}" class="car" alt="${team}"/>
+              ${team}
+              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
+            </td>
+            <td>${pts} ${arrow}</td>`;
+          driverTableBody.appendChild(tr);
+        });
+
+        const constructorTableBody = document.querySelector("#constructor-table tbody");
+        constructorTableBody.innerHTML = "";
+
+        const previousConstructorsRank = Object.entries(previousConstructorTotals)
+          .map(([team, points]) => ({ team, points }))
+          .sort((a, b) => b.points - a.points);
+        const currentConstructorsRank = Object.entries(currentConstructorTotals)
+          .map(([team, points]) => ({ team, points }))
+          .sort((a, b) => b.points - a.points);
+        const constructorRanksPrev = {};
+        previousConstructorsRank.forEach((t, i) => constructorRanksPrev[t.team] = i + 1);
+        const constructorRanksNow = {};
+        currentConstructorsRank.forEach((t, i) => constructorRanksNow[t.team] = i + 1);
+
+        Object.entries(currentConstructorTotals).forEach(([team, pts]) => {
+          const U = team.toUpperCase();
+          const tr = document.createElement("tr");
+          tr.className = safeClass(U);
+          const diff = (constructorRanksPrev[team] || 0) - (constructorRanksNow[team] || 0);
+          let arrow = "";
+          if (diff > 0) {
+            arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="Up" />';
+          } else if (diff < 0) {
+            arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="Down" />';
+          }
+          tr.innerHTML = `
+            <td>
+              <img src="${teamCars[U]}" class="car" alt="${team}"/>
+              ${team}
+              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
+            </td>
+            <td>${pts} ${arrow}</td>`;
+          constructorTableBody.appendChild(tr);
+        });
+
+        return;
+        
           const raw    = (r[0]||"")+"";
           if(!raw) return;
           const pts    = parseInt(r[18])||0;
@@ -206,6 +321,5 @@
         });
       });
   </script>
-
 </body>
 </html>
