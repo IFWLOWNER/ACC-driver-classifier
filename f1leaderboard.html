@@ -88,7 +88,7 @@
 </style>
 </head>
 <body>
-<div class="version">Version: Beta 0.0.42 (Arrow Fix)</div>
+<div class="version">Version: Beta 0.0.43 (Sorting + Arrow Fix)</div>
 <div class="header">
 <img alt="IFWL Logo" src="ifwl_logo.png"/>
 <h1>IFWL F1 Leaderboard</h1>
@@ -163,6 +163,7 @@ fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`)
     const currDriverTotals = [];
     const prevConstructorTotals = {};
     const currConstructorTotals = {};
+    const driverTeamMap = {};
 
     function getPrevTotal(r) {
       return r.slice(2, 17).reduce((acc, val) => acc + (parseInt(val) || 0), 0);
@@ -170,85 +171,84 @@ fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`)
 
     rows.forEach(r => {
       const raw = (r[0] || "") + "";
+      const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "").trim();
       const team = (r[1] || "").trim();
-      const pts = parseInt(r[18]) || 0;
-      const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
-      const prev = getPrevTotal(r);
+      const currPts = parseInt(r[18]) || 0;
+      const prevPts = getPrevTotal(r);
 
-      if (!team) return;
+      if (!name) return;
 
-      prevDriverTotals.push({ name, pts: prev });
-      currDriverTotals.push({ name, pts });
-      prevConstructorTotals[team] = (prevConstructorTotals[team] || 0) + prev;
-      currConstructorTotals[team] = (currConstructorTotals[team] || 0) + pts;
+      prevDriverTotals.push({ name, pts: prevPts });
+      currDriverTotals.push({ name, pts: currPts });
+      driverTeamMap[name] = team;
+
+      if (team) {
+        prevConstructorTotals[team] = (prevConstructorTotals[team] || 0) + prevPts;
+        currConstructorTotals[team] = (currConstructorTotals[team] || 0) + currPts;
+      }
     });
 
     function rankMap(list) {
       return list
-        .sort((a,b) => b.pts - a.pts)
-        .map((e,i) => ({ ...e, rank: i+1 }))
+        .sort((a, b) => b.pts - a.pts)
+        .map((e, i) => ({ ...e, rank: i + 1 }))
         .reduce((acc, e) => { acc[e.name] = e.rank; return acc; }, {});
     }
 
-    const prevRanks = rankMap(prevDriverTotals);
-    const currRanks = rankMap(currDriverTotals);
+    const prevRanks = rankMap([...prevDriverTotals]);
+    const currRanks = rankMap([...currDriverTotals]);
 
-    rows.forEach(r => {
-      const raw = (r[0] || "") + "";
-      const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
-      const teamRaw = r[1] || "";
-      const team = teamRaw.trim();
-      const pts = parseInt(r[18]) || 0;
-      const m = raw.match(/\[\s*(\d+)\s*\]/);
-      const num = m ? m[1] : "";
+    currDriverTotals
+      .sort((a, b) => b.pts - a.pts)
+      .forEach(entry => {
+        const name = entry.name;
+        const team = driverTeamMap[name];
+        const pts = entry.pts;
+        const m = name.match(/\[\s*(\d+)\s*\]/);
+        const num = m ? m[1] : "";
+        const teamUpper = (team || "").toUpperCase();
+        const diff = (prevRanks[name] || 0) - (currRanks[name] || 0);
+        let arrow = "";
+        if (diff > 0) arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="↑">';
+        else if (diff < 0) arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="↓">';
 
-      if (!team) {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${name}</td>`;
-        return uBody.appendChild(tr);
-      }
+        tr.className = safeClass(teamUpper);
+        tr.innerHTML = `
+          <td>${name}</td>
+          <td>
+            ${num ? `<span class="driver-number">${num}</span>` : ""}
+            <img src="${teamCars[teamUpper]}" class="car" alt="${team}"/>
+            ${team}
+            <img src="${teamLogos[teamUpper]}" class="logo" alt="${team}"/>
+          </td>
+          <td>${pts} ${arrow}</td>`;
+        dBody.appendChild(tr);
+      });
 
-      const U = team.toUpperCase();
-      const diff = (prevRanks[name] || 0) - (currRanks[name] || 0);
-      let arrow = "";
-      if (diff > 0) arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="↑">';
-      else if (diff < 0) arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="↓">';
+    const prevCRank = rankMap(Object.entries(prevConstructorTotals).map(([name, pts]) => ({ name, pts })));
+    const currCRank = rankMap(Object.entries(currConstructorTotals).map(([name, pts]) => ({ name, pts })));
 
-      const tr = document.createElement("tr");
-      tr.className = safeClass(U);
-      tr.innerHTML = `
-        <td>${name}</td>
-        <td>
-          ${num ? `<span class="driver-number">${num}</span>` : ""}
-          <img src="${teamCars[U]}" class="car" alt="${team}"/>
-          ${team}
-          <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
-        </td>
-        <td>${pts} ${arrow}</td>`;
-      dBody.appendChild(tr);
-    });
+    Object.entries(currConstructorTotals)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([team, pts]) => {
+        const teamUpper = team.toUpperCase();
+        const diff = (prevCRank[team] || 0) - (currCRank[team] || 0);
+        let arrow = "";
+        if (diff > 0) arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="↑">';
+        else if (diff < 0) arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="↓">';
 
-    const prevCRank = rankMap(Object.entries(prevConstructorTotals).map(([t,pts]) => ({ name:t, pts })));
-    const currCRank = rankMap(Object.entries(currConstructorTotals).map(([t,pts]) => ({ name:t, pts })));
-
-    Object.entries(currConstructorTotals).forEach(([team, pts]) => {
-      const U = team.toUpperCase();
-      const diff = (prevCRank[team] || 0) - (currCRank[team] || 0);
-      let arrow = "";
-      if (diff > 0) arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="↑">';
-      else if (diff < 0) arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="↓">';
-
-      const tr = document.createElement("tr");
-      tr.className = safeClass(U);
-      tr.innerHTML = `
-        <td>
-          <img src="${teamCars[U]}" class="car" alt="${team}"/>
-          ${team}
-          <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
-        </td>
-        <td>${pts} ${arrow}</td>`;
-      cBody.appendChild(tr);
-    });
+        const tr = document.createElement("tr");
+        tr.className = safeClass(teamUpper);
+        tr.innerHTML = `
+          <td>
+            <img src="${teamCars[teamUpper]}" class="car" alt="${team}"/>
+            ${team}
+            <img src="${teamLogos[teamUpper]}" class="logo" alt="${team}"/>
+          </td>
+          <td>${pts} ${arrow}</td>`;
+        cBody.appendChild(tr);
+      });
   });
 </script>
 
