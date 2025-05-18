@@ -88,7 +88,7 @@
 </style>
 </head>
 <body>
-<div class="version">Version: Beta 0.0.41 (Position Change Arrows)</div>
+<div class="version">Version: Beta 0.0.42 (Arrow Fix)</div>
 <div class="header">
 <img alt="IFWL Logo" src="ifwl_logo.png"/>
 <h1>IFWL F1 Leaderboard</h1>
@@ -118,208 +118,139 @@
 <thead><tr><th>DRIVER</th></tr></thead>
 <tbody></tbody>
 </table>
+
 <script>
-    const sheetId = "1OxEy3fx4fW1P-aPlU-AHlPR8r23KJieLKxdtKy4koog";
-    const teamCars = {
-      "ALPINE":"ALPINE.webp",
-      "ASTON MARTIN":"ASTON.webp",
-      "FERRARI":"FERRARI.webp",
-      "HAAS":"HAAS.webp",
-      "MCLAREN":"MCLAREN.webp",
-      "MERCEDES":"MERCEDES.webp",
-      "RACING BULLS":"RACINGBULLS.webp",
-      "RED BULL RACING":"RBR.webp",
-      "KICK SAUBER":"SAUBER.webp",
-      "RESERVE":"RESERVE.webp",
-      "WILLIAMS":"WILLIAMS.webp"
-    };
-    const teamLogos = {
-      "ALPINE":"ALPINELOGO.webp",
-      "ASTON MARTIN":"ASTONLOGO.webp",
-      "FERRARI":"FERARRILOGO.webp",
-      "HAAS":"HAASLOGO.webp",
-      "MCLAREN":"MCLARENLOGO.webp",
-      "MERCEDES":"MERCEDESLOGO.webp",
-      "RACING BULLS":"RBLOGO.webp",
-      "RED BULL RACING":"RBRLOGO.webp",
-      "KICK SAUBER":"KICKLOGO.webp",
-      "RESERVE":"RESERVELOGO.webp",
-      "WILLIAMS":"WILLIAMSLOGO.webp"
-    };
-    const safeClass = t => "driver-row team-" + t.replace(/\s+/g,"-");
+const sheetId = "1OxEy3fx4fW1P-aPlU-AHlPR8r23KJieLKxdtKy4koog";
+const teamCars = {
+  "ALPINE":"ALPINE.webp",
+  "ASTON MARTIN":"ASTON.webp",
+  "FERRARI":"FERRARI.webp",
+  "HAAS":"HAAS.webp",
+  "MCLAREN":"MCLAREN.webp",
+  "MERCEDES":"MERCEDES.webp",
+  "RACING BULLS":"RACINGBULLS.webp",
+  "RED BULL RACING":"RBR.webp",
+  "KICK SAUBER":"SAUBER.webp",
+  "RESERVE":"RESERVE.webp",
+  "WILLIAMS":"WILLIAMS.webp"
+};
+const teamLogos = {
+  "ALPINE":"ALPINELOGO.webp",
+  "ASTON MARTIN":"ASTONLOGO.webp",
+  "FERRARI":"FERARRILOGO.webp",
+  "HAAS":"HAASLOGO.webp",
+  "MCLAREN":"MCLARENLOGO.webp",
+  "MERCEDES":"MERCEDESLOGO.webp",
+  "RACING BULLS":"RBLOGO.webp",
+  "RED BULL RACING":"RBRLOGO.webp",
+  "KICK SAUBER":"KICKLOGO.webp",
+  "RESERVE":"RESERVELOGO.webp",
+  "WILLIAMS":"WILLIAMSLOGO.webp"
+};
+const safeClass = t => "driver-row team-" + t.replace(/\s+/g,"-");
 
-    
-    const previousDriverTotals = [];
-    const currentDriverTotals = [];
-    const previousConstructorTotals = {};
-    const currentConstructorTotals = {};
+fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`)
+  .then(r => r.text())
+  .then(t => JSON.parse(t.substr(47).slice(0,-2)))
+  .then(j => {
+    const rows = j.table.rows.map(r => r.c.map(c => c?.v || ""));
+    const dBody = document.querySelector("#driver-table tbody");
+    const cBody = document.querySelector("#constructor-table tbody");
+    const uBody = document.querySelector("#unassigned-table tbody");
+    dBody.innerHTML = cBody.innerHTML = uBody.innerHTML = "";
 
-    function calculatePreviousTotal(row) {
-      return row.slice(2, 17).reduce((sum, val) => sum + (parseInt(val) || 0), 0);
+    const prevDriverTotals = [];
+    const currDriverTotals = [];
+    const prevConstructorTotals = {};
+    const currConstructorTotals = {};
+
+    function getPrevTotal(r) {
+      return r.slice(2, 17).reduce((acc, val) => acc + (parseInt(val) || 0), 0);
     }
 
-    function rankDrivers(totals) {
-      return totals
-        .map((entry, index) => ({ name: entry.name, index, points: entry.points }))
-        .sort((a, b) => b.points - a.points)
-        .map((entry, i) => ({ ...entry, rank: i + 1 }));
+    rows.forEach(r => {
+      const raw = (r[0] || "") + "";
+      const team = (r[1] || "").trim();
+      const pts = parseInt(r[18]) || 0;
+      const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
+      const prev = getPrevTotal(r);
+
+      if (!team) return;
+
+      prevDriverTotals.push({ name, pts: prev });
+      currDriverTotals.push({ name, pts });
+      prevConstructorTotals[team] = (prevConstructorTotals[team] || 0) + prev;
+      currConstructorTotals[team] = (currConstructorTotals[team] || 0) + pts;
+    });
+
+    function rankMap(list) {
+      return list
+        .sort((a,b) => b.pts - a.pts)
+        .map((e,i) => ({ ...e, rank: i+1 }))
+        .reduce((acc, e) => { acc[e.name] = e.rank; return acc; }, {});
     }
-    fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`)
-      .then(r => r.text())
-      .then(t => JSON.parse(t.substr(47).slice(0,-2)))
-      .then(j => {
-        const rows = j.table.rows.map(r => r.c.map(c => c?.v||""));
-        const dBody = document.querySelector("#driver-table tbody");
-        const cBody = document.querySelector("#constructor-table tbody");
-        const uBody = document.querySelector("#unassigned-table tbody");
-        const totals = {};
-        dBody.innerHTML = cBody.innerHTML = uBody.innerHTML = "";
 
-        
-        rows.forEach(r => {
-          const raw = (r[0] || "") + "";
-          const teamRaw = r[1] || "";
-          const team = teamRaw.trim();
-          const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
-          const prevTotal = calculatePreviousTotal(r);
-          const pts = parseInt(r[18]) || 0;
+    const prevRanks = rankMap(prevDriverTotals);
+    const currRanks = rankMap(currDriverTotals);
 
-          if (!team) return;
+    rows.forEach(r => {
+      const raw = (r[0] || "") + "";
+      const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
+      const teamRaw = r[1] || "";
+      const team = teamRaw.trim();
+      const pts = parseInt(r[18]) || 0;
+      const m = raw.match(/\[\s*(\d+)\s*\]/);
+      const num = m ? m[1] : "";
 
-          previousDriverTotals.push({ name, points: prevTotal });
-          currentDriverTotals.push({ name, points: pts });
+      if (!team) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${name}</td>`;
+        return uBody.appendChild(tr);
+      }
 
-          previousConstructorTotals[team] = (previousConstructorTotals[team] || 0) + prevTotal;
-          currentConstructorTotals[team] = (currentConstructorTotals[team] || 0) + pts;
-        });
+      const U = team.toUpperCase();
+      const diff = (prevRanks[name] || 0) - (currRanks[name] || 0);
+      let arrow = "";
+      if (diff > 0) arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="↑">';
+      else if (diff < 0) arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="↓">';
 
-        const previousDriverRanks = rankDrivers(previousDriverTotals);
-        const currentDriverRanks = rankDrivers(currentDriverTotals);
-        const driverRankMap = {};
-        previousDriverRanks.forEach(d => driverRankMap[d.name] = d.rank);
-        const driverCurrentMap = {};
-        currentDriverRanks.forEach(d => driverCurrentMap[d.name] = d.rank);
+      const tr = document.createElement("tr");
+      tr.className = safeClass(U);
+      tr.innerHTML = `
+        <td>${name}</td>
+        <td>
+          ${num ? `<span class="driver-number">${num}</span>` : ""}
+          <img src="${teamCars[U]}" class="car" alt="${team}"/>
+          ${team}
+          <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
+        </td>
+        <td>${pts} ${arrow}</td>`;
+      dBody.appendChild(tr);
+    });
 
-        const driverTableBody = document.querySelector("#driver-table tbody");
-        driverTableBody.innerHTML = "";
+    const prevCRank = rankMap(Object.entries(prevConstructorTotals).map(([t,pts]) => ({ name:t, pts })));
+    const currCRank = rankMap(Object.entries(currConstructorTotals).map(([t,pts]) => ({ name:t, pts })));
 
-        rows.forEach(r => {
-          const raw = (r[0] || "") + "";
-          const pts = parseInt(r[18]) || 0;
-          const teamRaw = r[1] || "";
-          const team = teamRaw.trim();
-          const m = raw.match(/\[\s*(\d+)\s*\]/);
-          const num = m ? m[1] : "";
-          const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "");
+    Object.entries(currConstructorTotals).forEach(([team, pts]) => {
+      const U = team.toUpperCase();
+      const diff = (prevCRank[team] || 0) - (currCRank[team] || 0);
+      let arrow = "";
+      if (diff > 0) arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="↑">';
+      else if (diff < 0) arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="↓">';
 
-          if (!team) return;
+      const tr = document.createElement("tr");
+      tr.className = safeClass(U);
+      tr.innerHTML = `
+        <td>
+          <img src="${teamCars[U]}" class="car" alt="${team}"/>
+          ${team}
+          <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
+        </td>
+        <td>${pts} ${arrow}</td>`;
+      cBody.appendChild(tr);
+    });
+  });
+</script>
 
-          const U = team.toUpperCase();
-          const tr = document.createElement("tr");
-          tr.className = safeClass(U);
-          const rankChange = (driverRankMap[name] || 0) - (driverCurrentMap[name] || 0);
-          let arrow = "";
-          if (rankChange > 0) {
-            arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="Up" />';
-          } else if (rankChange < 0) {
-            arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="Down" />';
-          }
-
-          tr.innerHTML = `
-            <td>${name}</td>
-            <td>
-              ${num ? `<span class="driver-number">${num}</span>` : ""}
-              <img src="${teamCars[U]}" class="car" alt="${team}"/>
-              ${team}
-              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
-            </td>
-            <td>${pts} ${arrow}</td>`;
-          driverTableBody.appendChild(tr);
-        });
-
-        const constructorTableBody = document.querySelector("#constructor-table tbody");
-        constructorTableBody.innerHTML = "";
-
-        const previousConstructorsRank = Object.entries(previousConstructorTotals)
-          .map(([team, points]) => ({ team, points }))
-          .sort((a, b) => b.points - a.points);
-        const currentConstructorsRank = Object.entries(currentConstructorTotals)
-          .map(([team, points]) => ({ team, points }))
-          .sort((a, b) => b.points - a.points);
-        const constructorRanksPrev = {};
-        previousConstructorsRank.forEach((t, i) => constructorRanksPrev[t.team] = i + 1);
-        const constructorRanksNow = {};
-        currentConstructorsRank.forEach((t, i) => constructorRanksNow[t.team] = i + 1);
-
-        Object.entries(currentConstructorTotals).forEach(([team, pts]) => {
-          const U = team.toUpperCase();
-          const tr = document.createElement("tr");
-          tr.className = safeClass(U);
-          const diff = (constructorRanksPrev[team] || 0) - (constructorRanksNow[team] || 0);
-          let arrow = "";
-          if (diff > 0) {
-            arrow = '<img src="up_arrow.webp" class="arrow-icon" alt="Up" />';
-          } else if (diff < 0) {
-            arrow = '<img src="down_arrow.webp" class="arrow-icon" alt="Down" />';
-          }
-          tr.innerHTML = `
-            <td>
-              <img src="${teamCars[U]}" class="car" alt="${team}"/>
-              ${team}
-              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
-            </td>
-            <td>${pts} ${arrow}</td>`;
-          constructorTableBody.appendChild(tr);
-        });
-
-        return;
-        
-          const raw    = (r[0]||"")+"";
-          if(!raw) return;
-          const pts    = parseInt(r[18])||0;
-          const teamRaw= r[1]||"";
-          const team   = teamRaw.trim();
-          // parse [NNN]
-          const m      = raw.match(/\[\s*(\d+)\s*\]/);
-          const num    = m? m[1] : "";
-          const name   = raw.replace(/\[\s*\d+\s*\]\s*-\s*/,"");
-
-          if(!team) {
-            const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${name}</td>`;
-            return uBody.appendChild(tr);
-          }
-
-          totals[team] = (totals[team]||0) + pts;
-          const U   = team.toUpperCase();
-          const tr  = document.createElement("tr");
-          tr.className = safeClass(U);
-          tr.innerHTML = `
-            <td>${name}</td>
-            <td>
-              ${num?`<span class="driver-number">${num}</span>`:""}
-              <img src="${teamCars[U]}" class="car" alt="${team}"/>
-              ${team}
-              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
-            </td>
-            <td>${pts}</td>`;
-          dBody.appendChild(tr);
-        });
-
-        Object.entries(totals).forEach(([team,pts]) => {
-          const U  = team.toUpperCase();
-          const tr = document.createElement("tr");
-          tr.className = safeClass(U);
-          tr.innerHTML = `
-            <td>
-              <img src="${teamCars[U]}" class="car" alt="${team}"/>
-              ${team}
-              <img src="${teamLogos[U]}" class="logo" alt="${team}"/>
-            </td>
-            <td>${pts}</td>`;
-          cBody.appendChild(tr);
-        });
-      });
-  </script>
 </body>
 </html>
