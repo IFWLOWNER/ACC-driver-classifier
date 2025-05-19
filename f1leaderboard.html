@@ -164,7 +164,7 @@
 </style>
 </head>
 <body>
-<div class="version">Version: Beta 0.0.50 (Fixed variable scope error and changed free slots to table layout)</div>
+<div class="version">Version: Beta 0.0.51 (Fixed JS template literal encoding in free slots logic)</div>
 <div class="header">
 <img alt="IFWL Logo" src="ifwl_logo.png"/>
 <h1>IFWL F1 Leaderboard</h1>
@@ -387,6 +387,37 @@ fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&ts
           </td>
           <td>\${freeCount} slot\${freeCount > 1 ? 's' : ''} free</td>
         \`;
+        freeTbody.appendChild(tr);
+      }
+    });
+
+    // --- Team Slots Free Section ---
+    const teamSlotLimit = 2;
+    const teamSlotCounts = {};
+    const teamFreeCounts = {};
+
+    rows.forEach(r => {
+      const driver = (r[0] || "").trim();
+      const team = (r[1] || "").trim();
+      if (!team) return;
+      teamSlotCounts[team] = (teamSlotCounts[team] || 0) + (driver ? 1 : 0);
+      teamFreeCounts[team] = (teamFreeCounts[team] || 0) + (!driver ? 1 : 0);
+    });
+
+    const freeTbody = document.querySelector("#free-slots-table tbody");
+    Object.entries(teamFreeCounts).forEach(([team, freeCount]) => {
+      if (freeCount > 0) {
+        const teamUpper = team.toUpperCase();
+        const tr = document.createElement("tr");
+        tr.className = safeClass(teamUpper);
+        tr.innerHTML = `
+          <td>
+            <img src="${teamCars[teamUpper]}" class="car" alt="${team}"/>
+            ${team}
+            <img src="${teamLogos[teamUpper]}" class="logo" alt="${team}"/>
+          </td>
+          <td>${freeCount} slot${freeCount > 1 ? 's' : ''} free</td>
+        `;
         freeTbody.appendChild(tr);
       }
     });
