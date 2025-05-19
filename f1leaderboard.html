@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1.0" name="viewport"/>
+  <meta http-equiv="refresh" content="5">
 <title>IFWL F1 Leaderboard</title>
 <style>
     body {
@@ -179,7 +180,7 @@
 </style>
 </head>
 <body>
-<div class="version">Version: Beta 0.0.60 (Stable live updates with verified JavaScript injection)</div>
+<div class="version">Version: Beta 0.0.61 (Added meta-refresh for live updates every 5s)</div>
 <div class="header">
 <img alt="IFWL Logo" src="ifwl_logo.png"/>
 <h1>IFWL F1 Leaderboard</h1>
@@ -263,100 +264,36 @@ const teamLogos = {
 };
 const safeClass = t => "driver-row team-" + t.replace(/\s+/g,"-");
 
+fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&ts=${Date.now()}`)
+  .then(r => r.text())
+  .then(t => JSON.parse(t.substr(47).slice(0,-2)))
+  .then(j => {
+    const rows = j.table.rows.map(r => r.c.map(c => c?.v || ""));
+    const dBody = document.querySelector("#driver-table tbody");
+    const cBody = document.querySelector("#constructor-table tbody");
+    const uBody = document.querySelector("#unassigned-table tbody");
+    dBody.innerHTML = cBody.innerHTML = uBody.innerHTML = "";
 
-function loadData() {
-  fetch(`https://docs.google.com/spreadsheets/d/e/2PACX-1vTs1e0M5KiZtn7wzKy1Eio8bnCWmkFaTRBrmSn1m_hulxahQlIu5Yk1GUj0W7d4oGrDncynUZxk-yJt/pub?output=csv`)
-    .then(res => res.text())
-    .then(text => {
-      const rows = text.trim().split("\n").map(r => r.split(","));
-      const driverTable = document.getElementById("driver-table").getElementsByTagName("tbody")[0];
-      const constructorTable = document.getElementById("constructor-table").getElementsByTagName("tbody")[0];
-      const unassignedTable = document.getElementById("unassigned-table");
-      const freeTbody = document.querySelector("#free-slots-table tbody");
+    const prevDriverTotals = [];
+    const currDriverTotals = [];
+    const prevConstructorTotals = {};
+    const currConstructorTotals = {};
+    const driverTeamMap = {};
 
-      driverTable.innerHTML = "";
-      constructorTable.innerHTML = "";
-      unassignedTable.innerHTML = "";
-      freeTbody.innerHTML = "";
+    function getPrevTotal(r) {
+      return r.slice(2, 17).reduce((acc, val) => acc + (parseInt(val) || 0), 0);
+    }
 
-      const teamPoints = {};
-      const driverTeamMap = {};
-      const teamSlotCounts = {};
-      const teamFreeCounts = {};
-      const unassigned = [];
+    rows.forEach(r => {
+      const raw = (r[0] || "") + "";
+      const name = raw.replace(/\[\s*\d+\s*\]\s*-\s*/, "").trim();
+      const team = (r[1] || "").trim();
+      const currPts = parseInt(r[18]) || 0;
+      const prevPts = getPrevTotal(r);
 
-      rows.forEach(r => {
-        const driver = (r[0] || "").trim();
-        const team = (r[1] || "").trim();
-        const points = parseInt(r[2]) || 0;
+      if (!name) return;
 
-        if (!team) return;
-
-        if (driver) {
-          const tr = document.createElement("tr");
-          tr.className = safeClass(team.toUpperCase());
-          tr.innerHTML = `
-            <td>${driver}</td>
-            <td>
-              <img src="${teamCars[team.toUpperCase()]}" class="car" alt="${team}"/>
-              ${team}
-              <img src="${teamLogos[team.toUpperCase()]}" class="logo" alt="${team}"/>
-            </td>
-            <td>${points}</td>
-          `;
-          driverTable.appendChild(tr);
-          teamPoints[team] = (teamPoints[team] || 0) + points;
-          driverTeamMap[team] = (driverTeamMap[team] || 0) + 1;
-        } else {
-          teamFreeCounts[team] = (teamFreeCounts[team] || 0) + 1;
-        }
-      });
-
-      Object.entries(teamPoints).forEach(([team, points]) => {
-        const tr = document.createElement("tr");
-        tr.className = safeClass(team.toUpperCase());
-        tr.innerHTML = `
-          <td>
-            <img src="${teamCars[team.toUpperCase()]}" class="car" alt="${team}"/>
-            ${team}
-            <img src="${teamLogos[team.toUpperCase()]}" class="logo" alt="${team}"/>
-          </td>
-          <td>${points}</td>
-        `;
-        constructorTable.appendChild(tr);
-      });
-
-      Object.entries(teamFreeCounts).forEach(([team, freeCount]) => {
-        if (freeCount > 0) {
-          const teamUpper = team.toUpperCase();
-          const tr = document.createElement("tr");
-          tr.className = safeClass(teamUpper);
-          const slotLabel = `${freeCount} slot${freeCount > 1 ? 's' : ''} free`;
-          tr.innerHTML = `
-            <td>
-              <img src="${teamCars[teamUpper]}" class="car" alt="${team}"/>
-              ${team}
-              <img src="${teamLogos[teamUpper]}" class="logo" alt="${team}"/>
-            </td>
-            <td>${slotLabel}</td>
-          `;
-          freeTbody.appendChild(tr);
-        }
-      });
-
-      rows.forEach(r => {
-        const driver = (r[0] || "").trim();
-        const team = (r[1] || "").trim();
-        if (!driver || team) return;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${driver}</td>`;
-        unassignedTable.appendChild(tr);
-      });
-    });
-}
-loadData();
-setInterval(loadData, 5000);
-
+      prevDriverTotals.push({ name, pts: prevPts });
       currDriverTotals.push({ name, pts: currPts });
       driverTeamMap[name] = team;
 
