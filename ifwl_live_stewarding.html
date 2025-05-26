@@ -8,17 +8,19 @@
   <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
   <script>
     google.charts.load('current', { packages: ['table'] });
-    google.charts.setOnLoadCallback(drawTable);
-    google.charts.setOnLoadCallback(drawStewards);
+    google.charts.setOnLoadCallback(function () {
+      drawStewards();
+      drawTable("Race 1"); // Default
+    });
 
-    function drawTable() {
+    function drawTable(sheetName) {
       const query = new google.visualization.Query(
-        'https://docs.google.com/spreadsheets/d/15FEmqFgTX7uOai8Yc8gpZXAr97FjGksQfxNpYf_2gew/gviz/tq?sheet=Race%201'
+        'https://docs.google.com/spreadsheets/d/15FEmqFgTX7uOai8Yc8gpZXAr97FjGksQfxNpYf_2gew/gviz/tq?sheet=' + encodeURIComponent(sheetName)
       );
       query.setQuery('SELECT C, D, F, H, I, J, K WHERE C IS NOT NULL');
       query.send(function(response) {
         if (response.isError()) {
-          document.getElementById('table_div').innerHTML = 'Error fetching race data.';
+          document.getElementById('table_div').innerHTML = 'Error fetching ' + sheetName + ' data.';
           return;
         }
         const data = response.getDataTable();
@@ -64,12 +66,28 @@
       });
     }
 
-    setInterval(drawTable, 20000);
+    function handleSheetChange() {
+      const selectedSheet = document.getElementById('sheetSelector').value;
+      drawTable(selectedSheet);
+    }
+
+    setInterval(() => {
+      const selectedSheet = document.getElementById('sheetSelector').value;
+      drawTable(selectedSheet);
+    }, 20000);
   </script>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-image: url('ifwl_bg.webp');
+      background-size: cover;
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+    }
+  </style>
 </head>
-<body class="bg-gray-900 text-white min-h-screen p-6">
-  <div class="max-w-6xl mx-auto">
+<body class="text-white min-h-screen p-6 backdrop-blur-sm">
+  <div class="max-w-6xl mx-auto bg-gray-900 bg-opacity-80 rounded-xl p-6">
     <div class="flex items-center justify-between mb-4">
       <span class="text-sm text-gray-400 font-mono">Beta 0.0.3</span>
       <img src="ifwl_logo.png" alt="IFWL Logo" class="h-16 mx-auto">
@@ -82,6 +100,14 @@
     <div class="bg-white rounded-xl p-4 shadow-lg text-black mb-8">
       <h2 class="text-xl font-semibold mb-2 text-center">Current Stewards</h2>
       <div id="stewards_div"></div>
+    </div>
+    <div class="mb-4">
+      <label for="sheetSelector" class="block text-white mb-2 font-semibold">Select Session:</label>
+      <select id="sheetSelector" onchange="handleSheetChange()" class="w-full p-2 rounded text-black">
+        <option value="Practice">Practice details</option>
+        <option value="Qualifying">Qualifying details</option>
+        <option value="Race 1" selected>Race details</option>
+      </select>
     </div>
     <div id="table_div" class="bg-white rounded-xl p-4 shadow-lg text-black"></div>
   </div>
