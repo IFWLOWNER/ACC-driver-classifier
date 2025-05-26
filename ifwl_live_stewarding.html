@@ -9,50 +9,78 @@
   <script>
     google.charts.load('current', { packages: ['table'] });
     google.charts.setOnLoadCallback(drawTable);
+    google.charts.setOnLoadCallback(drawStewards);
 
     function drawTable() {
       const query = new google.visualization.Query(
         'https://docs.google.com/spreadsheets/d/15FEmqFgTX7uOai8Yc8gpZXAr97FjGksQfxNpYf_2gew/gviz/tq?sheet=Race%201'
       );
-
-      // Select specific columns: C (Replay Time), D (Cars), F (Ruling), H (Description), I (Resolved)
-      query.setQuery('SELECT C, D, F, H, I WHERE C IS NOT NULL');
-      query.send(handleQueryResponse);
-    }
-
-    function handleQueryResponse(response) {
-      if (response.isError()) {
-        document.getElementById('table_div').innerHTML = 'Error fetching data.';
-        return;
-      }
-
-      const data = response.getDataTable();
-      const table = new google.visualization.Table(document.getElementById('table_div'));
-
-      table.draw(data, {
-        showRowNumber: true,
-        width: '100%',
-        height: '100%',
-        cssClassNames: {
-          headerRow: 'bg-gray-800 text-white text-left',
-          tableRow: 'bg-white',
-          oddTableRow: 'bg-gray-100',
-          headerCell: 'font-semibold p-2',
-          tableCell: 'p-2',
-        },
+      // Select columns: C (Replay Time), D (Cars), F (Ruling), H (Description), I (Resolved), J (Applied), K (Message)
+      query.setQuery('SELECT C, D, F, H, I, J, K WHERE C IS NOT NULL');
+      query.send(function(response) {
+        if (response.isError()) {
+          document.getElementById('table_div').innerHTML = 'Error fetching race data.';
+          return;
+        }
+        const data = response.getDataTable();
+        const table = new google.visualization.Table(document.getElementById('table_div'));
+        table.draw(data, {
+          showRowNumber: true,
+          width: '100%',
+          height: '100%',
+          cssClassNames: {
+            headerRow: 'bg-gray-800 text-white text-left',
+            tableRow: 'bg-white',
+            oddTableRow: 'bg-gray-100',
+            headerCell: 'font-semibold p-2',
+            tableCell: 'p-2',
+          },
+        });
       });
     }
 
-    // Auto-refresh every 20 seconds
+    function drawStewards() {
+      const query = new google.visualization.Query(
+        'https://docs.google.com/spreadsheets/d/15FEmqFgTX7uOai8Yc8gpZXAr97FjGksQfxNpYf_2gew/gviz/tq?sheet=config'
+      );
+      query.setQuery("SELECT B, C WHERE B IS NOT NULL LIMIT 7 OFFSET 2");
+      query.send(function(response) {
+        if (response.isError()) {
+          document.getElementById('stewards_div').innerHTML = 'Error fetching steward data.';
+          return;
+        }
+        const data = response.getDataTable();
+        const table = new google.visualization.Table(document.getElementById('stewards_div'));
+        table.draw(data, {
+          showRowNumber: false,
+          width: '100%',
+          cssClassNames: {
+            headerRow: 'bg-gray-700 text-white',
+            tableRow: 'bg-white',
+            oddTableRow: 'bg-gray-100',
+            headerCell: 'font-bold p-2',
+            tableCell: 'p-2',
+          },
+        });
+      });
+    }
+
     setInterval(drawTable, 20000);
   </script>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
 <body class="bg-gray-900 text-white min-h-screen p-6">
   <div class="max-w-6xl mx-auto">
-    <h1 class="text-3xl font-bold mb-6 text-center">🛠️ IFWL Stewarding Panel - Live Updates</h1>
+    <div class="flex flex-col items-center mb-6">
+      <img src="ifwl_logo.png" alt="IFWL Logo" class="h-20 mb-2">
+      <h1 class="text-3xl font-bold">IFWL Stewarding Panel - Live Updates</h1>
+      <p class="text-sm text-gray-400 mt-1">Auto-refreshes every 20 seconds</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-lg text-black mb-8">
+      <h2 class="text-xl font-semibold mb-2 text-center">Current Stewards</h2>
+      <div id="stewards_div"></div>
+    </div>
     <div id="table_div" class="bg-white rounded-xl p-4 shadow-lg text-black"></div>
-    <p class="text-center text-sm text-gray-400 mt-6">Auto-refreshes every 20 seconds</p>
   </div>
 </body>
 </html>
