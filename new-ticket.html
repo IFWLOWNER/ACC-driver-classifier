@@ -6,29 +6,36 @@
   <title>New Ticket</title>
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- 1) Define our iframeLoaded handler up front -->
+  <!-- 1) Define our handler up front -->
   <script>
-    // This will be called when the hidden iframe finishes loading
-    function iframeLoaded() {
-      if (!window.justSubmitted) return;
+    window.justSubmitted = false;
+
+    function onIframeLoad() {
+      if (!window.justSubmitted) return;   // ignore the iframe’s initial blank load
       window.justSubmitted = false;
       alert("Ticket submitted!");
       window.location.href = "tickets.html";
     }
 
-    // Flag that tracks when a submission just occurred
-    window.justSubmitted = false;
+    // Will attach this once DOM is ready
+    function setupIframeListener() {
+      const iframe = document.querySelector('iframe[name="hidden_iframe"]');
+      if (iframe) {
+        iframe.addEventListener('load', onIframeLoad);
+      }
+    }
+
+    // When the page loads, wire up the iframe listener
+    window.addEventListener('DOMContentLoaded', setupIframeListener);
   </script>
 </head>
 
 <body class="bg-gray-100 p-6 font-sans">
-  <!-- 2) Hidden iframe target for our form POST -->
-  <iframe name="hidden_iframe"
-          style="display:none"
-          onload="iframeLoaded()">
-  </iframe>
 
-  <!-- 3) The form itself -->
+  <!-- 2) Hidden iframe (no inline onload) -->
+  <iframe name="hidden_iframe" style="display:none"></iframe>
+
+  <!-- 3) The form -->
   <div class="max-w-3xl mx-auto bg-white p-6 shadow rounded">
     <h1 class="text-2xl font-bold mb-6">New Ticket</h1>
     <form id="ticketForm"
@@ -47,7 +54,7 @@
         <input class="border p-2 rounded" placeholder="Accused"        name="accused"     required />
         <input class="border p-2 rounded" placeholder="Steward"        name="steward" />
         <input class="border p-2 rounded" placeholder="Reason"         name="reason"      required />
-        <input class="border p-2 rounded" placeholder="Timestamp (e.g., 12:34)" name="timestamp" />
+        <input class="border p-2 rounded" placeholder="Timestamp (e.g., 12:34)"   name="timestamp" />
       </div>
 
       <textarea class="w-full border p-2 rounded" rows="4"
@@ -59,8 +66,7 @@
              name="proofUrl"/>
 
       <div class="flex justify-end gap-4">
-        <a href="tickets.html"
-           class="px-4 py-2 border rounded hover:bg-gray-100">
+        <a href="tickets.html" class="px-4 py-2 border rounded hover:bg-gray-100">
           CANCEL
         </a>
         <button type="submit"
@@ -71,7 +77,7 @@
     </form>
   </div>
 
-  <!-- 4) Mark justSubmitted when the form fires -->
+  <!-- 4) Mark justSubmitted when form fires -->
   <script>
     document.getElementById("ticketForm")
       .addEventListener("submit", () => {
