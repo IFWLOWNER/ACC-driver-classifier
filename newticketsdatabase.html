@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IFWL Tickets Database Export</title>
+
+  <style>
+    /* Basic styling for table and buttons */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 16px;
+      background: #f0f0f0;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    #controls {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 0 8px;
+      font-size: 14px;
+      background-color: #6200EE;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #999;
+      cursor: not-allowed;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      margin-top: 8px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 14px;
+    }
+    th {
+      background: #6200EE;
+      color: white;
+    }
+    tr:nth-child(even) {
+      background: #f9f9f9;
+    }
+    .status {
+      text-align: center;
+      margin-top: 8px;
+      font-size: 14px;
+      color: #555;
+    }
+    .status.error { color: #c00; }
+    .status.success { color: #080; }
+  </style>
+</head>
+<body>
+
+  <h1>IFWL Tickets Database Export</h1>
+
+  <div id="controls">
+    <button id="refreshBtn">Refresh Data</button>
+    <button id="downloadCsvBtn" disabled>Download CSV</button>
+    <div class="status" id="statusMsg"></div>
+  </div>
+
+  <table id="ticketsTable">
+    <thead>
+      <tr>
+        <th>Competition</th>
+        <th>Reporter</th>
+        <th>Accused</th>
+        <th>Status</th>
+        <th>Description</th>
+        <th>Created At</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td colspan="6" style="text-align:center; padding:16px;">Loading data…</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Firebase v9+ Modular SDK -->
+  <script type="module">
+    // 1) Import required functions from Firebase SDK
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import {
+      getFirestore,
+      collection,
+      getDocs,
+      query,
+      orderBy
+    } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+    // 2) Your Firebase config (exactly as you provided)
+    const firebaseConfig = {
+      apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
+      authDomain: "ifwl-591d8.firebaseapp.com",
+      projectId: "ifwl-591d8",
+      storageBucket: "ifwl-591d8.firebasestorage.app",
+      messagingSenderId: "703021152109",
+      appId: "1:703021152109:web:18e2f6a73e0521e4850c64",
+      measurementId: "G-974R4YE6L5"
+    };
+
+    // 3) Initialize Firebase & Firestore
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // 4) Get references to DOM elements
+    const refreshBtn   = document.getElementById("refreshBtn");
+    const downloadBtn  = document.getElementById("downloadCsvBtn");
+    const statusMsg    = document.getElementById("statusMsg");
+    const ticketsTable = document.getElementById("ticketsTable")
+                           .getElementsByTagName("tbody")[0];
+
+    let currentData = []; // holds the fetched tickets
+
+    // 5) Fetch tickets from Firestore
+    async function fetchTickets() {
+      statusMsg.textContent = "Loading data…";
+      statusMsg.className = "status";
+      refreshBtn.disabled = true;
+      downloadBtn.disabled = true;
+
+      try {
+        // Query all documents in "tickets" ordered by createdAt (desc)
+        const q = query(
+          collection(db, "tickets"),
+          orderBy("createdAt", "desc")
+        );
+        const querySnapshot = await getDocs(q);
+
+        // Map documents to plain objects
+        currentData = querySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          let createdAtStr = "";
+          if (data.createdAt && data.createdAt.toDate) {
+            createdAtStr = data.createdAt.toDate().toLocaleString();
+          }
+          return {
+            competition: data.competition || "",
+            reporter:    data.reporter    || "",
+            accused:     data.accused     || "",
+            status:      data.status      || "",
+            description: data.description || "",
+            createdAt:   createdAtStr
+          };
+        });
+
+        renderTable(currentData);
+        statusMsg.textContent = `Loaded ${currentData.length} tickets.`;
+        statusMsg.className = "status success";
+
+        if (currentData.length > 0) {
+          downloadBtn.disabled = false;
+        }
+      } catch (error) {
+        console.error("Error fetching tickets:", error);
+        statusMsg.textContent = "Error loading data. Check console.";
+        statusMsg.className = "status error";
+        ticketsTable.innerHTML = `
+          <tr>
+            <td colspan="6" style="text-align:center; padding:16px;">
+              Failed to load.
+            </td>
+          </tr>`;
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    }
+
+    // 6) Render tickets into the table
+    function renderTable(dataArray) {
+      ticketsTable.innerHTML = "";
+
+      if (dataArray.length === 0) {
+        ticketsTable.innerHTML = `
+          <tr>
+            <td colspan="6" style="text-align:center; padding:16px;">
+              No tickets found.
+            </td>
+          </tr>`;
+        return;
+      }
+
+      dataArray.forEach((ticket) => {
+        const row = ticketsTable.insertRow();
+        row.insertCell().innerText = ticket.competition;
+        row.insertCell().innerText = ticket.reporter;
+        row.insertCell().innerText = ticket.accused;
+        row.insertCell().innerText = ticket.status;
+        row.insertCell().innerText = ticket.description;
+        row.insertCell().innerText = ticket.createdAt;
+      });
+    }
+
+    // 7) Convert currentData to CSV and trigger download
+    function downloadCSV() {
+      if (currentData.length === 0) return;
+
+      const headers = [
+        "Competition",
+        "Reporter",
+        "Accused",
+        "Status",
+        "Description",
+        "Created At"
+      ];
+      const rows = [headers];
+
+      currentData.forEach((ticket) => {
+        rows.push([
+          `"${ticket.competition.replace(/"/g, '""')}"`,
+          `"${ticket.reporter.replace(/"/g, '""')}"`,
+          `"${ticket.accused.replace(/"/g, '""')}"`,
+          `"${ticket.status.replace(/"/g, '""')}"`,
+          `"${ticket.description.replace(/"/g, '""')}"`,
+          `"${ticket.createdAt.replace(/"/g, '""')}"`
+        ]);
+      });
+
+      const csvContent = rows.map((r) => r.join(",")).join("\r\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "ifwl_tickets_export.csv");
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // 8) Wire up button clicks
+    refreshBtn.addEventListener("click", fetchTickets);
+    downloadBtn.addEventListener("click", downloadCSV);
+
+    // 9) Fetch data once on initial load
+    fetchTickets();
+  </script>
+</body>
+</html>
