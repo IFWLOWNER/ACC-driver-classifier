@@ -3,27 +3,59 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets Database Export</title>
+  <title>IFWL WEB BASED TICKETS TO DATABASE</title>
 
+  <!-- Basic styling for the form -->
   <style>
-    /* Basic styling for table and buttons */
     body {
       font-family: Arial, sans-serif;
-      margin: 16px;
-      background: #f0f0f0;
+      background: #f7f7f7;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 24px;
+      max-width: 400px;
+      width: 100%;
     }
     h1 {
+      margin-top: 0;
       text-align: center;
       color: #333;
+      font-size: 20px;
     }
-    #controls {
-      text-align: center;
+    .form-group {
       margin-bottom: 16px;
     }
-    button {
-      padding: 8px 16px;
-      margin: 0 8px;
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: #555;
+    }
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
       font-size: 14px;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
       background-color: #6200EE;
       color: white;
       border: none;
@@ -34,30 +66,11 @@
       background-color: #999;
       cursor: not-allowed;
     }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: white;
-      margin-top: 8px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 8px 12px;
-      text-align: left;
-      font-size: 14px;
-    }
-    th {
-      background: #6200EE;
-      color: white;
-    }
-    tr:nth-child(even) {
-      background: #f9f9f9;
-    }
     .status {
-      text-align: center;
-      margin-top: 8px;
+      margin-top: 16px;
       font-size: 14px;
       color: #555;
+      text-align: center;
     }
     .status.error { color: #c00; }
     .status.success { color: #080; }
@@ -65,45 +78,45 @@
 </head>
 <body>
 
-  <h1>IFWL Tickets Database Export</h1>
+  <div class="container">
+    <h1>IFWL WEB BASED TICKETS TO DATABASE</h1>
 
-  <div id="controls">
-    <button id="refreshBtn">Refresh Data</button>
-    <button id="downloadCsvBtn" disabled>Download CSV</button>
+    <div class="form-group">
+      <label for="competition">Competition</label>
+      <input type="text" id="competition" placeholder="e.g. IFWL Sprint" required />
+    </div>
+
+    <div class="form-group">
+      <label for="reporter">Your Name (Reporter)</label>
+      <input type="text" id="reporter" placeholder="e.g. Alice Smith" required />
+    </div>
+
+    <div class="form-group">
+      <label for="accused">Accused / Infracting Party</label>
+      <input type="text" id="accused" placeholder="e.g. Bob Jones" required />
+    </div>
+
+    <div class="form-group">
+      <label for="description">Description / Details</label>
+      <textarea id="description" placeholder="Describe the incident..." required></textarea>
+    </div>
+
+    <button id="submitBtn">Submit Ticket</button>
     <div class="status" id="statusMsg"></div>
   </div>
 
-  <table id="ticketsTable">
-    <thead>
-      <tr>
-        <th>Competition</th>
-        <th>Reporter</th>
-        <th>Accused</th>
-        <th>Status</th>
-        <th>Description</th>
-        <th>Created At</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td colspan="6" style="text-align:center; padding:16px;">Loading data…</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <!-- Firebase v9+ Modular SDK -->
+  <!-- Firebase v9+ Modular SDK Scripts -->
   <script type="module">
-    // 1) Import required functions from Firebase SDK
+    // 1) Import the functions you need from the Firebase SDKs
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getFirestore,
       collection,
-      getDocs,
-      query,
-      orderBy
+      addDoc,
+      serverTimestamp
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
-    // 2) Your Firebase config (exactly as you provided)
+    // 2) Your web app's Firebase configuration (must match your Android app config)
     const firebaseConfig = {
       apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
       authDomain: "ifwl-591d8.firebaseapp.com",
@@ -115,141 +128,68 @@
     };
 
     // 3) Initialize Firebase & Firestore
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    const app       = initializeApp(firebaseConfig);
+    const db        = getFirestore(app);
 
-    // 4) Get references to DOM elements
-    const refreshBtn   = document.getElementById("refreshBtn");
-    const downloadBtn  = document.getElementById("downloadCsvBtn");
-    const statusMsg    = document.getElementById("statusMsg");
-    const ticketsTable = document.getElementById("ticketsTable")
-                           .getElementsByTagName("tbody")[0];
+    // 4) Grab references to form fields and button
+    const competitionInput = document.getElementById("competition");
+    const reporterInput    = document.getElementById("reporter");
+    const accusedInput     = document.getElementById("accused");
+    const descInput        = document.getElementById("description");
+    const submitBtn        = document.getElementById("submitBtn");
+    const statusMsg        = document.getElementById("statusMsg");
 
-    let currentData = []; // holds the fetched tickets
+    // 5) Handle form submission
+    submitBtn.addEventListener("click", async () => {
+      // Disable to prevent double clicks
+      submitBtn.disabled   = true;
+      statusMsg.textContent = "Submitting…";
+      statusMsg.className   = "status";
 
-    // 5) Fetch tickets from Firestore
-    async function fetchTickets() {
-      statusMsg.textContent = "Loading data…";
-      statusMsg.className = "status";
-      refreshBtn.disabled = true;
-      downloadBtn.disabled = true;
+      // 6) Read & trim values
+      const competition = competitionInput.value.trim();
+      const reporter    = reporterInput.value.trim();
+      const accused     = accusedInput.value.trim();
+      const description = descInput.value.trim();
 
-      try {
-        // Query all documents in "tickets" ordered by createdAt (desc)
-        const q = query(
-          collection(db, "tickets"),
-          orderBy("createdAt", "desc")
-        );
-        const querySnapshot = await getDocs(q);
-
-        // Map documents to plain objects
-        currentData = querySnapshot.docs.map((doc) => {
-          const data = doc.data();
-          let createdAtStr = "";
-          if (data.createdAt && data.createdAt.toDate) {
-            createdAtStr = data.createdAt.toDate().toLocaleString();
-          }
-          return {
-            competition: data.competition || "",
-            reporter:    data.reporter    || "",
-            accused:     data.accused     || "",
-            status:      data.status      || "",
-            description: data.description || "",
-            createdAt:   createdAtStr
-          };
-        });
-
-        renderTable(currentData);
-        statusMsg.textContent = `Loaded ${currentData.length} tickets.`;
-        statusMsg.className = "status success";
-
-        if (currentData.length > 0) {
-          downloadBtn.disabled = false;
-        }
-      } catch (error) {
-        console.error("Error fetching tickets:", error);
-        statusMsg.textContent = "Error loading data. Check console.";
-        statusMsg.className = "status error";
-        ticketsTable.innerHTML = `
-          <tr>
-            <td colspan="6" style="text-align:center; padding:16px;">
-              Failed to load.
-            </td>
-          </tr>`;
-      } finally {
-        refreshBtn.disabled = false;
-      }
-    }
-
-    // 6) Render tickets into the table
-    function renderTable(dataArray) {
-      ticketsTable.innerHTML = "";
-
-      if (dataArray.length === 0) {
-        ticketsTable.innerHTML = `
-          <tr>
-            <td colspan="6" style="text-align:center; padding:16px;">
-              No tickets found.
-            </td>
-          </tr>`;
+      // 7) Simple validation
+      if (!competition || !reporter || !accused || !description) {
+        statusMsg.textContent = "Please fill in all fields.";
+        statusMsg.className   = "status error";
+        submitBtn.disabled    = false;
         return;
       }
 
-      dataArray.forEach((ticket) => {
-        const row = ticketsTable.insertRow();
-        row.insertCell().innerText = ticket.competition;
-        row.insertCell().innerText = ticket.reporter;
-        row.insertCell().innerText = ticket.accused;
-        row.insertCell().innerText = ticket.status;
-        row.insertCell().innerText = ticket.description;
-        row.insertCell().innerText = ticket.createdAt;
-      });
-    }
+      // 8) Build the new ticket object
+      const newTicket = {
+        competition: competition,
+        reporter:    reporter,
+        accused:     accused,
+        description: description,
+        status:      "New Submission",
+        createdAt:   serverTimestamp()
+      };
 
-    // 7) Convert currentData to CSV and trigger download
-    function downloadCSV() {
-      if (currentData.length === 0) return;
+      try {
+        // 9) Write to Firestore → 'tickets' collection (same one your Android app uses)
+        const docRef = await addDoc(collection(db, "tickets"), newTicket);
 
-      const headers = [
-        "Competition",
-        "Reporter",
-        "Accused",
-        "Status",
-        "Description",
-        "Created At"
-      ];
-      const rows = [headers];
+        statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
+        statusMsg.className   = "status success";
 
-      currentData.forEach((ticket) => {
-        rows.push([
-          `"${ticket.competition.replace(/"/g, '""')}"`,
-          `"${ticket.reporter.replace(/"/g, '""')}"`,
-          `"${ticket.accused.replace(/"/g, '""')}"`,
-          `"${ticket.status.replace(/"/g, '""')}"`,
-          `"${ticket.description.replace(/"/g, '""')}"`,
-          `"${ticket.createdAt.replace(/"/g, '""')}"`
-        ]);
-      });
-
-      const csvContent = rows.map((r) => r.join(",")).join("\r\n");
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", "ifwl_tickets_export.csv");
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-
-    // 8) Wire up button clicks
-    refreshBtn.addEventListener("click", fetchTickets);
-    downloadBtn.addEventListener("click", downloadCSV);
-
-    // 9) Fetch data once on initial load
-    fetchTickets();
+        // Optionally clear the form fields
+        competitionInput.value = "";
+        reporterInput.value    = "";
+        accusedInput.value     = "";
+        descInput.value        = "";
+      } catch (error) {
+        console.error("Error writing ticket: ", error);
+        statusMsg.textContent = "Error submitting ticket. Please try again.";
+        statusMsg.className   = "status error";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
   </script>
 </body>
 </html>
