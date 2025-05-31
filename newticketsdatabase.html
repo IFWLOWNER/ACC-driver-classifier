@@ -22,7 +22,7 @@
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       padding: 24px;
-      max-width: 400px;
+      max-width: 500px;
       width: 100%;
     }
     h1 {
@@ -38,8 +38,10 @@
       display: block;
       margin-bottom: 6px;
       color: #555;
+      font-weight: bold;
     }
     input[type="text"],
+    input[type="url"],
     textarea {
       width: 100%;
       padding: 8px 10px;
@@ -54,7 +56,7 @@
     }
     button {
       width: 100%;
-      padding: 10px;
+      padding: 12px;
       font-size: 16px;
       background-color: #6200EE;
       color: white;
@@ -81,33 +83,80 @@
   <div class="container">
     <h1>IFWL WEB BASED TICKETS TO DATABASE</h1>
 
+    <!-- 1) ACCUSED -->
+    <div class="form-group">
+      <label for="accused">Accused</label>
+      <input type="text" id="accused" placeholder="e.g. Bob Jones" required />
+    </div>
+
+    <!-- 2) COMPETITION -->
     <div class="form-group">
       <label for="competition">Competition</label>
       <input type="text" id="competition" placeholder="e.g. IFWL Sprint" required />
     </div>
 
+    <!-- 3) CONTENT -->
     <div class="form-group">
-      <label for="reporter">Your Name (Reporter)</label>
+      <label for="content">Content</label>
+      <textarea id="content" placeholder="Full content/details of ticket" required></textarea>
+    </div>
+
+    <!-- 4) EVENT -->
+    <div class="form-group">
+      <label for="event">Event</label>
+      <input type="text" id="event" placeholder="e.g. Race 3: Heat A" />
+    </div>
+
+    <!-- 5) PROOF URL -->
+    <div class="form-group">
+      <label for="proofUrl">Proof URL (if any)</label>
+      <input type="url" id="proofUrl" placeholder="e.g. https://example.com/video" />
+    </div>
+
+    <!-- 6) RACE -->
+    <div class="form-group">
+      <label for="race">Race</label>
+      <input type="text" id="race" placeholder="e.g. Race #12" />
+    </div>
+
+    <!-- 7) REASON -->
+    <div class="form-group">
+      <label for="reason">Reason</label>
+      <textarea id="reason" placeholder="Reason for filing this ticket" required></textarea>
+    </div>
+
+    <!-- 8) REPORTER -->
+    <div class="form-group">
+      <label for="reporter">Reporter</label>
       <input type="text" id="reporter" placeholder="e.g. Alice Smith" required />
     </div>
 
+    <!-- 9) SEASON -->
     <div class="form-group">
-      <label for="accused">Accused / Infracting Party</label>
-      <input type="text" id="accused" placeholder="e.g. Bob Jones" required />
+      <label for="season">Season</label>
+      <input type="text" id="season" placeholder="e.g. Summer 2025" />
     </div>
 
+    <!-- 10) STEWARD -->
     <div class="form-group">
-      <label for="description">Description / Details</label>
-      <textarea id="description" placeholder="Describe the incident..." required></textarea>
+      <label for="steward">Steward (if assigned)</label>
+      <input type="text" id="steward" placeholder="e.g. StewardName" />
     </div>
 
+    <!-- 11) TRACK -->
+    <div class="form-group">
+      <label for="track">Track</label>
+      <input type="text" id="track" placeholder="e.g. Silverstone" />
+    </div>
+
+    <!-- Submit Button -->
     <button id="submitBtn">Submit Ticket</button>
     <div class="status" id="statusMsg"></div>
   </div>
 
-  <!-- Firebase v9+ Modular SDK Scripts -->
+  <!-- Firebase v9+ Modular SDK -->
   <script type="module">
-    // 1) Import the functions you need from the Firebase SDKs
+    // 1) Import the functions you need
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getFirestore,
@@ -116,7 +165,7 @@
       serverTimestamp
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
-    // 2) Your web app's Firebase configuration (must match your Android app config)
+    // 2) Your web app's Firebase configuration (must match your Android app)
     const firebaseConfig = {
       apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
       authDomain: "ifwl-591d8.firebaseapp.com",
@@ -128,64 +177,92 @@
     };
 
     // 3) Initialize Firebase & Firestore
-    const app       = initializeApp(firebaseConfig);
-    const db        = getFirestore(app);
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
 
     // 4) Grab references to form fields and button
-    const competitionInput = document.getElementById("competition");
-    const reporterInput    = document.getElementById("reporter");
     const accusedInput     = document.getElementById("accused");
-    const descInput        = document.getElementById("description");
+    const competitionInput = document.getElementById("competition");
+    const contentInput     = document.getElementById("content");
+    const eventInput       = document.getElementById("event");
+    const proofUrlInput    = document.getElementById("proofUrl");
+    const raceInput        = document.getElementById("race");
+    const reasonInput      = document.getElementById("reason");
+    const reporterInput    = document.getElementById("reporter");
+    const seasonInput      = document.getElementById("season");
+    const stewardInput     = document.getElementById("steward");
+    const trackInput       = document.getElementById("track");
     const submitBtn        = document.getElementById("submitBtn");
     const statusMsg        = document.getElementById("statusMsg");
 
     // 5) Handle form submission
     submitBtn.addEventListener("click", async () => {
-      // Disable to prevent double clicks
-      submitBtn.disabled   = true;
+      // Disable the button to prevent double‐clicks
+      submitBtn.disabled = true;
       statusMsg.textContent = "Submitting…";
-      statusMsg.className   = "status";
+      statusMsg.className = "status";
 
-      // 6) Read & trim values
-      const competition = competitionInput.value.trim();
-      const reporter    = reporterInput.value.trim();
+      // 6) Read and trim values
       const accused     = accusedInput.value.trim();
-      const description = descInput.value.trim();
+      const competition = competitionInput.value.trim();
+      const content     = contentInput.value.trim();
+      const event       = eventInput.value.trim();
+      const proofUrl    = proofUrlInput.value.trim();
+      const race        = raceInput.value.trim();
+      const reason      = reasonInput.value.trim();
+      const reporter    = reporterInput.value.trim();
+      const season      = seasonInput.value.trim();
+      const steward     = stewardInput.value.trim();
+      const track       = trackInput.value.trim();
 
-      // 7) Simple validation
-      if (!competition || !reporter || !accused || !description) {
-        statusMsg.textContent = "Please fill in all fields.";
-        statusMsg.className   = "status error";
-        submitBtn.disabled    = false;
+      // 7) Simple validation (required fields: accused, competition, content, reason, reporter)
+      if (!accused || !competition || !content || !reason || !reporter) {
+        statusMsg.textContent = "Please fill in all required fields: Accused, Competition, Content, Reason, Reporter.";
+        statusMsg.className = "status error";
+        submitBtn.disabled = false;
         return;
       }
 
-      // 8) Build the new ticket object
+      // 8) Build the ticket object
       const newTicket = {
-        competition: competition,
-        reporter:    reporter,
         accused:     accused,
-        description: description,
-        status:      "New Submission",
-        createdAt:   serverTimestamp()
+        competition: competition,
+        content:     content,
+        event:       event,
+        proofUrl:    proofUrl,
+        race:        race,
+        reason:      reason,
+        reporter:    reporter,
+        season:      season,
+        steward:     steward,
+        track:       track,
+        status:      "New Submission",           // default status
+        timestamp:   serverTimestamp()           // auto generate server timestamp
       };
 
       try {
-        // 9) Write to Firestore → 'tickets' collection (same one your Android app uses)
+        // 9) Write to Firestore → "tickets" collection
         const docRef = await addDoc(collection(db, "tickets"), newTicket);
 
         statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
-        statusMsg.className   = "status success";
+        statusMsg.className = "status success";
 
         // Optionally clear the form fields
-        competitionInput.value = "";
-        reporterInput.value    = "";
         accusedInput.value     = "";
-        descInput.value        = "";
+        competitionInput.value = "";
+        contentInput.value     = "";
+        eventInput.value       = "";
+        proofUrlInput.value    = "";
+        raceInput.value        = "";
+        reasonInput.value      = "";
+        reporterInput.value    = "";
+        seasonInput.value      = "";
+        stewardInput.value     = "";
+        trackInput.value       = "";
       } catch (error) {
         console.error("Error writing ticket: ", error);
         statusMsg.textContent = "Error submitting ticket. Please try again.";
-        statusMsg.className   = "status error";
+        statusMsg.className = "status error";
       } finally {
         submitBtn.disabled = false;
       }
