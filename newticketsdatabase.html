@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Admin Detailed View</title>
+  <title>IFWL Tickets • Admin Detailed View with PDF Export</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -212,6 +212,8 @@
       margin-right: 8px;
     }
   </style>
+  <!-- jsPDF UMD build (for PDF generation) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
   <header>
@@ -430,21 +432,21 @@
         return;
       }
       const newTicket = {
-        accused:     accused,
-        competition: competition,
-        content:     content,
-        event:       event,
-        proofUrl:    proofUrl,
-        race:        race,
-        reason:      reason,
-        reporter:    reporter,
-        season:      season,
-        steward:     steward,
-        track:       track,
-        status:      "New Submission",
+        accused:         accused,
+        competition:     competition,
+        content:         content,
+        event:           event,
+        proofUrl:        proofUrl,
+        race:            race,
+        reason:          reason,
+        reporter:        reporter,
+        season:          season,
+        steward:         steward,
+        track:           track,
+        status:          "New Submission",
         stewardDecision: "",
-        stewardTag:  "",           // <--- new field for steward name/tag
-        timestamp:   serverTimestamp()
+        stewardTag:      "",
+        timestamp:       serverTimestamp()
       };
       try {
         const docRef = await addDoc(collection(db, "tickets"), newTicket);
@@ -530,9 +532,9 @@
         try {
           const appealsColRef = collection(db, "tickets", ticketId, "appeals");
           await addDoc(appealsColRef, {
-            appealInfo: appealInfoValue,
+            appealInfo:   appealInfoValue,
             extraProofUrl: extraProofValue,
-            timestamp: serverTimestamp()
+            timestamp:    serverTimestamp()
           });
           appealStatusDiv.textContent = "Appeal submitted! We’ll review it soon.";
           appealStatusDiv.className = "status success";
@@ -548,7 +550,7 @@
     }
 
     // ----------------------------------------------------------------
-    // 7) TOGGLE DETAIL VIEW (admin): Show full ticket + appeals + review form
+    // 7) TOGGLE DETAIL VIEW (admin): Show full ticket + appeals + review form + PDF button
     // ----------------------------------------------------------------
     async function toggleDetailView(ticketId, container) {
       // Remove any existing .detailRow
@@ -599,9 +601,8 @@
             <p><strong>ID:</strong> ${ticketId}</p>
             <p><strong>Accused:</strong> ${ticketData.accused || ""}</p>
             <p><strong>Competition:</strong> ${ticketData.competition || ""}</p>
-            <p><strong>Content:</strong> ${ticketData.content || ""}</p>
+            <p><strong>Content / Incident Comments:</strong> ${ticketData.content || ""}</p>
             <p><strong>Event:</strong> ${ticketData.event || ""}</p>
-            <p><strong>Proof URL:</strong> ${ticketData.proofUrl || "N/A"}</p>
             <p><strong>Race:</strong> ${ticketData.race || ""}</p>
             <p><strong>Reason:</strong> ${ticketData.reason || ""}</p>
             <p><strong>Reporter:</strong> ${ticketData.reporter || ""}</p>
@@ -645,6 +646,7 @@
               <div style="margin-top: 8px;">
                 <button id="submitReview-${ticketId}">Update Ticket</button>
                 <button id="cancelDetail-${ticketId}" style="background-color: #999; margin-left:8px;">Close</button>
+                <button id="generatePDF-${ticketId}" style="background-color: #333; margin-left:8px;">Generate Discord Form</button>
               </div>
               <div id="detailStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
             </div>
@@ -685,9 +687,9 @@
         try {
           const ticketRef = doc(db, "tickets", ticketId);
           await updateDoc(ticketRef, {
-            status: newStatus,
+            status:          newStatus,
             stewardDecision: decisionText,
-            stewardTag: stewardTagVal
+            stewardTag:      stewardTagVal
           });
           detailStatusDiv.textContent = "Ticket updated!";
           detailStatusDiv.className = "status success";
@@ -700,6 +702,11 @@
           detailStatusDiv.textContent = "Error updating ticket. Please try again.";
           detailStatusDiv.className = "status error";
         }
+      });
+
+      // Wire up the Generate PDF button
+      document.getElementById(`generatePDF-${ticketId}`).addEventListener("click", async () => {
+        await generateDiscordForm(ticketId, ticketData);
       });
     }
 
@@ -874,6 +881,114 @@
 
     // On initial load, show the “Submit Ticket” section
     showSection(submitSection);
+
+    // ----------------------------------------------------------------
+    // 12) PDF GENERATION: Helper to convert image URL to Data URL
+    // ----------------------------------------------------------------
+    function getImageDataURL(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.setAttribute("crossOrigin", "anonymous");
+        img.onload = function() {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        img.onerror = function(e) {
+          reject(e);
+        };
+        img.src = url;
+      });
+    }
+
+    // ----------------------------------------------------------------
+    // 13) GENERATE DISCORD FORM (PDF) for a given ticket
+    // ----------------------------------------------------------------
+    async function generateDiscordForm(ticketId, ticketData) {
+      // Create a new jsPDF instance
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({
+        unit: "mm",
+        format: "a4"
+      });
+
+      // 1) Load IFWL logo from GitHub (raw URL). Center at top.
+      const logoUrl = "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/ifwl_logo.png";
+      let imgData;
+      try {
+        imgData = await getImageDataURL(logoUrl);
+      } catch (e) {
+        console.warn("Could not load logo for PDF:", e);
+      }
+      // If loaded, add image
+      if (imgData) {
+        const pageWidth = doc.internal.pageSize.getWidth();
+        // Set desired width in mm (e.g. 60 mm). Adjust as needed.
+        const imgWidthMM = 60;
+        // Compute height to maintain aspect ratio
+        const imgProps = doc.getImageProperties(imgData);
+        const imgHeightMM = (imgProps.height * imgWidthMM) / imgProps.width;
+        const x = (pageWidth - imgWidthMM) / 2; // center horizontally
+        doc.addImage(imgData, "PNG", x, 10, imgWidthMM, imgHeightMM);
+        // Move cursor down below image
+        var y = 10 + imgHeightMM + 10;
+      } else {
+        // If no image, start lower
+        var y = 20;
+      }
+
+      // 2) Title / Header
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.text("IFWL Ticket Report", doc.internal.pageSize.getWidth() / 2, y, {
+        align: "center"
+      });
+      y += 12;
+
+      // 3) Add the requested fields (minus footage links)
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "normal");
+      // "Driver Accused"
+      doc.text(`Accused: ${ticketData.accused || ""}`, 15, y);
+      y += 8;
+      // "Driver Reporting"
+      doc.text(`Reporter: ${ticketData.reporter || ""}`, 15, y);
+      y += 8;
+      // "Current Status"
+      doc.text(`Status: ${ticketData.status || ""}`, 15, y);
+      y += 8;
+      // "Incident Comments" (use `content`)
+      doc.text("Incident Comments:", 15, y);
+      y += 6;
+      doc.setFontSize(12);
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const usableWidth = pageWidth - 30; // 15mm margin each side
+      const splitContent = doc.splitTextToSize(ticketData.content || "", usableWidth);
+      doc.text(splitContent, 15, y);
+      y += splitContent.length * 6 + 4;
+
+      // "Steward - OIC": either stewardTag or "UNDER REVIEW"
+      doc.setFontSize(14);
+      const stewardTagVal = ticketData.stewardTag || "UNDER REVIEW";
+      doc.text(`Steward: ${stewardTagVal}`, 15, y);
+      y += 10;
+
+      // 4) Footer or spacing
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      const now = new Date();
+      doc.text(
+        `Generated: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
+        15,
+        doc.internal.pageSize.getHeight() - 15
+      );
+
+      // 5) Save the PDF
+      doc.save(`IFWL_ticket_${ticketId}.pdf`);
+    }
   </script>
 </body>
 </html>
