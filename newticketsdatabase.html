@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Submit, View & Appeal</title>
+  <title>IFWL Tickets • Submit, View & Admin Review</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -71,7 +71,8 @@
     input[type="url"],
     input[type="email"],
     input[type="password"],
-    textarea {
+    textarea,
+    select {
       width: 100%;
       padding: 8px 10px;
       border: 1px solid #ccc;
@@ -173,6 +174,27 @@
       width: auto;
       margin-right: 8px;
     }
+
+    /* ------------------------------------------------------------
+       Styles for the inline review form in admin view
+       ------------------------------------------------------------ */
+    .review-form {
+      background: #eef7ff;
+      padding: 16px;
+      border: 1px solid #9ecfff;
+      border-radius: 6px;
+      margin-top: 8px;
+      font-size: 0.95rem;
+    }
+    .review-form select,
+    .review-form textarea {
+      margin-top: 4px;
+      margin-bottom: 12px;
+    }
+    .review-form button {
+      width: auto;
+      margin-right: 8px;
+    }
   </style>
 </head>
 <body>
@@ -267,12 +289,12 @@
   </div>
 
   <!-- ==============================================================
-       SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH APPEAL HIGHLIGHT)
+       SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH REVIEW FORM)
        ============================================================== -->
   <div id="adminSection" class="container hidden">
     <h2 class="section-title">Admin Dashboard</h2>
     <div id="adminTicketsContainer">
-      <!-- Admin table + appeals will be injected here -->
+      <!-- Admin table + appeals + review form will be injected here -->
     </div>
   </div>
 
@@ -403,6 +425,7 @@
         steward:     steward,
         track:       track,
         status:      "New Submission",
+        stewardDecision: "",
         timestamp:   serverTimestamp()
       };
       try {
@@ -507,7 +530,87 @@
     }
 
     // ----------------------------------------------------------------
-    // 7) FETCH & RENDER TICKETS (public vs. admin)
+    // 7) INLINE REVIEW FORM HELPER (admin)
+    // ----------------------------------------------------------------
+    function toggleReviewForm(ticketId, container) {
+      // Remove any existing review form row
+      const existingForm = container.querySelector(".reviewFormRow");
+      if (existingForm) {
+        existingForm.remove();
+      }
+
+      // Find the <tr data-id="{ticketId}">
+      const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
+      if (!ticketRow) return;
+
+      // Create a new <tr> right after ticketRow
+      const formRow = document.createElement("tr");
+      formRow.classList.add("reviewFormRow");
+      // colspan = total columns in the admin table (6 data + “Action” column = 7)
+      formRow.innerHTML = `
+        <td colspan="7">
+          <div class="review-form">
+            <label for="statusSelect-${ticketId}"><strong>Select Outcome</strong></label>
+            <select id="statusSelect-${ticketId}">
+              <option value="Under Review">Under Review</option>
+              <option value="Finalised">Finalised</option>
+              <option value="Appeal In Progress">Appeal In Progress</option>
+            </select>
+            <label for="decisionText-${ticketId}"><strong>Steward Decision</strong></label>
+            <textarea id="decisionText-${ticketId}" placeholder="Enter your decision…" rows="3"></textarea>
+            <div style="margin-top: 8px;">
+              <button id="submitReview-${ticketId}">Update Ticket</button>
+              <button id="cancelReview-${ticketId}" style="background-color: #999; margin-left:8px;">Cancel</button>
+            </div>
+            <div id="reviewStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
+          </div>
+        </td>
+      `;
+      ticketRow.insertAdjacentElement("afterend", formRow);
+
+      // Wire up Cancel button
+      document.getElementById(`cancelReview-${ticketId}`).addEventListener("click", () => {
+        formRow.remove();
+      });
+
+      // Wire up Submit Review button
+      document.getElementById(`submitReview-${ticketId}`).addEventListener("click", async () => {
+        const statusSelect = document.getElementById(`statusSelect-${ticketId}`);
+        const decisionInput = document.getElementById(`decisionText-${ticketId}`);
+        const reviewStatusDiv = document.getElementById(`reviewStatus-${ticketId}`);
+        const newStatus = statusSelect.value;
+        const decisionText = decisionInput.value.trim();
+
+        if (!decisionText) {
+          reviewStatusDiv.textContent = "Please enter a steward decision.";
+          reviewStatusDiv.className = "status error";
+          return;
+        }
+        reviewStatusDiv.textContent = "Updating ticket…";
+        reviewStatusDiv.className = "status";
+
+        try {
+          const ticketRef = doc(db, "tickets", ticketId);
+          await updateDoc(ticketRef, {
+            status: newStatus,
+            stewardDecision: decisionText
+          });
+          reviewStatusDiv.textContent = "Ticket updated!";
+          reviewStatusDiv.className = "status success";
+          // Re-render admin view after a short delay so the new status is fetched
+          setTimeout(async () => {
+            await fetchAndRenderTickets(adminTicketsContainer, true);
+          }, 1000);
+        } catch (err) {
+          console.error("Error updating ticket:", err);
+          reviewStatusDiv.textContent = "Error updating ticket. Please try again.";
+          reviewStatusDiv.className = "status error";
+        }
+      });
+    }
+
+    // ----------------------------------------------------------------
+    // 8) FETCH & RENDER TICKETS (public vs. admin)
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
@@ -557,7 +660,7 @@
               <td>${ts}</td>
               ${isAdmin 
                 ? `<td>
-                    <button data-id="${id}" class="markReviewedBtn">Mark Reviewed</button>
+                    <button data-id="${id}" class="reviewBtn">Review</button>
                    </td>`
                 : `<td>
                     <button data-id="${id}" class="appealBtn">Appeal</button>
@@ -570,59 +673,55 @@
         targetContainer.innerHTML = tableHTML;
 
         if (isAdmin) {
-          // 7.a) Wire up “Mark Reviewed” buttons for admin
-          const markBtns = targetContainer.querySelectorAll(".markReviewedBtn");
-          markBtns.forEach(btn => {
-            btn.addEventListener("click", async (e) => {
+          // 8.a) Wire up “Review” buttons for admin
+          const reviewBtns = targetContainer.querySelectorAll(".reviewBtn");
+          reviewBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
               const ticketId = e.currentTarget.getAttribute("data-id");
-              try {
-                const ticketRef = doc(db, "tickets", ticketId);
-                await updateDoc(ticketRef, { status: "Reviewed" });
-                // Re-render admin view
-                await fetchAndRenderTickets(adminTicketsContainer, true);
-              } catch (err) {
-                console.error("Error updating ticket status:", err);
-                alert("Could not update status. Check console.");
-              }
+              toggleReviewForm(ticketId, targetContainer);
             });
           });
 
-          // 7.b) For each ticketRow, fetch appeals and insert a highlight row if any
+          // 8.b) For each ticketRow, if status === "Appeal In Progress", fetch appeals
           const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
           ticketRows.forEach(async (row) => {
             const ticketId = row.getAttribute("data-id");
-            const appealsRef = collection(db, "tickets", ticketId, "appeals");
-            const appealsSnapshot = await getDocs(appealsRef);
+            // Find the status text in the 5th <td> of this row
+            const statusText = row.children[4].textContent.trim();
+            if (statusText === "Appeal In Progress") {
+              const appealsRef = collection(db, "tickets", ticketId, "appeals");
+              const appealsSnapshot = await getDocs(appealsRef);
 
-            if (!appealsSnapshot.empty) {
-              // Build a highlight row under this ticket
-              const highlightRow = document.createElement("tr");
-              highlightRow.classList.add("appeal-highlight");
+              if (!appealsSnapshot.empty) {
+                // Build a highlight row under this ticket
+                const highlightRow = document.createElement("tr");
+                highlightRow.classList.add("appeal-highlight");
 
-              // colspan = 7 columns (6 data + “Action”)
-              const cell = document.createElement("td");
-              cell.colSpan = 7;
+                // colspan = 7 columns (6 data + “Action”)
+                const cell = document.createElement("td");
+                cell.colSpan = 7;
 
-              let appealsHTML = "";
-              appealsSnapshot.forEach(appSnap => {
-                const appealData = appSnap.data();
-                const appealTs = appealData.timestamp && appealData.timestamp.toDate
-                  ? appealData.timestamp.toDate().toLocaleString()
-                  : "";
-                appealsHTML += `
-                  <div class="appeal-box">
-                    <div><strong>Appeal:</strong> ${appealData.appealInfo}</div>
-                    <div><strong>Extra Video Proof:</strong> ${appealData.extraProofUrl || "N/A"}</div>
-                    <div style="margin-top:4px; font-size:0.8rem; color:#555;">
-                      <em>Submitted: ${appealTs}</em>
+                let appealsHTML = "";
+                appealsSnapshot.forEach(appSnap => {
+                  const appealData = appSnap.data();
+                  const appealTs = appealData.timestamp && appealData.timestamp.toDate
+                    ? appealData.timestamp.toDate().toLocaleString()
+                    : "";
+                  appealsHTML += `
+                    <div class="appeal-box">
+                      <div><strong>Appeal:</strong> ${appealData.appealInfo}</div>
+                      <div><strong>Extra Video Proof:</strong> ${appealData.extraProofUrl || "N/A"}</div>
+                      <div style="margin-top:4px; font-size:0.8rem; color:#555;">
+                        <em>Submitted: ${appealTs}</em>
+                      </div>
                     </div>
-                  </div>
-                `;
-              });
+                  `;
+                });
 
-              cell.innerHTML = appealsHTML;
-              highlightRow.appendChild(cell);
-              row.insertAdjacentElement("afterend", highlightRow);
+                cell.innerHTML = appealsHTML;
+                highlightRow.appendChild(cell);
+                row.insertAdjacentElement("afterend", highlightRow);
+              }
             }
           });
 
@@ -644,7 +743,7 @@
     }
 
     // ----------------------------------------------------------------
-    // 8) “View All Tickets” BUTTON (public)
+    // 9) “View All Tickets” BUTTON (public)
     // ----------------------------------------------------------------
     viewTicketsBtn.addEventListener("click", async () => {
       showSection(viewSection);
@@ -656,7 +755,7 @@
     });
 
     // ----------------------------------------------------------------
-    // 9) ADMIN LOGIN / AUTHENTICATION
+    // 10) ADMIN LOGIN / AUTHENTICATION
     // ----------------------------------------------------------------
     loginToggleBtn.addEventListener("click", () => {
       loginStatusMsg.textContent = "";
@@ -696,7 +795,7 @@
     });
 
     // ----------------------------------------------------------------
-    // 10) LISTEN FOR AUTH STATE CHANGES
+    // 11) LISTEN FOR AUTH STATE CHANGES
     // ----------------------------------------------------------------
     onAuthStateChanged(auth, async (user) => {
       if (user) {
