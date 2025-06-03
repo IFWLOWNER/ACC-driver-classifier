@@ -212,7 +212,7 @@
       margin-right: 8px;
     }
   </style>
-  <!-- jsPDF UMD build (for PDF generation) -->
+  <!-- jsPDF UMD build for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
@@ -490,7 +490,6 @@
       // Create a new <tr> right after ticketRow
       const formRow = document.createElement("tr");
       formRow.classList.add("appealFormRow");
-      // colspan = total columns in the public table (6 data + “Appeal” column = 7)
       formRow.innerHTML = `
         <td colspan="7">
           <div class="appeal-form">
@@ -637,7 +636,6 @@
               <label for="decisionText-${ticketId}"><strong>Steward Decision</strong></label>
               <textarea id="decisionText-${ticketId}" placeholder="Enter your decision…" rows="3">${ticketData.stewardDecision || ""}</textarea>
 
-              <!-- NEW: Steward Tag input -->
               <label for="stewardTag-${ticketId}"><strong>Steward Tag (e.g. Steward – IOC)</strong></label>
               <input type="text" id="stewardTag-${ticketId}" 
                      placeholder="e.g. Steward – IOC" 
@@ -646,7 +644,9 @@
               <div style="margin-top: 8px;">
                 <button id="submitReview-${ticketId}">Update Ticket</button>
                 <button id="cancelDetail-${ticketId}" style="background-color: #999; margin-left:8px;">Close</button>
-                <button id="generatePDF-${ticketId}" style="background-color: #333; margin-left:8px;">Generate Discord Form</button>
+                <button id="generatePDF-${ticketId}" style="background-color: #333; margin-left:8px;">
+                  Generate Discord Form
+                </button>
               </div>
               <div id="detailStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
             </div>
@@ -662,13 +662,13 @@
 
       // Wire up the Submit Review button
       document.getElementById(`submitReview-${ticketId}`).addEventListener("click", async () => {
-        const statusSelect   = document.getElementById(`statusSelect-${ticketId}`);
-        const decisionInput  = document.getElementById(`decisionText-${ticketId}`);
+        const statusSelect    = document.getElementById(`statusSelect-${ticketId}`);
+        const decisionInput   = document.getElementById(`decisionText-${ticketId}`);
         const stewardTagInput = document.getElementById(`stewardTag-${ticketId}`);
         const detailStatusDiv = document.getElementById(`detailStatus-${ticketId}`);
-        const newStatus      = statusSelect.value;
-        const decisionText   = decisionInput.value.trim();
-        const stewardTagVal  = stewardTagInput.value.trim();
+        const newStatus       = statusSelect.value;
+        const decisionText    = decisionInput.value.trim();
+        const stewardTagVal   = stewardTagInput.value.trim();
 
         if (!decisionText) {
           detailStatusDiv.textContent = "Please enter a steward decision.";
@@ -693,7 +693,6 @@
           });
           detailStatusDiv.textContent = "Ticket updated!";
           detailStatusDiv.className = "status success";
-          // Refresh the admin table after a short delay
           setTimeout(async () => {
             await fetchAndRenderTickets(adminTicketsContainer, true);
           }, 800);
@@ -850,7 +849,6 @@
       }
       try {
         await signInWithEmailAndPassword(auth, email, pw);
-        // onAuthStateChanged will handle showing adminSection
       } catch (err) {
         console.error("Login error:", err);
         loginStatusMsg.textContent = "Login failed. Check credentials.";
@@ -868,7 +866,6 @@
     // ----------------------------------------------------------------
     onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // In production, confirm this UID exists in your /stewards collection.
         logoutBtn.classList.remove("hidden");
         showSection(adminSection);
         adminTicketsContainer.innerHTML = "<p>Loading tickets…</p>";
@@ -908,12 +905,8 @@
     // 13) GENERATE DISCORD FORM (PDF) for a given ticket
     // ----------------------------------------------------------------
     async function generateDiscordForm(ticketId, ticketData) {
-      // Create a new jsPDF instance
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({
-        unit: "mm",
-        format: "a4"
-      });
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
 
       // 1) Load IFWL logo from GitHub (raw URL). Center at top.
       const logoUrl = "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/ifwl_logo.png";
@@ -923,60 +916,49 @@
       } catch (e) {
         console.warn("Could not load logo for PDF:", e);
       }
-      // If loaded, add image
+      let y = 10;
       if (imgData) {
         const pageWidth = doc.internal.pageSize.getWidth();
-        // Set desired width in mm (e.g. 60 mm). Adjust as needed.
         const imgWidthMM = 60;
-        // Compute height to maintain aspect ratio
         const imgProps = doc.getImageProperties(imgData);
         const imgHeightMM = (imgProps.height * imgWidthMM) / imgProps.width;
-        const x = (pageWidth - imgWidthMM) / 2; // center horizontally
-        doc.addImage(imgData, "PNG", x, 10, imgWidthMM, imgHeightMM);
-        // Move cursor down below image
-        var y = 10 + imgHeightMM + 10;
-      } else {
-        // If no image, start lower
-        var y = 20;
+        const x = (pageWidth - imgWidthMM) / 2;
+        doc.addImage(imgData, "PNG", x, y, imgWidthMM, imgHeightMM);
+        y += imgHeightMM + 10;
       }
 
-      // 2) Title / Header
+      // 2) Header
       doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
-      doc.text("IFWL Ticket Report", doc.internal.pageSize.getWidth() / 2, y, {
-        align: "center"
-      });
+      doc.text("IFWL Ticket Report", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
       y += 12;
 
-      // 3) Add the requested fields (minus footage links)
+      // 3) Accused, Reporter, Status, Incident Comments
       doc.setFontSize(14);
       doc.setFont("helvetica", "normal");
-      // "Driver Accused"
       doc.text(`Accused: ${ticketData.accused || ""}`, 15, y);
       y += 8;
-      // "Driver Reporting"
       doc.text(`Reporter: ${ticketData.reporter || ""}`, 15, y);
       y += 8;
-      // "Current Status"
       doc.text(`Status: ${ticketData.status || ""}`, 15, y);
       y += 8;
-      // "Incident Comments" (use `content`)
+
       doc.text("Incident Comments:", 15, y);
       y += 6;
       doc.setFontSize(12);
       const pageWidth = doc.internal.pageSize.getWidth();
-      const usableWidth = pageWidth - 30; // 15mm margin each side
+      const usableWidth = pageWidth - 30;
       const splitContent = doc.splitTextToSize(ticketData.content || "", usableWidth);
       doc.text(splitContent, 15, y);
       y += splitContent.length * 6 + 4;
 
-      // "Steward - OIC": either stewardTag or "UNDER REVIEW"
-      doc.setFontSize(14);
+      // 4) Steward Tag or “UNDER REVIEW”
       const stewardTagVal = ticketData.stewardTag || "UNDER REVIEW";
+      doc.setFontSize(14);
       doc.text(`Steward: ${stewardTagVal}`, 15, y);
       y += 10;
 
-      // 4) Footer or spacing
+      // 5) Footer timestamp
       doc.setFontSize(10);
       doc.setTextColor(100);
       const now = new Date();
@@ -986,7 +968,7 @@
         doc.internal.pageSize.getHeight() - 15
       );
 
-      // 5) Save the PDF
+      // 6) Save PDF
       doc.save(`IFWL_ticket_${ticketId}.pdf`);
     }
   </script>
