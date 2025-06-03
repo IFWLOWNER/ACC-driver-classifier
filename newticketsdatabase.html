@@ -202,7 +202,8 @@
       margin-top: 12px;
     }
     .detail-container .review-form select,
-    .detail-container .review-form textarea {
+    .detail-container .review-form textarea,
+    .detail-container .review-form input[type="text"] {
       margin-top: 4px;
       margin-bottom: 12px;
     }
@@ -442,6 +443,7 @@
         track:       track,
         status:      "New Submission",
         stewardDecision: "",
+        stewardTag:  "",           // <--- new field for steward name/tag
         timestamp:   serverTimestamp()
       };
       try {
@@ -604,11 +606,14 @@
             <p><strong>Reason:</strong> ${ticketData.reason || ""}</p>
             <p><strong>Reporter:</strong> ${ticketData.reporter || ""}</p>
             <p><strong>Season:</strong> ${ticketData.season || ""}</p>
-            <p><strong>Steward:</strong> ${ticketData.steward || ""}</p>
+            <p><strong>Steward (assigned):</strong> ${ticketData.steward || ""}</p>
             <p><strong>Track:</strong> ${ticketData.track || ""}</p>
             <p><strong>Status:</strong> ${ticketData.status || ""}</p>
             ${ticketData.stewardDecision 
               ? `<p><strong>Steward Decision:</strong> ${ticketData.stewardDecision}</p>` 
+              : ""}
+            ${ticketData.stewardTag 
+              ? `<p><strong>Steward Tag:</strong> ${ticketData.stewardTag}</p>` 
               : ""}
             <p><strong>Submitted At:</strong> ${
               (ticketData.timestamp && ticketData.timestamp.toDate)
@@ -627,8 +632,16 @@
                 <option value="Finalised" ${ticketData.status === "Finalised" ? "selected" : ""}>Finalised</option>
                 <option value="Appeal In Progress" ${ticketData.status === "Appeal In Progress" ? "selected" : ""}>Appeal In Progress</option>
               </select>
+
               <label for="decisionText-${ticketId}"><strong>Steward Decision</strong></label>
               <textarea id="decisionText-${ticketId}" placeholder="Enter your decision…" rows="3">${ticketData.stewardDecision || ""}</textarea>
+
+              <!-- NEW: Steward Tag input -->
+              <label for="stewardTag-${ticketId}"><strong>Steward Tag (e.g. Steward – IOC)</strong></label>
+              <input type="text" id="stewardTag-${ticketId}" 
+                     placeholder="e.g. Steward – IOC" 
+                     value="${ticketData.stewardTag || ""}" />
+
               <div style="margin-top: 8px;">
                 <button id="submitReview-${ticketId}">Update Ticket</button>
                 <button id="cancelDetail-${ticketId}" style="background-color: #999; margin-left:8px;">Close</button>
@@ -647,17 +660,25 @@
 
       // Wire up the Submit Review button
       document.getElementById(`submitReview-${ticketId}`).addEventListener("click", async () => {
-        const statusSelect = document.getElementById(`statusSelect-${ticketId}`);
-        const decisionInput = document.getElementById(`decisionText-${ticketId}`);
+        const statusSelect   = document.getElementById(`statusSelect-${ticketId}`);
+        const decisionInput  = document.getElementById(`decisionText-${ticketId}`);
+        const stewardTagInput = document.getElementById(`stewardTag-${ticketId}`);
         const detailStatusDiv = document.getElementById(`detailStatus-${ticketId}`);
-        const newStatus = statusSelect.value;
-        const decisionText = decisionInput.value.trim();
+        const newStatus      = statusSelect.value;
+        const decisionText   = decisionInput.value.trim();
+        const stewardTagVal  = stewardTagInput.value.trim();
 
         if (!decisionText) {
           detailStatusDiv.textContent = "Please enter a steward decision.";
           detailStatusDiv.className = "status error";
           return;
         }
+        if (!stewardTagVal) {
+          detailStatusDiv.textContent = "Please enter a steward tag.";
+          detailStatusDiv.className = "status error";
+          return;
+        }
+
         detailStatusDiv.textContent = "Updating ticket…";
         detailStatusDiv.className = "status";
 
@@ -665,7 +686,8 @@
           const ticketRef = doc(db, "tickets", ticketId);
           await updateDoc(ticketRef, {
             status: newStatus,
-            stewardDecision: decisionText
+            stewardDecision: decisionText,
+            stewardTag: stewardTagVal
           });
           detailStatusDiv.textContent = "Ticket updated!";
           detailStatusDiv.className = "status success";
@@ -722,8 +744,6 @@
                         : "";
           const id   = docSnap.id;
 
-          // If the ticket has any appeals, highlight the row
-          // We'll check appeals existence asynchronously below
           tableHTML += `
             <tr data-id="${id}" class="ticketRow">
               <td>${id}</td>
