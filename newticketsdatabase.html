@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Submit, View & Admin Review</title>
+  <title>IFWL Tickets • Admin Detailed View</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -47,7 +47,7 @@
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       padding: 24px;
-      max-width: 600px;
+      max-width: 800px;
       width: 100%;
       margin-bottom: 24px;
     }
@@ -136,22 +136,10 @@
     }
 
     /* ------------------------------------------------------------
-       Styles for highlighting appeals in the admin view
+       Highlight full ticket row if appealed
        ------------------------------------------------------------ */
-    .appeal-highlight td {
+    .appeal-highlight {
       background-color: #fffbe6; /* light yellow background */
-    }
-    .appeal-highlight .appeal-box {
-      padding: 8px;
-      border: 1px solid #f5e6a0;
-      border-radius: 4px;
-      background-color: #fffdf0;
-      margin-bottom: 8px;
-      font-size: 0.9rem;
-      color: #333;
-    }
-    .appeal-highlight .appeal-box strong {
-      color: #b36b00;
     }
 
     /* ------------------------------------------------------------
@@ -176,22 +164,49 @@
     }
 
     /* ------------------------------------------------------------
-       Styles for the inline review form in admin view
+       Styles for the detailed view row in admin
        ------------------------------------------------------------ */
-    .review-form {
-      background: #eef7ff;
+    .detailRow td {
+      background-color: #eef7ff; /* very light blue */
+      padding: 0;
+    }
+    .detail-container {
       padding: 16px;
-      border: 1px solid #9ecfff;
-      border-radius: 6px;
-      margin-top: 8px;
       font-size: 0.95rem;
     }
-    .review-form select,
-    .review-form textarea {
+    .detail-container p {
+      margin: 4px 0;
+    }
+    .detail-container hr {
+      margin: 12px 0;
+      border: none;
+      border-top: 1px solid #ccc;
+    }
+    .detail-container .appeal-box {
+      padding: 8px;
+      border: 1px solid #f5e6a0;
+      border-radius: 4px;
+      background-color: #fffdf0;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      color: #333;
+    }
+    .detail-container .appeal-box strong {
+      color: #b36b00;
+    }
+    .detail-container .review-form {
+      background: #eef7ff;
+      padding: 12px;
+      border: 1px solid #9ecfff;
+      border-radius: 6px;
+      margin-top: 12px;
+    }
+    .detail-container .review-form select,
+    .detail-container .review-form textarea {
       margin-top: 4px;
       margin-bottom: 12px;
     }
-    .review-form button {
+    .detail-container .review-form button {
       width: auto;
       margin-right: 8px;
     }
@@ -289,12 +304,12 @@
   </div>
 
   <!-- ==============================================================
-       SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH REVIEW FORM)
+       SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH DETAIL VIEW)
        ============================================================== -->
   <div id="adminSection" class="container hidden">
     <h2 class="section-title">Admin Dashboard</h2>
     <div id="adminTicketsContainer">
-      <!-- Admin table + appeals + review form will be injected here -->
+      <!-- Admin table will be injected here -->
     </div>
   </div>
 
@@ -309,6 +324,7 @@
       collection,
       addDoc,
       getDocs,
+      getDoc,
       query,
       orderBy,
       serverTimestamp,
@@ -530,64 +546,120 @@
     }
 
     // ----------------------------------------------------------------
-    // 7) INLINE REVIEW FORM HELPER (admin)
+    // 7) TOGGLE DETAIL VIEW (admin): Show full ticket + appeals + review form
     // ----------------------------------------------------------------
-    function toggleReviewForm(ticketId, container) {
-      // Remove any existing review form row
-      const existingForm = container.querySelector(".reviewFormRow");
-      if (existingForm) {
-        existingForm.remove();
+    async function toggleDetailView(ticketId, container) {
+      // Remove any existing .detailRow
+      const existingDetail = container.querySelector(".detailRow");
+      if (existingDetail) {
+        existingDetail.remove();
       }
 
       // Find the <tr data-id="{ticketId}">
       const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
       if (!ticketRow) return;
 
-      // Create a new <tr> right after ticketRow
-      const formRow = document.createElement("tr");
-      formRow.classList.add("reviewFormRow");
-      // colspan = total columns in the admin table (6 data + “Action” column = 7)
-      formRow.innerHTML = `
-        <td colspan="7">
-          <div class="review-form">
-            <label for="statusSelect-${ticketId}"><strong>Select Outcome</strong></label>
-            <select id="statusSelect-${ticketId}">
-              <option value="Under Review">Under Review</option>
-              <option value="Finalised">Finalised</option>
-              <option value="Appeal In Progress">Appeal In Progress</option>
-            </select>
-            <label for="decisionText-${ticketId}"><strong>Steward Decision</strong></label>
-            <textarea id="decisionText-${ticketId}" placeholder="Enter your decision…" rows="3"></textarea>
-            <div style="margin-top: 8px;">
-              <button id="submitReview-${ticketId}">Update Ticket</button>
-              <button id="cancelReview-${ticketId}" style="background-color: #999; margin-left:8px;">Cancel</button>
+      // Fetch the ticket document
+      const ticketDocRef = doc(db, "tickets", ticketId);
+      const ticketSnap = await getDoc(ticketDocRef);
+      if (!ticketSnap.exists()) return;
+      const ticketData = ticketSnap.data();
+
+      // Fetch any appeals for this ticket
+      const appealsRef = collection(db, "tickets", ticketId, "appeals");
+      const appealsSnapshot = await getDocs(appealsRef);
+      let appealsHTML = "";
+      if (!appealsSnapshot.empty) {
+        appealsSnapshot.forEach(appSnap => {
+          const appealData = appSnap.data();
+          const appealTs = appealData.timestamp && appealData.timestamp.toDate
+            ? appealData.timestamp.toDate().toLocaleString()
+            : "";
+          appealsHTML += `
+            <div class="appeal-box">
+              <div><strong>Appeal:</strong> ${appealData.appealInfo}</div>
+              <div><strong>Extra Video Proof:</strong> ${appealData.extraProofUrl || "N/A"}</div>
+              <div style="margin-top:4px; font-size:0.8rem; color:#555;">
+                <em>Submitted: ${appealTs}</em>
+              </div>
             </div>
-            <div id="reviewStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
+          `;
+        });
+      }
+
+      // Build the detail HTML
+      const detailRow = document.createElement("tr");
+      detailRow.classList.add("detailRow");
+      detailRow.innerHTML = `
+        <td colspan="7">
+          <div class="detail-container">
+            <h3>Ticket Details</h3>
+            <p><strong>ID:</strong> ${ticketId}</p>
+            <p><strong>Accused:</strong> ${ticketData.accused || ""}</p>
+            <p><strong>Competition:</strong> ${ticketData.competition || ""}</p>
+            <p><strong>Content:</strong> ${ticketData.content || ""}</p>
+            <p><strong>Event:</strong> ${ticketData.event || ""}</p>
+            <p><strong>Proof URL:</strong> ${ticketData.proofUrl || "N/A"}</p>
+            <p><strong>Race:</strong> ${ticketData.race || ""}</p>
+            <p><strong>Reason:</strong> ${ticketData.reason || ""}</p>
+            <p><strong>Reporter:</strong> ${ticketData.reporter || ""}</p>
+            <p><strong>Season:</strong> ${ticketData.season || ""}</p>
+            <p><strong>Steward:</strong> ${ticketData.steward || ""}</p>
+            <p><strong>Track:</strong> ${ticketData.track || ""}</p>
+            <p><strong>Status:</strong> ${ticketData.status || ""}</p>
+            ${ticketData.stewardDecision 
+              ? `<p><strong>Steward Decision:</strong> ${ticketData.stewardDecision}</p>` 
+              : ""}
+            <p><strong>Submitted At:</strong> ${
+              (ticketData.timestamp && ticketData.timestamp.toDate)
+                ? ticketData.timestamp.toDate().toLocaleString()
+                : ""
+            }</p>
+            ${appealsHTML 
+              ? `<hr><h4>Appeals</h4>${appealsHTML}` 
+              : ""}
+            <hr>
+            <div class="review-form">
+              <h4>Admin Review</h4>
+              <label for="statusSelect-${ticketId}"><strong>Select Outcome</strong></label>
+              <select id="statusSelect-${ticketId}">
+                <option value="Under Review" ${ticketData.status === "Under Review" ? "selected" : ""}>Under Review</option>
+                <option value="Finalised" ${ticketData.status === "Finalised" ? "selected" : ""}>Finalised</option>
+                <option value="Appeal In Progress" ${ticketData.status === "Appeal In Progress" ? "selected" : ""}>Appeal In Progress</option>
+              </select>
+              <label for="decisionText-${ticketId}"><strong>Steward Decision</strong></label>
+              <textarea id="decisionText-${ticketId}" placeholder="Enter your decision…" rows="3">${ticketData.stewardDecision || ""}</textarea>
+              <div style="margin-top: 8px;">
+                <button id="submitReview-${ticketId}">Update Ticket</button>
+                <button id="cancelDetail-${ticketId}" style="background-color: #999; margin-left:8px;">Close</button>
+              </div>
+              <div id="detailStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
+            </div>
           </div>
         </td>
       `;
-      ticketRow.insertAdjacentElement("afterend", formRow);
+      ticketRow.insertAdjacentElement("afterend", detailRow);
 
-      // Wire up Cancel button
-      document.getElementById(`cancelReview-${ticketId}`).addEventListener("click", () => {
-        formRow.remove();
+      // Wire up the Cancel button
+      document.getElementById(`cancelDetail-${ticketId}`).addEventListener("click", () => {
+        detailRow.remove();
       });
 
-      // Wire up Submit Review button
+      // Wire up the Submit Review button
       document.getElementById(`submitReview-${ticketId}`).addEventListener("click", async () => {
         const statusSelect = document.getElementById(`statusSelect-${ticketId}`);
         const decisionInput = document.getElementById(`decisionText-${ticketId}`);
-        const reviewStatusDiv = document.getElementById(`reviewStatus-${ticketId}`);
+        const detailStatusDiv = document.getElementById(`detailStatus-${ticketId}`);
         const newStatus = statusSelect.value;
         const decisionText = decisionInput.value.trim();
 
         if (!decisionText) {
-          reviewStatusDiv.textContent = "Please enter a steward decision.";
-          reviewStatusDiv.className = "status error";
+          detailStatusDiv.textContent = "Please enter a steward decision.";
+          detailStatusDiv.className = "status error";
           return;
         }
-        reviewStatusDiv.textContent = "Updating ticket…";
-        reviewStatusDiv.className = "status";
+        detailStatusDiv.textContent = "Updating ticket…";
+        detailStatusDiv.className = "status";
 
         try {
           const ticketRef = doc(db, "tickets", ticketId);
@@ -595,16 +667,16 @@
             status: newStatus,
             stewardDecision: decisionText
           });
-          reviewStatusDiv.textContent = "Ticket updated!";
-          reviewStatusDiv.className = "status success";
-          // Re-render admin view after a short delay so the new status is fetched
+          detailStatusDiv.textContent = "Ticket updated!";
+          detailStatusDiv.className = "status success";
+          // Refresh the admin table after a short delay
           setTimeout(async () => {
             await fetchAndRenderTickets(adminTicketsContainer, true);
-          }, 1000);
+          }, 800);
         } catch (err) {
           console.error("Error updating ticket:", err);
-          reviewStatusDiv.textContent = "Error updating ticket. Please try again.";
-          reviewStatusDiv.className = "status error";
+          detailStatusDiv.textContent = "Error updating ticket. Please try again.";
+          detailStatusDiv.className = "status error";
         }
       });
     }
@@ -650,6 +722,8 @@
                         : "";
           const id   = docSnap.id;
 
+          // If the ticket has any appeals, highlight the row
+          // We'll check appeals existence asynchronously below
           tableHTML += `
             <tr data-id="${id}" class="ticketRow">
               <td>${id}</td>
@@ -660,7 +734,7 @@
               <td>${ts}</td>
               ${isAdmin 
                 ? `<td>
-                    <button data-id="${id}" class="reviewBtn">Review</button>
+                    <button data-id="${id}" class="openBtn">Open</button>
                    </td>`
                 : `<td>
                     <button data-id="${id}" class="appealBtn">Appeal</button>
@@ -673,58 +747,26 @@
         targetContainer.innerHTML = tableHTML;
 
         if (isAdmin) {
-          // 8.a) Wire up “Review” buttons for admin
-          const reviewBtns = targetContainer.querySelectorAll(".reviewBtn");
-          reviewBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
-              const ticketId = e.currentTarget.getAttribute("data-id");
-              toggleReviewForm(ticketId, targetContainer);
-            });
-          });
-
-          // 8.b) For each ticketRow, if status === "Appeal In Progress", fetch appeals
+          // 8.a) For each ticket row, check if appeals exist → add highlight class
           const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
           ticketRows.forEach(async (row) => {
             const ticketId = row.getAttribute("data-id");
-            // Find the status text in the 5th <td> of this row
-            const statusText = row.children[4].textContent.trim();
-            if (statusText === "Appeal In Progress") {
-              const appealsRef = collection(db, "tickets", ticketId, "appeals");
-              const appealsSnapshot = await getDocs(appealsRef);
+            const appealsRef = collection(db, "tickets", ticketId, "appeals");
+            const appealsSnapshot = await getDocs(appealsRef);
 
-              if (!appealsSnapshot.empty) {
-                // Build a highlight row under this ticket
-                const highlightRow = document.createElement("tr");
-                highlightRow.classList.add("appeal-highlight");
-
-                // colspan = 7 columns (6 data + “Action”)
-                const cell = document.createElement("td");
-                cell.colSpan = 7;
-
-                let appealsHTML = "";
-                appealsSnapshot.forEach(appSnap => {
-                  const appealData = appSnap.data();
-                  const appealTs = appealData.timestamp && appealData.timestamp.toDate
-                    ? appealData.timestamp.toDate().toLocaleString()
-                    : "";
-                  appealsHTML += `
-                    <div class="appeal-box">
-                      <div><strong>Appeal:</strong> ${appealData.appealInfo}</div>
-                      <div><strong>Extra Video Proof:</strong> ${appealData.extraProofUrl || "N/A"}</div>
-                      <div style="margin-top:4px; font-size:0.8rem; color:#555;">
-                        <em>Submitted: ${appealTs}</em>
-                      </div>
-                    </div>
-                  `;
-                });
-
-                cell.innerHTML = appealsHTML;
-                highlightRow.appendChild(cell);
-                row.insertAdjacentElement("afterend", highlightRow);
-              }
+            if (!appealsSnapshot.empty) {
+              row.classList.add("appeal-highlight");
             }
           });
 
+          // 8.b) Wire up “Open” buttons to show detail view
+          const openBtns = targetContainer.querySelectorAll(".openBtn");
+          openBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+              const ticketId = e.currentTarget.getAttribute("data-id");
+              toggleDetailView(ticketId, targetContainer);
+            });
+          });
         } else {
           // PUBLIC – wire up “Appeal” buttons
           const appealBtns = targetContainer.querySelectorAll(".appealBtn");
