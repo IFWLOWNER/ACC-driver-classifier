@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IFWL Tickets • Submit, View & Appeal</title>
   <style>
-    /* (unchanged styling...) */
+    /* ------------------------------------------------------------
+       Base styling for the entire page
+       ------------------------------------------------------------ */
     body {
       font-family: Arial, sans-serif;
       background: #f7f7f7;
@@ -25,7 +27,21 @@
       text-align: center;
       font-size: 1.4rem;
       margin-bottom: 24px;
+      position: relative;
     }
+    .logout-btn {
+      background-color: transparent;
+      border: 1px solid #fff;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      position: absolute;
+      right: 16px;
+      top: 12px;
+    }
+
     .container {
       background: white;
       border-radius: 8px;
@@ -34,6 +50,13 @@
       max-width: 600px;
       width: 100%;
       margin-bottom: 24px;
+    }
+    .section-title {
+      margin-top: 0;
+      text-align: center;
+      color: #333;
+      font-size: 1.2rem;
+      margin-bottom: 12px;
     }
     .form-group {
       margin-bottom: 16px;
@@ -74,14 +97,6 @@
       background-color: #999;
       cursor: not-allowed;
     }
-    .status {
-      margin-top: 16px;
-      font-size: 14px;
-      color: #555;
-      text-align: center;
-    }
-    .status.error { color: #c00; }
-    .status.success { color: #080; }
     .link-btn {
       background: none;
       border: none;
@@ -91,6 +106,15 @@
       font-size: 14px;
       margin-top: 8px;
     }
+    .status {
+      margin-top: 16px;
+      font-size: 14px;
+      color: #555;
+      text-align: center;
+    }
+    .status.error { color: #c00; }
+    .status.success { color: #080; }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -105,34 +129,40 @@
     th {
       background: #eee;
     }
-    .section-title {
-      margin-top: 0;
-      text-align: center;
-      color: #333;
-      font-size: 1.2rem;
-      margin-bottom: 12px;
-    }
+
     .hidden {
       display: none;
     }
-    .logout-btn {
-      background-color: transparent;
-      border: 1px solid #6200EE;
-      color: #6200EE;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      float: right;
-      margin-top: -30px;
+
+    /* ------------------------------------------------------------
+       Styles for highlighting appeals in the admin view
+       ------------------------------------------------------------ */
+    .appeal-highlight td {
+      background-color: #fffbe6; /* light yellow background */
     }
-    /* Style for the inline appeal form row */
+    .appeal-highlight .appeal-box {
+      padding: 8px;
+      border: 1px solid #f5e6a0;
+      border-radius: 4px;
+      background-color: #fffdf0;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      color: #333;
+    }
+    .appeal-highlight .appeal-box strong {
+      color: #b36b00;
+    }
+
+    /* ------------------------------------------------------------
+       Styles for the inline appeal form in public view
+       ------------------------------------------------------------ */
     .appeal-form {
       background: #fafafa;
       padding: 16px;
       border: 1px solid #ddd;
       border-radius: 6px;
       margin-top: 8px;
+      font-size: 0.95rem;
     }
     .appeal-form input[type="text"],
     .appeal-form textarea {
@@ -151,9 +181,9 @@
     <button id="logoutBtn" class="logout-btn hidden">Logout</button>
   </header>
 
-  <!-- -------------------------------------------------------------------
+  <!-- ==============================================================
        SECTION 1: SUBMIT A NEW TICKET (VISIBLE TO EVERYONE)
-       ------------------------------------------------------------------- -->
+       ============================================================== -->
   <div id="submitSection" class="container">
     <h2 class="section-title">Submit a New Ticket</h2>
     <div class="form-group">
@@ -207,20 +237,20 @@
     <button id="loginToggleBtn" class="link-btn">Admin Login</button>
   </div>
 
-  <!-- -------------------------------------------------------------------
-       SECTION 2: VIEW ALL TICKETS (PUBLIC, WITH APPEAL BUTTON)
-       ------------------------------------------------------------------- -->
+  <!-- ==============================================================
+       SECTION 2: VIEW ALL TICKETS (PUBLIC, WITH INLINE APPEAL FORM)
+       ============================================================== -->
   <div id="viewSection" class="container hidden">
     <h2 class="section-title">All Submitted Tickets</h2>
     <div id="ticketsListContainer">
-      <!-- Table of tickets will be injected here -->
+      <!-- Public table + inline appeal form will be injected here -->
     </div>
     <button id="backFromViewBtn" class="link-btn">← Back to Submit</button>
   </div>
 
-  <!-- ------------------------------------
+  <!-- ==============================================================
        SECTION 3: LOGIN FORM (for Admins)
-       ------------------------------------- -->
+       ============================================================== -->
   <div id="loginSection" class="container hidden">
     <h2 class="section-title">Admin Sign-In</h2>
     <div class="form-group">
@@ -236,17 +266,19 @@
     <button id="backFromLoginBtn" class="link-btn">← Back</button>
   </div>
 
-  <!-- --------------------------------------
-       SECTION 4: ADMIN DASHBOARD (Private)
-       -------------------------------------- -->
+  <!-- ==============================================================
+       SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH APPEAL HIGHLIGHT)
+       ============================================================== -->
   <div id="adminSection" class="container hidden">
     <h2 class="section-title">Admin Dashboard</h2>
     <div id="adminTicketsContainer">
-      <!-- Admin will see a table with “Mark Reviewed” buttons -->
+      <!-- Admin table + appeals will be injected here -->
     </div>
   </div>
 
-  <!-- Firebase v9+ Modular SDK -->
+  <!-- ==============================================================
+       Firebase v9+ Modular SDK & App Logic
+       ============================================================== -->
   <script type="module">
     // 1) Import required Firebase modules
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
@@ -285,41 +317,41 @@
     const auth  = getAuth(app);
 
     // 4) Cache DOM elements
-    const submitSection       = document.getElementById("submitSection");
-    const viewSection         = document.getElementById("viewSection");
-    const loginSection        = document.getElementById("loginSection");
-    const adminSection        = document.getElementById("adminSection");
+    const submitSection        = document.getElementById("submitSection");
+    const viewSection          = document.getElementById("viewSection");
+    const loginSection         = document.getElementById("loginSection");
+    const adminSection         = document.getElementById("adminSection");
 
-    // “Submit a Ticket” elements
-    const accusedInput        = document.getElementById("accused");
-    const competitionInput    = document.getElementById("competition");
-    const contentInput        = document.getElementById("content");
-    const eventInput          = document.getElementById("event");
-    const proofUrlInput       = document.getElementById("proofUrl");
-    const raceInput           = document.getElementById("race");
-    const reasonInput         = document.getElementById("reason");
-    const reporterInput       = document.getElementById("reporter");
-    const seasonInput         = document.getElementById("season");
-    const stewardInput        = document.getElementById("steward");
-    const trackInput          = document.getElementById("track");
-    const submitBtn           = document.getElementById("submitBtn");
-    const statusMsg           = document.getElementById("statusMsg");
+    // Submit‐ticket elements
+    const accusedInput         = document.getElementById("accused");
+    const competitionInput     = document.getElementById("competition");
+    const contentInput         = document.getElementById("content");
+    const eventInput           = document.getElementById("event");
+    const proofUrlInput        = document.getElementById("proofUrl");
+    const raceInput            = document.getElementById("race");
+    const reasonInput          = document.getElementById("reason");
+    const reporterInput        = document.getElementById("reporter");
+    const seasonInput          = document.getElementById("season");
+    const stewardInput         = document.getElementById("steward");
+    const trackInput           = document.getElementById("track");
+    const submitBtn            = document.getElementById("submitBtn");
+    const statusMsg            = document.getElementById("statusMsg");
 
-    // “View All Tickets” elements
-    const viewTicketsBtn      = document.getElementById("viewTicketsBtn");
-    const backFromViewBtn     = document.getElementById("backFromViewBtn");
+    // View all tickets (public) elements
+    const viewTicketsBtn       = document.getElementById("viewTicketsBtn");
+    const backFromViewBtn      = document.getElementById("backFromViewBtn");
     const ticketsListContainer = document.getElementById("ticketsListContainer");
 
-    // “Login” elements
-    const loginToggleBtn      = document.getElementById("loginToggleBtn");
-    const loginBtn            = document.getElementById("loginBtn");
-    const backFromLoginBtn    = document.getElementById("backFromLoginBtn");
-    const emailInput          = document.getElementById("email");
-    const passwordInput       = document.getElementById("password");
-    const loginStatusMsg      = document.getElementById("loginStatusMsg");
+    // Login (admin) elements
+    const loginToggleBtn       = document.getElementById("loginToggleBtn");
+    const loginBtn             = document.getElementById("loginBtn");
+    const backFromLoginBtn     = document.getElementById("backFromLoginBtn");
+    const emailInput           = document.getElementById("email");
+    const passwordInput        = document.getElementById("password");
+    const loginStatusMsg       = document.getElementById("loginStatusMsg");
 
-    // “Admin Dashboard” elements
-    const logoutBtn           = document.getElementById("logoutBtn");
+    // Admin dashboard elements
+    const logoutBtn            = document.getElementById("logoutBtn");
     const adminTicketsContainer = document.getElementById("adminTicketsContainer");
 
     // ----------------------------------------------------------------
@@ -333,7 +365,7 @@
     }
 
     // ----------------------------------------------------------------
-    // 5) HANDLE “SUBMIT TICKET” exactly as before
+    // 5) HANDLE “SUBMIT TICKET” (public)
     // ----------------------------------------------------------------
     submitBtn.addEventListener("click", async () => {
       submitBtn.disabled = true;
@@ -377,17 +409,18 @@
         const docRef = await addDoc(collection(db, "tickets"), newTicket);
         statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
         statusMsg.className = "status success";
-        accusedInput.value = "";
+        // Clear fields
+        accusedInput.value     = "";
         competitionInput.value = "";
-        contentInput.value = "";
-        eventInput.value = "";
-        proofUrlInput.value = "";
-        raceInput.value = "";
-        reasonInput.value = "";
-        reporterInput.value = "";
-        seasonInput.value = "";
-        stewardInput.value = "";
-        trackInput.value = "";
+        contentInput.value     = "";
+        eventInput.value       = "";
+        proofUrlInput.value    = "";
+        raceInput.value        = "";
+        reasonInput.value      = "";
+        reporterInput.value    = "";
+        seasonInput.value      = "";
+        stewardInput.value     = "";
+        trackInput.value       = "";
       } catch (error) {
         console.error("Error writing ticket: ", error);
         statusMsg.textContent = "Error submitting ticket. Please try again.";
@@ -398,7 +431,83 @@
     });
 
     // ----------------------------------------------------------------
-    // 6) FETCH & RENDER TICKETS (public vs. admin mode)
+    // 6) INLINE APPEAL FORM HELPER (public)
+    // ----------------------------------------------------------------
+    function toggleAppealForm(ticketId, container) {
+      // Remove any existing appeal form row
+      const existingForm = container.querySelector(".appealFormRow");
+      if (existingForm) {
+        existingForm.remove();
+      }
+
+      // Find the <tr data-id="{ticketId}">
+      const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
+      if (!ticketRow) return;
+
+      // Create a new <tr> right after ticketRow
+      const formRow = document.createElement("tr");
+      formRow.classList.add("appealFormRow");
+      // colspan = total columns in the public table (6 data + “Appeal” column = 7)
+      formRow.innerHTML = `
+        <td colspan="7">
+          <div class="appeal-form">
+            <label for="appealInfo-${ticketId}"><strong>Appeal Info</strong></label>
+            <textarea id="appealInfo-${ticketId}" placeholder="Enter your appeal details…" rows="3"></textarea>
+            <label for="extraProof-${ticketId}"><strong>Extra Video Proof URL</strong></label>
+            <input type="url" id="extraProof-${ticketId}" placeholder="https://example.com/extra-proof" />
+            <div style="margin-top: 8px;">
+              <button id="submitAppeal-${ticketId}">Submit Appeal</button>
+              <button id="cancelAppeal-${ticketId}" style="background-color: #999; margin-left:8px;">Cancel</button>
+            </div>
+            <div id="appealStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
+          </div>
+        </td>
+      `;
+      ticketRow.insertAdjacentElement("afterend", formRow);
+
+      // Wire up the “Cancel” button
+      document.getElementById(`cancelAppeal-${ticketId}`).addEventListener("click", () => {
+        formRow.remove();
+      });
+
+      // Wire up the “Submit Appeal” button
+      document.getElementById(`submitAppeal-${ticketId}`).addEventListener("click", async () => {
+        const appealInfoInput = document.getElementById(`appealInfo-${ticketId}`);
+        const extraProofInput = document.getElementById(`extraProof-${ticketId}`);
+        const appealStatusDiv = document.getElementById(`appealStatus-${ticketId}`);
+        const appealInfoValue = appealInfoInput.value.trim();
+        const extraProofValue = extraProofInput.value.trim();
+
+        if (!appealInfoValue) {
+          appealStatusDiv.textContent = "Please enter your appeal details.";
+          appealStatusDiv.className = "status error";
+          return;
+        }
+        appealStatusDiv.textContent = "Submitting appeal…";
+        appealStatusDiv.className = "status";
+
+        try {
+          const appealsColRef = collection(db, "tickets", ticketId, "appeals");
+          await addDoc(appealsColRef, {
+            appealInfo: appealInfoValue,
+            extraProofUrl: extraProofValue,
+            timestamp: serverTimestamp()
+          });
+          appealStatusDiv.textContent = "Appeal submitted! We’ll review it soon.";
+          appealStatusDiv.className = "status success";
+          setTimeout(() => {
+            formRow.remove();
+          }, 2000);
+        } catch (err) {
+          console.error("Error submitting appeal:", err);
+          appealStatusDiv.textContent = "Error submitting appeal. Please try again.";
+          appealStatusDiv.className = "status error";
+        }
+      });
+    }
+
+    // ----------------------------------------------------------------
+    // 7) FETCH & RENDER TICKETS (public vs. admin)
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
@@ -411,7 +520,7 @@
           return;
         }
 
-        // Build table header: add “Appeal” column if public (isAdmin=false)
+        // Build table header
         let tableHTML = `
           <table>
             <thead>
@@ -430,6 +539,7 @@
             <tbody>
         `;
 
+        // Build each ticket row
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
           const ts   = data.timestamp && data.timestamp.toDate 
@@ -459,16 +569,16 @@
         tableHTML += `</tbody></table>`;
         targetContainer.innerHTML = tableHTML;
 
-        // If admin, wire up “Mark Reviewed”:
         if (isAdmin) {
-          const buttons = targetContainer.querySelectorAll(".markReviewedBtn");
-          buttons.forEach(btn => {
+          // 7.a) Wire up “Mark Reviewed” buttons for admin
+          const markBtns = targetContainer.querySelectorAll(".markReviewedBtn");
+          markBtns.forEach(btn => {
             btn.addEventListener("click", async (e) => {
               const ticketId = e.currentTarget.getAttribute("data-id");
               try {
                 const ticketRef = doc(db, "tickets", ticketId);
                 await updateDoc(ticketRef, { status: "Reviewed" });
-                // Refresh table
+                // Re-render admin view
                 await fetchAndRenderTickets(adminTicketsContainer, true);
               } catch (err) {
                 console.error("Error updating ticket status:", err);
@@ -477,8 +587,47 @@
             });
           });
 
+          // 7.b) For each ticketRow, fetch appeals and insert a highlight row if any
+          const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
+          ticketRows.forEach(async (row) => {
+            const ticketId = row.getAttribute("data-id");
+            const appealsRef = collection(db, "tickets", ticketId, "appeals");
+            const appealsSnapshot = await getDocs(appealsRef);
+
+            if (!appealsSnapshot.empty) {
+              // Build a highlight row under this ticket
+              const highlightRow = document.createElement("tr");
+              highlightRow.classList.add("appeal-highlight");
+
+              // colspan = 7 columns (6 data + “Action”)
+              const cell = document.createElement("td");
+              cell.colSpan = 7;
+
+              let appealsHTML = "";
+              appealsSnapshot.forEach(appSnap => {
+                const appealData = appSnap.data();
+                const appealTs = appealData.timestamp && appealData.timestamp.toDate
+                  ? appealData.timestamp.toDate().toLocaleString()
+                  : "";
+                appealsHTML += `
+                  <div class="appeal-box">
+                    <div><strong>Appeal:</strong> ${appealData.appealInfo}</div>
+                    <div><strong>Extra Video Proof:</strong> ${appealData.extraProofUrl || "N/A"}</div>
+                    <div style="margin-top:4px; font-size:0.8rem; color:#555;">
+                      <em>Submitted: ${appealTs}</em>
+                    </div>
+                  </div>
+                `;
+              });
+
+              cell.innerHTML = appealsHTML;
+              highlightRow.appendChild(cell);
+              row.insertAdjacentElement("afterend", highlightRow);
+            }
+          });
+
         } else {
-          // PUBLIC mode: wire up “Appeal” buttons
+          // PUBLIC – wire up “Appeal” buttons
           const appealBtns = targetContainer.querySelectorAll(".appealBtn");
           appealBtns.forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -495,89 +644,7 @@
     }
 
     // ----------------------------------------------------------------
-    // 7) TOGGLE (SHOW/HIDE) AN INLINE APPEAL FORM FOR A GIVEN TICKET
-    // ----------------------------------------------------------------
-    function toggleAppealForm(ticketId, container) {
-      // Remove any existing appeal form row
-      const existingForm = container.querySelector(".appealFormRow");
-      if (existingForm) {
-        existingForm.remove();
-      }
-
-      // Find the row <tr data-id="{ticketId}">
-      const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
-      if (!ticketRow) return;
-
-      // Create a new <tr> right after ticketRow
-      const formRow = document.createElement("tr");
-      formRow.classList.add("appealFormRow");
-      // colspan = total columns in the current table (6 fields + 1 “Appeal” column = 7)
-      formRow.innerHTML = `
-        <td colspan="7">
-          <div class="appeal-form">
-            <label for="appealInfo-${ticketId}"><strong>Appeal Info</strong></label>
-            <textarea id="appealInfo-${ticketId}" placeholder="Enter your appeal details…" rows="3"></textarea>
-            <label for="extraProof-${ticketId}"><strong>Extra Video Proof URL</strong></label>
-            <input type="url" id="extraProof-${ticketId}" placeholder="https://example.com/extra-proof" />
-            <div style="margin-top: 8px;">
-              <button id="submitAppeal-${ticketId}">Submit Appeal</button>
-              <button id="cancelAppeal-${ticketId}" style="background-color: #999; margin-left:8px;">Cancel</button>
-            </div>
-            <div id="appealStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
-          </div>
-        </td>
-      `;
-      // Insert after the ticket’s own <tr>
-      ticketRow.insertAdjacentElement("afterend", formRow);
-
-      // Wire up the “Cancel” button
-      document.getElementById(`cancelAppeal-${ticketId}`).addEventListener("click", () => {
-        formRow.remove();
-      });
-
-      // Wire up the “Submit Appeal” button
-      document.getElementById(`submitAppeal-${ticketId}`).addEventListener("click", async () => {
-        const appealInfoInput   = document.getElementById(`appealInfo-${ticketId}`);
-        const extraProofInput   = document.getElementById(`extraProof-${ticketId}`);
-        const appealStatusDiv   = document.getElementById(`appealStatus-${ticketId}`);
-        const appealInfoValue   = appealInfoInput.value.trim();
-        const extraProofValue   = extraProofInput.value.trim();
-
-        // Simple validation: require at least “Appeal Info”
-        if (!appealInfoValue) {
-          appealStatusDiv.textContent = "Please enter your appeal details.";
-          appealStatusDiv.className = "status error";
-          return;
-        }
-        appealStatusDiv.textContent = "Submitting appeal…";
-        appealStatusDiv.className = "status";
-
-        try {
-          // Add a document under: tickets/{ticketId}/appeals
-          const appealsColRef = collection(db, "tickets", ticketId, "appeals");
-          await addDoc(appealsColRef, {
-            appealInfo: appealInfoValue,
-            extraProofUrl: extraProofValue,
-            timestamp: serverTimestamp()
-          });
-          appealStatusDiv.textContent = "Appeal submitted! We’ll review it soon.";
-          appealStatusDiv.className = "status success";
-
-          // Optionally clear inputs or remove form
-          setTimeout(() => {
-            formRow.remove();
-          }, 2000);
-
-        } catch (err) {
-          console.error("Error submitting appeal:", err);
-          appealStatusDiv.textContent = "Error submitting appeal. Please try again.";
-          appealStatusDiv.className = "status error";
-        }
-      });
-    }
-
-    // ----------------------------------------------------------------
-    // 8) “View All Tickets” BUTTON (PUBLIC)
+    // 8) “View All Tickets” BUTTON (public)
     // ----------------------------------------------------------------
     viewTicketsBtn.addEventListener("click", async () => {
       showSection(viewSection);
@@ -589,7 +656,7 @@
     });
 
     // ----------------------------------------------------------------
-    // 9) ADMIN LOGIN / AUTHENTICATION (unchanged)
+    // 9) ADMIN LOGIN / AUTHENTICATION
     // ----------------------------------------------------------------
     loginToggleBtn.addEventListener("click", () => {
       loginStatusMsg.textContent = "";
@@ -629,11 +696,11 @@
     });
 
     // ----------------------------------------------------------------
-    // 10) LISTEN FOR AUTH STATE CHANGES (unchanged)
+    // 10) LISTEN FOR AUTH STATE CHANGES
     // ----------------------------------------------------------------
     onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // In production, double-check that `user.uid` exists in your “stewards” collection.
+        // In production, confirm this UID exists in your /stewards collection.
         logoutBtn.classList.remove("hidden");
         showSection(adminSection);
         adminTicketsContainer.innerHTML = "<p>Loading tickets…</p>";
@@ -644,7 +711,7 @@
       }
     });
 
-    // On initial load
+    // On initial load, show the “Submit Ticket” section
     showSection(submitSection);
   </script>
 </body>
