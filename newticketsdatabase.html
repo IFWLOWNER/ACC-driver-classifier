@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Submit & View</title>
+  <title>IFWL Tickets • Submit, View & Appeal</title>
   <style>
-    /* Basic reset + form styling (you can adjust to match your branding) */
+    /* (unchanged styling...) */
     body {
       font-family: Arial, sans-serif;
       background: #f7f7f7;
@@ -91,7 +91,6 @@
       font-size: 14px;
       margin-top: 8px;
     }
-    /* Simple table styling for “View Tickets” and admin dashboard */
     table {
       width: 100%;
       border-collapse: collapse;
@@ -113,7 +112,6 @@
       font-size: 1.2rem;
       margin-bottom: 12px;
     }
-    /* Hide sections by default */
     .hidden {
       display: none;
     }
@@ -128,6 +126,23 @@
       float: right;
       margin-top: -30px;
     }
+    /* Style for the inline appeal form row */
+    .appeal-form {
+      background: #fafafa;
+      padding: 16px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    .appeal-form input[type="text"],
+    .appeal-form textarea {
+      margin-top: 4px;
+      margin-bottom: 12px;
+    }
+    .appeal-form button {
+      width: auto;
+      margin-right: 8px;
+    }
   </style>
 </head>
 <body>
@@ -136,9 +151,9 @@
     <button id="logoutBtn" class="logout-btn hidden">Logout</button>
   </header>
 
-  <!-- -----------------------------------------------------
-       SECTION 1: SUBMIT A NEW TICKET (visible to everyone)
-       ----------------------------------------------------- -->
+  <!-- -------------------------------------------------------------------
+       SECTION 1: SUBMIT A NEW TICKET (VISIBLE TO EVERYONE)
+       ------------------------------------------------------------------- -->
   <div id="submitSection" class="container">
     <h2 class="section-title">Submit a New Ticket</h2>
     <div class="form-group">
@@ -192,13 +207,13 @@
     <button id="loginToggleBtn" class="link-btn">Admin Login</button>
   </div>
 
-  <!-- ------------------------------------
-       SECTION 2: VIEW ALL TICKETS (PUBLIC)
-       ------------------------------------- -->
+  <!-- -------------------------------------------------------------------
+       SECTION 2: VIEW ALL TICKETS (PUBLIC, WITH APPEAL BUTTON)
+       ------------------------------------------------------------------- -->
   <div id="viewSection" class="container hidden">
     <h2 class="section-title">All Submitted Tickets</h2>
     <div id="ticketsListContainer">
-      <!-- We'll inject a <table> of tickets here dynamically -->
+      <!-- Table of tickets will be injected here -->
     </div>
     <button id="backFromViewBtn" class="link-btn">← Back to Submit</button>
   </div>
@@ -227,14 +242,13 @@
   <div id="adminSection" class="container hidden">
     <h2 class="section-title">Admin Dashboard</h2>
     <div id="adminTicketsContainer">
-      <!-- Admin will see a similar table of tickets, possibly with extra columns -->
+      <!-- Admin will see a table with “Mark Reviewed” buttons -->
     </div>
-    <!-- (You can add more admin controls here, e.g. change status, assign steward, etc.) -->
   </div>
 
   <!-- Firebase v9+ Modular SDK -->
   <script type="module">
-    // 1) Import the functions you need
+    // 1) Import required Firebase modules
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getFirestore,
@@ -254,7 +268,7 @@
       onAuthStateChanged
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 
-    // 2) Your web app's Firebase configuration (must match your Android app)
+    // 2) Your Firebase configuration
     const firebaseConfig = {
       apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
       authDomain: "ifwl-591d8.firebaseapp.com",
@@ -265,51 +279,51 @@
       measurementId: "G-974R4YE6L5"
     };
 
-    // 3) Initialize Firebase & services
+    // 3) Initialize Firebase
     const app   = initializeApp(firebaseConfig);
     const db    = getFirestore(app);
     const auth  = getAuth(app);
 
-    // 4) Get references to DOM elements
-    const submitSection      = document.getElementById("submitSection");
-    const viewSection        = document.getElementById("viewSection");
-    const loginSection       = document.getElementById("loginSection");
-    const adminSection       = document.getElementById("adminSection");
+    // 4) Cache DOM elements
+    const submitSection       = document.getElementById("submitSection");
+    const viewSection         = document.getElementById("viewSection");
+    const loginSection        = document.getElementById("loginSection");
+    const adminSection        = document.getElementById("adminSection");
 
-    // Submit form fields
-    const accusedInput       = document.getElementById("accused");
-    const competitionInput   = document.getElementById("competition");
-    const contentInput       = document.getElementById("content");
-    const eventInput         = document.getElementById("event");
-    const proofUrlInput      = document.getElementById("proofUrl");
-    const raceInput          = document.getElementById("race");
-    const reasonInput        = document.getElementById("reason");
-    const reporterInput      = document.getElementById("reporter");
-    const seasonInput        = document.getElementById("season");
-    const stewardInput       = document.getElementById("steward");
-    const trackInput         = document.getElementById("track");
-    const submitBtn          = document.getElementById("submitBtn");
-    const statusMsg          = document.getElementById("statusMsg");
+    // “Submit a Ticket” elements
+    const accusedInput        = document.getElementById("accused");
+    const competitionInput    = document.getElementById("competition");
+    const contentInput        = document.getElementById("content");
+    const eventInput          = document.getElementById("event");
+    const proofUrlInput       = document.getElementById("proofUrl");
+    const raceInput           = document.getElementById("race");
+    const reasonInput         = document.getElementById("reason");
+    const reporterInput       = document.getElementById("reporter");
+    const seasonInput         = document.getElementById("season");
+    const stewardInput        = document.getElementById("steward");
+    const trackInput          = document.getElementById("track");
+    const submitBtn           = document.getElementById("submitBtn");
+    const statusMsg           = document.getElementById("statusMsg");
 
-    // View tickets
-    const viewTicketsBtn     = document.getElementById("viewTicketsBtn");
-    const backFromViewBtn    = document.getElementById("backFromViewBtn");
+    // “View All Tickets” elements
+    const viewTicketsBtn      = document.getElementById("viewTicketsBtn");
+    const backFromViewBtn     = document.getElementById("backFromViewBtn");
     const ticketsListContainer = document.getElementById("ticketsListContainer");
 
-    // Login form
-    const loginToggleBtn     = document.getElementById("loginToggleBtn");
-    const loginBtn           = document.getElementById("loginBtn");
-    const backFromLoginBtn   = document.getElementById("backFromLoginBtn");
-    const emailInput         = document.getElementById("email");
-    const passwordInput      = document.getElementById("password");
-    const loginStatusMsg     = document.getElementById("loginStatusMsg");
+    // “Login” elements
+    const loginToggleBtn      = document.getElementById("loginToggleBtn");
+    const loginBtn            = document.getElementById("loginBtn");
+    const backFromLoginBtn    = document.getElementById("backFromLoginBtn");
+    const emailInput          = document.getElementById("email");
+    const passwordInput       = document.getElementById("password");
+    const loginStatusMsg      = document.getElementById("loginStatusMsg");
 
-    // Admin dashboard
-    const logoutBtn          = document.getElementById("logoutBtn");
+    // “Admin Dashboard” elements
+    const logoutBtn           = document.getElementById("logoutBtn");
     const adminTicketsContainer = document.getElementById("adminTicketsContainer");
 
     // ----------------------------------------------------------------
-    // UTILITY: Show/hide sections
+    // UTILITY: Show exactly one section at a time
     // ----------------------------------------------------------------
     function showSection(sectionToShow) {
       [submitSection, viewSection, loginSection, adminSection].forEach(sec => {
@@ -319,14 +333,13 @@
     }
 
     // ----------------------------------------------------------------
-    // 5) HANDLE TICKET SUBMISSION (Same as before, in v9 modular style)
+    // 5) HANDLE “SUBMIT TICKET” exactly as before
     // ----------------------------------------------------------------
     submitBtn.addEventListener("click", async () => {
       submitBtn.disabled = true;
       statusMsg.textContent = "Submitting…";
       statusMsg.className = "status";
 
-      // Read/trim
       const accused     = accusedInput.value.trim();
       const competition = competitionInput.value.trim();
       const content     = contentInput.value.trim();
@@ -339,15 +352,12 @@
       const steward     = stewardInput.value.trim();
       const track       = trackInput.value.trim();
 
-      // Validate required fields
       if (!accused || !competition || !content || !reason || !reporter) {
         statusMsg.textContent = "Please fill in all required fields: Accused, Competition, Content, Reason, Reporter.";
         statusMsg.className = "status error";
         submitBtn.disabled = false;
         return;
       }
-
-      // Build object
       const newTicket = {
         accused:     accused,
         competition: competition,
@@ -363,13 +373,10 @@
         status:      "New Submission",
         timestamp:   serverTimestamp()
       };
-
       try {
         const docRef = await addDoc(collection(db, "tickets"), newTicket);
         statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
         statusMsg.className = "status success";
-
-        // Clear form
         accusedInput.value = "";
         competitionInput.value = "";
         contentInput.value = "";
@@ -391,20 +398,20 @@
     });
 
     // ----------------------------------------------------------------
-    // 6) VIEW ALL TICKETS (read‐only, sorted by timestamp descending)
+    // 6) FETCH & RENDER TICKETS (public vs. admin mode)
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
-      // Query: all docs in “tickets” ordered by timestamp desc
-      const ticketsCol = collection(db, "tickets");
+      const ticketsCol   = collection(db, "tickets");
       const ticketsQuery = query(ticketsCol, orderBy("timestamp", "desc"));
+
       try {
         const snapshot = await getDocs(ticketsQuery);
         if (snapshot.empty) {
           targetContainer.innerHTML = "<p>No tickets have been submitted yet.</p>";
           return;
         }
-        // Build a simple table: show ID, accused, competition, reporter, status, timestamp
-        // Admin might see an extra “Action” column (for future)
+
+        // Build table header: add “Appeal” column if public (isAdmin=false)
         let tableHTML = `
           <table>
             <thead>
@@ -415,35 +422,44 @@
                 <th>Reporter</th>
                 <th>Status</th>
                 <th>Submitted At</th>
-                ${isAdmin ? "<th>Action</th>" : ""}
+                ${isAdmin 
+                  ? "<th>Action</th>" 
+                  : "<th>Appeal</th>"}
               </tr>
             </thead>
             <tbody>
         `;
+
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
-          const ts = data.timestamp && data.timestamp.toDate
-            ? data.timestamp.toDate().toLocaleString()
-            : "";
+          const ts   = data.timestamp && data.timestamp.toDate 
+                        ? data.timestamp.toDate().toLocaleString() 
+                        : "";
+          const id   = docSnap.id;
+
           tableHTML += `
-            <tr>
-              <td>${docSnap.id}</td>
+            <tr data-id="${id}" class="ticketRow">
+              <td>${id}</td>
               <td>${data.accused || ""}</td>
               <td>${data.competition || ""}</td>
               <td>${data.reporter || ""}</td>
               <td>${data.status || ""}</td>
               <td>${ts}</td>
-              ${isAdmin ? `<td>
-                  <!-- Example: A “Set to Reviewed” button for admins -->
-                  <button data-id="${docSnap.id}" class="markReviewedBtn">Mark Reviewed</button>
-                </td>` : ""}
+              ${isAdmin 
+                ? `<td>
+                    <button data-id="${id}" class="markReviewedBtn">Mark Reviewed</button>
+                   </td>`
+                : `<td>
+                    <button data-id="${id}" class="appealBtn">Appeal</button>
+                   </td>`}
             </tr>
           `;
         });
+
         tableHTML += `</tbody></table>`;
         targetContainer.innerHTML = tableHTML;
 
-        // If admin, wire up the “Mark Reviewed” buttons
+        // If admin, wire up “Mark Reviewed”:
         if (isAdmin) {
           const buttons = targetContainer.querySelectorAll(".markReviewedBtn");
           buttons.forEach(btn => {
@@ -452,7 +468,7 @@
               try {
                 const ticketRef = doc(db, "tickets", ticketId);
                 await updateDoc(ticketRef, { status: "Reviewed" });
-                // Refresh the table
+                // Refresh table
                 await fetchAndRenderTickets(adminTicketsContainer, true);
               } catch (err) {
                 console.error("Error updating ticket status:", err);
@@ -460,14 +476,109 @@
               }
             });
           });
+
+        } else {
+          // PUBLIC mode: wire up “Appeal” buttons
+          const appealBtns = targetContainer.querySelectorAll(".appealBtn");
+          appealBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+              const ticketId = e.currentTarget.getAttribute("data-id");
+              toggleAppealForm(ticketId, targetContainer);
+            });
+          });
         }
+
       } catch (err) {
         console.error("Error fetching tickets:", err);
         targetContainer.innerHTML = "<p>Error loading tickets.</p>";
       }
     }
 
-    // When “View All Tickets” is clicked (public)
+    // ----------------------------------------------------------------
+    // 7) TOGGLE (SHOW/HIDE) AN INLINE APPEAL FORM FOR A GIVEN TICKET
+    // ----------------------------------------------------------------
+    function toggleAppealForm(ticketId, container) {
+      // Remove any existing appeal form row
+      const existingForm = container.querySelector(".appealFormRow");
+      if (existingForm) {
+        existingForm.remove();
+      }
+
+      // Find the row <tr data-id="{ticketId}">
+      const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
+      if (!ticketRow) return;
+
+      // Create a new <tr> right after ticketRow
+      const formRow = document.createElement("tr");
+      formRow.classList.add("appealFormRow");
+      // colspan = total columns in the current table (6 fields + 1 “Appeal” column = 7)
+      formRow.innerHTML = `
+        <td colspan="7">
+          <div class="appeal-form">
+            <label for="appealInfo-${ticketId}"><strong>Appeal Info</strong></label>
+            <textarea id="appealInfo-${ticketId}" placeholder="Enter your appeal details…" rows="3"></textarea>
+            <label for="extraProof-${ticketId}"><strong>Extra Video Proof URL</strong></label>
+            <input type="url" id="extraProof-${ticketId}" placeholder="https://example.com/extra-proof" />
+            <div style="margin-top: 8px;">
+              <button id="submitAppeal-${ticketId}">Submit Appeal</button>
+              <button id="cancelAppeal-${ticketId}" style="background-color: #999; margin-left:8px;">Cancel</button>
+            </div>
+            <div id="appealStatus-${ticketId}" class="status" style="margin-top:8px;"></div>
+          </div>
+        </td>
+      `;
+      // Insert after the ticket’s own <tr>
+      ticketRow.insertAdjacentElement("afterend", formRow);
+
+      // Wire up the “Cancel” button
+      document.getElementById(`cancelAppeal-${ticketId}`).addEventListener("click", () => {
+        formRow.remove();
+      });
+
+      // Wire up the “Submit Appeal” button
+      document.getElementById(`submitAppeal-${ticketId}`).addEventListener("click", async () => {
+        const appealInfoInput   = document.getElementById(`appealInfo-${ticketId}`);
+        const extraProofInput   = document.getElementById(`extraProof-${ticketId}`);
+        const appealStatusDiv   = document.getElementById(`appealStatus-${ticketId}`);
+        const appealInfoValue   = appealInfoInput.value.trim();
+        const extraProofValue   = extraProofInput.value.trim();
+
+        // Simple validation: require at least “Appeal Info”
+        if (!appealInfoValue) {
+          appealStatusDiv.textContent = "Please enter your appeal details.";
+          appealStatusDiv.className = "status error";
+          return;
+        }
+        appealStatusDiv.textContent = "Submitting appeal…";
+        appealStatusDiv.className = "status";
+
+        try {
+          // Add a document under: tickets/{ticketId}/appeals
+          const appealsColRef = collection(db, "tickets", ticketId, "appeals");
+          await addDoc(appealsColRef, {
+            appealInfo: appealInfoValue,
+            extraProofUrl: extraProofValue,
+            timestamp: serverTimestamp()
+          });
+          appealStatusDiv.textContent = "Appeal submitted! We’ll review it soon.";
+          appealStatusDiv.className = "status success";
+
+          // Optionally clear inputs or remove form
+          setTimeout(() => {
+            formRow.remove();
+          }, 2000);
+
+        } catch (err) {
+          console.error("Error submitting appeal:", err);
+          appealStatusDiv.textContent = "Error submitting appeal. Please try again.";
+          appealStatusDiv.className = "status error";
+        }
+      });
+    }
+
+    // ----------------------------------------------------------------
+    // 8) “View All Tickets” BUTTON (PUBLIC)
+    // ----------------------------------------------------------------
     viewTicketsBtn.addEventListener("click", async () => {
       showSection(viewSection);
       ticketsListContainer.innerHTML = "<p>Loading tickets…</p>";
@@ -478,13 +589,9 @@
     });
 
     // ----------------------------------------------------------------
-    // 7) ADMIN LOGIN / AUTHENTICATION
-    //    • We assume you’ve already created steward accounts in Firebase Console (Email/Password).
-    //    • In your Firestore Security Rules, you can check custom claims or user’s email patterns
-    //      to ensure only stewards can update tickets. (Not shown here—just UI.)
+    // 9) ADMIN LOGIN / AUTHENTICATION (unchanged)
     // ----------------------------------------------------------------
     loginToggleBtn.addEventListener("click", () => {
-      // Clear any previous status
       loginStatusMsg.textContent = "";
       emailInput.value = "";
       passwordInput.value = "";
@@ -499,7 +606,7 @@
       loginStatusMsg.textContent = "Signing in…";
       loginStatusMsg.className = "status";
       const email = emailInput.value.trim();
-      const pw = passwordInput.value.trim();
+      const pw    = passwordInput.value.trim();
       if (!email || !pw) {
         loginStatusMsg.textContent = "Email & password are required.";
         loginStatusMsg.className = "status error";
@@ -508,7 +615,7 @@
       }
       try {
         await signInWithEmailAndPassword(auth, email, pw);
-        // onAuthStateChanged will fire, showing adminSection
+        // onAuthStateChanged will handle showing adminSection
       } catch (err) {
         console.error("Login error:", err);
         loginStatusMsg.textContent = "Login failed. Check credentials.";
@@ -519,35 +626,25 @@
 
     logoutBtn.addEventListener("click", async () => {
       await signOut(auth);
-      // onAuthStateChanged will fire, sending them back to submitSection
     });
 
     // ----------------------------------------------------------------
-    // 8) LISTEN FOR AUTH STATE CHANGES
-    //    • If user is logged in AND is a “steward” (for simplicity, we’ll just allow
-    //      any authenticated user here—but in production, check a custom claim / Firestore doc).
+    // 10) LISTEN FOR AUTH STATE CHANGES (unchanged)
     // ----------------------------------------------------------------
     onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Optionally: check in Firestore if this user’s email is listed in a “stewards” collection
-        // For now, assume any signed‐in user is a steward. You can add your own logic:
-        //   const docRef = doc(db, "stewards", user.uid);
-        //   const docSnap = await getDoc(docRef);
-        //   if (!docSnap.exists()) { /* not a steward—sign out, show error */ }
-        //
-        // Show Admin UI
+        // In production, double-check that `user.uid` exists in your “stewards” collection.
         logoutBtn.classList.remove("hidden");
         showSection(adminSection);
         adminTicketsContainer.innerHTML = "<p>Loading tickets…</p>";
         await fetchAndRenderTickets(adminTicketsContainer, true);
       } else {
-        // No user is signed in → return to “submit” view.
         logoutBtn.classList.add("hidden");
         showSection(submitSection);
       }
     });
 
-    // On initial load: default to “submit ticket” if not already redirected by onAuthStateChanged
+    // On initial load
     showSection(submitSection);
   </script>
 </body>
