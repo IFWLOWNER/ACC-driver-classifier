@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • FIA‐Style Steward Decision PDF</title>
+  <title>IFWL Tickets • Public “Appeal” Button & Admin “Open” Button</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -137,7 +137,7 @@
        Highlight full ticket row if appealed
        ------------------------------------------------------------ */
     .appeal-highlight {
-      background-color: #FF9984; /* light yellow background */
+      background-color: #fffbe6; /* light yellow background */
     }
 
     /* ------------------------------------------------------------
@@ -989,6 +989,8 @@
 
     // ----------------------------------------------------------------
     // FETCH & RENDER TICKETS (public vs. admin)
+    //    - If isAdmin === false, the Action button is “Appeal”
+    //    - If isAdmin === true, the Action button is “Open”
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
@@ -1028,6 +1030,11 @@
           const id   = docSnap.id;
           const stewardTagVal = data.stewardTag || "";
 
+          // Decide which button to show based on isAdmin
+          const actionButtonHTML = isAdmin
+            ? `<button data-id="${id}" class="openBtn">Open</button>`
+            : `<button data-id="${id}" class="appealBtn">Appeal</button>`;
+
           tableHTML += `
             <tr data-id="${id}" class="ticketRow">
               <td>${id}</td>
@@ -1037,7 +1044,7 @@
               <td>${data.status || ""}</td>
               <td>${stewardTagVal}</td>
               <td>${ts}</td>
-              <td><button data-id="${id}" class="openBtn">Open</button></td>
+              <td>${actionButtonHTML}</td>
             </tr>
           `;
         });
@@ -1056,14 +1063,26 @@
           }
         });
 
-        // Wire up “Open” buttons in Admin
-        const openBtns = targetContainer.querySelectorAll(".openBtn");
-        openBtns.forEach(btn => {
-          btn.addEventListener("click", (e) => {
-            const ticketId = e.currentTarget.getAttribute("data-id");
-            toggleDetailView(ticketId, targetContainer);
+        // Wire up buttons
+        if (isAdmin) {
+          // Admin “Open” buttons → opens detail view
+          const openBtns = targetContainer.querySelectorAll(".openBtn");
+          openBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+              const ticketId = e.currentTarget.getAttribute("data-id");
+              toggleDetailView(ticketId, targetContainer);
+            });
           });
-        });
+        } else {
+          // Public “Appeal” buttons → opens inline appeal form
+          const appealBtns = targetContainer.querySelectorAll(".appealBtn");
+          appealBtns.forEach(btn => {
+            btn.addEventListener("click", (e) => {
+              const ticketId = e.currentTarget.getAttribute("data-id");
+              toggleAppealForm(ticketId, targetContainer);
+            });
+          });
+        }
 
       } catch (err) {
         console.error("Error fetching tickets:", err);
