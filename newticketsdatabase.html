@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Fixed Competition & Assigned Steward</title>
+  <title>IFWL Tickets • Steward Decision PDF</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -236,7 +236,6 @@
         <option value="" disabled selected>Select a driver…</option>
       </select>
     </div>
-    <!-- Field to add a new driver if needed -->
     <div id="newDriverContainer" class="form-group hidden">
       <label for="newDriverInput"><strong>Add New Driver</strong></label>
       <input type="text" id="newDriverInput" placeholder="Type new driver name…" />
@@ -249,7 +248,6 @@
         <option value="" disabled selected>Select reporting driver…</option>
       </select>
     </div>
-    <!-- Field to add a new reporting driver if needed -->
     <div id="newReporterContainer" class="form-group hidden">
       <label for="newReporterInput"><strong>Add New Reporting Driver</strong></label>
       <input type="text" id="newReporterInput" placeholder="Type new driver name…" />
@@ -291,7 +289,7 @@
       </select>
     </div>
 
-    <!-- Proof URL -->
+    <!-- Proof URL (public, but omitted from PDF) -->
     <div class="form-group">
       <label for="proofUrl">Proof URL (if any)</label>
       <input type="url" id="proofUrl" placeholder="https://example.com/video" />
@@ -315,7 +313,6 @@
         <option value="" disabled selected>Select a track…</option>
       </select>
     </div>
-    <!-- Field to add a new track if needed -->
     <div id="newTrackContainer" class="form-group hidden">
       <label for="newTrackInput"><strong>Add New Track</strong></label>
       <input type="text" id="newTrackInput" placeholder="Type new track name…" />
@@ -377,7 +374,7 @@
   </div>
 
   <!-- ==============================================================
-       Firebase v9+ Modular SDK & App Logic
+       Firebase v9+ Modular SDK & App Logic (including PDF generation)
        ============================================================== -->
   <script type="module">
     // 1) Import required Firebase modules
@@ -474,7 +471,7 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Accused” dropdown from /drivers, sorted manually
+    // Populate “Accused” dropdown from /drivers, sorted alphabetically
     // ----------------------------------------------------------------
     async function populateDriverDropdown() {
       const snapshot = await getDocs(collection(db, "drivers"));
@@ -517,7 +514,7 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Reporter” dropdown from /drivers, sorted manually
+    // Populate “Reporter” dropdown from /drivers, sorted alphabetically
     // ----------------------------------------------------------------
     async function populateReporterDropdown() {
       const snapshot = await getDocs(collection(db, "drivers"));
@@ -560,7 +557,7 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Track” dropdown from /tracks, sorted manually
+    // Populate “Track” dropdown from /tracks, sorted alphabetically
     // ----------------------------------------------------------------
     async function populateTrackDropdown() {
       const snapshot = await getDocs(collection(db, "tracks"));
@@ -603,7 +600,7 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Rule Breach” dropdown from /regulations, sorted manually
+    // Populate “Rule Breach” dropdown from /regulations, sorted alphabetically
     // ----------------------------------------------------------------
     async function populateRegulationsDropdown() {
       const snapshot = await getDocs(collection(db, "regulations"));
@@ -939,6 +936,9 @@
         detailRow.remove();
       });
 
+      // ----------------------------------------------------------------
+      // Update ticket in Firestore when Admin clicks “Update Ticket”
+      // ----------------------------------------------------------------
       document.getElementById(`submitReview-${ticketId}`).addEventListener("click", async () => {
         const statusSelect    = document.getElementById(`statusSelect-${ticketId}`);
         const decisionInput   = document.getElementById(`decisionText-${ticketId}`);
@@ -981,6 +981,9 @@
         }
       });
 
+      // ----------------------------------------------------------------
+      // Generate the Steward Decision PDF when clicked
+      // ----------------------------------------------------------------
       document.getElementById(`generatePDF-${ticketId}`).addEventListener("click", async () => {
         await generateDiscordForm(ticketId, ticketData);
       });
@@ -991,7 +994,7 @@
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
-      const ticketsQuery = query(ticketsCol); // We’ll omit explicit ordering by timestamp for simplicity
+      const ticketsQuery = query(ticketsCol);
 
       try {
         const snapshot = await getDocs(ticketsQuery);
@@ -1000,7 +1003,7 @@
           return;
         }
 
-        // Build table header
+        // Build table header (Admin now sees “Assigned Steward” column)
         let tableHTML = `
           <table>
             <thead>
@@ -1044,7 +1047,7 @@
         tableHTML += `</tbody></table>`;
         targetContainer.innerHTML = tableHTML;
 
-        // 8.a) Highlight appealed tickets
+        // Highlight appealed tickets
         const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
         ticketRows.forEach(async (row) => {
           const ticketId = row.getAttribute("data-id");
@@ -1055,7 +1058,7 @@
           }
         });
 
-        // 8.b) Wire up “Open” buttons to show detail view
+        // Wire up “Open” buttons in Admin
         const openBtns = targetContainer.querySelectorAll(".openBtn");
         openBtns.forEach(btn => {
           btn.addEventListener("click", (e) => {
@@ -1144,7 +1147,7 @@
     populateRegulationsDropdown();
 
     // ----------------------------------------------------------------
-    // 12) PDF GENERATION: Helper to convert image URL to Data URL
+    // 12) PDF GENERATION: Helper to convert an image URL to Data URL
     // ----------------------------------------------------------------
     function getImageDataURL(url) {
       return new Promise((resolve, reject) => {
@@ -1167,12 +1170,17 @@
 
     // ----------------------------------------------------------------
     // 13) GENERATE DISCORD FORM (PDF) for a given ticket
+    //     Formats it like an F1 Stewards’ decision, omitting any video URL.
     // ----------------------------------------------------------------
     async function generateDiscordForm(ticketId, ticketData) {
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const doc = new jsPDF({
+        unit: "mm",
+        format: "a4",
+        lineHeight: 1.2
+      });
 
-      // 1) Load IFWL logo from GitHub (raw URL). Center at top.
+      // 1) Load IFWL logo from GitHub (raw URL) and center at top
       const logoUrl = "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/ifwl_logo.png";
       let imgData;
       try {
@@ -1183,57 +1191,94 @@
       let y = 10;
       if (imgData) {
         const pageWidth = doc.internal.pageSize.getWidth();
-        const imgWidthMM = 60;
+        const imgWidthMM = 60; // fix width to 60mm
         const imgProps = doc.getImageProperties(imgData);
         const imgHeightMM = (imgProps.height * imgWidthMM) / imgProps.width;
         const x = (pageWidth - imgWidthMM) / 2;
         doc.addImage(imgData, "PNG", x, y, imgWidthMM, imgHeightMM);
-        y += imgHeightMM + 10;
+        y += imgHeightMM + 8;
       }
 
-      // 2) Header
+      // 2) Title Line ("IFWL Steward Decision")
       doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
-      doc.text("IFWL Ticket Report", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
+      doc.text("IFWL Steward Decision", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
       y += 12;
 
-      // 3) Accused, Reporter, Status, Incident Comments
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Accused: ${ticketData.accused || ""}`, 15, y);
-      y += 8;
-      doc.text(`Reporter: ${ticketData.reporter || ""}`, 15, y);
-      y += 8;
-      doc.text(`Status: ${ticketData.status || ""}`, 15, y);
-      y += 8;
-
-      doc.text("Incident Comments:", 15, y);
-      y += 6;
+      // 3) “No / Driver” (Accused)
       doc.setFontSize(12);
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const usableWidth = pageWidth - 30;
-      const splitContent = doc.splitTextToSize(ticketData.fullIncident || "", usableWidth);
-      doc.text(splitContent, 15, y);
-      y += splitContent.length * 6 + 4;
+      doc.setFont("helvetica", "bold");
+      doc.text("No / Driver:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(ticketData.accused || "—", 50, y);
+      y += 8;
 
-      // 4) Steward Tag or “UNDER REVIEW”
-      const stewardTagVal = ticketData.stewardTag || "UNDER REVIEW";
-      doc.setFontSize(14);
-      doc.text(`Steward: ${stewardTagVal}`, 15, y);
+      // 4) “Competitor” (Competition)
+      doc.setFont("helvetica", "bold");
+      doc.text("Competitor:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(ticketData.competition || "—", 50, y);
+      y += 8;
+
+      // 5) “Session” (Event)
+      doc.setFont("helvetica", "bold");
+      doc.text("Session:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(ticketData.event || "—", 50, y);
+      y += 8;
+
+      // 6) “Track”
+      doc.setFont("helvetica", "bold");
+      doc.text("Track:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(ticketData.track || "—", 50, y);
+      y += 8;
+
+      // 7) “Offence” (Rule Breach)
+      doc.setFont("helvetica", "bold");
+      doc.text("Offence:", 15, y);
+      doc.setFont("helvetica", "normal");
+      // Wrap long text if needed
+      const offenceText = ticketData.ruleBreach || "—";
+      const offenceLines = doc.splitTextToSize(offenceText, 120);
+      doc.text(offenceLines, 50, y);
+      y += offenceLines.length * 6 + 4;
+
+      // 8) “Decision” (Steward Decision)
+      doc.setFont("helvetica", "bold");
+      doc.text("Decision:", 15, y);
+      doc.setFont("helvetica", "normal");
+      const decisionText = ticketData.stewardDecision || "—";
+      const decisionLines = doc.splitTextToSize(decisionText, 120);
+      doc.text(decisionLines, 50, y);
+      y += decisionLines.length * 6 + 4;
+
+      // 9) “Reason” (Full Incident Summary)
+      doc.setFont("helvetica", "bold");
+      doc.text("Reason:", 15, y);
+      doc.setFont("helvetica", "normal");
+      const reasonText = ticketData.fullIncident || "—";
+      const reasonLines = doc.splitTextToSize(reasonText, 120);
+      doc.text(reasonLines, 50, y);
+      y += reasonLines.length * 6 + 4;
+
+      // 10) “Stewards” (Assigned Steward)
+      doc.setFont("helvetica", "bold");
+      doc.text("Stewards:", 15, y);
+      doc.setFont("helvetica", "normal");
+      const stewardTagVal = ticketData.stewardTag || "—";
+      doc.text(stewardTagVal, 50, y);
       y += 10;
 
-      // 5) Footer timestamp
+      // 11) Footer line with Date/Time (use current date/time)
+      doc.setFont("helvetica", "italic");
       doc.setFontSize(10);
-      doc.setTextColor(100);
       const now = new Date();
-      doc.text(
-        `Generated: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
-        15,
-        doc.internal.pageSize.getHeight() - 15
-      );
+      const footerText = `Date: ${now.toLocaleDateString()}   Time: ${now.toLocaleTimeString()}`;
+      doc.text(footerText, 15, doc.internal.pageSize.getHeight() - 15);
 
-      // 6) Save PDF
-      doc.save(`IFWL_ticket_${ticketId}.pdf`);
+      // 12) Save PDF
+      doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
   </script>
 </body>
