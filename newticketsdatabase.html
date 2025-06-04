@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Steward Decision PDF</title>
+  <title>IFWL Tickets • FIA‐Style Steward Decision PDF</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -638,13 +638,13 @@
       statusMsg.className = "status";
 
       // 1) Read and trim values
-      let accused       = accusedSelect.value;
-      const newDriverName       = newDriverInput.value.trim();
+      let accused = accusedSelect.value;
+      const newDriverName = newDriverInput.value.trim();
 
-      let reporter      = reporterSelect.value;
-      const newReporterName     = newReporterInput.value.trim();
+      let reporter = reporterSelect.value;
+      const newReporterName = newReporterInput.value.trim();
 
-      const competition  = competitionSelect.value;
+      const competition = competitionSelect.value;
       if (!competition) {
         statusMsg.textContent = "Please select a competition.";
         statusMsg.className = "status error";
@@ -652,15 +652,15 @@
         return;
       }
 
-      const summary     = fullIncident.value.trim();
-      const eventVal    = eventSelect.value;
-      const proofUrl    = proofUrlInput.value.trim();
-      const season      = seasonSelect.value;
+      const summary = fullIncident.value.trim();
+      const eventVal = eventSelect.value;
+      const proofUrl = proofUrlInput.value.trim();
+      const season = seasonSelect.value;
 
-      let track         = trackSelect.value;
-      const newTrackName       = newTrackInput.value.trim();
+      let track = trackSelect.value;
+      const newTrackName = newTrackInput.value.trim();
 
-      const ruleBreach  = ruleBreachSelect.value;
+      const ruleBreach = ruleBreachSelect.value;
 
       // 2) Required fields: accused, reporter, competition, summary
       if (
@@ -706,19 +706,19 @@
 
       // 6) Build the ticket object
       const newTicket = {
-        accused:         accused,
-        reporter:        reporter,
-        competition:     competition,
-        fullIncident:    summary,
-        event:           eventVal,
-        proofUrl:        proofUrl,
-        season:          season,
-        track:           track,
-        ruleBreach:      ruleBreach,
-        status:          "New Submission",
+        accused: accused,
+        reporter: reporter,
+        competition: competition,
+        fullIncident: summary,
+        event: eventVal,
+        proofUrl: proofUrl,
+        season: season,
+        track: track,
+        ruleBreach: ruleBreach,
+        status: "New Submission",
         stewardDecision: "",
-        stewardTag:      "",       // Assigned Steward will populate here once Admin updates
-        timestamp:       serverTimestamp()
+        stewardTag: "",       // Assigned Steward will populate here once Admin updates
+        timestamp: serverTimestamp()
       };
 
       try {
@@ -727,26 +727,24 @@
         statusMsg.className = "status success";
 
         // Clear fields
-        accusedSelect.value            = "";
+        accusedSelect.value = "";
         newDriverContainer.classList.add("hidden");
-        newDriverInput.value           = "";
+        newDriverInput.value = "";
 
-        reporterSelect.value           = "";
+        reporterSelect.value = "";
         newReporterContainer.classList.add("hidden");
-        newReporterInput.value         = "";
+        newReporterInput.value = "";
 
-        // competitionSelect remains at its default until user picks again
+        fullIncident.value = "";
+        eventSelect.value = "Practice";
+        proofUrlInput.value = "";
+        seasonSelect.value = "Season 1";
 
-        fullIncident.value       = "";
-        eventSelect.value        = "Practice";
-        proofUrlInput.value      = "";
-        seasonSelect.value       = "Season 1";
-
-        trackSelect.value        = "";
+        trackSelect.value = "";
         newTrackContainer.classList.add("hidden");
-        newTrackInput.value       = "";
+        newTrackInput.value = "";
 
-        ruleBreachSelect.value   = "";
+        ruleBreachSelect.value = "";
 
       } catch (error) {
         console.error("Error writing ticket: ", error);
@@ -810,9 +808,9 @@
         try {
           const appealsColRef = collection(db, "tickets", ticketId, "appeals");
           await addDoc(appealsColRef, {
-            appealInfo:    appealInfoValue,
+            appealInfo: appealInfoValue,
             extraProofUrl: extraProofValue,
-            timestamp:     serverTimestamp()
+            timestamp: serverTimestamp()
           });
           appealStatusDiv.textContent = "Appeal submitted! We’ll review it soon.";
           appealStatusDiv.className = "status success";
@@ -965,9 +963,9 @@
         try {
           const ticketRef = doc(db, "tickets", ticketId);
           await updateDoc(ticketRef, {
-            status:          newStatus,
+            status: newStatus,
             stewardDecision: decisionText,
-            stewardTag:      stewardTagVal
+            stewardTag: stewardTagVal
           });
           detailStatusDiv.textContent = "Ticket updated!";
           detailStatusDiv.className = "status success";
@@ -1170,7 +1168,7 @@
 
     // ----------------------------------------------------------------
     // 13) GENERATE DISCORD FORM (PDF) for a given ticket
-    //     Formats it like an F1 Stewards’ decision, omitting any video URL.
+    //     Emulates an FIA Stewards’ decision format
     // ----------------------------------------------------------------
     async function generateDiscordForm(ticketId, ticketData) {
       const { jsPDF } = window.jspdf;
@@ -1196,7 +1194,7 @@
         const imgHeightMM = (imgProps.height * imgWidthMM) / imgProps.width;
         const x = (pageWidth - imgWidthMM) / 2;
         doc.addImage(imgData, "PNG", x, y, imgWidthMM, imgHeightMM);
-        y += imgHeightMM + 8;
+        y += imgHeightMM + 10;
       }
 
       // 2) Title Line ("IFWL Steward Decision")
@@ -1205,79 +1203,130 @@
       doc.text("IFWL Steward Decision", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
       y += 12;
 
-      // 3) “No / Driver” (Accused)
-      doc.setFontSize(12);
+      // 3) Header block: “From: The Stewards” on left, “Document: [Ticket ID]” on right
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("From:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text("The Stewards", 25, y);
+
+      doc.setFont("helvetica", "bold");
+      const rightX = doc.internal.pageSize.getWidth() - 15;
+      doc.text("Document:", rightX, y, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      doc.text(ticketId, rightX - 8, y, { align: "right" });
+      y += 8;
+
+      // 4) “To: [Reporter]” on left, “Date: YYYY-MM-DD   Time: HH:MM” on right
+      doc.setFont("helvetica", "bold");
+      doc.text("To:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(ticketData.reporter || "—", 25, y);
+
+      // Format date/time from ticketData.timestamp
+      let dateStr = "—";
+      let timeStr = "—";
+      if (ticketData.timestamp && ticketData.timestamp.toDate) {
+        const d = ticketData.timestamp.toDate();
+        // YYYY-MM-DD
+        dateStr = d.getFullYear() + "-" +
+          String(d.getMonth() + 1).padStart(2, "0") + "-" +
+          String(d.getDate()).padStart(2, "0");
+        // HH:MM
+        timeStr = String(d.getHours()).padStart(2, "0") + ":" +
+          String(d.getMinutes()).padStart(2, "0");
+      }
+      doc.setFont("helvetica", "bold");
+      doc.text("Date:", rightX, y, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      doc.text(dateStr, rightX - 16, y, { align: "right" });
+
+      doc.setFont("helvetica", "bold");
+      doc.text("Time:", rightX - 40, y, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      doc.text(timeStr, rightX - 60, y, { align: "right" });
+      y += 12;
+
+      // 5) Introductory sentence, similar to F1
+      doc.setFont("helvetica", "normal");
+      const intro = "The Stewards, having received a report from the Race Director, have considered the following matter and determine the following:";
+      const introLines = doc.splitTextToSize(intro, 180);
+      doc.text(introLines, 15, y);
+      y += introLines.length * 6 + 6;
+
+      // 6) “No / Driver:” [Accused]
       doc.setFont("helvetica", "bold");
       doc.text("No / Driver:", 15, y);
       doc.setFont("helvetica", "normal");
-      doc.text(ticketData.accused || "—", 50, y);
+      doc.text(ticketData.accused || "—", 45, y);
       y += 8;
 
-      // 4) “Competitor” (Competition)
+      // 7) “Competitor:” [Competition]
       doc.setFont("helvetica", "bold");
       doc.text("Competitor:", 15, y);
       doc.setFont("helvetica", "normal");
-      doc.text(ticketData.competition || "—", 50, y);
+      doc.text(ticketData.competition || "—", 45, y);
       y += 8;
 
-      // 5) “Session” (Event)
+      // 8) “Time:” [submission HH:MM]
+      doc.setFont("helvetica", "bold");
+      doc.text("Time:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(timeStr, 45, y);
+      y += 8;
+
+      // 9) “Session:” [Event]
       doc.setFont("helvetica", "bold");
       doc.text("Session:", 15, y);
       doc.setFont("helvetica", "normal");
-      doc.text(ticketData.event || "—", 50, y);
+      doc.text(ticketData.event || "—", 45, y);
       y += 8;
 
-      // 6) “Track”
+      // 10) “Fact:” [Full Incident Summary]
       doc.setFont("helvetica", "bold");
-      doc.text("Track:", 15, y);
+      doc.text("Fact:", 15, y);
       doc.setFont("helvetica", "normal");
-      doc.text(ticketData.track || "—", 50, y);
-      y += 8;
+      const factLines = doc.splitTextToSize(ticketData.fullIncident || "—", 150);
+      doc.text(factLines, 45, y);
+      y += factLines.length * 6 + 4;
 
-      // 7) “Offence” (Rule Breach)
+      // 11) “Offence:” [Rule Breach]
       doc.setFont("helvetica", "bold");
       doc.text("Offence:", 15, y);
       doc.setFont("helvetica", "normal");
-      // Wrap long text if needed
-      const offenceText = ticketData.ruleBreach || "—";
-      const offenceLines = doc.splitTextToSize(offenceText, 120);
-      doc.text(offenceLines, 50, y);
+      const offenceLines = doc.splitTextToSize(ticketData.ruleBreach || "—", 150);
+      doc.text(offenceLines, 45, y);
       y += offenceLines.length * 6 + 4;
 
-      // 8) “Decision” (Steward Decision)
+      // 12) “Decision:” [Steward Decision]
       doc.setFont("helvetica", "bold");
       doc.text("Decision:", 15, y);
       doc.setFont("helvetica", "normal");
-      const decisionText = ticketData.stewardDecision || "—";
-      const decisionLines = doc.splitTextToSize(decisionText, 120);
-      doc.text(decisionLines, 50, y);
+      const decisionLines = doc.splitTextToSize(ticketData.stewardDecision || "—", 150);
+      doc.text(decisionLines, 45, y);
       y += decisionLines.length * 6 + 4;
 
-      // 9) “Reason” (Full Incident Summary)
+      // 13) “Reason:” [Full Incident Summary]
       doc.setFont("helvetica", "bold");
       doc.text("Reason:", 15, y);
       doc.setFont("helvetica", "normal");
-      const reasonText = ticketData.fullIncident || "—";
-      const reasonLines = doc.splitTextToSize(reasonText, 120);
-      doc.text(reasonLines, 50, y);
-      y += reasonLines.length * 6 + 4;
+      const reasonLines = doc.splitTextToSize(ticketData.fullIncident || "—", 150);
+      doc.text(reasonLines, 45, y);
+      y += reasonLines.length * 6 + 8;
 
-      // 10) “Stewards” (Assigned Steward)
+      // 14) Signature line: “The Stewards”
       doc.setFont("helvetica", "bold");
-      doc.text("Stewards:", 15, y);
-      doc.setFont("helvetica", "normal");
-      const stewardTagVal = ticketData.stewardTag || "—";
-      doc.text(stewardTagVal, 50, y);
+      doc.text("The Stewards", 15, y);
       y += 10;
 
-      // 11) Footer line with Date/Time (use current date/time)
+      // 15) Footer: small italic line at the bottom with generation timestamp
       doc.setFont("helvetica", "italic");
       doc.setFontSize(10);
       const now = new Date();
-      const footerText = `Date: ${now.toLocaleDateString()}   Time: ${now.toLocaleTimeString()}`;
+      const footerText = `Generated: ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       doc.text(footerText, 15, doc.internal.pageSize.getHeight() - 15);
 
-      // 12) Save PDF
+      // 16) Save PDF
       doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
   </script>
