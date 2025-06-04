@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Sorted Dropdowns (Manual Sort)</title>
+  <title>IFWL Tickets • Reporter & Accused Dropdowns</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -69,8 +69,6 @@
     }
     input[type="text"],
     input[type="url"],
-    input[type="email"],
-    input[type="password"],
     textarea,
     select {
       width: 100%;
@@ -244,20 +242,38 @@
       <input type="text" id="newDriverInput" placeholder="Type new driver name…" />
     </div>
 
-    <!-- Competition Dropdown -->
+    <!-- Driver Reporting Dropdown -->
+    <div class="form-group">
+      <label for="reporterSelect">Driver Reporting <span style="color: red;">*</span></label>
+      <select id="reporterSelect">
+        <option value="" disabled selected>Select reporting driver…</option>
+      </select>
+    </div>
+    <!-- Field to add a new reporting driver if needed -->
+    <div id="newReporterContainer" class="form-group hidden">
+      <label for="newReporterInput"><strong>Add New Reporting Driver</strong></label>
+      <input type="text" id="newReporterInput" placeholder="Type new driver name…" />
+    </div>
+
+    <!-- Competition Dropdown (hard-coded) -->
     <div class="form-group">
       <label for="competitionSelect">Competition <span style="color: red;">*</span></label>
       <select id="competitionSelect">
         <option value="" disabled selected>Select a competition…</option>
+        <option value="ACC - BEGINNER CONSOLE">ACC - BEGINNER CONSOLE</option>
+        <option value="ACC - BEGINNER PC">ACC - BEGINNER PC</option>
+        <option value="ACC - PRO AM CONSOLE">ACC - PRO AM CONSOLE</option>
+        <option value="ACC - PRO AM PC">ACC - PRO AM PC</option>
+        <option value="ACC - ENDURO SOLO">ACC - ENDURO SOLO</option>
+        <option value="ACC - ENDURO TEAMS">ACC - ENDURO TEAMS</option>
+        <option value="ACC - GMC">ACC - GMC</option>
+        <option value="ACC - AMATEUR PC">ACC - AMATEUR PC</option>
+        <option value="ACC - AMATEUR CONSOLE">ACC - AMATEUR CONSOLE</option>
+        <option value="F1 2025">F1 2025</option>
       </select>
     </div>
-    <!-- Field to add a new competition if needed -->
-    <div id="newCompetitionContainer" class="form-group hidden">
-      <label for="newCompetitionInput"><strong>Add New Competition</strong></label>
-      <input type="text" id="newCompetitionInput" placeholder="Type new competition…" />
-    </div>
 
-    <!-- Full Incident Summary (was "Reason") -->
+    <!-- Full Incident Summary -->
     <div class="form-group">
       <label for="fullIncident">Full Incident Summary <span style="color: red;">*</span></label>
       <textarea id="fullIncident" placeholder="Describe the incident in detail…" required></textarea>
@@ -281,12 +297,6 @@
       <input type="url" id="proofUrl" placeholder="https://example.com/video" />
     </div>
 
-    <!-- Reporter (text) -->
-    <div class="form-group">
-      <label for="reporter">Reporter <span style="color: red;">*</span></label>
-      <input type="text" id="reporter" placeholder="e.g. Alice Smith" required />
-    </div>
-
     <!-- Season Dropdown (static) -->
     <div class="form-group">
       <label for="seasonSelect">Season</label>
@@ -298,7 +308,7 @@
       </select>
     </div>
 
-    <!-- Track Dropdown -->
+    <!-- Track Dropdown (dynamic) -->
     <div class="form-group">
       <label for="trackSelect">Track</label>
       <select id="trackSelect">
@@ -311,7 +321,7 @@
       <input type="text" id="newTrackInput" placeholder="Type new track name…" />
     </div>
 
-    <!-- Rule Breach Dropdown (from regulations) -->
+    <!-- Rule Breach Dropdown (dynamic from /regulations) -->
     <div class="form-group">
       <label for="ruleBreachSelect">Rule Breach</label>
       <select id="ruleBreachSelect">
@@ -417,14 +427,14 @@
     const newDriverContainer    = document.getElementById("newDriverContainer");
     const newDriverInput        = document.getElementById("newDriverInput");
 
-    const competitionSelect         = document.getElementById("competitionSelect");
-    const newCompetitionContainer   = document.getElementById("newCompetitionContainer");
-    const newCompetitionInput       = document.getElementById("newCompetitionInput");
+    const reporterSelect        = document.getElementById("reporterSelect");
+    const newReporterContainer  = document.getElementById("newReporterContainer");
+    const newReporterInput      = document.getElementById("newReporterInput");
 
+    const competitionSelect     = document.getElementById("competitionSelect");
     const fullIncident          = document.getElementById("fullIncident");
     const eventSelect           = document.getElementById("eventSelect");
     const proofUrlInput         = document.getElementById("proofUrl");
-    const reporterInput         = document.getElementById("reporter");
     const seasonSelect          = document.getElementById("seasonSelect");
 
     const trackSelect           = document.getElementById("trackSelect");
@@ -467,10 +477,7 @@
     // Populate “Accused” dropdown from /drivers, sorted manually
     // ----------------------------------------------------------------
     async function populateDriverDropdown() {
-      // 1) Fetch all driver documents (no explicit orderBy here)
       const snapshot = await getDocs(collection(db, "drivers"));
-
-      // 2) Extract "fullName" into an array
       const names = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
@@ -478,11 +485,8 @@
           names.push(data.fullName);
         }
       });
-
-      // 3) Sort the array of names alphabetically (lexical sort)
       names.sort((a, b) => a.localeCompare(b));
 
-      // 4) Build the <select> options
       accusedSelect.innerHTML = "";
       const placeholder = document.createElement("option");
       placeholder.value = "";
@@ -491,7 +495,6 @@
       placeholder.selected = true;
       accusedSelect.appendChild(placeholder);
 
-      // 5) Append each sorted name as an <option>
       names.forEach(name => {
         const opt = document.createElement("option");
         opt.value = name;
@@ -499,7 +502,6 @@
         accusedSelect.appendChild(opt);
       });
 
-      // 6) Finally, add the “➕ Add New Driver…” option
       const newOpt = document.createElement("option");
       newOpt.value = "__ADD_NEW__";
       newOpt.textContent = "➕ Add New Driver…";
@@ -515,46 +517,44 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Competition” dropdown from /competitions, sorted manually
+    // Populate “Reporter” dropdown from /drivers, sorted manually
     // ----------------------------------------------------------------
-    async function populateCompetitionDropdown() {
-      const snapshot = await getDocs(collection(db, "competitions"));
-
+    async function populateReporterDropdown() {
+      const snapshot = await getDocs(collection(db, "drivers"));
       const names = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
-        if (data.name && typeof data.name === "string") {
-          names.push(data.name);
+        if (data.fullName && typeof data.fullName === "string") {
+          names.push(data.fullName);
         }
       });
-
       names.sort((a, b) => a.localeCompare(b));
 
-      competitionSelect.innerHTML = "";
+      reporterSelect.innerHTML = "";
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Select a competition…";
+      placeholder.textContent = "Select reporting driver…";
       placeholder.disabled = true;
       placeholder.selected = true;
-      competitionSelect.appendChild(placeholder);
+      reporterSelect.appendChild(placeholder);
 
       names.forEach(name => {
         const opt = document.createElement("option");
         opt.value = name;
         opt.textContent = name;
-        competitionSelect.appendChild(opt);
+        reporterSelect.appendChild(opt);
       });
 
       const newOpt = document.createElement("option");
       newOpt.value = "__ADD_NEW__";
-      newOpt.textContent = "➕ Add New Competition…";
-      competitionSelect.appendChild(newOpt);
+      newOpt.textContent = "➕ Add New Reporting Driver…";
+      reporterSelect.appendChild(newOpt);
 
-      competitionSelect.addEventListener("change", () => {
-        if (competitionSelect.value === "__ADD_NEW__") {
-          newCompetitionContainer.classList.remove("hidden");
+      reporterSelect.addEventListener("change", () => {
+        if (reporterSelect.value === "__ADD_NEW__") {
+          newReporterContainer.classList.remove("hidden");
         } else {
-          newCompetitionContainer.classList.add("hidden");
+          newReporterContainer.classList.add("hidden");
         }
       });
     }
@@ -564,7 +564,6 @@
     // ----------------------------------------------------------------
     async function populateTrackDropdown() {
       const snapshot = await getDocs(collection(db, "tracks"));
-
       const names = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
@@ -572,7 +571,6 @@
           names.push(data.name);
         }
       });
-
       names.sort((a, b) => a.localeCompare(b));
 
       trackSelect.innerHTML = "";
@@ -609,7 +607,6 @@
     // ----------------------------------------------------------------
     async function populateRegulationsDropdown() {
       const snapshot = await getDocs(collection(db, "regulations"));
-
       const names = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
@@ -617,7 +614,6 @@
           names.push(data.name);
         }
       });
-
       names.sort((a, b) => a.localeCompare(b));
 
       ruleBreachSelect.innerHTML = "";
@@ -648,13 +644,20 @@
       let accused       = accusedSelect.value;
       const newDriverName       = newDriverInput.value.trim();
 
-      let competition   = competitionSelect.value;
-      const newCompetitionName  = newCompetitionInput.value.trim();
+      let reporter      = reporterSelect.value;
+      const newReporterName     = newReporterInput.value.trim();
+
+      const competition  = competitionSelect.value;
+      if (!competition) {
+        statusMsg.textContent = "Please select a competition.";
+        statusMsg.className = "status error";
+        submitBtn.disabled = false;
+        return;
+      }
 
       const summary     = fullIncident.value.trim();
       const eventVal    = eventSelect.value;
       const proofUrl    = proofUrlInput.value.trim();
-      const reporter    = reporterInput.value.trim();
       const season      = seasonSelect.value;
 
       let track         = trackSelect.value;
@@ -662,14 +665,13 @@
 
       const ruleBreach  = ruleBreachSelect.value;
 
-      // 2) Required fields: accused, competition, summary, reporter
+      // 2) Required fields: accused, reporter, competition, summary
       if (
-        (!accused && !newDriverName) ||
-        (!competition && !newCompetitionName) ||
-        !summary ||
-        !reporter
+        ((!accused && !newDriverName)) ||
+        ((!reporter && !newReporterName)) ||
+        !summary
       ) {
-        statusMsg.textContent = "Please fill in all required fields: Accused, Competition, Full Incident Summary, Reporter.";
+        statusMsg.textContent = "Please fill in all required fields: Accused, Driver Reporting, Competition, Full Incident Summary.";
         statusMsg.className = "status error";
         submitBtn.disabled = false;
         return;
@@ -685,13 +687,13 @@
         }
       }
 
-      // 4) If “Add New Competition…” was chosen, add to Firestore
-      if (competition === "__ADD_NEW__") {
-        competition = newCompetitionName;
+      // 4) If “Add New Reporting Driver…” was chosen, add to Firestore
+      if (reporter === "__ADD_NEW__") {
+        reporter = newReporterName;
         try {
-          await addDoc(collection(db, "competitions"), { name: newCompetitionName });
+          await addDoc(collection(db, "drivers"), { fullName: newReporterName });
         } catch (err) {
-          console.error("Error adding new competition:", err);
+          console.error("Error adding new reporting driver:", err);
         }
       }
 
@@ -708,11 +710,11 @@
       // 6) Build the ticket object
       const newTicket = {
         accused:         accused,
+        reporter:        reporter,
         competition:     competition,
         fullIncident:    summary,
         event:           eventVal,
         proofUrl:        proofUrl,
-        reporter:        reporter,
         season:          season,
         track:           track,
         ruleBreach:      ruleBreach,
@@ -732,14 +734,15 @@
         newDriverContainer.classList.add("hidden");
         newDriverInput.value           = "";
 
-        competitionSelect.value        = "";
-        newCompetitionContainer.classList.add("hidden");
-        newCompetitionInput.value      = "";
+        reporterSelect.value           = "";
+        newReporterContainer.classList.add("hidden");
+        newReporterInput.value         = "";
+
+        // competitionSelect stays at its default until the user picks again
 
         fullIncident.value       = "";
         eventSelect.value        = "Practice";
         proofUrlInput.value      = "";
-        reporterInput.value      = "";
         seasonSelect.value       = "Season 1";
 
         trackSelect.value        = "";
@@ -761,17 +764,14 @@
     // INLINE APPEAL FORM HELPER (public)
     // ----------------------------------------------------------------
     function toggleAppealForm(ticketId, container) {
-      // Remove any existing appeal form row
       const existingForm = container.querySelector(".appealFormRow");
       if (existingForm) {
         existingForm.remove();
       }
 
-      // Find the <tr data-id="{ticketId}">
       const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
       if (!ticketRow) return;
 
-      // Create a new <tr> right after ticketRow
       const formRow = document.createElement("tr");
       formRow.classList.add("appealFormRow");
       formRow.innerHTML = `
@@ -791,12 +791,10 @@
       `;
       ticketRow.insertAdjacentElement("afterend", formRow);
 
-      // Wire up the “Cancel” button
       document.getElementById(`cancelAppeal-${ticketId}`).addEventListener("click", () => {
         formRow.remove();
       });
 
-      // Wire up the “Submit Appeal” button
       document.getElementById(`submitAppeal-${ticketId}`).addEventListener("click", async () => {
         const appealInfoInput = document.getElementById(`appealInfo-${ticketId}`);
         const extraProofInput = document.getElementById(`extraProof-${ticketId}`);
@@ -836,23 +834,19 @@
     // TOGGLE DETAIL VIEW (admin): Show full ticket + appeals + review form + PDF button
     // ----------------------------------------------------------------
     async function toggleDetailView(ticketId, container) {
-      // Remove any existing .detailRow
       const existingDetail = container.querySelector(".detailRow");
       if (existingDetail) {
         existingDetail.remove();
       }
 
-      // Find the <tr data-id="{ticketId}">
       const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
       if (!ticketRow) return;
 
-      // Fetch the ticket document
       const ticketDocRef = doc(db, "tickets", ticketId);
       const ticketSnap = await getDoc(ticketDocRef);
       if (!ticketSnap.exists()) return;
       const ticketData = ticketSnap.data();
 
-      // Fetch any appeals for this ticket
       const appealsRef = collection(db, "tickets", ticketId, "appeals");
       const appealsSnapshot = await getDocs(appealsRef);
       let appealsHTML = "";
@@ -874,7 +868,6 @@
         });
       }
 
-      // Build the detail HTML
       const detailRow = document.createElement("tr");
       detailRow.classList.add("detailRow");
       detailRow.innerHTML = `
@@ -883,6 +876,7 @@
             <h3>Ticket Details</h3>
             <p><strong>ID:</strong> ${ticketId}</p>
             <p><strong>Accused:</strong> ${ticketData.accused || ""}</p>
+            <p><strong>Driver Reporting:</strong> ${ticketData.reporter || ""}</p>
             <p><strong>Competition:</strong> ${ticketData.competition || ""}</p>
             <p><strong>Full Incident Summary:</strong> ${ticketData.fullIncident || ""}</p>
             <p><strong>Event:</strong> ${ticketData.event || ""}</p>
@@ -891,7 +885,6 @@
                 ? `<a href="${ticketData.proofUrl}" target="_blank" rel="noopener noreferrer">${ticketData.proofUrl}</a>`
                 : "N/A"
             }</p>
-            <p><strong>Reporter:</strong> ${ticketData.reporter || ""}</p>
             <p><strong>Season:</strong> ${ticketData.season || ""}</p>
             <p><strong>Track:</strong> ${ticketData.track || ""}</p>
             <p><strong>Rule Breach:</strong> ${ticketData.ruleBreach || ""}</p>
@@ -942,12 +935,10 @@
       `;
       ticketRow.insertAdjacentElement("afterend", detailRow);
 
-      // Wire up the Cancel button
       document.getElementById(`cancelDetail-${ticketId}`).addEventListener("click", () => {
         detailRow.remove();
       });
 
-      // Wire up the Submit Review button
       document.getElementById(`submitReview-${ticketId}`).addEventListener("click", async () => {
         const statusSelect    = document.getElementById(`statusSelect-${ticketId}`);
         const decisionInput   = document.getElementById(`decisionText-${ticketId}`);
@@ -990,7 +981,6 @@
         }
       });
 
-      // Wire up the Generate PDF button
       document.getElementById(`generatePDF-${ticketId}`).addEventListener("click", async () => {
         await generateDiscordForm(ticketId, ticketData);
       });
@@ -1001,8 +991,7 @@
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
-      const ticketsQuery = query(ticketsCol, serverTimestamp()); 
-      // (We’ll leave ticket-ordering as Desc by timestamp; unmodified.)
+      const ticketsQuery = query(ticketsCol); // ordering omitted for brevity
 
       try {
         const snapshot = await getDocs(ticketsQuery);
@@ -1011,15 +1000,14 @@
           return;
         }
 
-        // Build table header
         let tableHTML = `
           <table>
             <thead>
               <tr>
                 <th>ID</th>
                 <th>Accused</th>
-                <th>Competition</th>
                 <th>Reporter</th>
+                <th>Competition</th>
                 <th>Status</th>
                 <th>Submitted At</th>
                 ${isAdmin 
@@ -1030,7 +1018,6 @@
             <tbody>
         `;
 
-        // Build each ticket row
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
           const ts   = data.timestamp && data.timestamp.toDate 
@@ -1042,17 +1029,13 @@
             <tr data-id="${id}" class="ticketRow">
               <td>${id}</td>
               <td>${data.accused || ""}</td>
-              <td>${data.competition || ""}</td>
               <td>${data.reporter || ""}</td>
+              <td>${data.competition || ""}</td>
               <td>${data.status || ""}</td>
               <td>${ts}</td>
               ${isAdmin 
-                ? `<td>
-                    <button data-id="${id}" class="openBtn">Open</button>
-                   </td>`
-                : `<td>
-                    <button data-id="${id}" class="appealBtn">Appeal</button>
-                   </td>`}
+                ? `<td><button data-id="${id}" class="openBtn">Open</button></td>`
+                : `<td><button data-id="${id}" class="appealBtn">Appeal</button></td>`}
             </tr>
           `;
         });
@@ -1061,19 +1044,16 @@
         targetContainer.innerHTML = tableHTML;
 
         if (isAdmin) {
-          // Highlight appealed tickets
           const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
           ticketRows.forEach(async (row) => {
             const ticketId = row.getAttribute("data-id");
             const appealsRef = collection(db, "tickets", ticketId, "appeals");
             const appealsSnapshot = await getDocs(appealsRef);
-
             if (!appealsSnapshot.empty) {
               row.classList.add("appeal-highlight");
             }
           });
 
-          // Wire up “Open” buttons
           const openBtns = targetContainer.querySelectorAll(".openBtn");
           openBtns.forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -1082,7 +1062,6 @@
             });
           });
         } else {
-          // PUBLIC – wire up “Appeal” buttons
           const appealBtns = targetContainer.querySelectorAll(".appealBtn");
           appealBtns.forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -1167,7 +1146,7 @@
     // On initial load, show the “Submit Ticket” section and populate dropdowns
     showSection(submitSection);
     populateDriverDropdown();
-    populateCompetitionDropdown();
+    populateReporterDropdown();
     populateTrackDropdown();
     populateRegulationsDropdown();
 
