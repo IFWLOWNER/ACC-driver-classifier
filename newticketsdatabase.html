@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Public “Appeal” Button & Admin “Open” Button</title>
+  <title>IFWL Tickets • 24h Appeal Timer</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -137,7 +137,7 @@
        Highlight full ticket row if appealed
        ------------------------------------------------------------ */
     .appeal-highlight {
-      background-color: #FF6060; /* light yellow background */
+      background-color: #fffbe6; /* light yellow background */
     }
 
     /* ------------------------------------------------------------
@@ -165,7 +165,7 @@
        Styles for the detailed view row in admin
        ------------------------------------------------------------ */
     .detailRow td {
-      background-color: #FF9984; /* very light blue */
+      background-color: #eef7ff; /* very light blue */
       padding: 0;
     }
     .detail-container {
@@ -292,7 +292,7 @@
     <!-- Proof URL (public, but omitted from PDF) -->
     <div class="form-group">
       <label for="proofUrl">Proof URL (if any)</label>
-      <input type="url" id="proofUrl" placeholder="https://example.com/video" />
+      <input type="url" id="proofUrl" placeholder="any video or picture hosting site such as youtube/google drive/dropbox/youtube" />
     </div>
 
     <!-- Season Dropdown (static) -->
@@ -338,7 +338,7 @@
        SECTION 2: VIEW ALL TICKETS (PUBLIC, WITH INLINE APPEAL FORM)
        ============================================================== -->
   <div id="viewSection" class="container hidden">
-    <h2 class="section-title">All Submitted Tickets - red means appealled.</h2>
+    <h2 class="section-title">All Submitted Tickets</h2>
     <div id="ticketsListContainer">
       <!-- Public table + inline appeal form will be injected here -->
     </div>
@@ -367,7 +367,7 @@
        SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH DETAIL VIEW)
        ============================================================== -->
   <div id="adminSection" class="container hidden">
-    <h2 class="section-title">Admin Dashboard - Tickets in red mean they have been appealled </h2>
+    <h2 class="section-title">Admin Dashboard</h2>
     <div id="adminTicketsContainer">
       <!-- Admin table will be injected here -->
     </div>
@@ -759,14 +759,17 @@
     // INLINE APPEAL FORM HELPER (public)
     // ----------------------------------------------------------------
     function toggleAppealForm(ticketId, container) {
+      // Remove any existing appeal form row
       const existingForm = container.querySelector(".appealFormRow");
       if (existingForm) {
         existingForm.remove();
       }
 
+      // Find the row for ticketId
       const ticketRow = container.querySelector(`tr[data-id="${ticketId}"]`);
       if (!ticketRow) return;
 
+      // Build an inline appeal form directly beneath the ticket row
       const formRow = document.createElement("tr");
       formRow.classList.add("appealFormRow");
       formRow.innerHTML = `
@@ -989,8 +992,9 @@
 
     // ----------------------------------------------------------------
     // FETCH & RENDER TICKETS (public vs. admin)
-    //    - If isAdmin === false, the Action button is “Appeal”
-    //    - If isAdmin === true, the Action button is “Open”
+    //
+    // Public view: show “Appeal” or “Appeal Period Expired”
+    // Admin view: show “Open”
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
@@ -1003,7 +1007,7 @@
           return;
         }
 
-        // Build table header (Admin now sees “Assigned Steward” column)
+        // Build table header (Admin sees “Assigned Steward”)
         let tableHTML = `
           <table>
             <thead>
@@ -1021,19 +1025,41 @@
             <tbody>
         `;
 
-        // Build each ticket row
         snapshot.forEach(docSnap => {
-          const data = docSnap.data();
-          const ts   = data.timestamp && data.timestamp.toDate 
-                        ? data.timestamp.toDate().toLocaleString() 
-                        : "";
-          const id   = docSnap.id;
-          const stewardTagVal = data.stewardTag || "";
+          const data    = docSnap.data();
+          const tsObj   = data.timestamp && data.timestamp.toDate ? data.timestamp.toDate() : null;
+          const tsStr   = tsObj ? tsObj.toLocaleString() : "";
+          const id      = docSnap.id;
+          const steward = data.stewardTag || "";
 
-          // Decide which button to show based on isAdmin
-          const actionButtonHTML = isAdmin
-            ? `<button data-id="${id}" class="openBtn">Open</button>`
-            : `<button data-id="${id}" class="appealBtn">Appeal</button>`;
+          // Determine if the 24h appeal window has expired
+          let isExpired = false;
+          if (tsObj) {
+            const now = Date.now();
+            const createdAtMs = tsObj.getTime();
+            if (now - createdAtMs > 24 * 60 * 60 * 1000) { // 24 hours in ms
+              isExpired = true;
+            }
+          }
+
+          // Build the appropriate Action button:
+          let actionButtonHTML = "";
+          if (isAdmin) {
+            // Admin always sees “Open”
+            actionButtonHTML = `<button data-id="${id}" class="openBtn">Open</button>`;
+          } else {
+            // Public sees “Appeal” or “Appeal Period Expired”
+            if (isExpired) {
+              actionButtonHTML = `
+                <button disabled 
+                        style="background-color: #999; cursor: not-allowed;">
+                  Appeal Period Expired
+                </button>
+              `;
+            } else {
+              actionButtonHTML = `<button data-id="${id}" class="appealBtn">Appeal</button>`;
+            }
+          }
 
           tableHTML += `
             <tr data-id="${id}" class="ticketRow">
@@ -1042,8 +1068,8 @@
               <td>${data.reporter || ""}</td>
               <td>${data.competition || ""}</td>
               <td>${data.status || ""}</td>
-              <td>${stewardTagVal}</td>
-              <td>${ts}</td>
+              <td>${steward}</td>
+              <td>${tsStr}</td>
               <td>${actionButtonHTML}</td>
             </tr>
           `;
@@ -1052,7 +1078,7 @@
         tableHTML += `</tbody></table>`;
         targetContainer.innerHTML = tableHTML;
 
-        // Highlight appealed tickets
+        // Highlight any tickets that already have appeals
         const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
         ticketRows.forEach(async (row) => {
           const ticketId = row.getAttribute("data-id");
@@ -1063,9 +1089,9 @@
           }
         });
 
-        // Wire up buttons
+        // Now wire up the appropriate buttons:
         if (isAdmin) {
-          // Admin “Open” buttons → opens detail view
+          // Admin “Open” buttons → toggles detail view
           const openBtns = targetContainer.querySelectorAll(".openBtn");
           openBtns.forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -1074,7 +1100,7 @@
             });
           });
         } else {
-          // Public “Appeal” buttons → opens inline appeal form
+          // Public “Appeal” buttons → toggles inline appeal form
           const appealBtns = targetContainer.querySelectorAll(".appealBtn");
           appealBtns.forEach(btn => {
             btn.addEventListener("click", (e) => {
