@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Reporter & Accused Dropdowns</title>
+  <title>IFWL Tickets • Fixed Competition & Assigned Steward</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -422,7 +422,7 @@
     const loginSection          = document.getElementById("loginSection");
     const adminSection          = document.getElementById("adminSection");
 
-    // Submit‐ticket elements
+    // Submit-ticket elements
     const accusedSelect         = document.getElementById("accusedSelect");
     const newDriverContainer    = document.getElementById("newDriverContainer");
     const newDriverInput        = document.getElementById("newDriverInput");
@@ -720,7 +720,7 @@
         ruleBreach:      ruleBreach,
         status:          "New Submission",
         stewardDecision: "",
-        stewardTag:      "",
+        stewardTag:      "",       // Assigned Steward will populate here once Admin updates
         timestamp:       serverTimestamp()
       };
 
@@ -738,7 +738,7 @@
         newReporterContainer.classList.add("hidden");
         newReporterInput.value         = "";
 
-        // competitionSelect stays at its default until the user picks again
+        // competitionSelect remains at its default until user picks again
 
         fullIncident.value       = "";
         eventSelect.value        = "Practice";
@@ -775,7 +775,7 @@
       const formRow = document.createElement("tr");
       formRow.classList.add("appealFormRow");
       formRow.innerHTML = `
-        <td colspan="7">
+        <td colspan="8">
           <div class="appeal-form">
             <label for="appealInfo-${ticketId}"><strong>Appeal Info</strong></label>
             <textarea id="appealInfo-${ticketId}" placeholder="Enter your appeal details…" rows="3"></textarea>
@@ -871,7 +871,7 @@
       const detailRow = document.createElement("tr");
       detailRow.classList.add("detailRow");
       detailRow.innerHTML = `
-        <td colspan="7">
+        <td colspan="8">
           <div class="detail-container">
             <h3>Ticket Details</h3>
             <p><strong>ID:</strong> ${ticketId}</p>
@@ -889,11 +889,11 @@
             <p><strong>Track:</strong> ${ticketData.track || ""}</p>
             <p><strong>Rule Breach:</strong> ${ticketData.ruleBreach || ""}</p>
             <p><strong>Status:</strong> ${ticketData.status || ""}</p>
+            ${ticketData.stewardTag 
+              ? `<p><strong>Assigned Steward:</strong> ${ticketData.stewardTag}</p>` 
+              : `<p><strong>Assigned Steward:</strong> —</p>`}
             ${ticketData.stewardDecision 
               ? `<p><strong>Steward Decision:</strong> ${ticketData.stewardDecision}</p>` 
-              : ""}
-            ${ticketData.stewardTag 
-              ? `<p><strong>Steward Tag:</strong> ${ticketData.stewardTag}</p>` 
               : ""}
             <p><strong>Submitted At:</strong> ${
               (ticketData.timestamp && ticketData.timestamp.toDate)
@@ -916,7 +916,7 @@
               <label for="decisionText-${ticketId}"><strong>Steward Decision</strong></label>
               <textarea id="decisionText-${ticketId}" placeholder="Enter your decision…" rows="3">${ticketData.stewardDecision || ""}</textarea>
 
-              <label for="stewardTag-${ticketId}"><strong>Steward Tag (e.g. Steward – IOC)</strong></label>
+              <label for="stewardTag-${ticketId}"><strong>Assigned Steward (Steward Tag)</strong></label>
               <input type="text" id="stewardTag-${ticketId}" 
                      placeholder="e.g. Steward – IOC" 
                      value="${ticketData.stewardTag || ""}" />
@@ -954,7 +954,7 @@
           return;
         }
         if (!stewardTagVal) {
-          detailStatusDiv.textContent = "Please enter a steward tag.";
+          detailStatusDiv.textContent = "Please enter an assigned steward.";
           detailStatusDiv.className = "status error";
           return;
         }
@@ -991,7 +991,7 @@
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
-      const ticketsQuery = query(ticketsCol); // ordering omitted for brevity
+      const ticketsQuery = query(ticketsCol); // We’ll omit explicit ordering by timestamp for simplicity
 
       try {
         const snapshot = await getDocs(ticketsQuery);
@@ -1000,6 +1000,7 @@
           return;
         }
 
+        // Build table header
         let tableHTML = `
           <table>
             <thead>
@@ -1009,21 +1010,22 @@
                 <th>Reporter</th>
                 <th>Competition</th>
                 <th>Status</th>
+                <th>Assigned Steward</th>
                 <th>Submitted At</th>
-                ${isAdmin 
-                  ? "<th>Action</th>" 
-                  : "<th>Appeal</th>"}
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
         `;
 
+        // Build each ticket row
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
           const ts   = data.timestamp && data.timestamp.toDate 
                         ? data.timestamp.toDate().toLocaleString() 
                         : "";
           const id   = docSnap.id;
+          const stewardTagVal = data.stewardTag || "";
 
           tableHTML += `
             <tr data-id="${id}" class="ticketRow">
@@ -1032,10 +1034,9 @@
               <td>${data.reporter || ""}</td>
               <td>${data.competition || ""}</td>
               <td>${data.status || ""}</td>
+              <td>${stewardTagVal}</td>
               <td>${ts}</td>
-              ${isAdmin 
-                ? `<td><button data-id="${id}" class="openBtn">Open</button></td>`
-                : `<td><button data-id="${id}" class="appealBtn">Appeal</button></td>`}
+              <td><button data-id="${id}" class="openBtn">Open</button></td>
             </tr>
           `;
         });
@@ -1043,33 +1044,25 @@
         tableHTML += `</tbody></table>`;
         targetContainer.innerHTML = tableHTML;
 
-        if (isAdmin) {
-          const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
-          ticketRows.forEach(async (row) => {
-            const ticketId = row.getAttribute("data-id");
-            const appealsRef = collection(db, "tickets", ticketId, "appeals");
-            const appealsSnapshot = await getDocs(appealsRef);
-            if (!appealsSnapshot.empty) {
-              row.classList.add("appeal-highlight");
-            }
-          });
+        // 8.a) Highlight appealed tickets
+        const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
+        ticketRows.forEach(async (row) => {
+          const ticketId = row.getAttribute("data-id");
+          const appealsRef = collection(db, "tickets", ticketId, "appeals");
+          const appealsSnapshot = await getDocs(appealsRef);
+          if (!appealsSnapshot.empty) {
+            row.classList.add("appeal-highlight");
+          }
+        });
 
-          const openBtns = targetContainer.querySelectorAll(".openBtn");
-          openBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
-              const ticketId = e.currentTarget.getAttribute("data-id");
-              toggleDetailView(ticketId, targetContainer);
-            });
+        // 8.b) Wire up “Open” buttons to show detail view
+        const openBtns = targetContainer.querySelectorAll(".openBtn");
+        openBtns.forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            const ticketId = e.currentTarget.getAttribute("data-id");
+            toggleDetailView(ticketId, targetContainer);
           });
-        } else {
-          const appealBtns = targetContainer.querySelectorAll(".appealBtn");
-          appealBtns.forEach(btn => {
-            btn.addEventListener("click", (e) => {
-              const ticketId = e.currentTarget.getAttribute("data-id");
-              toggleAppealForm(ticketId, targetContainer);
-            });
-          });
-        }
+        });
 
       } catch (err) {
         console.error("Error fetching tickets:", err);
