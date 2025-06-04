@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • 24h Appeal Timer</title>
+  <title>IFWL Tickets • Highlight Finalised Tickets</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -137,7 +137,14 @@
        Highlight full ticket row if appealed
        ------------------------------------------------------------ */
     .appeal-highlight {
-      background-color: #fffbe6; /* light yellow background */
+      background-color: #FF0000; /* light yellow background */
+    }
+
+    /* ------------------------------------------------------------
+       Highlight entire row if status = "Finalised"
+       ------------------------------------------------------------ */
+    .finalised-row {
+      background-color: #009B21; /* very light green */
     }
 
     /* ------------------------------------------------------------
@@ -292,7 +299,7 @@
     <!-- Proof URL (public, but omitted from PDF) -->
     <div class="form-group">
       <label for="proofUrl">Proof URL (if any)</label>
-      <input type="url" id="proofUrl" placeholder="any video or picture hosting site such as youtube/google drive/dropbox/youtube" />
+      <input type="url" id="proofUrl" placeholder="any video or image hosting site such as youtube/google drive/imigur" />
     </div>
 
     <!-- Season Dropdown (static) -->
@@ -995,6 +1002,7 @@
     //
     // Public view: show “Appeal” or “Appeal Period Expired”
     // Admin view: show “Open”
+    // Highlight “Finalised” rows in green
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
@@ -1042,6 +1050,15 @@
             }
           }
 
+          // Check if status is "Finalised" → give row a green background
+          const isFinalised = (data.status === "Finalised");
+          const rowClassList = ["ticketRow"];
+          if (isFinalised) rowClassList.push("finalised-row");
+          if (!isAdmin && !isExpired) {
+            // Public and within 24h → clickable "Appeal"
+            // (we’ll wire up the listener below)
+          }
+
           // Build the appropriate Action button:
           let actionButtonHTML = "";
           if (isAdmin) {
@@ -1062,7 +1079,7 @@
           }
 
           tableHTML += `
-            <tr data-id="${id}" class="ticketRow">
+            <tr data-id="${id}" class="${rowClassList.join(" ")}">
               <td>${id}</td>
               <td>${data.accused || ""}</td>
               <td>${data.reporter || ""}</td>
@@ -1078,7 +1095,7 @@
         tableHTML += `</tbody></table>`;
         targetContainer.innerHTML = tableHTML;
 
-        // Highlight any tickets that already have appeals
+        // Highlight any tickets that already have appeals (light yellow)
         const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
         ticketRows.forEach(async (row) => {
           const ticketId = row.getAttribute("data-id");
