@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Tickets • Sorted Dropdowns</title>
+  <title>IFWL Tickets • Sorted Dropdowns (Manual Sort)</title>
   <style>
     /* ------------------------------------------------------------
        Base styling for the entire page
@@ -379,7 +379,6 @@
       getDocs,
       getDoc,
       query,
-      orderBy,
       serverTimestamp,
       updateDoc,
       doc
@@ -465,13 +464,25 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Accused” dropdown from /drivers, sorted by fullName
+    // Populate “Accused” dropdown from /drivers, sorted manually
     // ----------------------------------------------------------------
     async function populateDriverDropdown() {
-      // 🔹 Use orderBy("fullName", "asc") to sort ascending
-      const driversQuery = query(collection(db, "drivers"), orderBy("fullName", "asc"));
-      const snapshot   = await getDocs(driversQuery);
+      // 1) Fetch all driver documents (no explicit orderBy here)
+      const snapshot = await getDocs(collection(db, "drivers"));
 
+      // 2) Extract "fullName" into an array
+      const names = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.fullName && typeof data.fullName === "string") {
+          names.push(data.fullName);
+        }
+      });
+
+      // 3) Sort the array of names alphabetically (lexical sort)
+      names.sort((a, b) => a.localeCompare(b));
+
+      // 4) Build the <select> options
       accusedSelect.innerHTML = "";
       const placeholder = document.createElement("option");
       placeholder.value = "";
@@ -480,15 +491,15 @@
       placeholder.selected = true;
       accusedSelect.appendChild(placeholder);
 
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        const name = data.fullName;   // field from /drivers
-        const opt  = document.createElement("option");
+      // 5) Append each sorted name as an <option>
+      names.forEach(name => {
+        const opt = document.createElement("option");
         opt.value = name;
         opt.textContent = name;
         accusedSelect.appendChild(opt);
       });
 
+      // 6) Finally, add the “➕ Add New Driver…” option
       const newOpt = document.createElement("option");
       newOpt.value = "__ADD_NEW__";
       newOpt.textContent = "➕ Add New Driver…";
@@ -504,11 +515,20 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Competition” dropdown from /competitions, sorted by name
+    // Populate “Competition” dropdown from /competitions, sorted manually
     // ----------------------------------------------------------------
     async function populateCompetitionDropdown() {
-      const compQuery = query(collection(db, "competitions"), orderBy("name", "asc"));
-      const snapshot  = await getDocs(compQuery);
+      const snapshot = await getDocs(collection(db, "competitions"));
+
+      const names = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.name && typeof data.name === "string") {
+          names.push(data.name);
+        }
+      });
+
+      names.sort((a, b) => a.localeCompare(b));
 
       competitionSelect.innerHTML = "";
       const placeholder = document.createElement("option");
@@ -518,10 +538,8 @@
       placeholder.selected = true;
       competitionSelect.appendChild(placeholder);
 
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        const name = data.name;   // field from /competitions
-        const opt  = document.createElement("option");
+      names.forEach(name => {
+        const opt = document.createElement("option");
         opt.value = name;
         opt.textContent = name;
         competitionSelect.appendChild(opt);
@@ -542,11 +560,20 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Track” dropdown from /tracks, sorted by name
+    // Populate “Track” dropdown from /tracks, sorted manually
     // ----------------------------------------------------------------
     async function populateTrackDropdown() {
-      const trackQuery = query(collection(db, "tracks"), orderBy("name", "asc"));
-      const snapshot   = await getDocs(trackQuery);
+      const snapshot = await getDocs(collection(db, "tracks"));
+
+      const names = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.name && typeof data.name === "string") {
+          names.push(data.name);
+        }
+      });
+
+      names.sort((a, b) => a.localeCompare(b));
 
       trackSelect.innerHTML = "";
       const placeholder = document.createElement("option");
@@ -556,10 +583,8 @@
       placeholder.selected = true;
       trackSelect.appendChild(placeholder);
 
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        const name = data.name;   // field from /tracks
-        const opt  = document.createElement("option");
+      names.forEach(name => {
+        const opt = document.createElement("option");
         opt.value = name;
         opt.textContent = name;
         trackSelect.appendChild(opt);
@@ -580,11 +605,20 @@
     }
 
     // ----------------------------------------------------------------
-    // Populate “Rule Breach” dropdown from /regulations, sorted by name
+    // Populate “Rule Breach” dropdown from /regulations, sorted manually
     // ----------------------------------------------------------------
     async function populateRegulationsDropdown() {
-      const regQuery  = query(collection(db, "regulations"), orderBy("name", "asc"));
-      const snapshot  = await getDocs(regQuery);
+      const snapshot = await getDocs(collection(db, "regulations"));
+
+      const names = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.name && typeof data.name === "string") {
+          names.push(data.name);
+        }
+      });
+
+      names.sort((a, b) => a.localeCompare(b));
 
       ruleBreachSelect.innerHTML = "";
       const placeholder = document.createElement("option");
@@ -594,10 +628,8 @@
       placeholder.selected = true;
       ruleBreachSelect.appendChild(placeholder);
 
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        const name = data.name;   // field from /regulations
-        const opt  = document.createElement("option");
+      names.forEach(name => {
+        const opt = document.createElement("option");
         opt.value = name;
         opt.textContent = name;
         ruleBreachSelect.appendChild(opt);
@@ -969,7 +1001,8 @@
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
-      const ticketsQuery = query(ticketsCol, orderBy("timestamp", "desc"));
+      const ticketsQuery = query(ticketsCol, serverTimestamp()); 
+      // (We’ll leave ticket-ordering as Desc by timestamp; unmodified.)
 
       try {
         const snapshot = await getDocs(ticketsQuery);
@@ -1028,7 +1061,7 @@
         targetContainer.innerHTML = tableHTML;
 
         if (isAdmin) {
-          // 8.a) For each ticket row, check if appeals exist → add highlight class
+          // Highlight appealed tickets
           const ticketRows = targetContainer.querySelectorAll("tr.ticketRow");
           ticketRows.forEach(async (row) => {
             const ticketId = row.getAttribute("data-id");
@@ -1040,7 +1073,7 @@
             }
           });
 
-          // 8.b) Wire up “Open” buttons to show detail view
+          // Wire up “Open” buttons
           const openBtns = targetContainer.querySelectorAll(".openBtn");
           openBtns.forEach(btn => {
             btn.addEventListener("click", (e) => {
