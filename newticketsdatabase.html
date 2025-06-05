@@ -137,14 +137,14 @@
        Highlight full ticket row if appealed
        ------------------------------------------------------------ */
     .appeal-highlight {
-      background-color: #FF0000; /* light yellow background */
+      background-color: #FFFAE5; /* light yellow background */
     }
 
     /* ------------------------------------------------------------
        Highlight entire row if status = "Finalised"
        ------------------------------------------------------------ */
     .finalised-row {
-      background-color: #009B21; /* very light green */
+      background-color: #E8F5E9; /* very light green */
     }
 
     /* ------------------------------------------------------------
@@ -274,6 +274,8 @@
         <option value="ACC - GMC">ACC - GMC</option>
         <option value="ACC - AMATEUR PC">ACC - AMATEUR PC</option>
         <option value="ACC - AMATEUR CONSOLE">ACC - AMATEUR CONSOLE</option>
+        <option value="AC - all game modes">AC – all game modes</option>
+        <option value="AC EVO - all game modes">AC EVO – all game modes</option>
         <option value="F1 2025">F1 2025</option>
       </select>
     </div>
@@ -299,7 +301,7 @@
     <!-- Proof URL (public, but omitted from PDF) -->
     <div class="form-group">
       <label for="proofUrl">Proof URL (if any)</label>
-      <input type="url" id="proofUrl" placeholder="any video or image hosting site such as youtube/google drive/imigur" />
+      <input type="url" id="proofUrl" placeholder="any video or image hosting site such as youtube/google drive/imgur" />
     </div>
 
     <!-- Season Dropdown (static) -->
@@ -1230,7 +1232,7 @@
 
     // ----------------------------------------------------------------
     // 13) GENERATE DISCORD FORM (PDF) for a given ticket
-    //     Emulates an FIA Stewards’ decision format
+    //     Emulates an IFWL.NET Stewards’ decision format
     // ----------------------------------------------------------------
     async function generateDiscordForm(ticketId, ticketData) {
       const { jsPDF } = window.jspdf;
@@ -1241,21 +1243,21 @@
       });
 
       // 1) Load IFWL logo from GitHub (raw URL) and center at top
-      const logoUrl = "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/ifwl_logo.png";
-      let imgData;
+      const ifwlLogoUrl = "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/ifwl_logo.png";
+      let ifwlImgData;
       try {
-        imgData = await getImageDataURL(logoUrl);
+        ifwlImgData = await getImageDataURL(ifwlLogoUrl);
       } catch (e) {
-        console.warn("Could not load logo for PDF:", e);
+        console.warn("Could not load IFWL logo for PDF:", e);
       }
       let y = 10;
-      if (imgData) {
+      if (ifwlImgData) {
         const pageWidth = doc.internal.pageSize.getWidth();
         const imgWidthMM = 60; // fix width to 60mm
-        const imgProps = doc.getImageProperties(imgData);
+        const imgProps = doc.getImageProperties(ifwlImgData);
         const imgHeightMM = (imgProps.height * imgWidthMM) / imgProps.width;
         const x = (pageWidth - imgWidthMM) / 2;
-        doc.addImage(imgData, "PNG", x, y, imgWidthMM, imgHeightMM);
+        doc.addImage(ifwlImgData, "PNG", x, y, imgWidthMM, imgHeightMM);
         y += imgHeightMM + 10;
       }
 
@@ -1265,18 +1267,18 @@
       doc.text("IFWL Steward Decision", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
       y += 12;
 
-      // 3) Header block: “From: The Stewards” on left, “Document: [Ticket ID]” on right
+      // 3) Header block: “From: The Stewards” on left,
+      //    “Document: [Ticket ID]” on right in one single right-aligned call
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.text("From:", 15, y);
       doc.setFont("helvetica", "normal");
       doc.text("The Stewards", 25, y);
 
-      doc.setFont("helvetica", "bold");
       const rightX = doc.internal.pageSize.getWidth() - 15;
-      doc.text("Document:", rightX, y, { align: "right" });
-      doc.setFont("helvetica", "normal");
-      doc.text(ticketId, rightX - 8, y, { align: "right" });
+      doc.setFont("helvetica", "bold");
+      // Render “Document: [ID]” as a single string, right-aligned
+      doc.text(`Document: ${ticketId}`, rightX, y, { align: "right" });
       y += 8;
 
       // 4) “To: [Reporter]” on left, “Date: YYYY-MM-DD   Time: HH:MM” on right
@@ -1301,20 +1303,24 @@
       doc.setFont("helvetica", "bold");
       doc.text("Date:", rightX, y, { align: "right" });
       doc.setFont("helvetica", "normal");
-      doc.text(dateStr, rightX - 16, y, { align: "right" });
+      doc.text(dateStr, rightX - 20, y, { align: "right" });
 
       doc.setFont("helvetica", "bold");
-      doc.text("Time:", rightX - 40, y, { align: "right" });
+      doc.text("Time:", rightX - 45, y, { align: "right" });
       doc.setFont("helvetica", "normal");
-      doc.text(timeStr, rightX - 60, y, { align: "right" });
+      doc.text(timeStr, rightX - 65, y, { align: "right" });
       y += 12;
 
-      // 5) Introductory sentence, similar to F1
+      // 5) *** NEW INTRODUCTORY PARAGRAPH ***
       doc.setFont("helvetica", "normal");
-      const intro = "The Stewards, having received a report from the Race Director, have considered the following matter and determine the following:";
+      const intro = "The IFWL.NET Racing Stewards, having received a formal report from one of our drivers, " +
+                    "have officially opened the ticket detailed below. At present, the stewards are undertaking a comprehensive review, " +
+                    "which includes gathering any available telemetry data & consulting relevant race footage. " +
+                    "As part of this process, we are adhering strictly to the procedures and timelines outlined in the ticket information. " +
+                    "Please refer to the ticket for full details on the current status, next steps, and any additional documentation submitted.";
       const introLines = doc.splitTextToSize(intro, 180);
       doc.text(introLines, 15, y);
-      y += introLines.length * 6 + 6;
+      y += introLines.length * 6 + 8;
 
       // 6) “No / Driver:” [Accused]
       doc.setFont("helvetica", "bold");
@@ -1344,7 +1350,14 @@
       doc.text(ticketData.event || "—", 45, y);
       y += 8;
 
-      // 10) “Fact:” [Full Incident Summary]
+      // 10) *** TICKET STATUS ***
+      doc.setFont("helvetica", "bold");
+      doc.text("Status:", 15, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(ticketData.status || "—", 45, y);
+      y += 12;
+
+      // 11) “Fact:” [Full Incident Summary]
       doc.setFont("helvetica", "bold");
       doc.text("Fact:", 15, y);
       doc.setFont("helvetica", "normal");
@@ -1352,7 +1365,7 @@
       doc.text(factLines, 45, y);
       y += factLines.length * 6 + 4;
 
-      // 11) “Offence:” [Rule Breach]
+      // 12) “Offence:” [Rule Breach]
       doc.setFont("helvetica", "bold");
       doc.text("Offence:", 15, y);
       doc.setFont("helvetica", "normal");
@@ -1360,7 +1373,7 @@
       doc.text(offenceLines, 45, y);
       y += offenceLines.length * 6 + 4;
 
-      // 12) “Decision:” [Steward Decision]
+      // 13) “Decision:” [Steward Decision]
       doc.setFont("helvetica", "bold");
       doc.text("Decision:", 15, y);
       doc.setFont("helvetica", "normal");
@@ -1368,7 +1381,7 @@
       doc.text(decisionLines, 45, y);
       y += decisionLines.length * 6 + 4;
 
-      // 13) “Reason:” [Full Incident Summary]
+      // 14) *** “Reason:” [Full Incident Summary] (repeated) ***
       doc.setFont("helvetica", "bold");
       doc.text("Reason:", 15, y);
       doc.setFont("helvetica", "normal");
@@ -1376,19 +1389,55 @@
       doc.text(reasonLines, 45, y);
       y += reasonLines.length * 6 + 8;
 
-      // 14) Signature line: “The Stewards”
+      // 15) Signature line: “The Stewards”
       doc.setFont("helvetica", "bold");
       doc.text("The Stewards", 15, y);
-      y += 10;
+      y += 12;
 
-      // 15) Footer: small italic line at the bottom with generation timestamp
+      // 16) *** RACE/COMPETITION LOGO BELOW SIGNATURE ***
+      // Define a map of competition → logo URL (hosted publicly). Update these URLs to match your GitHub raw paths.
+      const logoMap = {
+        "ACC - BEGINNER CONSOLE":    "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - BEGINNER PC":         "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - PRO AM CONSOLE":       "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - PRO AM PC":            "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - ENDURO SOLO":          "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - ENDURO TEAMS":         "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - GMC":                  "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - AMATEUR PC":           "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "ACC - AMATEUR CONSOLE":      "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acclogo.webp",
+        "AC - all game modes":        "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/aclogo.webp",
+        "AC EVO - all game modes":    "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/acevologo.webp",
+        "F1 2025":                    "https://raw.githubusercontent.com/IFWLOWNER/ACC-driver-classifier/main/formulaonelogo.webp"
+      };
+
+      const compName = ticketData.competition || "";
+      if (logoMap[compName]) {
+        let raceLogoData;
+        try {
+          raceLogoData = await getImageDataURL(logoMap[compName]);
+        } catch (e) {
+          console.warn("Could not load race logo:", e);
+        }
+        if (raceLogoData) {
+          const pageWidth = doc.internal.pageSize.getWidth();
+          const imgWidthMM = 40; // adjust smaller than IFWL logo
+          const imgProps = doc.getImageProperties(raceLogoData);
+          const imgHeightMM = (imgProps.height * imgWidthMM) / imgProps.width;
+          const x = (pageWidth - imgWidthMM) / 2;
+          doc.addImage(raceLogoData, "WEBP", x, y, imgWidthMM, imgHeightMM);
+          y += imgHeightMM + 10;
+        }
+      }
+
+      // 17) Footer: small italic line at the very bottom with generation timestamp
       doc.setFont("helvetica", "italic");
       doc.setFontSize(10);
       const now = new Date();
       const footerText = `Generated: ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       doc.text(footerText, 15, doc.internal.pageSize.getHeight() - 15);
 
-      // 16) Save PDF
+      // 18) Save PDF
       doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
   </script>
