@@ -222,7 +222,49 @@
     }
   </style>
   <!-- jsPDF UMD build for PDF generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
+  // Initialize admin filters and audit button
+  const compFilterEl = document.getElementById("adminCompetitionFilter");
+  const showFinalisedEl = document.getElementById("adminShowFinalised");
+  const headAuditBtn = document.getElementById("headStewardAudit");
+  compFilterEl.addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
+  showFinalisedEl.addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
+  headAuditBtn.addEventListener("click", generateAuditPDF);
+
+  // Generate Head Steward Audit PDF
+  async function generateAuditPDF() {
+    const ticketsCol = collection(db, "tickets");
+    const snapshot = await getDocs(query(ticketsCol));
+    const totalTickets = snapshot.size;
+    const completedDocs = snapshot.docs.filter(d => d.data().status === "Finalised" && d.data().finalisedAt);
+    const completed = completedDocs.length;
+    let avgTime = 0;
+    if (completed > 0) {
+      const sumMs = completedDocs.reduce((sum, d) => {
+        const data = d.data();
+        const submitted = data.timestamp.toDate();
+        const finalised = data.finalisedAt.toDate();
+        return sum + (finalised.getTime() - submitted.getTime());
+      }, 0);
+      avgTime = sumMs / completed;
+    }
+    // Format average time into days, hours, minutes
+    const avgDays = Math.floor(avgTime / (1000 * 60 * 60 * 24));
+    const avgHours = Math.floor((avgTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const avgMinutes = Math.floor((avgTime % (1000 * 60 * 60)) / (1000 * 60));
+    const formattedAvg = `${avgDays}d ${avgHours}h ${avgMinutes}m`;
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("Head Steward Audit Report", 10, 20);
+    doc.setFontSize(12);
+    doc.text(`Total tickets: ${totalTickets}`, 10, 40);
+    doc.text(`Total tickets completed: ${completed}`, 10, 50);
+    doc.text(`Average time to finalize: ${formattedAvg}`, 10, 60);
+    doc.save("head-steward-audit.pdf");
+  }
+</script>
 </head>
 <body>
   <header>
@@ -376,6 +418,32 @@
        SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH DETAIL VIEW)
        ============================================================== -->
   <div id="adminSection" class="container hidden">
+  <!-- Admin Filters & Head Steward Audit -->
+  <div class="form-group">
+    <label for="adminCompetitionFilter">Filter by Competition</label>
+    <select id="adminCompetitionFilter">
+      <option value="">All Competitions</option>
+      <option value="ACC - BEGINNER CONSOLE">ACC - BEGINNER CONSOLE</option>
+      <option value="ACC - BEGINNER PC">ACC - BEGINNER PC</option>
+      <option value="ACC - PRO AM CONSOLE">ACC - PRO AM CONSOLE</option>
+      <option value="ACC - PRO AM PC">ACC - PRO AM PC</option>
+      <option value="ACC - ENDURO SOLO">ACC - ENDURO SOLO</option>
+      <option value="ACC - ENDURO TEAMS">ACC - ENDURO TEAMS</option>
+      <option value="ACC - GMC">ACC - GMC</option>
+      <option value="ACC - AMATEUR PC">ACC - AMATEUR PC</option>
+      <option value="ACC - AMATEUR CONSOLE">ACC - AMATEUR CONSOLE</option>
+      <option value="AC – all game modes">AC – all game modes</option>
+      <option value="AC EVO – all game modes">AC EVO – all game modes</option>
+      <option value="F1 2025">F1 2025</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <input type="checkbox" id="adminShowFinalised" />
+    <label for="adminShowFinalised">Show finalised tickets older than 4 days</label>
+  </div>
+  <button id="headStewardAudit" class="btn">Head Steward Audit</button>
+  <!-- End Admin Filters & Audit -->
+
     <h2 class="section-title">Admin Dashboard</h2>
     <div id="adminTicketsContainer">
       <!-- Admin table will be injected here -->
@@ -395,6 +463,7 @@
       getDocs,
       getDoc,
       query,
+      orderBy,
       serverTimestamp,
       updateDoc,
       doc
@@ -486,6 +555,16 @@
       const snapshot = await getDocs(collection(db, "drivers"));
       const names = [];
       snapshot.forEach(docSnap => {
+        // Apply admin filters
+        const compFilter = compFilterEl.value;
+        const showOld = showFinalisedEl.checked;
+        if (compFilter && data.competition !== compFilter) { return; }
+        if (!showOld && data.status === "Finalised" && data.timestamp) {
+          const tsObj = data.timestamp.toDate();
+          const ageMs = Date.now() - tsObj.getTime();
+          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
+        }
+        
         const data = docSnap.data();
         if (data.fullName && typeof data.fullName === "string") {
           names.push(data.fullName);
@@ -529,6 +608,16 @@
       const snapshot = await getDocs(collection(db, "drivers"));
       const names = [];
       snapshot.forEach(docSnap => {
+        // Apply admin filters
+        const compFilter = compFilterEl.value;
+        const showOld = showFinalisedEl.checked;
+        if (compFilter && data.competition !== compFilter) { return; }
+        if (!showOld && data.status === "Finalised" && data.timestamp) {
+          const tsObj = data.timestamp.toDate();
+          const ageMs = Date.now() - tsObj.getTime();
+          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
+        }
+        
         const data = docSnap.data();
         if (data.fullName && typeof data.fullName === "string") {
           names.push(data.fullName);
@@ -572,6 +661,16 @@
       const snapshot = await getDocs(collection(db, "tracks"));
       const names = [];
       snapshot.forEach(docSnap => {
+        // Apply admin filters
+        const compFilter = compFilterEl.value;
+        const showOld = showFinalisedEl.checked;
+        if (compFilter && data.competition !== compFilter) { return; }
+        if (!showOld && data.status === "Finalised" && data.timestamp) {
+          const tsObj = data.timestamp.toDate();
+          const ageMs = Date.now() - tsObj.getTime();
+          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
+        }
+        
         const data = docSnap.data();
         if (data.name && typeof data.name === "string") {
           names.push(data.name);
@@ -615,6 +714,16 @@
       const snapshot = await getDocs(collection(db, "regulations"));
       const names = [];
       snapshot.forEach(docSnap => {
+        // Apply admin filters
+        const compFilter = compFilterEl.value;
+        const showOld = showFinalisedEl.checked;
+        if (compFilter && data.competition !== compFilter) { return; }
+        if (!showOld && data.status === "Finalised" && data.timestamp) {
+          const tsObj = data.timestamp.toDate();
+          const ageMs = Date.now() - tsObj.getTime();
+          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
+        }
+        
         const data = docSnap.data();
         if (data.name && typeof data.name === "string") {
           names.push(data.name);
@@ -995,6 +1104,7 @@ if (!decisionText) {
           const ticketRef = doc(db, "tickets", ticketId);
           await updateDoc(ticketRef, {
             status: newStatus,
+            finalisedAt: serverTimestamp(),
             stewardDecision: decisionText,
             stewardTag: stewardTagVal,
             futureAdvice: futureAdviceVal
@@ -1028,7 +1138,10 @@ if (!decisionText) {
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
       const ticketsCol   = collection(db, "tickets");
-      const ticketsQuery = query(ticketsCol);
+      const ticketsQuery = query(
+        ticketsCol,
+        orderBy("timestamp", "desc")
+      );
 
       try {
         const snapshot = await getDocs(ticketsQuery);
@@ -1056,6 +1169,16 @@ if (!decisionText) {
         `;
 
         snapshot.forEach(docSnap => {
+        // Apply admin filters
+        const compFilter = compFilterEl.value;
+        const showOld = showFinalisedEl.checked;
+        if (compFilter && data.competition !== compFilter) { return; }
+        if (!showOld && data.status === "Finalised" && data.timestamp) {
+          const tsObj = data.timestamp.toDate();
+          const ageMs = Date.now() - tsObj.getTime();
+          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
+        }
+        
           const data    = docSnap.data();
           const tsObj   = data.timestamp && data.timestamp.toDate ? data.timestamp.toDate() : null;
           const tsStr   = tsObj ? tsObj.toLocaleString() : "";
