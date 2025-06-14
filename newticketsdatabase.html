@@ -222,49 +222,7 @@
     }
   </style>
   <!-- jsPDF UMD build for PDF generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
-  // Initialize admin filters and audit button
-  const compFilterEl = document.getElementById("adminCompetitionFilter");
-  const showFinalisedEl = document.getElementById("adminShowFinalised");
-  const headAuditBtn = document.getElementById("headStewardAudit");
-  compFilterEl.addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
-  showFinalisedEl.addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
-  headAuditBtn.addEventListener("click", generateAuditPDF);
-
-  // Generate Head Steward Audit PDF
-  async function generateAuditPDF() {
-    const ticketsCol = collection(db, "tickets");
-    const snapshot = await getDocs(query(ticketsCol));
-    const totalTickets = snapshot.size;
-    const completedDocs = snapshot.docs.filter(d => d.data().status === "Finalised" && d.data().finalisedAt);
-    const completed = completedDocs.length;
-    let avgTime = 0;
-    if (completed > 0) {
-      const sumMs = completedDocs.reduce((sum, d) => {
-        const data = d.data();
-        const submitted = data.timestamp.toDate();
-        const finalised = data.finalisedAt.toDate();
-        return sum + (finalised.getTime() - submitted.getTime());
-      }, 0);
-      avgTime = sumMs / completed;
-    }
-    // Format average time into days, hours, minutes
-    const avgDays = Math.floor(avgTime / (1000 * 60 * 60 * 24));
-    const avgHours = Math.floor((avgTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const avgMinutes = Math.floor((avgTime % (1000 * 60 * 60)) / (1000 * 60));
-    const formattedAvg = `${avgDays}d ${avgHours}h ${avgMinutes}m`;
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text("Head Steward Audit Report", 10, 20);
-    doc.setFontSize(12);
-    doc.text(`Total tickets: ${totalTickets}`, 10, 40);
-    doc.text(`Total tickets completed: ${completed}`, 10, 50);
-    doc.text(`Average time to finalize: ${formattedAvg}`, 10, 60);
-    doc.save("head-steward-audit.pdf");
-  }
-</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
   <header>
@@ -462,8 +420,7 @@
       addDoc,
       getDocs,
       getDoc,
-      query,
-      orderBy,
+      query, orderBy,
       serverTimestamp,
       updateDoc,
       doc
@@ -555,16 +512,6 @@
       const snapshot = await getDocs(collection(db, "drivers"));
       const names = [];
       snapshot.forEach(docSnap => {
-        // Apply admin filters
-        const compFilter = compFilterEl.value;
-        const showOld = showFinalisedEl.checked;
-        if (compFilter && data.competition !== compFilter) { return; }
-        if (!showOld && data.status === "Finalised" && data.timestamp) {
-          const tsObj = data.timestamp.toDate();
-          const ageMs = Date.now() - tsObj.getTime();
-          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
-        }
-        
         const data = docSnap.data();
         if (data.fullName && typeof data.fullName === "string") {
           names.push(data.fullName);
@@ -608,16 +555,6 @@
       const snapshot = await getDocs(collection(db, "drivers"));
       const names = [];
       snapshot.forEach(docSnap => {
-        // Apply admin filters
-        const compFilter = compFilterEl.value;
-        const showOld = showFinalisedEl.checked;
-        if (compFilter && data.competition !== compFilter) { return; }
-        if (!showOld && data.status === "Finalised" && data.timestamp) {
-          const tsObj = data.timestamp.toDate();
-          const ageMs = Date.now() - tsObj.getTime();
-          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
-        }
-        
         const data = docSnap.data();
         if (data.fullName && typeof data.fullName === "string") {
           names.push(data.fullName);
@@ -661,16 +598,6 @@
       const snapshot = await getDocs(collection(db, "tracks"));
       const names = [];
       snapshot.forEach(docSnap => {
-        // Apply admin filters
-        const compFilter = compFilterEl.value;
-        const showOld = showFinalisedEl.checked;
-        if (compFilter && data.competition !== compFilter) { return; }
-        if (!showOld && data.status === "Finalised" && data.timestamp) {
-          const tsObj = data.timestamp.toDate();
-          const ageMs = Date.now() - tsObj.getTime();
-          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
-        }
-        
         const data = docSnap.data();
         if (data.name && typeof data.name === "string") {
           names.push(data.name);
@@ -714,16 +641,6 @@
       const snapshot = await getDocs(collection(db, "regulations"));
       const names = [];
       snapshot.forEach(docSnap => {
-        // Apply admin filters
-        const compFilter = compFilterEl.value;
-        const showOld = showFinalisedEl.checked;
-        if (compFilter && data.competition !== compFilter) { return; }
-        if (!showOld && data.status === "Finalised" && data.timestamp) {
-          const tsObj = data.timestamp.toDate();
-          const ageMs = Date.now() - tsObj.getTime();
-          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
-        }
-        
         const data = docSnap.data();
         if (data.name && typeof data.name === "string") {
           names.push(data.name);
@@ -1137,6 +1054,13 @@ if (!decisionText) {
     // Highlight “Finalised” rows in green
     // ----------------------------------------------------------------
     async function fetchAndRenderTickets(targetContainer, isAdmin = false) {
+      // Admin filter elements
+      let compFilterEl, showFinalisedEl;
+      if (isAdmin) {
+        compFilterEl = document.getElementById("adminCompetitionFilter");
+        showFinalisedEl = document.getElementById("adminShowFinalised");
+      }
+
       const ticketsCol   = collection(db, "tickets");
       const ticketsQuery = query(
         ticketsCol,
@@ -1169,16 +1093,21 @@ if (!decisionText) {
         `;
 
         snapshot.forEach(docSnap => {
-        // Apply admin filters
-        const compFilter = compFilterEl.value;
-        const showOld = showFinalisedEl.checked;
-        if (compFilter && data.competition !== compFilter) { return; }
-        if (!showOld && data.status === "Finalised" && data.timestamp) {
-          const tsObj = data.timestamp.toDate();
-          const ageMs = Date.now() - tsObj.getTime();
-          if (ageMs > 4 * 24 * 60 * 60 * 1000) { return; }
-        }
-        
+          // Apply admin filters
+          if (isAdmin) {
+            const compFilter = compFilterEl.value;
+            const showOld = showFinalisedEl.checked;
+            if (compFilter && data.competition !== compFilter) {
+              return;
+            }
+            if (!showOld && data.status === "Finalised" && data.timestamp) {
+              const tsObj = data.timestamp.toDate();
+              if (Date.now() - tsObj.getTime() > 4 * 24 * 60 * 60 * 1000) {
+                return;
+              }
+            }
+          }
+
           const data    = docSnap.data();
           const tsObj   = data.timestamp && data.timestamp.toDate ? data.timestamp.toDate() : null;
           const tsStr   = tsObj ? tsObj.toLocaleString() : "";
@@ -1591,6 +1520,44 @@ if (!decisionText) {
       // 18) Save PDF
       doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
-  </script>
+  
+  // Initialize admin filters and Head Steward Audit button
+  document.getElementById("adminCompetitionFilter").addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
+  document.getElementById("adminShowFinalised").addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
+  document.getElementById("headStewardAudit").addEventListener("click", generateAuditPDF);
+
+  // Generate Head Steward Audit PDF
+  async function generateAuditPDF() {
+    const ticketsCol = collection(db, "tickets");
+    const snapshot = await getDocs(query(ticketsCol));
+    const totalTickets = snapshot.size;
+    const completedDocs = snapshot.docs.filter(d => d.data().status === "Finalised" && d.data().finalisedAt);
+    const completed = completedDocs.length;
+    let avgTime = 0;
+    if (completed > 0) {
+      const sumMs = completedDocs.reduce((sum, d) => {
+        const data = d.data();
+        const submitted = data.timestamp.toDate();
+        const finalised = data.finalisedAt.toDate();
+        return sum + (finalised.getTime() - submitted.getTime());
+      }, 0);
+      avgTime = sumMs / completed;
+    }
+    const avgDays = Math.floor(avgTime / (1000 * 60 * 60 * 24));
+    const avgHours = Math.floor((avgTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const avgMinutes = Math.floor((avgTime % (1000 * 60 * 60)) / (1000 * 60));
+    const formattedAvg = `${avgDays}d ${avgHours}h ${avgMinutes}m`;
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("Head Steward Audit Report", 10, 20);
+    doc.setFontSize(12);
+    doc.text(`Total tickets: ${totalTickets}`, 10, 40);
+    doc.text(`Total tickets completed: ${completed}`, 10, 50);
+    doc.text(`Average time to finalize: ${formattedAvg}`, 10, 60);
+    doc.save("head-steward-audit.pdf");
+  }
+</script>
 </body>
 </html>
