@@ -222,49 +222,7 @@
     }
   </style>
   <!-- jsPDF UMD build for PDF generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script>
-  // Initialize admin filters and audit button
-  const compFilterEl    = document.getElementById("adminCompetitionFilter");
-  const showFinalisedEl = document.getElementById("adminShowFinalised");
-  const headAuditBtn    = document.getElementById("headStewardAudit");
-  compFilterEl.addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
-  showFinalisedEl.addEventListener("change", () => fetchAndRenderTickets(adminTicketsContainer, true));
-  headAuditBtn.addEventListener("click", generateAuditPDF);
-
-  // Generate Head Steward Audit PDF
-  async function generateAuditPDF() {
-    const ticketsCol = collection(db, "tickets");
-    const snapshot = await getDocs(query(ticketsCol));
-    const totalTickets = snapshot.size;
-    const completedDocs = snapshot.docs.filter(d => d.data().status === "Finalised" && d.data().finalisedAt);
-    const completed = completedDocs.length;
-    let avgTime = 0;
-    if (completed > 0) {
-      const sumMs = completedDocs.reduce((sum, d) => {
-        const data = d.data();
-        const submitted = data.timestamp.toDate();
-        const finalised = data.finalisedAt.toDate();
-        return sum + (finalised.getTime() - submitted.getTime());
-      }, 0);
-      avgTime = sumMs / completed;
-    }
-    const avgDays = Math.floor(avgTime / (1000 * 60 * 60 * 24));
-    const avgHours = Math.floor((avgTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const avgMinutes = Math.floor((avgTime % (1000 * 60 * 60)) / (1000 * 60));
-    const formattedAvg = `${avgDays}d ${avgHours}h ${avgMinutes}m`;
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text("Head Steward Audit Report", 10, 20);
-    doc.setFontSize(12);
-    doc.text(`Total tickets: ${totalTickets}`, 10, 40);
-    doc.text(`Total tickets completed: ${completed}`, 10, 50);
-    doc.text(`Average time to finalize: ${formattedAvg}`, 10, 60);
-    doc.save("head-steward-audit.pdf");
-  }
-</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
 
 </head>
 <body>
@@ -419,7 +377,6 @@
        SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH DETAIL VIEW)
        ============================================================== -->
   <div id="adminSection" class="container hidden">
-  <!-- Admin Filters & Head Steward Audit -->
   <div class="form-group">
     <label for="adminCompetitionFilter">Filter by Competition</label>
     <select id="adminCompetitionFilter">
@@ -444,7 +401,7 @@
   </div>
   <button id="headStewardAudit" class="btn">Head Steward Audit</button>
   <!-- End Admin Filters & Audit -->
-
+ class="container hidden">
     <h2 class="section-title">Admin Dashboard</h2>
     <div id="adminTicketsContainer">
       <!-- Admin table will be injected here -->
@@ -455,7 +412,8 @@
        Firebase v9+ Modular SDK & App Logic (including PDF generation)
        ============================================================== -->
   <script type="module">
-    // 1) Import required Firebase modules
+document.addEventListener('DOMContentLoaded', () => {
+// 1) Import required Firebase modules
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getFirestore,
@@ -1548,6 +1506,7 @@ if (!decisionText) {
       // 18) Save PDF
       doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
-  </script>
+});
+</script>
 </body>
 </html>
