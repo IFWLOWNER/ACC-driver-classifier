@@ -222,7 +222,54 @@
     }
   </style>
   <!-- jsPDF UMD build for PDF generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
+  // Generate Overview PDF of accused drivers from last 4 days
+  document.getElementById("overviewAdminBtn").addEventListener("click", async () => {
+    // Calculate date 4 days ago
+    const fourDaysAgo = new Date();
+    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+    // Query tickets submitted in last 4 days
+    const ticketsCol = collection(db, "tickets");
+    const q = query(
+      ticketsCol,
+      where("submittedAt", ">=", fourDaysAgo),
+      orderBy("submittedAt")
+    );
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) {
+      alert("No tickets found in the last 4 days.");
+      return;
+    }
+    // Build PDF
+    const doc = new jsPDF();
+    let y = 30;
+    doc.setFontSize(16);
+    doc.text("Ticket Overview (Last 4 Days)", 14, 20);
+    doc.setFontSize(12);
+    // Header row
+    doc.text("Driver (ID)", 14, y);
+    doc.text("Competition", 80, y);
+    doc.text("Code", 160, y);
+    y += 8;
+    // Rows
+    snapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      const accused = data.accused || "";
+      const competition = data.competition || "";
+      const code = data.postRaceCode || "-";
+      doc.text(accused, 14, y);
+      doc.text(competition, 80, y);
+      doc.text(code, 160, y);
+      y += 8;
+      if (y > 280) {
+        doc.addPage();
+        y = 20;
+      }
+    });
+    doc.save("ticket_overview.pdf");
+  });
+
+</script>
 </head>
 <body>
   <header>
@@ -377,6 +424,7 @@
        ============================================================== -->
   <div id="adminSection" class="container hidden">
     <h2 class="section-title">Admin Dashboard</h2>
+    <button id="overviewAdminBtn" style="margin-bottom:12px; padding:8px 16px; background-color:#444; color:#fff; border:none; border-radius:4px; cursor:pointer;">Generate Overview PDF</button>
     <div id="adminTicketsContainer">
       <!-- Admin table will be injected here -->
     </div>
@@ -1572,6 +1620,53 @@ if (!decisionText) {
       // 18) Save PDF
       doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
-  </script>
+  
+  // Generate Overview PDF of accused drivers from last 4 days
+  document.getElementById("overviewAdminBtn").addEventListener("click", async () => {
+    // Calculate date 4 days ago
+    const fourDaysAgo = new Date();
+    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+    // Query tickets submitted in last 4 days
+    const ticketsCol = collection(db, "tickets");
+    const q = query(
+      ticketsCol,
+      where("submittedAt", ">=", fourDaysAgo),
+      orderBy("submittedAt")
+    );
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) {
+      alert("No tickets found in the last 4 days.");
+      return;
+    }
+    // Build PDF
+    const doc = new jsPDF();
+    let y = 30;
+    doc.setFontSize(16);
+    doc.text("Ticket Overview (Last 4 Days)", 14, 20);
+    doc.setFontSize(12);
+    // Header row
+    doc.text("Driver (ID)", 14, y);
+    doc.text("Competition", 80, y);
+    doc.text("Code", 160, y);
+    y += 8;
+    // Rows
+    snapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      const accused = data.accused || "";
+      const competition = data.competition || "";
+      const code = data.postRaceCode || "-";
+      doc.text(accused, 14, y);
+      doc.text(competition, 80, y);
+      doc.text(code, 160, y);
+      y += 8;
+      if (y > 280) {
+        doc.addPage();
+        y = 20;
+      }
+    });
+    doc.save("ticket_overview.pdf");
+  });
+
+</script>
 </body>
 </html>
