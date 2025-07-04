@@ -1,6 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+
+  <style>
+    @font-face {
+      font-family: 'GoodTimesRG';
+      src: url('GoodTimesRg.otf') format('opentype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+    /* Apply custom font to header and nav links */
+    header, header nav ul li a {
+      font-family: 'GoodTimesRG', serif;
+      font-style: normal;
+    }
+  </style>
+
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IFWL Tickets • Highlight Finalised Tickets</title>
@@ -223,12 +239,87 @@
   </style>
   <!-- jsPDF UMD build for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  // Generate Overview PDF of accused drivers from last 4 days
+  document.getElementById("overviewAdminBtn").addEventListener("click", async () => {
+    // Calculate date 4 days ago
+    const fourDaysAgo = new Date();
+    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+    // Query tickets submitted in last 4 days
+    const ticketsCol = collection(db, "tickets");
+    const q = query(
+      ticketsCol,
+      where("timestamp", ">=", fourDaysAgo),
+      orderBy("timestamp", "asc")
+    );
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) {
+      alert("No tickets found in the last 4 days.");
+      return;
+    }
+    // Build PDF
+      const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+    let y = 30;
+    doc.setFontSize(16);
+    doc.text("Ticket Overview (Last 4 Days)", 14, 20);
+    doc.setFontSize(12);
+    // Header row
+    doc.text("Driver (ID)", 14, y);
+    doc.text("Competition", 80, y);
+    doc.text("Penalty", 160, y);
+    y += 8;
+    // Rows
+    snapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      const accused = data.accused || "";
+      const competition = data.competition || "";
+      const code = data.postRaceCode || "";
+      const penalty = code && timePenaltyMap[code] ? timePenaltyMap[code] : "-";
+      doc.text(accused, 14, y);
+      doc.text(competition, 80, y);
+      doc.text(penalty, 160, y);
+      y += 8;
+      if (y > 280) {
+        doc.addPage();
+        y = 20;
+      }
+    });
+    doc.save("ticket_overview.pdf");
+  });
+
+</script>
 </head>
-<body>
-  <header>
-    IFWL Ticketing System
-    <button id="logoutBtn" class="logout-btn hidden">Logout</button>
-  </header>
+<body style="margin:0;font-family:sans-serif;background:url('ifwl_bg.webp') no-repeat center top;background-size:cover;">
+  
+<header style="background-color:#2A9D8F; padding:16px 0;">
+  <div style="max-width:1100px; margin:0 auto; display:flex; align-items:center; justify-content:center;">
+    <!-- Logo: replace YOUR_BASE64_DATA with full data URI -->
+    <a href="https://ifwl.net/">
+      <img src="ifwlheaderlogo.webp" alt="IFWL" style="height:48px;">
+    </a>
+    <nav>
+  
+<ul style="list-style:none; margin:0; padding:0; display:flex; gap:24px; white-space:nowrap; justify-content:center;">
+  <li><a href="https://ifwl.net/" style="color:#FFF; text-decoration:none;">Home</a></li>
+  <li><a href="https://ifwl.net/events" style="color:#FFF; text-decoration:none;">Races</a></li>
+  <li><a href="https://ifwl.net/events/competitions/standings" style="color:#FFF; text-decoration:none;">Standings</a></li>
+  <li><a href="https://ifwl.net/grid" style="color:#FFF; text-decoration:none;">Grid</a></li>
+  <li><a href="https://ifwl.net/paddock/safety-car" style="color:#FFF; text-decoration:none;">Paddock</a></li>
+  <li><a href="https://ifwl.net/merchandise" style="color:#FFF; text-decoration:none;">Merch</a></li>
+  <li><a href="https://ifwlowner.github.io/ACC-driver-classifier/" style="color:#FFF; text-decoration:none;">Classifier</a></li>
+  <li><a href="https://ifwlowner.github.io/ACC-driver-classifier/ifwl_live_stewarding.html" style="color:#FFF; text-decoration:none;">Live Stewarding Page</a></li>
+  <li><a href="https://docs.google.com/document/d/1EsjCgd2SFxDoVfhtk96zyyWysXo7ctlmcweYOxLdgWQ/edit?tab=t.0" style="color:#FFF; text-decoration:none;">Stewarding Codes Explained</a></li>
+</ul>
+
+</nav>
+  </div>
+</header>
+
+<div style="text-align:right; margin:12px; width:100%; max-width:800px;">
+  <button id="logoutBtn" style="padding:6px 12px; font-size:14px; cursor:pointer;">Logout</button>
+</div>
+
 
   <!-- ==============================================================
        SECTION 1: SUBMIT A NEW TICKET (VISIBLE TO EVERYONE)
@@ -375,9 +466,10 @@
   <!-- ==============================================================
        SECTION 4: ADMIN DASHBOARD (PRIVATE, WITH DETAIL VIEW)
        ============================================================== -->
-  <div id="adminSection" class="container hidden">
+  <div id="adminSection" class="container hidden" style="max-width: 1100px; padding:24px;">
     <h2 class="section-title">Admin Dashboard</h2>
-    <div id="adminTicketsContainer">
+    <button id="overviewAdminBtn" style="margin-bottom:12px; padding:8px 16px; background-color:#444; color:#fff; border:none; border-radius:4px; cursor:pointer;">Generate Overview PDF</button>
+    <div id="adminTicketsContainer" style="overflow-x:auto;">
       <!-- Admin table will be injected here -->
     </div>
   </div>
@@ -395,6 +487,8 @@
       getDocs,
       getDoc,
       query,
+      where,
+      orderBy,
       serverTimestamp,
       updateDoc,
       doc
@@ -902,6 +996,9 @@
             ${ticketData.stewardDecision 
               ? `<p><strong>Steward Decision:</strong> ${ticketData.stewardDecision}</p>` 
               : ""}
+            ${ticketData.postRaceCode
+              ? `<p><strong>Post-Race Code:</strong> ${ticketData.postRaceCode}</p>`
+              : ""}
             <p><strong>Submitted At:</strong> ${
               (ticketData.timestamp && ticketData.timestamp.toDate)
                 ? ticketData.timestamp.toDate().toLocaleString()
@@ -927,6 +1024,46 @@
               <input type="text" id="stewardTag-${ticketId}" 
                      placeholder="e.g. Steward – IOC" 
                      value="${ticketData.stewardTag || ""}" />
+
+    <!-- ─── Stewards Post-Race Coding Dropdown ─── -->
+    <label for="postRaceCode-${ticketId}"><strong>Post-Race Code</strong></label>
+    <select id="postRaceCode-${ticketId}">
+      <option value="" disabled selected>— Select a code —</option>
+      <option value="RP1mi">RP1mi – Unsafe Track Rejoin (10s)</option>
+      <option value="RP1St">RP1St – Unsafe Track Rejoin (30s)</option>
+      <option value="RP1Se">RP1Se – Unsafe Track Rejoin (SG30)</option>
+      <option value="RP2mi">RP2mi – Unsafe Pit Exit / Crossing pit line (10s)</option>
+      <option value="RP2St">RP2St – Unsafe Pit Exit / Crossing pit line (30s)</option>
+      <option value="RP2Se">RP2Se – Unsafe Pit Exit / Crossing pit line (SG30)</option>
+      <option value="RP3mi">RP3mi – Blue Flag Abuse / Blocking While Lapped (5s)</option>
+      <option value="RP3St">RP3St – Blue Flag Abuse / Blocking While Lapped (15s)</option>
+      <option value="RP3Se">RP3Se – Blue Flag Abuse / Blocking While Lapped (SG30)</option>
+      <option value="RP4mi">RP4mi – Formation Lap / Start Line Infingement (30s)</option>
+      <option value="RP4St">RP4St – Formation Lap / Start Line Infingement (SG30)</option>
+      <option value="RP4Se">RP4Se – Formation Lap / Start Line Infingement (DQ)</option>
+      <option value="RP5mi">RP5mi – Illegal Overtake (Off-Track or Gained Advantage) (5s)</option>
+      <option value="RP5St">RP5St – Illegal Overtake (Off-Track or Gained Advantage) (15s)</option>
+      <option value="RP5Se">RP5Se – Illegal Overtake (Off-Track or Gained Advantage) (30s)</option>
+      <option value="RP6mi">RP6mi – Late Blocking / Moving Under Braking (5s)</option>
+      <option value="RP6St">RP6St – Late Blocking / Moving Under Braking (30s)</option>
+      <option value="RP6Se">RP6Se – Late Blocking / Moving Under Braking (SG30)</option>
+      <option value="RP7mi">RP7mi – Divebomb / Overly Ambitious Lunge (10s)</option>
+      <option value="RP7St">RP7St – Divebomb / Overly Ambitious Lunge (30s)</option>
+      <option value="RP7Se">RP7Se – Divebomb / Overly Ambitious Lunge (SG30)</option>
+      <option value="RP8Mi">RP8Mi – Rear-End Collision (Braking Zone) (5s)</option>
+      <option value="RP8St">RP8St – Rear-End Collision (Braking Zone) (15s)</option>
+      <option value="RP8Se">RP8Se – Rear-End Collision (Braking Zone) (SG30)</option>
+      <option value="RP9Mi">RP9Mi – Squeezing Off Track / Not Leaving Room (5s)</option>
+      <option value="RP9St">RP9St – Squeezing Off Track / Not Leaving Room (15s)</option>
+      <option value="RP9Se">RP9Se – Squeezing Off Track / Not Leaving Room (SG30)</option>
+      <option value="RP10Mi">RP10Mi – Excessive flashing (10s)</option>
+      <option value="RP10St">RP10St – Excessive flashing (10s)</option>
+      <option value="RP10Se">RP10Se – Excessive flashing (10s)</option>
+      <option value="RP11Mi">RP11Mi – Intentional Ramming (DQ)</option>
+      <option value="RP11St">RP11St – Intentional Ramming (DQ)</option>
+      <option value="RP11Se">RP11Se – Intentional Ramming (DQ)</option>
+    </select>
+
 <label for="futureAdvice-${ticketId}"><strong>Future Advice</strong></label>
 <select id="futureAdvice-${ticketId}">
   <option value="" disabled ${!ticketData.futureAdvice ? "selected" : ""}>Select advice…</option>
@@ -958,6 +1095,11 @@
         </td>
       `;
       ticketRow.insertAdjacentElement("afterend", detailRow);
+      // set Post-Race Code dropdown to saved value
+      const prcSelect = document.getElementById(`postRaceCode-${ticketId}`);
+      if (prcSelect && ticketData.postRaceCode) {
+        prcSelect.value = ticketData.postRaceCode;
+      }
 
       document.getElementById(`cancelDetail-${ticketId}`).addEventListener("click", () => {
         detailRow.remove();
@@ -977,6 +1119,7 @@
 
         const futureAdviceSel = document.getElementById(`futureAdvice-${ticketId}`);
         const futureAdviceVal = futureAdviceSel.value;
+        const postRaceCodeVal = document.getElementById(`postRaceCode-${ticketId}`).value;
 if (!decisionText) {
           detailStatusDiv.textContent = "Please enter a steward decision.";
           detailStatusDiv.className = "status error";
@@ -994,10 +1137,17 @@ if (!decisionText) {
         try {
           const ticketRef = doc(db, "tickets", ticketId);
           await updateDoc(ticketRef, {
-            status: newStatus,
-            stewardDecision: decisionText,
-            stewardTag: stewardTagVal,
-            futureAdvice: futureAdviceVal
+
+              status: newStatus,
+
+              stewardDecision: decisionText,
+
+              stewardTag: stewardTagVal,
+
+              futureAdvice: futureAdviceVal,
+
+              postRaceCode: postRaceCodeVal
+
           });
           detailStatusDiv.textContent = "Ticket updated!";
           detailStatusDiv.className = "status success";
@@ -1254,7 +1404,77 @@ if (!decisionText) {
     // 13) GENERATE DISCORD FORM (PDF) for a given ticket
     //     Emulates an IFWL.NET Stewards’ decision format
     // ----------------------------------------------------------------
-    async function generateDiscordForm(ticketId, ticketData) {
+  // Lookup for Post-Race Code descriptions
+  const postRaceCodeLookup = {
+    RP1mi: "Unsafe Track Rejoin (10s)",
+    RP1St: "Unsafe Track Rejoin (30s)",
+    RP1Se: "Unsafe Track Rejoin (SG30)",
+    RP2mi: "Unsafe Pit Exit / Crossing pit line (10s)",
+    RP2St: "Unsafe Pit Exit / Crossing pit line (30s)",
+    RP2Se: "Unsafe Pit Exit / Crossing pit line (SG30)",
+    RP3mi: "Blue Flag Abuse / Blocking While Lapped (5s)",
+    RP3St: "Blue Flag Abuse / Blocking While Lapped (15s)",
+    RP3Se: "Blue Flag Abuse / Blocking While Lapped (SG30)",
+    RP4mi: "Formation Lap / Start Line Infingement (30s)",
+    RP4St: "Formation Lap / Start Line Infingement (SG30)",
+    RP4Se: "Formation Lap / Start Line Infingement (DQ)",
+    RP5mi: "Illegal Overtake (Off-Track or Gained Advantage) (5s)",
+    RP5St: "Illegal Overtake (Off-Track or Gained Advantage) (15s)",
+    RP5Se: "Illegal Overtake (Off-Track or Gained Advantage) (30s)",
+    RP6mi: "Late Blocking / Moving Under Braking (5s)",
+    RP6St: "Late Blocking / Moving Under Braking (30s)",
+    RP6Se: "Late Blocking / Moving Under Braking (SG30)",
+    RP7mi: "Divebomb / Overly Ambitious Lunge (10s)",
+    RP7St: "Divebomb / Overly Ambitious Lunge (30s)",
+    RP7Se: "Divebomb / Overly Ambitious Lunge (SG30)",
+    RP8Mi: "Rear-End Collision (Braking Zone) (5s)",
+    RP8St: "Rear-End Collision (Braking Zone) (15s)",
+    RP8Se: "Rear-End Collision (Braking Zone) (SG30)",
+    RP9Mi: "Squeezing Off Track / Not Leaving Room (5s)",
+    RP9St: "Squeezing Off Track / Not Leaving Room (15s)",
+    RP9Se: "Squeezing Off Track / Not Leaving Room (SG30)",
+    RP10Mi: "Excessive flashing (10s)",
+    RP10St: "Excessive flashing (10s)",
+    RP10Se: "Excessive flashing (10s)",
+    RP11Mi: "Intentional Ramming (DQ)",
+    RP11St: "Intentional Ramming (DQ)",
+    RP11Se: "Intentional Ramming (DQ)"
+  };
+
+  // mapping from RP code to time penalty
+  const timePenaltyMap = {
+    RP1mi: "10s",   RP1St: "30s",  RP1Se: "SG30",
+    RP2mi: "10s",   RP2St: "30s",  RP2Se: "SG30",
+    RP3mi: "5s",    RP3St: "15s",  RP3Se: "SG30",
+    RP4mi: "30s",   RP4St: "SG30", RP4Se: "DQ",
+    RP5mi: "5s",    RP5St: "15s",  RP5Se: "30s",
+    RP6mi: "5s",    RP6St: "30s",  RP6Se: "SG30",
+    RP7mi: "10s",   RP7St: "30s",  RP7Se: "SG30",
+    RP8Mi: "5s",    RP8St: "15s",  RP8Se: "SG30",
+    RP9Mi: "5s",    RP9St: "15s",  RP9Se: "SG30",
+    RP10Mi: "10s",  RP10St: "10s", RP10Se: "10s",
+    RP11Mi: "DQ",   RP11St: "DQ",  RP11Se: "DQ"
+  };
+
+    const penaltyMap = postRaceCodeLookup;
+  // Map RP codes to time penalties
+  const timePenaltyMap = {
+    RP1mi: "10s", RP1St: "30s", RP1Se: "SG30",
+    RP2mi: "10s", RP2St: "30s", RP2Se: "SG30",
+    RP3mi: "5s",  RP3St: "15s", RP3Se: "SG30",
+    RP4mi: "30s", RP4St: "SG30", RP4Se: "DQ",
+    RP5mi: "5s",  RP5St: "15s", RP5Se: "30s",
+    RP6mi: "5s",  RP6St: "30s", RP6Se: "SG30",
+    RP7mi: "10s", RP7St: "30s", RP7Se: "SG30",
+    RP8Mi: "5s",  RP8St: "15s", RP8Se: "SG30",
+    RP9Mi: "5s",  RP9St: "15s", RP9Se: "SG30",
+    RP10Mi: "10s",RP10St: "10s",RP10Se: "10s",
+    RP11Mi: "DQ", RP11St: "DQ", RP11Se: "DQ"
+  };
+
+
+
+  async function generateDiscordForm(ticketId, ticketData) {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({
         unit: "mm",
@@ -1408,6 +1628,17 @@ if (!decisionText) {
       const reasonLines = doc.splitTextToSize(ticketData.fullIncident || "—", 150);
       doc.text(reasonLines, 45, y);
       y += reasonLines.length * 6 + 8;
+  
+  // Post-Race Code
+  doc.setFont("helvetica", "bold");
+  doc.text("Post-Race Code:", 15, y);
+  doc.setFont("helvetica", "normal");
+  // use lookup for description
+  const prc = ticketData.postRaceCode || "";
+  const prcDesc = prc && postRaceCodeLookup[prc] ? `${prc} – ${postRaceCodeLookup[prc]}` : "—";
+  doc.text(prcDesc, 60, y);
+  y += 8;
+  
 
       
         // Future Advice: Steward’s recommended feedback
@@ -1468,18 +1699,13 @@ if (!decisionText) {
       // 18) Save PDF
       doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
-  </script>
-
-<script type="module">
-  import { collection, getDocs, query, where, orderBy } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
-
+  
   // Generate Overview PDF of accused drivers from last 4 days
   document.getElementById("overviewAdminBtn").addEventListener("click", async () => {
-    // 1) Calculate date 4 days ago
+    // Calculate date 4 days ago
     const fourDaysAgo = new Date();
     fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-
-    // 2) Fetch tickets submitted in last 4 days
+    // Query tickets submitted in last 4 days
     const ticketsCol = collection(db, "tickets");
     const q = query(
       ticketsCol,
@@ -1491,59 +1717,37 @@ if (!decisionText) {
       alert("No tickets found in the last 4 days.");
       return;
     }
-
-    // 3) Prepare PDF
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    // Build PDF
+      const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
     let y = 30;
     doc.setFontSize(16);
     doc.text("Ticket Overview (Last 4 Days)", 14, 20);
-
-    // Column headers
     doc.setFontSize(12);
+    // Header row
     doc.text("Driver (ID)", 14, y);
-    doc.text("Event", 80, y);
+    doc.text("Competition", 80, y);
     doc.text("Penalty", 160, y);
     y += 8;
-
-    // 4) Time‐penalty map
-    const penaltyTimeMap = {
-      RP1mi: "10s",   RP1St: "30s",  RP1Se: "SG30",
-      RP2mi: "10s",   RP2St: "30s",  RP2Se: "SG30",
-      RP3mi: "5s",    RP3St: "15s",  RP3Se: "SG30",
-      RP4mi: "30s",   RP4St: "SG30", RP4Se: "DQ",
-      RP5mi: "5s",    RP5St: "15s",  RP5Se: "30s",
-      RP6mi: "5s",    RP6St: "30s",  RP6Se: "SG30",
-      RP7mi: "10s",   RP7St: "30s",  RP7Se: "SG30",
-      RP8Mi: "5s",    RP8St: "15s",  RP8Se: "SG30",
-      RP9Mi: "5s",    RP9St: "15s",  RP9Se: "SG30",
-      RP10Mi: "10s",  RP10St: "10s", RP10Se: "10s",
-      RP11Mi: "DQ",   RP11St: "DQ",  RP11Se: "DQ"
-    };
-
-    // 5) Print rows
-    snapshot.docs.forEach(docSnap => {
+    // Rows
+    snapshot.docs.forEach((docSnap) => {
       const data = docSnap.data();
       const accused = data.accused || "";
-      const eventVal = data.event || "";
+      const competition = data.competition || "";
       const code = data.postRaceCode || "";
-      const timeOnly = penaltyTimeMap[code] || "-";
-
-      doc.text(accused,    14,  y);
-      doc.text(eventVal,   80,  y);
-      doc.text(timeOnly,   160, y);
+      const penalty = code && timePenaltyMap[code] ? timePenaltyMap[code] : "-";
+      doc.text(accused, 14, y);
+      doc.text(competition, 80, y);
+      doc.text(penalty, 160, y);
       y += 8;
-
       if (y > 280) {
         doc.addPage();
         y = 20;
       }
     });
-
-    // 6) Save
     doc.save("ticket_overview.pdf");
   });
-</script>
 
+</script>
 </body>
 </html>
