@@ -699,16 +699,28 @@
 
     // ----------------------------------------------------------------
     // Populate “Track” dropdown from /tracks, sorted alphabetically
+    // UPDATED: de-duplicates + removes blank/empty values (case-insensitive)
     // ----------------------------------------------------------------
     async function populateTrackDropdown() {
       const snapshot = await getDocs(collection(db, "tracks"));
+
+      const seen = new Set();
       const names = [];
+
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
-        if (data.name && typeof data.name === "string") {
-          names.push(data.name);
-        }
+        if (!data.name || typeof data.name !== "string") return;
+
+        const clean = data.name.trim();
+        if (!clean) return;
+
+        const key = clean.toLowerCase();
+        if (seen.has(key)) return;
+
+        seen.add(key);
+        names.push(clean);
       });
+
       names.sort((a, b) => a.localeCompare(b));
 
       trackSelect.innerHTML = "";
@@ -836,10 +848,46 @@
       }
 
       // 5) If “Add New Track…” was chosen, add to Firestore
+      // UPDATED: prevents creating new duplicates (case-insensitive) using a stable key
       if (track === "__ADD_NEW__") {
         track = newTrackName;
+
         try {
-          await addDoc(collection(db, "tracks"), { name: newTrackName });
+          const cleanName = (newTrackName || "").trim();
+          const key = cleanName.toLowerCase();
+
+          if (cleanName) {
+            let exists = false;
+
+            // Preferred check (new system): key field
+            try {
+              const byKeySnap = await getDocs(
+                query(collection(db, "tracks"), where("key", "==", key))
+              );
+              if (!byKeySnap.empty) exists = true;
+            } catch (e) {
+              // If indexes/fields not present yet, ignore and fall back
+            }
+
+            // Fallback check (old docs): exact name match
+            if (!exists) {
+              try {
+                const byNameSnap = await getDocs(
+                  query(collection(db, "tracks"), where("name", "==", cleanName))
+                );
+                if (!byNameSnap.empty) exists = true;
+              } catch (e) {
+                // ignore
+              }
+            }
+
+            // If it doesn't exist, add it with both name + key
+            if (!exists) {
+              await addDoc(collection(db, "tracks"), { name: cleanName, key });
+              // Refresh dropdown so the new (deduped) list is immediately correct
+              await populateTrackDropdown();
+            }
+          }
         } catch (err) {
           console.error("Error adding new track:", err);
         }
