@@ -1,1 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IFWL – Player Statement</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <h2>Incident Statement</h2>
+
+  <input id="name" placeholder="Your name / driver tag"><br><br>
+  <textarea id="statement" placeholder="Your statement" rows="6"></textarea><br><br>
+  <button id="submitBtn">Submit</button>
+
+  <p id="status"></p>
+
+  <script src="firebase-init.js"></script>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const ticketId = params.get("ticket");
+    const inviteId = params.get("invite");
+
+    if (!ticketId || !inviteId) {
+      document.getElementById("status").innerText = "Invalid link.";
+      document.getElementById("submitBtn").disabled = true;
+    }
+
+    document.getElementById("submitBtn").onclick = async () => {
+      try {
+        const inviteRef = db
+          .collection("tickets")
+          .doc(ticketId)
+          .collection("invites")
+          .doc(inviteId);
+
+        const inviteSnap = await inviteRef.get();
+        if (!inviteSnap.exists || inviteSnap.data().used) {
+          document.getElementById("status").innerText = "Invite expired or already used.";
+          return;
+        }
+
+        const name = document.getElementById("name").value.trim();
+        const text = document.getElementById("statement").value.trim();
+
+        if (!text) {
+          document.getElementById("status").innerText = "Statement required.";
+          return;
+        }
+
+        await db
+          .collection("tickets")
+          .doc(ticketId)
+          .collection("player_statements")
+          .doc(inviteId)
+          .set({
+            name,
+            statement: text,
+            submittedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+        await inviteRef.update({ used: true });
+
+        document.getElementById("status").innerText = "Statement submitted. Thank you.";
+        document.getElementById("submitBtn").disabled = true;
+
+      } catch (e) {
+        document.getElementById("status").innerText = e.message;
+      }
+    };
+  </script>
+</body>
+</html>
 
