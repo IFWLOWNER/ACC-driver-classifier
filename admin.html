@@ -1,1 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IFWL Admin Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <h2>IFWL Admin Login</h2>
+  <button id="loginBtn">Sign in with Google</button>
+  <p id="status"></p>
+
+  <script src="firebase-init.js"></script>
+
+  <script>
+    const provider = new firebase.auth.GoogleAuthProvider();
+
+    document.getElementById("loginBtn").onclick = async () => {
+      try {
+        const result = await auth.signInWithPopup(provider);
+        const email = result.user.email.toLowerCase();
+
+        const snap = await db.collection("admins").doc(email).get();
+        if (!snap.exists) {
+          document.getElementById("status").innerText = "Access denied.";
+          await auth.signOut();
+          return;
+        }
+
+        const data = snap.data() || {};
+        const roleRaw = (data.role || "").toLowerCase();
+        const isOwner = data.owner === true;
+        const isHead =
+          roleRaw.includes("head") ||
+          data.headsteward === true ||
+          isOwner;
+
+        if (isHead) {
+          window.location.href = "headsteward.html";
+        } else {
+          window.location.href = "steward.html";
+        }
+
+      } catch (e) {
+        document.getElementById("status").innerText = e.message;
+      }
+    };
+  </script>
+</body>
+</html>
 
