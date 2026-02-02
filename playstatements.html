@@ -1,74 +1,114 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>IFWL – Player Statement</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IFWL — Player Statement</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;max-width:720px;margin:32px auto;padding:0 14px}
+    .card{background:#fff;border:1px solid #E6E8EF;border-radius:14px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.06)}
+    input,textarea{width:100%;padding:10px;border:1px solid #E6E8EF;border-radius:10px;font-size:14px}
+    textarea{min-height:140px;resize:vertical}
+    button{padding:10px 14px;border-radius:10px;border:1px solid #E6E8EF;background:#111827;color:#fff;cursor:pointer}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .sub{color:#667085;font-size:13px}
+    .err{color:#B42318}
+    .ok{color:#027A48}
+  </style>
 </head>
-
 <body>
-  <h2>Incident Statement</h2>
 
-  <input id="name" placeholder="Your name / driver tag"><br><br>
-  <textarea id="statement" placeholder="Your statement" rows="6"></textarea><br><br>
-  <button id="submitBtn">Submit</button>
+  <h2>Player Statement</h2>
+  <p class="sub">Use this form to provide your account of the incident. Keep it factual.</p>
 
-  <p id="status"></p>
+  <div class="card">
+    <p id="linkStatus" class="sub"></p>
 
-  <script src="firebase-init.js"></script>
+    <label class="sub">Your name / driver tag</label>
+    <input id="name" placeholder="e.g. Sloth#123" />
 
-  <script>
+    <div style="height:12px"></div>
+
+    <label class="sub">Your statement</label>
+    <textarea id="statement" placeholder="Explain what happened from your perspective…"></textarea>
+
+    <div style="height:12px"></div>
+
+    <button id="submitBtn">Submit statement</button>
+
+    <p id="status" class="sub"></p>
+  </div>
+
+  <script type="module">
+    import { db, firebaseNS } from './firebase-init.js';
+
     const params = new URLSearchParams(window.location.search);
-    const ticketId = params.get("ticket");
-    const inviteId = params.get("invite");
+    const ticketId = params.get("ticketId") || params.get("ticket") || "";
+    const inviteId = params.get("inviteId") || params.get("invite") || "";
 
-    if (!ticketId || !inviteId) {
-      document.getElementById("status").innerText = "Invalid link.";
-      document.getElementById("submitBtn").disabled = true;
+    const linkStatus = document.getElementById("linkStatus");
+    const statusEl = document.getElementById("status");
+    const submitBtn = document.getElementById("submitBtn");
+
+    function setStatus(text, cls) {
+      statusEl.className = "sub " + (cls || "");
+      statusEl.textContent = text;
     }
 
-    document.getElementById("submitBtn").onclick = async () => {
+    if (!ticketId || !inviteId) {
+      linkStatus.innerHTML = `<span class="err">Invalid link.</span> Missing ticketId/inviteId.`;
+      submitBtn.disabled = true;
+    } else {
+      linkStatus.textContent = `Ticket: ${ticketId}`;
+    }
+
+    submitBtn.addEventListener("click", async () => {
       try {
-        const inviteRef = db
-          .collection("tickets")
-          .doc(ticketId)
-          .collection("invites")
-          .doc(inviteId);
+        submitBtn.disabled = true;
+        setStatus("Submitting…", "");
 
+        const name = (document.getElementById("name").value || "").trim();
+        const statement = (document.getElementById("statement").value || "").trim();
+
+        if (!statement) {
+          setStatus("Statement is required.", "err");
+          submitBtn.disabled = false;
+          return;
+        }
+
+        const inviteRef = db.collection("tickets").doc(ticketId).collection("invites").doc(inviteId);
         const inviteSnap = await inviteRef.get();
-        if (!inviteSnap.exists || inviteSnap.data().used) {
-          document.getElementById("status").innerText = "Invite expired or already used.";
+
+        if (!inviteSnap.exists) {
+          setStatus("Invite not found (invalid link).", "err");
           return;
         }
 
-        const name = document.getElementById("name").value.trim();
-        const text = document.getElementById("statement").value.trim();
-
-        if (!text) {
-          document.getElementById("status").innerText = "Statement required.";
+        const invite = inviteSnap.data() || {};
+        if (invite.used === true) {
+          setStatus("This invite has already been used.", "err");
           return;
         }
 
-        await db
-          .collection("tickets")
-          .doc(ticketId)
-          .collection("player_statements")
-          .doc(inviteId)
-          .set({
-            name,
-            statement: text,
-            submittedAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
+        // Write statement under inviteId (one statement per invite)
+        const statementRef = db.collection("tickets").doc(ticketId).collection("player_statements").doc(inviteId);
+        await statementRef.set({
+          name: name || "",
+          statement,
+          role: invite.role || "",
+          submittedAt: firebaseNS.firestore.FieldValue.serverTimestamp()
+        });
 
-        await inviteRef.update({ used: true });
-
-        document.getElementById("status").innerText = "Statement submitted. Thank you.";
-        document.getElementById("submitBtn").disabled = true;
+        // Mark invite used (your rules allow signed-in update only, so this may fail on public)
+        // Because your rules require signed-in for invite update, we DO NOT do this from public.
+        // The "one statement per invite" is enforced by doc id + create rule.
+        setStatus("Submitted ✅ Thank you.", "ok");
 
       } catch (e) {
-        document.getElementById("status").innerText = e.message;
+        setStatus(e.message || String(e), "err");
+        submitBtn.disabled = false;
       }
-    };
+    });
   </script>
 </body>
 </html>
-
