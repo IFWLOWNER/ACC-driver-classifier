@@ -167,7 +167,6 @@
             </div>
           </div>
 
-          <!-- NEW RED MESSAGE -->
           <div class="redBox">
             You are NOT required to submit a CAUSE review immediately — please await player statements to be submitted before completing your CAUSE review.
           </div>
@@ -220,15 +219,8 @@
 
             <div>
               <label class="muted">What penalty best fits this incident? (required)</label>
-
-              <!-- CHANGED: dropdown -->
-              <select id="penaltyCode">
-                <option value="">Select a penalty code…</option>
-              </select>
-
-              <div class="muted" style="margin-top:8px;">
-                Head Steward-only notes are not shown here.
-              </div>
+              <select id="penaltyCode"></select>
+              <div class="muted" style="margin-top:8px;">Head Steward-only notes are not shown here.</div>
             </div>
           </div>
 
@@ -317,23 +309,12 @@
         const u = new URL(url);
         const host = u.hostname.toLowerCase();
 
-        if (host === "youtu.be") {
-          const id = u.pathname.replace("/", "").trim();
-          return id || "";
-        }
+        if (host === "youtu.be") return (u.pathname || "").replace("/", "").trim();
 
         if (host.includes("youtube.com")) {
-          if (u.pathname.startsWith("/watch")) {
-            return (u.searchParams.get("v") || "").trim();
-          }
-          if (u.pathname.startsWith("/shorts/")) {
-            const id = u.pathname.split("/shorts/")[1]?.split(/[/?#]/)[0];
-            return (id || "").trim();
-          }
-          if (u.pathname.startsWith("/embed/")) {
-            const id = u.pathname.split("/embed/")[1]?.split(/[/?#]/)[0];
-            return (id || "").trim();
-          }
+          if (u.pathname.startsWith("/watch")) return (u.searchParams.get("v") || "").trim();
+          if (u.pathname.startsWith("/shorts/")) return (u.pathname.split("/shorts/")[1] || "").split(/[/?#]/)[0].trim();
+          if (u.pathname.startsWith("/embed/")) return (u.pathname.split("/embed/")[1] || "").split(/[/?#]/)[0].trim();
         }
       } catch {}
       return "";
@@ -375,104 +356,68 @@
       }
     }
 
-    // ---------- penalty codes dropdown ----------
-    <script>
-async function loadPenaltyCodes() {
-  const sel = document.getElementById("penaltyCode");
-  if (!sel) return;
+    // ---------- penalty codes dropdown (matches your JSON keys) ----------
+    async function loadPenaltyCodes() {
+      const sel = $("penaltyCode");
+      if (!sel) return;
 
-  // Reset + placeholder
-  sel.innerHTML = "";
-  const ph = document.createElement("option");
-  ph.value = "";
-  ph.textContent = "Select a penalty code…";
-  ph.disabled = true;
-  ph.selected = true;
-  sel.appendChild(ph);
+      sel.innerHTML = "";
+      const ph = document.createElement("option");
+      ph.value = "";
+      ph.textContent = "Select a penalty code…";
+      ph.disabled = true;
+      ph.selected = true;
+      sel.appendChild(ph);
 
-  // Helper: get value from multiple possible key names (case/camel variations)
-  const pick = (obj, keys) => {
-    if (!obj || typeof obj !== "object") return "";
-    for (const k of keys) {
-      if (k in obj && obj[k] != null) return String(obj[k]).trim();
+      try {
+        const res = await fetch("./steward_rules.json", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Could not load steward_rules.json (${res.status})`);
+
+        const rules = await res.json();
+        if (!Array.isArray(rules)) throw new Error("steward_rules.json is not a JSON array");
+
+        let added = 0;
+
+        for (const r of rules) {
+          if (!r || typeof r !== "object") continue;
+
+          // Your file uses: code/group/title/description/who/penalty
+          const code = (r.code || "").trim();
+          const group = (r.group || "").trim();
+          const title = (r.title || "").trim();
+          const pen = (r.penalty || "").trim();
+
+          if (!code && !title) continue;
+
+          // Value stored to Firestore (readable & stable)
+          const value = `${code}${title ? " — " + title : ""}${pen ? " (" + pen + ")" : ""}`.trim();
+
+          // Text shown in dropdown (includes group)
+          const label = `${group ? group + " | " : ""}${value}`;
+
+          const opt = document.createElement("option");
+          opt.value = value;
+          opt.textContent = label;
+          sel.appendChild(opt);
+          added++;
+        }
+
+        if (!added) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "No valid penalty codes found (check JSON).";
+          opt.disabled = true;
+          sel.appendChild(opt);
+        }
+      } catch (e) {
+        console.error("Penalty code load failed:", e);
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "Failed to load penalty codes (open console).";
+        opt.disabled = true;
+        sel.appendChild(opt);
+      }
     }
-    return "";
-  };
-
-  const makeLabel = (r) => {
-    // Support: code/Code, title/Title, penalty/Penalty, plus "display"/"Display"
-    const display = pick(r, ["display", "Display", "DisplayText", "label", "Label"]);
-    if (display) return display;
-
-    const code = pick(r, ["code", "Code"]);
-    const title = pick(r, ["title", "Title"]);
-    const pen = pick(r, ["penalty", "Penalty"]);
-
-    if (code && title && pen) return `${code} — ${title} (${pen})`;
-    if (code && title) return `${code} — ${title}`;
-    if (title) return title;
-    if (code) return code;
-
-    return "";
-  };
-
-  try {
-    const res = await fetch("./steward_rules.json", { cache: "no-store" });
-    if (!res.ok) throw new Error(`Could not load steward_rules.json (${res.status})`);
-
-    const json = await res.json();
-
-    // Support wrapped formats like { rules: [...] } or { items: [...] }
-    let rules = json;
-    if (!Array.isArray(rules)) {
-      rules = json?.rules || json?.items || json?.data || [];
-    }
-
-    // Support nested arrays: [ [ {..}, {..} ] ]
-    if (Array.isArray(rules) && rules.length && Array.isArray(rules[0])) {
-      rules = rules.flat();
-    }
-
-    if (!Array.isArray(rules)) {
-      throw new Error("steward_rules.json did not resolve to an array");
-    }
-
-    // DEBUG: this will tell you EXACTLY what the first item looks like
-    console.log("Penalty rules loaded. Count =", rules.length);
-    console.log("First rule =", rules[0]);
-
-    let added = 0;
-
-    for (const r of rules) {
-      const label = makeLabel(r);
-      if (!label) continue;
-
-      const opt = document.createElement("option");
-      opt.value = label;       // saved into Firestore
-      opt.textContent = label; // shown to user
-      sel.appendChild(opt);
-      added++;
-    }
-
-    if (!added) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "No valid penalty codes found (check JSON shape/keys).";
-      opt.disabled = true;
-      sel.appendChild(opt);
-    }
-  } catch (e) {
-    console.error("Penalty code load failed:", e);
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "Failed to load penalty codes (open console).";
-    opt.disabled = true;
-    sel.appendChild(opt);
-  }
-}
-</script>
-
-
 
     // ---------- auth / role ----------
     let currentUser = null;
@@ -515,11 +460,7 @@ async function loadPenaltyCodes() {
         const roleRaw = (data.role || "").toLowerCase();
         isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
 
-        // If head, send them to head steward page
-        if (isHead) {
-          window.location.href = "headsteward.html";
-          return;
-        }
+        if (isHead) { window.location.href = "headsteward.html"; return; }
 
         $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "steward"}`;
 
@@ -537,9 +478,7 @@ async function loadPenaltyCodes() {
 
       if (f === "All (non-finalised)") return s !== "finalised";
 
-      if (f === "Awaiting Review") {
-        return s === "" || s === "under review" || s === "awaiting review";
-      }
+      if (f === "Awaiting Review") return s === "" || s === "under review" || s === "awaiting review";
       if (f === "In Review") return s === "in review";
       if (f === "Ready to Publish") return s === "ready to publish";
       return true;
@@ -593,11 +532,7 @@ async function loadPenaltyCodes() {
 
       const ref = db.collection("tickets").doc(ticketId);
       selectedTicketSnap = await ref.get();
-
-      if (!selectedTicketSnap.exists) {
-        toast("Ticket not found");
-        return;
-      }
+      if (!selectedTicketSnap.exists) { toast("Ticket not found"); return; }
 
       const t = selectedTicketSnap.data() || {};
       $("sumAccused").textContent = t.accused || "—";
@@ -607,7 +542,6 @@ async function loadPenaltyCodes() {
       $("sumRule").textContent = t.ruleBreach || "—";
       renderProof(t.proofUrl || "");
       $("sumIncident").value = t.fullIncident || "";
-
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
 
       await loadStatements();
@@ -624,10 +558,7 @@ async function loadPenaltyCodes() {
       const col = db.collection("tickets").doc(selectedTicketId).collection("player_statements");
       const snap = await col.get();
 
-      if (snap.empty) {
-        $("statementsHint").textContent = "No player statements submitted yet.";
-        return;
-      }
+      if (snap.empty) { $("statementsHint").textContent = "No player statements submitted yet."; return; }
 
       const rows = snap.docs.map(d => {
         const x = d.data() || {};
@@ -649,21 +580,15 @@ async function loadPenaltyCodes() {
         box.style.padding = "12px";
         box.style.background = "#fff";
 
-        const top = document.createElement("div");
-        top.className = "row";
-        top.style.justifyContent = "space-between";
-
         const left = document.createElement("div");
         left.innerHTML = `<b>${escapeHtml((r.role||"").toUpperCase())} — ${escapeHtml(r.name || "")}</b><div class="muted" style="margin-top:4px;">${escapeHtml(r.when || "")}</div>`;
-
-        top.appendChild(left);
 
         const body = document.createElement("div");
         body.style.marginTop = "10px";
         body.style.whiteSpace = "pre-wrap";
         body.textContent = r.statement;
 
-        box.appendChild(top);
+        box.appendChild(left);
         box.appendChild(body);
         $("statementsList").appendChild(box);
       }
