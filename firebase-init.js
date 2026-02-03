@@ -1,4 +1,4 @@
-// firebase-init.js (NON-module, works with <script src="...">)
+// firebase-init.js  (NON-module)
 
 const firebaseConfig = {
   apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
@@ -10,9 +10,12 @@ const firebaseConfig = {
   measurementId: "G-974R4YE6L5"
 };
 
-firebase.initializeApp(firebaseConfig);
+// Prevent double-init errors if script loads twice
+if (!firebase.apps || firebase.apps.length === 0) {
+  firebase.initializeApp(firebaseConfig);
+}
 
-// make these globals so your admin.html can use them
+// expose globals used by your page scripts
 window.auth = firebase.auth();
 window.db = firebase.firestore();
 window.firebaseNS = firebase;
