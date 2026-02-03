@@ -28,10 +28,9 @@
     .sec h3 { margin:0 0 8px; font-size:14px; }
     .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; }
     .ok { color:#047857; font-weight:700; }
-    .warn { color:#b45309; font-weight:700; }
-    .danger { color:#b91c1c; font-weight:700; }
     .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; }
     .toast.show { opacity:1; transform: translateY(0); }
+    code { background:#f2f2f2; padding:2px 6px; border-radius:6px; }
   </style>
 </head>
 
@@ -141,9 +140,13 @@
 
             <div>
               <label class="muted">Penalty Code (required)</label>
-              <input id="penaltyCode" placeholder="e.g. AC EVO|Technical Infractions - Incorrect Pit Stop Procedure">
+              <input id="penaltyCode" list="penaltyCodes" placeholder="Start typing to search…" />
+              <datalist id="penaltyCodes"></datalist>
+
+              <div class="muted" style="margin-top:6px;" id="penaltyHint">Loading penalty codes…</div>
+
               <label class="muted" style="margin-top:8px; display:block;">Private Opinion (Head Steward only)</label>
-              <textarea id="privateOpinion" placeholder="Stored but intended for head steward review." disabled></textarea>
+              <textarea id="privateOpinion" placeholder="Stored for Head Steward (disabled here)" disabled></textarea>
             </div>
           </div>
 
@@ -153,7 +156,7 @@
           </div>
 
           <div class="muted" style="margin-top:8px;">
-            Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmail&gt;</code>.
+            After submit: updates <code>/tickets/&lt;ticket&gt;/aggregate/latest</code> and ticket <code>status</code>.
           </div>
         </div>
       </div>
@@ -178,6 +181,13 @@
       setTimeout(() => toastEl.classList.remove("show"), 1400);
     }
     function safeKey(email) { return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
+    function escapeHtml(s) {
+      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
+    function clampScore(v) {
+      const n = parseInt(v || 1, 10);
+      return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
+    }
     function optionList() {
       return [
         {v:1, t:"1 — minimal / none"},
@@ -202,38 +212,71 @@
     }
     fillScores();
 
+    // ---------- penalty codes ----------
+    async function loadPenaltyCodes() {
+      const dl = $("penaltyCodes");
+      const hint = $("penaltyHint");
+      dl.innerHTML = "";
+      hint.textContent = "Loading penalty codes…";
+
+      const candidates = ["./Data/steward_rules.json", "./steward_rules.json", "./data/steward_rules.json"];
+      let rules = null;
+
+      for (const url of candidates) {
+        try {
+          const r = await fetch(url, { cache: "no-store" });
+          if (!r.ok) continue;
+          rules = await r.json();
+          break;
+        } catch { }
+      }
+
+      if (!Array.isArray(rules)) {
+        hint.textContent = "Penalty codes not found. Put steward_rules.json in /Data or root.";
+        return;
+      }
+
+      const items = rules.map(x => {
+        const code = (x.code || x.Code || "").trim();
+        const title = (x.title || x.Title || "").trim();
+        const pen = (x.penalty || x.Penalty || "").trim();
+        if (!code && !title) return "";
+        return pen ? `${code} — ${title} (${pen})` : `${code} — ${title}`;
+      }).filter(Boolean);
+
+      // de-dupe
+      const seen = new Set();
+      const unique = items.filter(s => (seen.has(s) ? false : (seen.add(s), true)));
+
+      for (const s of unique) {
+        const opt = document.createElement("option");
+        opt.value = s;
+        dl.appendChild(opt);
+      }
+      hint.textContent = `Loaded ${unique.length} penalty codes.`;
+    }
+
     // ---------- auth / role ----------
-    let currentUser = null;
     let currentEmail = "";
-    let isHead = false;
-
-    // ---------- state ----------
     let selectedTicketId = "";
-    let selectedTicketSnap = null;
 
-    // ---------- UI refs ----------
+    // ---------- UI ----------
     const ticketListEl = $("ticketList");
     const ticketHintEl = $("ticketHint");
-
     const filterEl = $("filter");
 
-    const submitReviewBtn = $("submitReviewBtn");
-    const loadMyReviewBtn = $("loadMyReviewBtn");
-
-    // ---------- navigation ----------
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
     $("refreshTicketsBtn").onclick = () => loadTickets();
     $("refreshStatementsBtn").onclick = () => loadStatements();
     filterEl.onchange = () => loadTickets();
 
-    loadMyReviewBtn.onclick = () => loadMyReview();
-    submitReviewBtn.onclick = () => submitMyReview();
+    $("loadMyReviewBtn").onclick = () => loadMyReview();
+    $("submitReviewBtn").onclick = () => submitMyReview();
 
     // ---------- gating ----------
     auth.onAuthStateChanged(async (user) => {
       if (!user) { window.location.href = "admin.html"; return; }
-      currentUser = user;
       currentEmail = (user.email || "").toLowerCase().trim();
 
       // must exist in /admins/<email>
@@ -242,28 +285,24 @@
 
       const data = adminSnap.data() || {};
       const roleRaw = (data.role || "").toLowerCase();
-      isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
+      const isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
 
       $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "steward"}`;
 
-      // steward page: keep head features off
-      $("privateOpinion").disabled = true;
-
+      // steward page: if head, allow them but redirect is handled by admin.html
+      await loadPenaltyCodes();
       await loadTickets();
     });
 
     // ---------- tickets ----------
     function passesFilter(status) {
       const f = filterEl.value;
-      const s = (status || "").trim();
+      const s = (status || "").trim().toLowerCase();
 
-      if (f === "All (non-finalised)") return s.toLowerCase() !== "finalised";
-
-      if (f === "Awaiting Review") {
-        return s === "" || s.toLowerCase() === "under review" || s.toLowerCase() === "awaiting review";
-      }
-      if (f === "In Review") return s.toLowerCase() === "in review";
-      if (f === "Ready to Publish") return s.toLowerCase() === "ready to publish";
+      if (f === "All (non-finalised)") return s !== "finalised";
+      if (f === "Awaiting Review") return s === "" || s === "under review" || s === "awaiting review";
+      if (f === "In Review") return s === "in review";
+      if (f === "Ready to Publish") return s === "ready to publish";
       return true;
     }
 
@@ -287,13 +326,12 @@
           <div class="id">${d.id}</div>
           <div class="status"><b>Status:</b> ${status || "Under Review"}</div>
           <div class="muted" style="margin-top:4px;">
-            ${data.event ? `<b>Event:</b> ${data.event}` : ""} ${data.accused ? ` | <b>Accused:</b> ${data.accused}` : ""}
+            ${data.event ? `<b>Event:</b> ${escapeHtml(data.event)}` : ""} ${data.accused ? ` | <b>Accused:</b> ${escapeHtml(data.accused)}` : ""}
           </div>
         `;
         div.onclick = async () => {
           selectedTicketId = d.id;
           await selectTicket(d.id);
-          // update active class
           [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
           div.classList.add("active");
         };
@@ -308,16 +346,13 @@
       $("selTitle").textContent = `Ticket: ${ticketId}`;
       $("selSub").textContent = "";
       $("myReviewStatus").textContent = "Not submitted";
+      $("myReviewStatus").className = "badge";
 
       const ref = db.collection("tickets").doc(ticketId);
-      selectedTicketSnap = await ref.get();
+      const snap = await ref.get();
+      if (!snap.exists) { toast("Ticket not found"); return; }
 
-      if (!selectedTicketSnap.exists) {
-        toast("Ticket not found");
-        return;
-      }
-
-      const t = selectedTicketSnap.data() || {};
+      const t = snap.data() || {};
       $("sumAccused").textContent = t.accused || "—";
       $("sumReporter").textContent = t.reporter || "—";
       $("sumCompetition").textContent = t.competition || "—";
@@ -355,7 +390,7 @@
         const ts = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate() : null;
         const when = ts ? ts.toLocaleString() : "";
         return { role, name, statement, when };
-      });
+      }).filter(x => x.statement);
 
       const order = { accused:1, reporter:2, witness:3 };
       rows.sort((a,b) => (order[a.role?.toLowerCase()]||99)-(order[b.role?.toLowerCase()]||99));
@@ -368,8 +403,8 @@
         box.style.background = "#fff";
         box.innerHTML = `
           <div class="row" style="justify-content:space-between;">
-            <div><b>${(r.role||"").toUpperCase()} — ${r.name || ""}</b></div>
-            <div class="muted">${r.when || ""}</div>
+            <div><b>${escapeHtml((r.role||"").toUpperCase())} — ${escapeHtml(r.name || "")}</b></div>
+            <div class="muted">${escapeHtml(r.when || "")}</div>
           </div>
           <div style="margin-top:6px; white-space:pre-wrap;">${escapeHtml(r.statement)}</div>
         `;
@@ -379,13 +414,99 @@
       $("statementsHint").textContent = `Loaded ${rows.length} statement(s).`;
     }
 
-    function escapeHtml(s) {
-      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    // ---------- aggregate + status updater (WPF-matching logic) ----------
+    async function updateAggregateAndStatus(ticketId) {
+      const ticketRef = db.collection("tickets").doc(ticketId);
+
+      // required reviews (default 3)
+      let required = 3;
+      try {
+        const tSnap = await ticketRef.get();
+        if (tSnap.exists) {
+          const rr = tSnap.data()?.requiredReviews;
+          if (typeof rr === "number" && rr > 0 && rr < 50) required = rr;
+        }
+      } catch { }
+
+      // fetch all reviews
+      const reviewsSnap = await ticketRef.collection("reviews").get();
+      const reviews = reviewsSnap.docs.map(d => d.data() || {});
+      const completed = reviews.length;
+
+      const avgScore = (key) => {
+        const vals = [];
+        for (const r of reviews) {
+          const v = r?.CAUSE?.[key]?.score;
+          const n = Number(v || 0);
+          if (n > 0) vals.push(n);
+        }
+        if (!vals.length) return 0;
+        return Math.round((vals.reduce((a,b)=>a+b,0) / vals.length) * 100) / 100;
+      };
+
+      const avg = (xs) => {
+        const vals = xs.filter(x => x > 0);
+        if (!vals.length) return 0;
+        return Math.round((vals.reduce((a,b)=>a+b,0) / vals.length) * 100) / 100;
+      };
+
+      const avgC = avgScore("control");
+      const avgA = avgScore("awareness");
+      const avgU = avgScore("userInput");
+      const avgS = avgScore("severity");
+      const avgE = avgScore("environment");
+      const total = avg([avgC, avgA, avgU, avgS, avgE]);
+
+      const consensusPenalty = () => {
+        const list = reviews.map(r => (r.penaltyCode || "").trim()).filter(Boolean);
+        if (!list.length) return "";
+        const counts = new Map();
+        for (const s of list) counts.set(s.toLowerCase(), (counts.get(s.toLowerCase())||0) + 1);
+        let bestKey = "";
+        let bestCount = -1;
+        for (const [k,c] of counts.entries()) {
+          if (c > bestCount) { bestCount = c; bestKey = k; }
+        }
+        // return original casing from first match
+        return list.find(x => x.toLowerCase() === bestKey) || "";
+      };
+
+      const suggestTier = (t) => {
+        if (t <= 0) return "No data";
+        if (t < 2.0) return "Racing Incident / No Action";
+        if (t < 3.0) return "Minor Penalty / Warning";
+        if (t < 3.7) return "Moderate Penalty";
+        if (t < 4.4) return "Severe Penalty";
+        return "Extreme / Disqualification Consideration";
+      };
+
+      const aggregate = {
+        reviewsRequired: required,
+        reviewsCompleted: completed,
+        averages: { control: avgC, awareness: avgA, userInput: avgU, severity: avgS, environment: avgE },
+        CAUSE_total: total,
+        suggestedTier: suggestTier(total),
+        penaltyConsensus: consensusPenalty()
+      };
+
+      // write aggregate/latest
+      await ticketRef.collection("aggregate").doc("latest").set(aggregate, { merge: true });
+
+      // update ticket status
+      const newStatus =
+        completed <= 0 ? "Awaiting Review" :
+        completed < required ? "In Review" :
+        "Ready to Publish";
+
+      await ticketRef.set({ status: newStatus }, { merge: true });
+
+      return { completed, required, newStatus, total };
     }
 
     // ---------- reviews ----------
     async function loadMyReview() {
       if (!selectedTicketId) return;
+
       const reviewId = safeKey(currentEmail);
       const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
       const snap = await ref.get();
@@ -397,21 +518,24 @@
       }
 
       const d = snap.data() || {};
-      // nested CAUSE blocks
       const cause = d.CAUSE || {};
-      setScore("cScore", cause.control?.score);
-      $("cText").value = cause.control?.text || "";
-      setScore("aScore", cause.awareness?.score);
-      $("aText").value = cause.awareness?.text || "";
-      setScore("uScore", cause.userInput?.score);
-      $("uText").value = cause.userInput?.text || "";
-      setScore("sScore", cause.severity?.score);
-      $("sText").value = cause.severity?.text || "";
-      setScore("eScore", cause.environment?.score);
-      $("eText").value = cause.environment?.text || "";
+
+      $("cScore").value = String(clampScore(cause.control?.score));
+      $("cText").value  = cause.control?.text || "";
+
+      $("aScore").value = String(clampScore(cause.awareness?.score));
+      $("aText").value  = cause.awareness?.text || "";
+
+      $("uScore").value = String(clampScore(cause.userInput?.score));
+      $("uText").value  = cause.userInput?.text || "";
+
+      $("sScore").value = String(clampScore(cause.severity?.score));
+      $("sText").value  = cause.severity?.text || "";
+
+      $("eScore").value = String(clampScore(cause.environment?.score));
+      $("eText").value  = cause.environment?.text || "";
 
       $("penaltyCode").value = d.penaltyCode || "";
-      // steward page can't edit private opinion
       $("privateOpinion").value = d.privateOpinion || "";
 
       $("myReviewStatus").textContent = "Submitted ✅";
@@ -419,17 +543,13 @@
       toast("Loaded your review");
     }
 
-    function setScore(id, v) {
-      const n = Math.min(5, Math.max(1, parseInt(v || 1, 10)));
-      $(id).value = String(n);
-    }
-
     async function submitMyReview() {
       if (!selectedTicketId) { toast("Select a ticket first"); return; }
       const pen = ($("penaltyCode").value || "").trim();
       if (!pen) { toast("Penalty code required"); return; }
 
-      submitReviewBtn.disabled = true;
+      const btn = $("submitReviewBtn");
+      btn.disabled = true;
 
       try {
         const reviewId = safeKey(currentEmail);
@@ -447,19 +567,23 @@
             environment:  { score: Number($("eScore").value), text: ($("eText").value||"").trim() },
           },
           penaltyCode: pen,
-          privateOpinion: "" // stewards can't submit this on steward page
+          privateOpinion: "" // steward page doesn't submit this
         };
 
         await ref.set(review, { merge: true });
+
+        // ✅ auto update aggregate + ticket status
+        const res = await updateAggregateAndStatus(selectedTicketId);
+
         $("myReviewStatus").textContent = "Submitted ✅";
         $("myReviewStatus").className = "badge ok";
 
-        toast("Review submitted");
+        toast(`Submitted. Status: ${res.newStatus}`);
         await loadTickets();
       } catch (e) {
         toast("Submit failed: " + e.message);
       } finally {
-        submitReviewBtn.disabled = false;
+        btn.disabled = false;
       }
     }
   </script>
