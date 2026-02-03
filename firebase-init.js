@@ -1,4 +1,4 @@
-// firebase-init.js  (NON-module)
+// firebase-init.js (NON-module)
 
 const firebaseConfig = {
   apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
@@ -10,12 +10,12 @@ const firebaseConfig = {
   measurementId: "G-974R4YE6L5"
 };
 
-// Prevent double-init errors if script loads twice
+// Prevent double-init if script loads twice
 if (!firebase.apps || firebase.apps.length === 0) {
   firebase.initializeApp(firebaseConfig);
 }
 
-// expose globals used by your page scripts
+// Optional globals (handy if other pages use them)
 window.auth = firebase.auth();
 window.db = firebase.firestore();
 window.firebaseNS = firebase;
