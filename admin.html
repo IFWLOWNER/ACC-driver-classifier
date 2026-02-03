@@ -7,17 +7,16 @@
 
 <body>
   <h2>IFWL Admin Login</h2>
-
   <button id="loginBtn" type="button">Sign in with Google</button>
   <p id="status">Loading…</p>
 
-  <!-- Firebase compat SDK (use ONE version consistently) -->
+  <!-- Firebase compat SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
-  <!-- Your init (NON-module) -->
-  <script src="./firebase-init.js"></script>
+  <!-- Your init (cache-busted) -->
+  <script src="./firebase-init.js?v=1"></script>
 
   <script>
     const statusEl = document.getElementById("status");
@@ -31,7 +30,7 @@
       statusEl.innerText = "Promise error: " + (e.reason?.message || e.reason);
     });
 
-    // Sanity checks (and shows whether init happened)
+    // sanity checks (after scripts load)
     try {
       const appsCount = (firebase.apps && firebase.apps.length) ? firebase.apps.length : 0;
 
@@ -41,11 +40,8 @@
         " | auth: " + (firebase?.auth ? "ok" : "missing") +
         " | firestore: " + (firebase?.firestore ? "ok" : "missing");
 
-      if (appsCount === 0) {
-        statusEl.innerText += "  ❌ (firebase-init.js did not run)";
-      } else {
-        statusEl.innerText += "  ✅";
-      }
+      if (appsCount === 0) statusEl.innerText += " ❌";
+      else statusEl.innerText += " ✅";
     } catch (e) {
       statusEl.innerText = "Init check failed: " + e.message;
     }
@@ -55,7 +51,6 @@
       statusEl.innerText = "Clicked. Opening Google login…";
 
       try {
-        // Use the default initialized app
         const provider = new firebase.auth.GoogleAuthProvider();
         const result = await firebase.auth().signInWithPopup(provider);
 
@@ -63,7 +58,6 @@
         statusEl.innerText = "Signed in: " + email + " (checking access…)";
 
         const snap = await firebase.firestore().collection("admins").doc(email).get();
-
         if (!snap.exists) {
           statusEl.innerText = "Access denied.";
           await firebase.auth().signOut();
