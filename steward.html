@@ -1,93 +1,467 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>IFWL Steward</title>
+  <title>IFWL Steward Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: Arial, sans-serif; padding: 16px; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin: 12px 0; background: #fafafa; }
-    .muted { color: #666; }
-    .ok { color: #0a7; font-weight: bold; }
-    .bad { color: #b00; font-weight: bold; }
-    button { padding: 8px 12px; cursor: pointer; }
-    code { background: #f2f2f2; padding: 2px 6px; border-radius: 6px; }
+    body { font-family: Arial, sans-serif; margin:0; background:#f3f4f6; }
+    header { padding:14px 18px; background:#111827; color:#fff; display:flex; justify-content:space-between; align-items:center; }
+    header .small { font-size:12px; opacity:0.85; }
+    .wrap { display:grid; grid-template-columns: 380px 1fr; gap:14px; padding:14px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
+    .title { font-weight:700; font-size:16px; margin:0 0 10px; }
+    .muted { color:#6b7280; font-size:12px; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    button { padding:8px 10px; border:1px solid #d1d5db; border-radius:10px; background:#fff; cursor:pointer; }
+    button.primary { background:#111827; color:#fff; border-color:#111827; }
+    button:disabled { opacity:0.6; cursor:not-allowed; }
+    select, input, textarea { padding:8px; border:1px solid #d1d5db; border-radius:10px; width:100%; box-sizing:border-box; }
+    textarea { min-height:70px; resize:vertical; }
+    .list { display:flex; flex-direction:column; gap:8px; max-height:680px; overflow:auto; }
+    .ticket { padding:10px; border:1px solid #e5e7eb; border-radius:12px; cursor:pointer; background:#fff; }
+    .ticket:hover { background:#f9fafb; }
+    .ticket .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+    .ticket .status { font-size:12px; color:#374151; }
+    .ticket.active { border-color:#111827; box-shadow:0 0 0 2px rgba(17,24,39,0.15); }
+    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .sec { border:1px solid #e5e7eb; border-radius:12px; padding:10px; background:#fafafa; margin-top:10px; }
+    .sec h3 { margin:0 0 8px; font-size:14px; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; }
+    .ok { color:#047857; font-weight:700; }
+    .warn { color:#b45309; font-weight:700; }
+    .danger { color:#b91c1c; font-weight:700; }
+    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; }
+    .toast.show { opacity:1; transform: translateY(0); }
   </style>
 </head>
 
 <body>
-  <h1>IFWL Steward Dashboard</h1>
-  <p id="status" class="muted">Loading…</p>
+  <header>
+    <div>
+      <div style="font-weight:800;">IFWL Steward Dashboard</div>
+      <div class="small" id="who">Loading…</div>
+    </div>
+    <div class="row">
+      <button id="backBtn">Back to Classifier</button>
+      <button id="logoutBtn">Sign out</button>
+    </div>
+  </header>
 
-  <div class="card">
-    <div><b>Signed in as:</b> <span id="email">—</span></div>
-    <div><b>Role:</b> <span id="role">—</span></div>
-    <div class="muted" style="margin-top:8px;">
-      Access is granted if your Firestore doc exists at <code>admins/&lt;email&gt;</code>.
+  <div class="wrap">
+    <!-- LEFT -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div class="title">Tickets</div>
+        <button id="refreshTicketsBtn">Refresh</button>
+      </div>
+
+      <div class="row" style="margin-bottom:10px;">
+        <div style="flex:1;">
+          <label class="muted">Filter</label>
+          <select id="filter">
+            <option>All (non-finalised)</option>
+            <option>Awaiting Review</option>
+            <option>In Review</option>
+            <option>Ready to Publish</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="list" id="ticketList"></div>
+      <div class="muted" style="margin-top:8px;" id="ticketHint"></div>
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      <div class="card">
+        <div class="title" id="selTitle">Select a ticket</div>
+        <div class="muted" id="selSub"></div>
+
+        <div class="sec">
+          <h3>Ticket Summary</h3>
+          <div class="grid2">
+            <div><div class="muted">Accused</div><div id="sumAccused">—</div></div>
+            <div><div class="muted">Reporter</div><div id="sumReporter">—</div></div>
+            <div><div class="muted">Competition</div><div id="sumCompetition">—</div></div>
+            <div><div class="muted">Event</div><div id="sumEvent">—</div></div>
+            <div><div class="muted">Rule Breach</div><div id="sumRule">—</div></div>
+            <div><div class="muted">Proof URL</div><div id="sumProof">—</div></div>
+          </div>
+          <div style="margin-top:8px;">
+            <div class="muted">Incident</div>
+            <textarea id="sumIncident" readonly></textarea>
+          </div>
+        </div>
+
+        <div class="sec" id="statementsSec">
+          <div class="row" style="justify-content:space-between;">
+            <h3 style="margin:0;">Player Statements</h3>
+            <button id="refreshStatementsBtn">Refresh</button>
+          </div>
+          <div class="muted" id="statementsHint">—</div>
+          <div id="statementsList" style="margin-top:8px; display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+
+        <div class="sec" id="reviewSec">
+          <div class="row" style="justify-content:space-between;">
+            <h3 style="margin:0;">My CAUSE Review</h3>
+            <div id="myReviewStatus" class="badge">Not submitted</div>
+          </div>
+
+          <div class="grid2" style="margin-top:10px;">
+            <div>
+              <label class="muted">C — Control (1–5)</label>
+              <select id="cScore"></select>
+              <textarea id="cText" placeholder="Has the driver got full control of the car during this incident?"></textarea>
+            </div>
+
+            <div>
+              <label class="muted">A — Awareness (1–5)</label>
+              <select id="aScore"></select>
+              <textarea id="aText" placeholder="Has the driver had reasonable time to see what’s around them?"></textarea>
+            </div>
+
+            <div>
+              <label class="muted">U — User Input (1–5)</label>
+              <select id="uScore"></select>
+              <textarea id="uText" placeholder="Do the inputs match what we’d expect?"></textarea>
+            </div>
+
+            <div>
+              <label class="muted">S — Severity (1–5)</label>
+              <select id="sScore"></select>
+              <textarea id="sText" placeholder="How severe was the outcome?"></textarea>
+            </div>
+
+            <div>
+              <label class="muted">E — Environment (1–5)</label>
+              <select id="eScore"></select>
+              <textarea id="eText" placeholder="Did conditions affect this incident?"></textarea>
+            </div>
+
+            <div>
+              <label class="muted">Penalty Code (required)</label>
+              <input id="penaltyCode" placeholder="e.g. AC EVO|Technical Infractions - Incorrect Pit Stop Procedure">
+              <label class="muted" style="margin-top:8px; display:block;">Private Opinion (Head Steward only)</label>
+              <textarea id="privateOpinion" placeholder="Stored but intended for head steward review." disabled></textarea>
+            </div>
+          </div>
+
+          <div class="row" style="justify-content:flex-end; margin-top:10px;">
+            <button id="loadMyReviewBtn">Load My Review</button>
+            <button class="primary" id="submitReviewBtn">Submit Review</button>
+          </div>
+
+          <div class="muted" style="margin-top:8px;">
+            Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmail&gt;</code>.
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">Actions</h3>
-    <button id="goClassifier">Back to ACC Driver Classifier</button>
-    <button id="logoutBtn" style="margin-left:8px;">Sign out</button>
-    <p class="muted" style="margin-top:10px;">
-      Next step: we can build a steward-facing ticket list here if you want it web-based.
-    </p>
-  </div>
+  <div class="toast" id="toast">Saved</div>
 
-  <!-- Firebase compat SDK -->
+  <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-
-  <!-- Your init -->
   <script src="./firebase-init.js"></script>
 
   <script>
-    const statusEl = document.getElementById("status");
-    const emailEl = document.getElementById("email");
-    const roleEl = document.getElementById("role");
-    const goClassifier = document.getElementById("goClassifier");
-    const logoutBtn = document.getElementById("logoutBtn");
+    // ---------- helpers ----------
+    const $ = (id) => document.getElementById(id);
+    const toastEl = $("toast");
+    function toast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 1400);
+    }
+    function safeKey(email) { return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
+    function optionList() {
+      return [
+        {v:1, t:"1 — minimal / none"},
+        {v:2, t:"2 — low"},
+        {v:3, t:"3 — moderate"},
+        {v:4, t:"4 — high"},
+        {v:5, t:"5 — extreme"},
+      ];
+    }
+    function fillScores() {
+      for (const id of ["cScore","aScore","uScore","sScore","eScore"]) {
+        const sel = $(id);
+        sel.innerHTML = "";
+        for (const o of optionList()) {
+          const opt = document.createElement("option");
+          opt.value = o.v;
+          opt.textContent = o.t;
+          sel.appendChild(opt);
+        }
+        sel.value = "1";
+      }
+    }
+    fillScores();
 
-    function setStatus(msg, ok=true) {
-      statusEl.textContent = msg;
-      statusEl.className = ok ? "ok" : "bad";
+    // ---------- auth / role ----------
+    let currentUser = null;
+    let currentEmail = "";
+    let isHead = false;
+
+    // ---------- state ----------
+    let selectedTicketId = "";
+    let selectedTicketSnap = null;
+
+    // ---------- UI refs ----------
+    const ticketListEl = $("ticketList");
+    const ticketHintEl = $("ticketHint");
+
+    const filterEl = $("filter");
+
+    const submitReviewBtn = $("submitReviewBtn");
+    const loadMyReviewBtn = $("loadMyReviewBtn");
+
+    // ---------- navigation ----------
+    $("backBtn").onclick = () => window.location.href = "index.html";
+    $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
+    $("refreshTicketsBtn").onclick = () => loadTickets();
+    $("refreshStatementsBtn").onclick = () => loadStatements();
+    filterEl.onchange = () => loadTickets();
+
+    loadMyReviewBtn.onclick = () => loadMyReview();
+    submitReviewBtn.onclick = () => submitMyReview();
+
+    // ---------- gating ----------
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) { window.location.href = "admin.html"; return; }
+      currentUser = user;
+      currentEmail = (user.email || "").toLowerCase().trim();
+
+      // must exist in /admins/<email>
+      const adminSnap = await db.collection("admins").doc(currentEmail).get();
+      if (!adminSnap.exists) { await auth.signOut(); window.location.href = "admin.html"; return; }
+
+      const data = adminSnap.data() || {};
+      const roleRaw = (data.role || "").toLowerCase();
+      isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
+
+      $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "steward"}`;
+
+      // steward page: keep head features off
+      $("privateOpinion").disabled = true;
+
+      await loadTickets();
+    });
+
+    // ---------- tickets ----------
+    function passesFilter(status) {
+      const f = filterEl.value;
+      const s = (status || "").trim();
+
+      if (f === "All (non-finalised)") return s.toLowerCase() !== "finalised";
+
+      if (f === "Awaiting Review") {
+        return s === "" || s.toLowerCase() === "under review" || s.toLowerCase() === "awaiting review";
+      }
+      if (f === "In Review") return s.toLowerCase() === "in review";
+      if (f === "Ready to Publish") return s.toLowerCase() === "ready to publish";
+      return true;
     }
 
-    goClassifier.onclick = () => window.location.href = "index.html";
-    logoutBtn.onclick = async () => {
-      await auth.signOut();
-      window.location.href = "admin.html";
-    };
+    async function loadTickets() {
+      ticketListEl.innerHTML = "";
+      ticketHintEl.textContent = "Loading tickets…";
 
-    auth.onAuthStateChanged(async (user) => {
-      try {
-        if (!user) {
-          window.location.href = "admin.html";
-          return;
-        }
+      const snap = await db.collection("tickets").limit(200).get();
+      const docs = snap.docs;
 
-        const email = (user.email || "").toLowerCase().trim();
-        emailEl.textContent = email;
+      let shown = 0;
+      for (const d of docs) {
+        const data = d.data() || {};
+        const status = (data.status || "").trim();
 
-        const snap = await db.collection("admins").doc(email).get();
-        if (!snap.exists) {
-          setStatus("Access denied (no admin doc).", false);
-          await auth.signOut();
-          window.location.href = "admin.html";
-          return;
-        }
+        if (!passesFilter(status)) continue;
 
-        const data = snap.data() || {};
-        roleEl.textContent = data.role || "(not set)";
-        setStatus("Access OK ✅", true);
-
-      } catch (e) {
-        setStatus("Error: " + e.message, false);
+        const div = document.createElement("div");
+        div.className = "ticket" + (d.id === selectedTicketId ? " active" : "");
+        div.innerHTML = `
+          <div class="id">${d.id}</div>
+          <div class="status"><b>Status:</b> ${status || "Under Review"}</div>
+          <div class="muted" style="margin-top:4px;">
+            ${data.event ? `<b>Event:</b> ${data.event}` : ""} ${data.accused ? ` | <b>Accused:</b> ${data.accused}` : ""}
+          </div>
+        `;
+        div.onclick = async () => {
+          selectedTicketId = d.id;
+          await selectTicket(d.id);
+          // update active class
+          [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
+          div.classList.add("active");
+        };
+        ticketListEl.appendChild(div);
+        shown++;
       }
-    });
+
+      ticketHintEl.textContent = `Showing ${shown} tickets (max 200 fetched).`;
+    }
+
+    async function selectTicket(ticketId) {
+      $("selTitle").textContent = `Ticket: ${ticketId}`;
+      $("selSub").textContent = "";
+      $("myReviewStatus").textContent = "Not submitted";
+
+      const ref = db.collection("tickets").doc(ticketId);
+      selectedTicketSnap = await ref.get();
+
+      if (!selectedTicketSnap.exists) {
+        toast("Ticket not found");
+        return;
+      }
+
+      const t = selectedTicketSnap.data() || {};
+      $("sumAccused").textContent = t.accused || "—";
+      $("sumReporter").textContent = t.reporter || "—";
+      $("sumCompetition").textContent = t.competition || "—";
+      $("sumEvent").textContent = t.event || "—";
+      $("sumRule").textContent = t.ruleBreach || "—";
+      $("sumProof").textContent = t.proofUrl || "—";
+      $("sumIncident").value = t.fullIncident || "";
+
+      $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
+
+      await loadStatements();
+      await loadMyReview();
+    }
+
+    // ---------- statements ----------
+    async function loadStatements() {
+      if (!selectedTicketId) { $("statementsHint").textContent = "Select a ticket to view statements."; return; }
+
+      $("statementsList").innerHTML = "";
+      $("statementsHint").textContent = "Loading statements…";
+
+      const col = db.collection("tickets").doc(selectedTicketId).collection("player_statements");
+      const snap = await col.get();
+
+      if (snap.empty) {
+        $("statementsHint").textContent = "No player statements submitted yet.";
+        return;
+      }
+
+      const rows = snap.docs.map(d => {
+        const x = d.data() || {};
+        const role = (x.role || "").trim();
+        const name = (x.name || "").trim();
+        const statement = (x.statement || "").trim();
+        const ts = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate() : null;
+        const when = ts ? ts.toLocaleString() : "";
+        return { role, name, statement, when };
+      });
+
+      const order = { accused:1, reporter:2, witness:3 };
+      rows.sort((a,b) => (order[a.role?.toLowerCase()]||99)-(order[b.role?.toLowerCase()]||99));
+
+      for (const r of rows) {
+        const box = document.createElement("div");
+        box.style.border = "1px solid #e5e7eb";
+        box.style.borderRadius = "12px";
+        box.style.padding = "10px";
+        box.style.background = "#fff";
+        box.innerHTML = `
+          <div class="row" style="justify-content:space-between;">
+            <div><b>${(r.role||"").toUpperCase()} — ${r.name || ""}</b></div>
+            <div class="muted">${r.when || ""}</div>
+          </div>
+          <div style="margin-top:6px; white-space:pre-wrap;">${escapeHtml(r.statement)}</div>
+        `;
+        $("statementsList").appendChild(box);
+      }
+
+      $("statementsHint").textContent = `Loaded ${rows.length} statement(s).`;
+    }
+
+    function escapeHtml(s) {
+      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
+
+    // ---------- reviews ----------
+    async function loadMyReview() {
+      if (!selectedTicketId) return;
+      const reviewId = safeKey(currentEmail);
+      const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
+      const snap = await ref.get();
+
+      if (!snap.exists) {
+        $("myReviewStatus").textContent = "Not submitted";
+        $("myReviewStatus").className = "badge";
+        return;
+      }
+
+      const d = snap.data() || {};
+      // nested CAUSE blocks
+      const cause = d.CAUSE || {};
+      setScore("cScore", cause.control?.score);
+      $("cText").value = cause.control?.text || "";
+      setScore("aScore", cause.awareness?.score);
+      $("aText").value = cause.awareness?.text || "";
+      setScore("uScore", cause.userInput?.score);
+      $("uText").value = cause.userInput?.text || "";
+      setScore("sScore", cause.severity?.score);
+      $("sText").value = cause.severity?.text || "";
+      setScore("eScore", cause.environment?.score);
+      $("eText").value = cause.environment?.text || "";
+
+      $("penaltyCode").value = d.penaltyCode || "";
+      // steward page can't edit private opinion
+      $("privateOpinion").value = d.privateOpinion || "";
+
+      $("myReviewStatus").textContent = "Submitted ✅";
+      $("myReviewStatus").className = "badge ok";
+      toast("Loaded your review");
+    }
+
+    function setScore(id, v) {
+      const n = Math.min(5, Math.max(1, parseInt(v || 1, 10)));
+      $(id).value = String(n);
+    }
+
+    async function submitMyReview() {
+      if (!selectedTicketId) { toast("Select a ticket first"); return; }
+      const pen = ($("penaltyCode").value || "").trim();
+      if (!pen) { toast("Penalty code required"); return; }
+
+      submitReviewBtn.disabled = true;
+
+      try {
+        const reviewId = safeKey(currentEmail);
+        const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
+
+        const review = {
+          stewardEmail: currentEmail,
+          submittedAt: firebase.firestore.Timestamp.fromDate(new Date()),
+          isFinal: true,
+          CAUSE: {
+            control:      { score: Number($("cScore").value), text: ($("cText").value||"").trim() },
+            awareness:    { score: Number($("aScore").value), text: ($("aText").value||"").trim() },
+            userInput:    { score: Number($("uScore").value), text: ($("uText").value||"").trim() },
+            severity:     { score: Number($("sScore").value), text: ($("sText").value||"").trim() },
+            environment:  { score: Number($("eScore").value), text: ($("eText").value||"").trim() },
+          },
+          penaltyCode: pen,
+          privateOpinion: "" // stewards can't submit this on steward page
+        };
+
+        await ref.set(review, { merge: true });
+        $("myReviewStatus").textContent = "Submitted ✅";
+        $("myReviewStatus").className = "badge ok";
+
+        toast("Review submitted");
+        await loadTickets();
+      } catch (e) {
+        toast("Submit failed: " + e.message);
+      } finally {
+        submitReviewBtn.disabled = false;
+      }
+    }
   </script>
 </body>
 </html>
-
