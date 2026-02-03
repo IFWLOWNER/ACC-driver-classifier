@@ -30,9 +30,12 @@
     .ok { color:#047857; font-weight:700; }
     .warn { color:#b45309; font-weight:700; }
     .danger { color:#b91c1c; font-weight:700; }
-    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; }
+    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; max-width: 420px; }
     .toast.show { opacity:1; transform: translateY(0); }
     code { background:#f2f2f2; padding:2px 6px; border-radius:6px; }
+    .pill { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; font-size:12px; }
+    .kpi { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+    .kpi .pill b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight:800; }
   </style>
 </head>
 
@@ -154,7 +157,9 @@
 
             <div>
               <label class="muted">Penalty Code (required)</label>
-              <input id="penaltyCode" placeholder="e.g. AC EVO|Technical Infractions - Incorrect Pit Stop Procedure">
+              <input id="penaltyCode" list="penaltyList" placeholder="Choose or type a penalty code…">
+              <datalist id="penaltyList"></datalist>
+
               <label class="muted" style="margin-top:8px; display:block;">Private Opinion (Head Steward)</label>
               <textarea id="privateOpinion" placeholder="Saved and visible to Head Steward."></textarea>
             </div>
@@ -166,7 +171,7 @@
           </div>
 
           <div class="muted" style="margin-top:8px;">
-            Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmail&gt;</code>.
+            Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmail&gt;</code> and updates aggregate/status.
           </div>
         </div>
       </div>
@@ -182,19 +187,31 @@
   <script src="./firebase-init.js"></script>
 
   <script>
-    // ---------- CONFIG ----------
+    // ===========================
+    // CONFIG
+    // ===========================
     // TEST WEBHOOK OK (you said keep it in for now)
     const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1468028412634333236/ZwevuKcMblac5jLWroXxnfCAOfqGFscMFm0bPWFt6Xdcptj3j1DQ6QNT8s6LT64zX_0V";
 
-    // ---------- helpers ----------
+    // where to try loading penalty rule list from (we try both)
+    const RULES_JSON_PATHS = ["Data/steward_rules.json", "steward_rules.json"];
+
+    // ===========================
+    // HELPERS
+    // ===========================
     const $ = (id) => document.getElementById(id);
     const toastEl = $("toast");
+
     function toast(msg) {
       toastEl.textContent = msg;
       toastEl.classList.add("show");
-      setTimeout(() => toastEl.classList.remove("show"), 1400);
+      setTimeout(() => toastEl.classList.remove("show"), 1600);
     }
-    function safeKey(email) { return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
+
+    function safeKey(email) {
+      return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim();
+    }
+
     function optionList() {
       return [
         {v:1, t:"1 — minimal / none"},
@@ -204,6 +221,7 @@
         {v:5, t:"5 — extreme"},
       ];
     }
+
     function fillScores() {
       for (const id of ["cScore","aScore","uScore","sScore","eScore"]) {
         const sel = $(id);
@@ -220,7 +238,10 @@
     fillScores();
 
     function escapeHtml(s) {
-      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+      return (s || "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;");
     }
 
     function clampScore(v) {
@@ -244,245 +265,412 @@
       return "Extreme / Disqualification Consideration";
     }
 
-    // ---------- auth / role ----------
+    function passesFilter(status) {
+      const f = $("filter").value;
+      const s = (status || "").trim();
+      const sl = s.toLowerCase();
+
+      if (f === "All (non-finalised)") return sl !== "finalised";
+
+      if (f === "Awaiting Review") {
+        return sl === "" || sl === "under review" || sl === "awaiting review";
+      }
+      if (f === "In Review") return sl === "in review";
+      if (f === "Ready to Publish") return sl === "ready to publish";
+      return true;
+    }
+
+    function consensusPenalty(reviews) {
+      const list = reviews.map(r => (r.penaltyCode || "").trim()).filter(Boolean);
+      if (!list.length) return "";
+      const counts = new Map();
+      for (const p of list) counts.set(p.toLowerCase(), (counts.get(p.toLowerCase())||0)+1);
+      let best = list[0], bestCount = 0;
+      for (const [k,c] of counts.entries()) {
+        if (c > bestCount) { bestCount = c; best = list.find(x => x.toLowerCase() === k) || best; }
+      }
+      return best;
+    }
+
+    async function loadPenaltyRulesIntoDatalist() {
+      const dl = $("penaltyList");
+      dl.innerHTML = "";
+      for (const path of RULES_JSON_PATHS) {
+        try {
+          const res = await fetch(path, { cache: "no-store" });
+          if (!res.ok) continue;
+          const json = await res.json();
+          if (!Array.isArray(json) || !json.length) continue;
+
+          const items = json.map(r => {
+            const code = (r.code || "").trim();
+            const title = (r.title || "").trim();
+            const penalty = (r.penalty || "").trim();
+            const display = penalty ? `${code} — ${title} (${penalty})` : `${code} — ${title}`;
+            return { code, display };
+          }).filter(x => x.code && x.display);
+
+          // Put full display strings in the datalist (user can type/paste)
+          for (const it of items) {
+            const opt = document.createElement("option");
+            opt.value = it.display;
+            dl.appendChild(opt);
+          }
+
+          toast("Penalty codes loaded");
+          return; // done
+        } catch (e) {
+          // try next path
+        }
+      }
+      // not fatal
+      console.log("No steward_rules.json found at known paths.");
+    }
+
+    // ===========================
+    // FIREBASE SANITY
+    // ===========================
+    if (typeof firebase === "undefined") {
+      alert("Firebase not loaded. Check your script tags.");
+    }
+    if (typeof auth === "undefined" || typeof db === "undefined") {
+      // firebase-init.js should set window.auth/window.db
+      console.warn("auth/db globals missing — check firebase-init.js is non-module and initializes.");
+    }
+
+    // ===========================
+    // STATE
+    // ===========================
     let currentUser = null;
     let currentEmail = "";
     let isHead = false;
 
-    // ---------- state ----------
     let selectedTicketId = "";
     let selectedTicketSnap = null;
 
-    // ---------- UI refs ----------
-    const ticketListEl = $("ticketList");
-    const ticketHintEl = $("ticketHint");
-    const filterEl = $("filter");
+    // prevent multiple publish clicks (per ticket) + allow “Published ✅” label
+    const publishedOneSession = new Set(); // key: `${ticketId}|${docId||hash}`
 
-    const submitReviewBtn = $("submitReviewBtn");
-    const loadMyReviewBtn = $("loadMyReviewBtn");
-    const publishAllBtn = $("publishAllBtn");
-
-    // ---------- navigation ----------
+    // ===========================
+    // UI WIRING
+    // ===========================
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
+
     $("refreshTicketsBtn").onclick = () => loadTickets();
     $("refreshStatementsBtn").onclick = () => loadStatements();
     $("refreshAggBtn").onclick = () => refreshAggregate();
-    filterEl.onchange = () => loadTickets();
+    $("filter").onchange = () => loadTickets();
 
-    loadMyReviewBtn.onclick = () => loadMyReview();
-    submitReviewBtn.onclick = () => submitMyReview();
-    publishAllBtn.onclick = () => publishAllStatements();
+    $("loadMyReviewBtn").onclick = () => loadMyReview();
+    $("submitReviewBtn").onclick = () => submitMyReview();
+    $("publishAllBtn").onclick = () => publishAllStatements();
 
-    // ---------- gating ----------
+    // ===========================
+    // AUTH GATE
+    // ===========================
     auth.onAuthStateChanged(async (user) => {
       if (!user) { window.location.href = "admin.html"; return; }
+
       currentUser = user;
       currentEmail = (user.email || "").toLowerCase().trim();
 
-      const adminSnap = await db.collection("admins").doc(currentEmail).get();
-      if (!adminSnap.exists) { await auth.signOut(); window.location.href = "admin.html"; return; }
+      try {
+        const adminSnap = await db.collection("admins").doc(currentEmail).get();
+        if (!adminSnap.exists) {
+          await auth.signOut();
+          window.location.href = "admin.html";
+          return;
+        }
 
-      const data = adminSnap.data() || {};
-      const roleRaw = (data.role || "").toLowerCase();
-      isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
+        const data = adminSnap.data() || {};
+        const roleRaw = (data.role || "").toLowerCase();
+        isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
 
-      if (!isHead) {
-        // not head steward, send to steward page
-        window.location.href = "steward.html";
-        return;
+        if (!isHead) {
+          window.location.href = "steward.html";
+          return;
+        }
+
+        $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
+
+        await loadPenaltyRulesIntoDatalist();
+        await loadTickets();
+      } catch (e) {
+        $("who").textContent = "Auth error: " + (e.message || e);
       }
-
-      $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
-
-      await loadTickets();
     });
 
-    // ---------- tickets ----------
-    function passesFilter(status) {
-      const f = filterEl.value;
-      const s = (status || "").trim();
-
-      if (f === "All (non-finalised)") return s.toLowerCase() !== "finalised";
-
-      if (f === "Awaiting Review") {
-        return s === "" || s.toLowerCase() === "under review" || s.toLowerCase() === "awaiting review";
-      }
-      if (f === "In Review") return s.toLowerCase() === "in review";
-      if (f === "Ready to Publish") return s.toLowerCase() === "ready to publish";
-      return true;
-    }
-
+    // ===========================
+    // TICKETS
+    // ===========================
     async function loadTickets() {
+      const ticketListEl = $("ticketList");
+      const ticketHintEl = $("ticketHint");
+
       ticketListEl.innerHTML = "";
       ticketHintEl.textContent = "Loading tickets…";
 
-      const snap = await db.collection("tickets").limit(200).get();
-      const docs = snap.docs;
+      try {
+        const snap = await db.collection("tickets").limit(200).get();
 
-      let shown = 0;
-      for (const d of docs) {
-        const data = d.data() || {};
-        const status = (data.status || "").trim();
+        let shown = 0;
+        for (const d of snap.docs) {
+          const data = d.data() || {};
+          const status = (data.status || "").trim();
+          if (!passesFilter(status)) continue;
 
-        if (!passesFilter(status)) continue;
+          const div = document.createElement("div");
+          div.className = "ticket" + (d.id === selectedTicketId ? " active" : "");
+          div.innerHTML = `
+            <div class="id">${escapeHtml(d.id)}</div>
+            <div class="status"><b>Status:</b> ${escapeHtml(status || "Under Review")}</div>
+            <div class="muted" style="margin-top:4px;">
+              ${data.event ? `<b>Event:</b> ${escapeHtml(data.event)}` : ""}
+              ${data.accused ? ` | <b>Accused:</b> ${escapeHtml(data.accused)}` : ""}
+            </div>
+          `;
 
-        const div = document.createElement("div");
-        div.className = "ticket" + (d.id === selectedTicketId ? " active" : "");
-        div.innerHTML = `
-          <div class="id">${d.id}</div>
-          <div class="status"><b>Status:</b> ${status || "Under Review"}</div>
-          <div class="muted" style="margin-top:4px;">
-            ${data.event ? `<b>Event:</b> ${data.event}` : ""} ${data.accused ? ` | <b>Accused:</b> ${data.accused}` : ""}
-          </div>
-        `;
-        div.onclick = async () => {
-          selectedTicketId = d.id;
-          await selectTicket(d.id);
-          [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
-          div.classList.add("active");
-        };
-        ticketListEl.appendChild(div);
-        shown++;
+          div.onclick = async () => {
+            selectedTicketId = d.id;
+            await selectTicket(d.id);
+
+            [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
+            div.classList.add("active");
+          };
+
+          ticketListEl.appendChild(div);
+          shown++;
+        }
+
+        ticketHintEl.textContent = `Showing ${shown} tickets (max 200 fetched).`;
+      } catch (e) {
+        ticketHintEl.textContent = "Failed to load tickets: " + (e.message || e);
       }
-
-      ticketHintEl.textContent = `Showing ${shown} tickets (max 200 fetched).`;
     }
 
     async function selectTicket(ticketId) {
       $("selTitle").textContent = `Ticket: ${ticketId}`;
       $("selSub").textContent = "";
       $("myReviewStatus").textContent = "Not submitted";
+      $("myReviewStatus").className = "badge";
       $("aggHint").textContent = "Loading aggregate…";
       $("aggBox").innerHTML = "";
+      $("statementsHint").textContent = "Loading statements…";
+      $("statementsList").innerHTML = "";
 
-      const ref = db.collection("tickets").doc(ticketId);
-      selectedTicketSnap = await ref.get();
+      // reset session “published” state for this ticket
+      // (keep global set, but UI will show published as you click)
+      try {
+        const ref = db.collection("tickets").doc(ticketId);
+        selectedTicketSnap = await ref.get();
 
-      if (!selectedTicketSnap.exists) {
-        toast("Ticket not found");
-        return;
+        if (!selectedTicketSnap.exists) {
+          toast("Ticket not found");
+          return;
+        }
+
+        const t = selectedTicketSnap.data() || {};
+        $("sumAccused").textContent = t.accused || "—";
+        $("sumReporter").textContent = t.reporter || "—";
+        $("sumCompetition").textContent = t.competition || "—";
+        $("sumEvent").textContent = t.event || "—";
+        $("sumRule").textContent = t.ruleBreach || "—";
+        $("sumProof").textContent = t.proofUrl || "—";
+        $("sumIncident").value = t.fullIncident || "";
+
+        $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
+
+        await loadStatements();
+        await loadMyReview();
+        await refreshAggregate();
+      } catch (e) {
+        toast("Failed to load ticket");
+        $("selSub").textContent = "Error: " + (e.message || e);
       }
-
-      const t = selectedTicketSnap.data() || {};
-      $("sumAccused").textContent = t.accused || "—";
-      $("sumReporter").textContent = t.reporter || "—";
-      $("sumCompetition").textContent = t.competition || "—";
-      $("sumEvent").textContent = t.event || "—";
-      $("sumRule").textContent = t.ruleBreach || "—";
-      $("sumProof").textContent = t.proofUrl || "—";
-      $("sumIncident").value = t.fullIncident || "";
-
-      $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
-
-      await loadStatements();
-      await loadMyReview();
-      await refreshAggregate();
     }
 
-    // ---------- statements ----------
+    // ===========================
+    // PLAYER STATEMENTS + DISCORD
+    // ===========================
     async function loadStatements() {
-      if (!selectedTicketId) { $("statementsHint").textContent = "Select a ticket to view statements."; return; }
+      if (!selectedTicketId) {
+        $("statementsHint").textContent = "Select a ticket to view statements.";
+        return;
+      }
 
       $("statementsList").innerHTML = "";
       $("statementsHint").textContent = "Loading statements…";
 
-      const col = db.collection("tickets").doc(selectedTicketId).collection("player_statements");
-      const snap = await col.get();
+      try {
+        const col = db.collection("tickets").doc(selectedTicketId).collection("player_statements");
+        const snap = await col.get();
 
-      if (snap.empty) {
-        $("statementsHint").textContent = "No player statements submitted yet.";
-        return;
+        if (snap.empty) {
+          $("statementsHint").textContent = "No player statements submitted yet.";
+          return;
+        }
+
+        const rows = snap.docs.map(d => {
+          const x = d.data() || {};
+          const role = (x.role || "").trim();
+          const name = (x.name || "").trim();
+          const statement = (x.statement || "").trim();
+          const ts = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate() : null;
+          const when = ts ? ts.toLocaleString() : "";
+          return { docId: d.id, role, name, statement, when };
+        }).filter(r => r.statement);
+
+        const order = { accused:1, reporter:2, witness:3 };
+        rows.sort((a,b) => (order[(a.role||"").toLowerCase()]||99) - (order[(b.role||"").toLowerCase()]||99));
+
+        for (const r of rows) {
+          const key = `${selectedTicketId}|${r.docId}`;
+          const already = publishedOneSession.has(key);
+
+          const box = document.createElement("div");
+          box.style.border = "1px solid #e5e7eb";
+          box.style.borderRadius = "12px";
+          box.style.padding = "10px";
+          box.style.background = "#fff";
+
+          const right = document.createElement("div");
+          right.className = "row";
+          right.style.justifyContent = "flex-end";
+
+          const timeEl = document.createElement("div");
+          timeEl.className = "muted";
+          timeEl.textContent = r.when || "";
+          right.appendChild(timeEl);
+
+          const publishBtn = document.createElement("button");
+          publishBtn.textContent = already ? "Published ✅" : "Publish";
+          publishBtn.style.width = "110px";
+          publishBtn.disabled = already;
+
+          publishBtn.onclick = async () => {
+            // prevent multi-click spam instantly
+            publishBtn.disabled = true;
+            publishBtn.textContent = "Publishing…";
+            $("statementsHint").textContent = "Publishing 1 statement…";
+
+            try {
+              const ok = await publishStatementToDiscord(selectedTicketId, r);
+              if (ok) {
+                publishedOneSession.add(key);
+                publishBtn.textContent = "Published ✅";
+                $("statementsHint").textContent = "Published ✅";
+                toast("Published ✅");
+              } else {
+                publishBtn.disabled = false;
+                publishBtn.textContent = "Publish";
+              }
+            } catch (e) {
+              publishBtn.disabled = false;
+              publishBtn.textContent = "Publish";
+              $("statementsHint").textContent = "Publish failed: " + (e.message || e);
+              toast("Publish failed");
+            }
+          };
+
+          right.appendChild(publishBtn);
+
+          const top = document.createElement("div");
+          top.className = "row";
+          top.style.justifyContent = "space-between";
+          top.innerHTML = `<div><b>${escapeHtml((r.role||"").toUpperCase())} — ${escapeHtml(r.name || "")}</b></div>`;
+          top.appendChild(right);
+
+          const body = document.createElement("div");
+          body.style.marginTop = "6px";
+          body.style.whiteSpace = "pre-wrap";
+          body.innerHTML = escapeHtml(r.statement);
+
+          box.appendChild(top);
+          box.appendChild(body);
+          $("statementsList").appendChild(box);
+        }
+
+        $("statementsHint").textContent = `Loaded ${rows.length} statement(s).`;
+      } catch (e) {
+        $("statementsHint").textContent = "Failed to load statements: " + (e.message || e);
       }
-
-      const rows = snap.docs.map(d => {
-        const x = d.data() || {};
-        const role = (x.role || "").trim();
-        const name = (x.name || "").trim();
-        const statement = (x.statement || "").trim();
-        const ts = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate() : null;
-        const when = ts ? ts.toLocaleString() : "";
-        return { role, name, statement, when };
-      });
-
-      const order = { accused:1, reporter:2, witness:3 };
-      rows.sort((a,b) => (order[a.role?.toLowerCase()]||99)-(order[b.role?.toLowerCase()]||99));
-
-      for (const r of rows) {
-        const box = document.createElement("div");
-        box.style.border = "1px solid #e5e7eb";
-        box.style.borderRadius = "12px";
-        box.style.padding = "10px";
-        box.style.background = "#fff";
-
-        const publishBtn = document.createElement("button");
-        publishBtn.textContent = "Publish";
-        publishBtn.style.width = "90px";
-        publishBtn.onclick = async () => {
-          publishBtn.disabled = true;
-          await publishStatementToDiscord(selectedTicketId, r);
-          publishBtn.disabled = false;
-        };
-
-        const top = document.createElement("div");
-        top.className = "row";
-        top.style.justifyContent = "space-between";
-        top.innerHTML = `
-          <div><b>${(r.role||"").toUpperCase()} — ${escapeHtml(r.name || "")}</b></div>
-          <div class="row">
-            <div class="muted">${escapeHtml(r.when || "")}</div>
-          </div>
-        `;
-
-        // insert publish into right side
-        top.querySelector(".row")?.appendChild(publishBtn);
-
-        const body = document.createElement("div");
-        body.style.marginTop = "6px";
-        body.style.whiteSpace = "pre-wrap";
-        body.innerHTML = escapeHtml(r.statement);
-
-        box.appendChild(top);
-        box.appendChild(body);
-        $("statementsList").appendChild(box);
-      }
-
-      $("statementsHint").textContent = `Loaded ${rows.length} statement(s).`;
     }
 
     async function publishAllStatements() {
       if (!selectedTicketId) { toast("Select a ticket first"); return; }
-      const btn = publishAllBtn;
+
+      const btn = $("publishAllBtn");
       btn.disabled = true;
-      $("statementsHint").textContent = "Publishing all…";
+      btn.textContent = "Publishing…";
 
       try {
-        // rebuild rows from DOM? safer to fetch again
         const col = db.collection("tickets").doc(selectedTicketId).collection("player_statements");
         const snap = await col.get();
-        const rows = snap.docs.map(d => d.data() || {}).map(x => ({
-          role: (x.role||"").trim(),
-          name: (x.name||"").trim(),
-          statement: (x.statement||"").trim(),
-          when: x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate().toLocaleString() : ""
-        })).filter(x => x.statement);
 
-        for (const r of rows) await publishStatementToDiscord(selectedTicketId, r);
+        const rows = snap.docs.map(d => {
+          const x = d.data() || {};
+          return {
+            docId: d.id,
+            role: (x.role || "").trim(),
+            name: (x.name || "").trim(),
+            statement: (x.statement || "").trim(),
+            when: x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate().toLocaleString() : ""
+          };
+        }).filter(r => r.statement);
 
-        $("statementsHint").textContent = "Published all statements ✅";
-        toast("Published all");
+        if (!rows.length) {
+          $("statementsHint").textContent = "No statements to publish.";
+          toast("No statements");
+          return;
+        }
+
+        let okCount = 0;
+        let failCount = 0;
+
+        $("statementsHint").textContent = `Publishing ${rows.length} statement(s)…`;
+
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i];
+          const key = `${selectedTicketId}|${r.docId}`;
+
+          // skip ones already published this session
+          if (publishedOneSession.has(key)) continue;
+
+          $("statementsHint").textContent = `Publishing ${i+1}/${rows.length}…`;
+
+          try {
+            const ok = await publishStatementToDiscord(selectedTicketId, r);
+            if (ok) {
+              publishedOneSession.add(key);
+              okCount++;
+            } else {
+              failCount++;
+            }
+          } catch (e) {
+            failCount++;
+          }
+        }
+
+        await loadStatements(); // refresh buttons to show Published ✅
+
+        $("statementsHint").textContent =
+          `Publish complete ✅  Published: ${okCount}  Failed: ${failCount}`;
+
+        toast(`Published ${okCount} ✅`);
       } catch (e) {
-        $("statementsHint").textContent = "Publish failed: " + e.message;
+        $("statementsHint").textContent = "Publish failed: " + (e.message || e);
         toast("Publish failed");
       } finally {
         btn.disabled = false;
+        btn.textContent = "Publish ALL to Discord";
       }
     }
 
     async function publishStatementToDiscord(ticketId, row) {
       if (!DISCORD_WEBHOOK_URL.startsWith("https://discord.com/api/webhooks/")) {
         toast("Webhook invalid");
-        return;
+        return false;
       }
 
       const role = (row.role || "").slice(0, 40);
@@ -506,62 +694,72 @@
 
       if (!resp.ok) {
         const txt = await resp.text();
-        toast("Discord failed");
-        throw new Error(`Discord publish failed: ${resp.status} ${resp.statusText} ${txt}`);
+        throw new Error(`Discord publish failed: ${resp.status} ${resp.statusText}\n${txt}`);
       }
-
-      toast("Published to Discord ✅");
+      return true;
     }
 
-    // ---------- reviews ----------
+    // ===========================
+    // MY REVIEW (SUBMIT + LOAD)
+    // ===========================
     async function loadMyReview() {
       if (!selectedTicketId) return;
+
       const reviewId = safeKey(currentEmail);
       const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
-      const snap = await ref.get();
 
-      if (!snap.exists) {
-        $("myReviewStatus").textContent = "Not submitted";
-        $("myReviewStatus").className = "badge";
-        return;
+      try {
+        const snap = await ref.get();
+
+        if (!snap.exists) {
+          $("myReviewStatus").textContent = "Not submitted";
+          $("myReviewStatus").className = "badge warn";
+          toast("No saved review");
+          return;
+        }
+
+        const d = snap.data() || {};
+        const cause = d.CAUSE || {};
+
+        $("cScore").value = String(clampScore(cause.control?.score));
+        $("cText").value = cause.control?.text || "";
+
+        $("aScore").value = String(clampScore(cause.awareness?.score));
+        $("aText").value = cause.awareness?.text || "";
+
+        $("uScore").value = String(clampScore(cause.userInput?.score));
+        $("uText").value = cause.userInput?.text || "";
+
+        $("sScore").value = String(clampScore(cause.severity?.score));
+        $("sText").value = cause.severity?.text || "";
+
+        $("eScore").value = String(clampScore(cause.environment?.score));
+        $("eText").value = cause.environment?.text || "";
+
+        $("penaltyCode").value = d.penaltyCode || "";
+        $("privateOpinion").value = d.privateOpinion || "";
+
+        $("myReviewStatus").textContent = "Submitted ✅";
+        $("myReviewStatus").className = "badge ok";
+        toast("Loaded your review");
+      } catch (e) {
+        toast("Load failed");
       }
-
-      const d = snap.data() || {};
-      const cause = d.CAUSE || {};
-
-      $("cScore").value = String(clampScore(cause.control?.score));
-      $("cText").value = cause.control?.text || "";
-
-      $("aScore").value = String(clampScore(cause.awareness?.score));
-      $("aText").value = cause.awareness?.text || "";
-
-      $("uScore").value = String(clampScore(cause.userInput?.score));
-      $("uText").value = cause.userInput?.text || "";
-
-      $("sScore").value = String(clampScore(cause.severity?.score));
-      $("sText").value = cause.severity?.text || "";
-
-      $("eScore").value = String(clampScore(cause.environment?.score));
-      $("eText").value = cause.environment?.text || "";
-
-      $("penaltyCode").value = d.penaltyCode || "";
-      $("privateOpinion").value = d.privateOpinion || "";
-
-      $("myReviewStatus").textContent = "Submitted ✅";
-      $("myReviewStatus").className = "badge ok";
-      toast("Loaded your review");
     }
 
     async function submitMyReview() {
       if (!selectedTicketId) { toast("Select a ticket first"); return; }
+
       const pen = ($("penaltyCode").value || "").trim();
       if (!pen) { toast("Penalty code required"); return; }
 
-      submitReviewBtn.disabled = true;
+      const btn = $("submitReviewBtn");
+      btn.disabled = true;
+      btn.textContent = "Submitting…";
 
       try {
         const reviewId = safeKey(currentEmail);
-        const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
+        const reviewRef = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
 
         const review = {
           stewardEmail: currentEmail,
@@ -578,61 +776,128 @@
           privateOpinion: ($("privateOpinion").value || "").trim()
         };
 
-        await ref.set(review, { merge: true });
+        await reviewRef.set(review, { merge: true });
 
         $("myReviewStatus").textContent = "Submitted ✅";
         $("myReviewStatus").className = "badge ok";
+
+        // quick win: update aggregate + status (like WPF app)
+        await updateAggregateAndStatus();
 
         toast("Review submitted");
         await loadTickets();
         await refreshAggregate();
       } catch (e) {
-        toast("Submit failed: " + e.message);
+        toast("Submit failed");
       } finally {
-        submitReviewBtn.disabled = false;
+        btn.disabled = false;
+        btn.textContent = "Submit Review";
       }
+    }
+
+    // ===========================
+    // AGGREGATE + STATUS (LIKE WPF)
+    // ===========================
+    async function updateAggregateAndStatus() {
+      if (!selectedTicketId) return;
+
+      const ticketRef = db.collection("tickets").doc(selectedTicketId);
+
+      // requiredReviews from ticket (default 3)
+      let required = 3;
+      try {
+        const t = await ticketRef.get();
+        const td = t.data() || {};
+        const rr = Number(td.requiredReviews || 0);
+        if (rr > 0 && rr < 50) required = rr;
+      } catch {}
+
+      const reviewsSnap = await ticketRef.collection("reviews").get();
+      const reviews = reviewsSnap.docs.map(d => d.data() || {});
+      const completed = reviews.length;
+
+      const scores = (key) => reviews.map(r => clampScore(r?.CAUSE?.[key]?.score || 0));
+
+      const avgC = avg(scores("control"));
+      const avgA = avg(scores("awareness"));
+      const avgU = avg(scores("userInput"));
+      const avgS = avg(scores("severity"));
+      const avgE = avg(scores("environment"));
+      const total = avg([avgC, avgA, avgU, avgS, avgE]);
+
+      const penalty = consensusPenalty(reviews);
+      const suggestedTier = suggestTier(total);
+
+      const aggregate = {
+        reviewsRequired: required,
+        reviewsCompleted: completed,
+        averages: {
+          control: avgC,
+          awareness: avgA,
+          userInput: avgU,
+          severity: avgS,
+          environment: avgE
+        },
+        CAUSE_total: total,
+        suggestedTier,
+        penaltyConsensus: penalty
+      };
+
+      // write aggregate/latest
+      await ticketRef.collection("aggregate").doc("latest").set(aggregate, { merge: true });
+
+      // update ticket status
+      const newStatus =
+        completed <= 0 ? "Awaiting Review" :
+        completed < required ? "In Review" :
+        "Ready to Publish";
+
+      await ticketRef.set({ status: newStatus }, { merge: true });
     }
 
     async function refreshAggregate() {
       if (!selectedTicketId) return;
 
-      $("aggHint").textContent = "Calculating…";
+      $("aggHint").textContent = "Loading aggregate…";
       $("aggBox").innerHTML = "";
 
       try {
-        const col = db.collection("tickets").doc(selectedTicketId).collection("reviews");
-        const snap = await col.get();
+        const aggRef = db.collection("tickets").doc(selectedTicketId).collection("aggregate").doc("latest");
+        const snap = await aggRef.get();
 
-        if (snap.empty) {
-          $("aggHint").textContent = "No reviews submitted yet.";
+        if (!snap.exists) {
+          // If aggregate doesn't exist yet, compute + write once
+          await updateAggregateAndStatus();
+        }
+
+        const snap2 = await aggRef.get();
+        if (!snap2.exists) {
+          $("aggHint").textContent = "No aggregate yet (submit at least one review).";
           return;
         }
 
-        const reviews = snap.docs.map(d => d.data() || {});
-        const scores = (key) => reviews.map(r => clampScore(r?.CAUSE?.[key]?.score || 0));
+        const d = snap2.data() || {};
+        const av = d.averages || {};
 
-        const avgC = avg(scores("control"));
-        const avgA = avg(scores("awareness"));
-        const avgU = avg(scores("userInput"));
-        const avgS = avg(scores("severity"));
-        const avgE = avg(scores("environment"));
-        const total = avg([avgC, avgA, avgU, avgS, avgE]);
+        const comp = d.reviewsCompleted ?? "?";
+        const req = d.reviewsRequired ?? "?";
+        const total = d.CAUSE_total ?? "?";
+        const tier = d.suggestedTier || "-";
+        const pen = d.penaltyConsensus || "-";
 
-        const tier = suggestTier(total);
-
-        $("aggHint").textContent = `Reviews: ${reviews.length} | CAUSE Total: ${total} | Suggested: ${tier}`;
+        $("aggHint").textContent = `Reviews: ${comp}/${req} | CAUSE Total: ${total} | Suggested: ${tier} | Penalty: ${pen}`;
 
         $("aggBox").innerHTML = `
-          <div class="grid2">
-            <div><b>C</b> (Control): ${avgC}</div>
-            <div><b>A</b> (Awareness): ${avgA}</div>
-            <div><b>U</b> (User Input): ${avgU}</div>
-            <div><b>S</b> (Severity): ${avgS}</div>
-            <div><b>E</b> (Environment): ${avgE}</div>
+          <div class="kpi">
+            <div class="pill"><span><b>C</b> Control</span><span>${escapeHtml(String(av.control ?? 0))}</span></div>
+            <div class="pill"><span><b>A</b> Awareness</span><span>${escapeHtml(String(av.awareness ?? 0))}</span></div>
+            <div class="pill"><span><b>U</b> User Input</span><span>${escapeHtml(String(av.userInput ?? 0))}</span></div>
+            <div class="pill"><span><b>S</b> Severity</span><span>${escapeHtml(String(av.severity ?? 0))}</span></div>
+            <div class="pill"><span><b>E</b> Environment</span><span>${escapeHtml(String(av.environment ?? 0))}</span></div>
           </div>
         `;
       } catch (e) {
-        $("aggHint").textContent = "Aggregate failed: " + e.message;
+        $("aggHint").textContent = "Aggregate failed: " + (e.message || e);
       }
     }
   </script>
