@@ -1,8 +1,4 @@
-// firebase-init.js
-// Firebase compat SDK (keeps the code simple for static pages)
-import "https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js";
-import "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js";
-import "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js";
+// firebase-init.js (NON-module, works with <script src="...">)
 
 const firebaseConfig = {
   apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
@@ -16,6 +12,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 
-export const auth = firebase.auth();
-export const db = firebase.firestore();
-export const firebaseNS = firebase;
+// make these globals so your admin.html can use them
+window.auth = firebase.auth();
+window.db = firebase.firestore();
+window.firebaseNS = firebase;
