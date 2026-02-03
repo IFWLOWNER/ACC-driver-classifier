@@ -381,23 +381,29 @@
         for (const r of rules) {
           if (!r || typeof r !== "object") continue;
 
-          // Your file uses: code/group/title/description/who/penalty
-          const code = (r.code || "").trim();
-          const group = (r.group || "").trim();
-          const title = (r.title || "").trim();
-          const pen = (r.penalty || "").trim();
+          // Your file uses capitalised keys: Code/Group/Title/Description/Who/Penalty
+          // (but we also support lowercase just in case)
+          const code = String((r.Code ?? r.code ?? "")).trim();
+          const title = String((r.Title ?? r.title ?? "")).trim();
+          const group = String((r.Group ?? r.group ?? "")).trim();
+          const pen = String((r.Penalty ?? r.penalty ?? "")).trim();
 
           if (!code && !title) continue;
 
-          // Value stored to Firestore (readable & stable)
+          // Value stored to Firestore (stable, readable)
+          // Keep this as-is so existing saved values still match your current format.
           const value = `${code}${title ? " — " + title : ""}${pen ? " (" + pen + ")" : ""}`.trim();
 
-          // Text shown in dropdown (includes group)
-          const label = `${group ? group + " | " : ""}${value}`;
+          // Text shown in dropdown: CODE then Title (as requested)
+          // (We keep group/penalty out of the visible label to keep it clean.)
+          const label = `${code}${title ? " — " + title : ""}`.trim();
 
           const opt = document.createElement("option");
           opt.value = value;
           opt.textContent = label;
+          // keep extra data attached (doesn't change UI, but preserves info if you want it later)
+          opt.dataset.group = group;
+          opt.dataset.penalty = pen;
           sel.appendChild(opt);
           added++;
         }
