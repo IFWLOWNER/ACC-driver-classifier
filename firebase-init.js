@@ -19,3 +19,6 @@ if (!firebase.apps || firebase.apps.length === 0) {
 window.auth = firebase.auth();
 window.db = firebase.firestore();
 window.firebaseNS = firebase;
+
+// ✅ proof it ran
+document.getElementById("status")?.insertAdjacentText("beforeend", " | init-ran ✅");
