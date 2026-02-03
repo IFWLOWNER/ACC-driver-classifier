@@ -376,11 +376,12 @@
     }
 
     // ---------- penalty codes dropdown ----------
-    async function loadPenaltyCodes() {
+    <script>
+async function loadPenaltyCodes() {
   const sel = document.getElementById("penaltyCode");
   if (!sel) return;
 
-  // reset + placeholder
+  // Reset + placeholder
   sel.innerHTML = "";
   const ph = document.createElement("option");
   ph.value = "";
@@ -389,26 +390,56 @@
   ph.selected = true;
   sel.appendChild(ph);
 
+  // Helper: get value from multiple possible key names (case/camel variations)
+  const pick = (obj, keys) => {
+    if (!obj || typeof obj !== "object") return "";
+    for (const k of keys) {
+      if (k in obj && obj[k] != null) return String(obj[k]).trim();
+    }
+    return "";
+  };
+
+  const makeLabel = (r) => {
+    // Support: code/Code, title/Title, penalty/Penalty, plus "display"/"Display"
+    const display = pick(r, ["display", "Display", "DisplayText", "label", "Label"]);
+    if (display) return display;
+
+    const code = pick(r, ["code", "Code"]);
+    const title = pick(r, ["title", "Title"]);
+    const pen = pick(r, ["penalty", "Penalty"]);
+
+    if (code && title && pen) return `${code} — ${title} (${pen})`;
+    if (code && title) return `${code} — ${title}`;
+    if (title) return title;
+    if (code) return code;
+
+    return "";
+  };
+
   try {
-    // IMPORTANT: exact filename
     const res = await fetch("./steward_rules.json", { cache: "no-store" });
     if (!res.ok) throw new Error(`Could not load steward_rules.json (${res.status})`);
 
-    const rules = await res.json();
-    if (!Array.isArray(rules)) throw new Error("steward_rules.json is not an array");
+    const json = await res.json();
 
-    const makeLabel = (r) => {
-      const code = (r.code || "").toString().trim();
-      const title = (r.title || "").toString().trim();
-      const pen = (r.penalty || "").toString().trim();
+    // Support wrapped formats like { rules: [...] } or { items: [...] }
+    let rules = json;
+    if (!Array.isArray(rules)) {
+      rules = json?.rules || json?.items || json?.data || [];
+    }
 
-      // Build a clean visible label
-      if (code && title && pen) return `${code} — ${title} (${pen})`;
-      if (code && title) return `${code} — ${title}`;
-      if (title) return title;
-      if (code) return code;
-      return "";
-    };
+    // Support nested arrays: [ [ {..}, {..} ] ]
+    if (Array.isArray(rules) && rules.length && Array.isArray(rules[0])) {
+      rules = rules.flat();
+    }
+
+    if (!Array.isArray(rules)) {
+      throw new Error("steward_rules.json did not resolve to an array");
+    }
+
+    // DEBUG: this will tell you EXACTLY what the first item looks like
+    console.log("Penalty rules loaded. Count =", rules.length);
+    console.log("First rule =", rules[0]);
 
     let added = 0;
 
@@ -417,8 +448,8 @@
       if (!label) continue;
 
       const opt = document.createElement("option");
-      opt.value = label;       // this is what gets saved into Firestore
-      opt.textContent = label; // this is what user sees
+      opt.value = label;       // saved into Firestore
+      opt.textContent = label; // shown to user
       sel.appendChild(opt);
       added++;
     }
@@ -426,13 +457,12 @@
     if (!added) {
       const opt = document.createElement("option");
       opt.value = "";
-      opt.textContent = "No valid penalty codes found (check JSON).";
+      opt.textContent = "No valid penalty codes found (check JSON shape/keys).";
       opt.disabled = true;
       sel.appendChild(opt);
     }
   } catch (e) {
     console.error("Penalty code load failed:", e);
-
     const opt = document.createElement("option");
     opt.value = "";
     opt.textContent = "Failed to load penalty codes (open console).";
@@ -440,6 +470,8 @@
     sel.appendChild(opt);
   }
 }
+</script>
+
 
 
     // ---------- auth / role ----------
