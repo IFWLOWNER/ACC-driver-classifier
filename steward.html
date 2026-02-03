@@ -377,41 +377,70 @@
 
     // ---------- penalty codes dropdown ----------
     async function loadPenaltyCodes() {
-      const sel = $("penaltyCode");
-      if (!sel) return;
+  const sel = document.getElementById("penaltyCode");
+  if (!sel) return;
 
-      // Don’t double-load if already has >1 option
-      if (sel.options && sel.options.length > 1) return;
+  // reset + placeholder
+  sel.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = "Select a penalty code…";
+  ph.disabled = true;
+  ph.selected = true;
+  sel.appendChild(ph);
 
-      try {
-        const resp = await fetch("./steward_rules.json", { cache: "no-store" });
-        if (!resp.ok) throw new Error("Could not load steward_rules.json");
-        const rules = await resp.json();
+  try {
+    // IMPORTANT: exact filename
+    const res = await fetch("./steward_rules.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`Could not load steward_rules.json (${res.status})`);
 
-        const items = Array.isArray(rules) ? rules : [];
-        // Build display like your WPF: "Code — Title (Penalty)"
-        const opts = items.map(r => {
-          const code = (r.code || "").trim();
-          const title = (r.title || "").trim();
-          const pen = (r.penalty || "").trim();
-          const display = pen ? `${code} — ${title} (${pen})` : `${code} — ${title}`;
-          return { value: display, text: display };
-        }).filter(o => o.value && o.text);
+    const rules = await res.json();
+    if (!Array.isArray(rules)) throw new Error("steward_rules.json is not an array");
 
-        for (const o of opts) {
-          const opt = document.createElement("option");
-          opt.value = o.value;
-          opt.textContent = o.text;
-          sel.appendChild(opt);
-        }
-      } catch (e) {
-        // fallback: keep dropdown but add a single hint option
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "Unable to load penalty codes (steward_rules.json missing).";
-        sel.appendChild(opt);
-      }
+    const makeLabel = (r) => {
+      const code = (r.code || "").toString().trim();
+      const title = (r.title || "").toString().trim();
+      const pen = (r.penalty || "").toString().trim();
+
+      // Build a clean visible label
+      if (code && title && pen) return `${code} — ${title} (${pen})`;
+      if (code && title) return `${code} — ${title}`;
+      if (title) return title;
+      if (code) return code;
+      return "";
+    };
+
+    let added = 0;
+
+    for (const r of rules) {
+      const label = makeLabel(r);
+      if (!label) continue;
+
+      const opt = document.createElement("option");
+      opt.value = label;       // this is what gets saved into Firestore
+      opt.textContent = label; // this is what user sees
+      sel.appendChild(opt);
+      added++;
     }
+
+    if (!added) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No valid penalty codes found (check JSON).";
+      opt.disabled = true;
+      sel.appendChild(opt);
+    }
+  } catch (e) {
+    console.error("Penalty code load failed:", e);
+
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Failed to load penalty codes (open console).";
+    opt.disabled = true;
+    sel.appendChild(opt);
+  }
+}
+
 
     // ---------- auth / role ----------
     let currentUser = null;
