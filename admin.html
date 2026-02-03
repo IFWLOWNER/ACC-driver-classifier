@@ -7,45 +7,63 @@
 
 <body>
   <h2>IFWL Admin Login</h2>
-  <button id="loginBtn">Sign in with Google</button>
-  <p id="status"></p>
+  <button id="loginBtn" type="button">Sign in with Google</button>
+  <p id="status">JS loaded…</p>
 
-  <script src="firebase-init.js"></script>
+  <!-- Firebase SDK (v8 compat) -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+  <!-- Your init -->
+  <script src="./firebase-init.js"></script>
 
   <script>
-    const provider = new firebase.auth.GoogleAuthProvider();
+    const statusEl = document.getElementById("status");
 
-    document.getElementById("loginBtn").onclick = async () => {
+    window.addEventListener("error", (e) => {
+      statusEl.innerText = "JS error: " + e.message;
+    });
+
+    window.addEventListener("unhandledrejection", (e) => {
+      statusEl.innerText = "Promise error: " + (e.reason?.message || e.reason);
+    });
+
+    // sanity checks
+    statusEl.innerText =
+      "firebase: " + (typeof firebase) +
+      " | auth: " + (firebase?.auth ? "ok" : "missing") +
+      " | firestore: " + (firebase?.firestore ? "ok" : "missing");
+
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      statusEl.innerText = "Clicked. Opening Google login…";
+
       try {
-        const result = await auth.signInWithPopup(provider);
-        const email = result.user.email.toLowerCase();
+        const provider = new firebase.auth.GoogleAuthProvider();
+        const result = await firebase.auth().signInWithPopup(provider);
 
-        const snap = await db.collection("admins").doc(email).get();
+        const email = result.user.email.toLowerCase();
+        statusEl.innerText = "Signed in: " + email + " (checking access…)";
+
+        const snap = await firebase.firestore().collection("admins").doc(email).get();
         if (!snap.exists) {
-          document.getElementById("status").innerText = "Access denied.";
-          await auth.signOut();
+          statusEl.innerText = "Access denied.";
+          await firebase.auth().signOut();
           return;
         }
 
         const data = snap.data() || {};
         const roleRaw = (data.role || "").toLowerCase();
         const isOwner = data.owner === true;
-        const isHead =
-          roleRaw.includes("head") ||
-          data.headsteward === true ||
-          isOwner;
+        const isHead = roleRaw.includes("head") || data.headsteward === true || isOwner;
 
-        if (isHead) {
-          window.location.href = "headsteward.html";
-        } else {
-          window.location.href = "steward.html";
-        }
+        statusEl.innerText = "Access OK. Redirecting…";
+        window.location.href = isHead ? "headsteward.html" : "steward.html";
 
       } catch (e) {
-        document.getElementById("status").innerText = e.message;
+        statusEl.innerText = "Login failed: " + e.message;
       }
-    };
+    });
   </script>
 </body>
 </html>
-
