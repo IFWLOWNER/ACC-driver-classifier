@@ -5,39 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { font-family: Arial, sans-serif; margin:0; background:#f3f4f6; }
-    header { padding:14px 18px; background:#111827; color:#fff; display:flex; justify-content:space-between; align-items:center; }
-    header .small { font-size:12px; opacity:0.85; }
+    header { padding:14px 18px; background:#111827; color:#fff; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    header .small { font-size:12px; opacity:0.85; margin-top:4px; line-height:1.2; word-break:break-word; }
     .wrap { display:grid; grid-template-columns: 380px 1fr; gap:14px; padding:14px; }
+
     .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
     .title { font-weight:700; font-size:16px; margin:0 0 10px; }
     .muted { color:#6b7280; font-size:12px; }
+
     .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    button { padding:8px 10px; border:1px solid #d1d5db; border-radius:10px; background:#fff; cursor:pointer; }
+    button { padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer; }
     button.primary { background:#111827; color:#fff; border-color:#111827; }
     button:disabled { opacity:0.6; cursor:not-allowed; }
-    select, input, textarea { padding:8px; border:1px solid #d1d5db; border-radius:10px; width:100%; box-sizing:border-box; }
+
+    select, input, textarea { padding:10px; border:1px solid #d1d5db; border-radius:12px; width:100%; box-sizing:border-box; font-size:16px; }
     textarea { min-height:70px; resize:vertical; }
-    .list { display:flex; flex-direction:column; gap:8px; max-height:680px; overflow:auto; }
-    .ticket { padding:10px; border:1px solid #e5e7eb; border-radius:12px; cursor:pointer; background:#fff; }
+
+    .list { display:flex; flex-direction:column; gap:8px; max-height:680px; overflow:auto; -webkit-overflow-scrolling:touch; }
+    .ticket { padding:12px; border:1px solid #e5e7eb; border-radius:12px; cursor:pointer; background:#fff; }
     .ticket:hover { background:#f9fafb; }
-    .ticket .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+    .ticket .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; word-break:break-all; }
     .ticket .status { font-size:12px; color:#374151; }
     .ticket.active { border-color:#111827; box-shadow:0 0 0 2px rgba(17,24,39,0.15); }
+
     .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    .sec { border:1px solid #e5e7eb; border-radius:12px; padding:10px; background:#fafafa; margin-top:10px; }
+    .sec { border:1px solid #e5e7eb; border-radius:12px; padding:12px; background:#fafafa; margin-top:10px; }
+
     .sec h3 { margin:0 0 8px; font-size:14px; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; }
+    .badge { display:inline-block; padding:4px 10px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; }
     .ok { color:#047857; font-weight:700; }
-    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; }
+    .warn { color:#b45309; font-weight:700; }
+    .danger { color:#b91c1c; font-weight:700; }
+
+    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; }
     .toast.show { opacity:1; transform: translateY(0); }
+
     code { background:#f2f2f2; padding:2px 6px; border-radius:6px; }
+
+    a { color:#111827; }
+    a:hover { opacity:0.85; }
+
+    /* Responsive video embed */
+    .videoWrap {
+      position:relative;
+      width:100%;
+      padding-top:56.25%;
+      background:#000;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid #e5e7eb;
+      margin-top:10px;
+    }
+    .videoWrap iframe, .videoWrap video {
+      position:absolute;
+      top:0; left:0;
+      width:100%;
+      height:100%;
+      border:0;
+    }
+
+    /* Mobile friendliness */
+    @media (max-width: 980px) {
+      header { flex-direction:column; align-items:stretch; }
+      header .row { width:100%; }
+      header button { width:100%; }
+      .wrap { grid-template-columns: 1fr; }
+      .list { max-height:320px; }
+      .grid2 { grid-template-columns: 1fr; }
+      button { width:auto; }
+      #refreshStatementsBtn { width:100%; }
+      #refreshTicketsBtn { width:100%; }
+      #filter { font-size:16px; }
+      .sec { padding:12px; }
+    }
   </style>
 </head>
 
 <body>
   <header>
     <div>
-      <div style="font-weight:800;">IFWL Steward Dashboard</div>
+      <div style="font-weight:800; font-size:18px;">IFWL Steward Dashboard</div>
       <div class="small" id="who">Loading…</div>
     </div>
     <div class="row">
@@ -55,7 +102,7 @@
       </div>
 
       <div class="row" style="margin-bottom:10px;">
-        <div style="flex:1;">
+        <div style="flex:1; min-width:220px;">
           <label class="muted">Filter</label>
           <select id="filter">
             <option>All (non-finalised)</option>
@@ -84,9 +131,16 @@
             <div><div class="muted">Competition</div><div id="sumCompetition">—</div></div>
             <div><div class="muted">Event</div><div id="sumEvent">—</div></div>
             <div><div class="muted">Rule Breach</div><div id="sumRule">—</div></div>
-            <div><div class="muted">Proof URL</div><div id="sumProof">—</div></div>
+
+            <div>
+              <div class="muted">Proof URL</div>
+              <div id="sumProof">—</div>
+            </div>
           </div>
-          <div style="margin-top:8px;">
+
+          <div id="proofEmbed"></div>
+
+          <div style="margin-top:10px;">
             <div class="muted">Incident</div>
             <textarea id="sumIncident" readonly></textarea>
           </div>
@@ -95,7 +149,9 @@
         <div class="sec" id="statementsSec">
           <div class="row" style="justify-content:space-between;">
             <h3 style="margin:0;">Player Statements</h3>
-            <button id="refreshStatementsBtn">Refresh</button>
+            <div class="row" style="width:100%; justify-content:flex-end;">
+              <button id="refreshStatementsBtn">Refresh</button>
+            </div>
           </div>
           <div class="muted" id="statementsHint">—</div>
           <div id="statementsList" style="margin-top:8px; display:flex; flex-direction:column; gap:8px;"></div>
@@ -140,13 +196,10 @@
 
             <div>
               <label class="muted">Penalty Code (required)</label>
-              <input id="penaltyCode" list="penaltyCodes" placeholder="Start typing to search…" />
-              <datalist id="penaltyCodes"></datalist>
-
-              <div class="muted" style="margin-top:6px;" id="penaltyHint">Loading penalty codes…</div>
-
-              <label class="muted" style="margin-top:8px; display:block;">Private Opinion (Head Steward only)</label>
-              <textarea id="privateOpinion" placeholder="Stored for Head Steward (disabled here)" disabled></textarea>
+              <input id="penaltyCode" placeholder="e.g. AC EVO|Technical Infractions - Incorrect Pit Stop Procedure">
+              <div class="muted" style="margin-top:8px;">
+                Head Steward-only notes are not shown here.
+              </div>
             </div>
           </div>
 
@@ -156,7 +209,7 @@
           </div>
 
           <div class="muted" style="margin-top:8px;">
-            After submit: updates <code>/tickets/&lt;ticket&gt;/aggregate/latest</code> and ticket <code>status</code>.
+            Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmailKey&gt;</code>.
           </div>
         </div>
       </div>
@@ -181,13 +234,7 @@
       setTimeout(() => toastEl.classList.remove("show"), 1400);
     }
     function safeKey(email) { return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
-    function escapeHtml(s) {
-      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
-    }
-    function clampScore(v) {
-      const n = parseInt(v || 1, 10);
-      return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
-    }
+
     function optionList() {
       return [
         {v:1, t:"1 — minimal / none"},
@@ -212,86 +259,137 @@
     }
     fillScores();
 
-    // ---------- penalty codes ----------
-    async function loadPenaltyCodes() {
-      const dl = $("penaltyCodes");
-      const hint = $("penaltyHint");
-      dl.innerHTML = "";
-      hint.textContent = "Loading penalty codes…";
+    function escapeHtml(s) {
+      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
 
-      const candidates = ["./Data/steward_rules.json", "./steward_rules.json", "./data/steward_rules.json"];
-      let rules = null;
+    function clampScore(v) {
+      const n = parseInt(v || 1, 10);
+      return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
+    }
 
-      for (const url of candidates) {
-        try {
-          const r = await fetch(url, { cache: "no-store" });
-          if (!r.ok) continue;
-          rules = await r.json();
-          break;
-        } catch { }
-      }
+    function normalizeUrl(u) {
+      const s = (u || "").trim();
+      if (!s) return "";
+      if (!/^https?:\/\//i.test(s) && !s.startsWith("mailto:")) return "https://" + s;
+      return s;
+    }
 
-      if (!Array.isArray(rules)) {
-        hint.textContent = "Penalty codes not found. Put steward_rules.json in /Data or root.";
+    function youtubeIdFromUrl(url) {
+      try {
+        const u = new URL(url);
+        const host = u.hostname.toLowerCase();
+
+        if (host === "youtu.be") {
+          const id = u.pathname.replace("/", "").trim();
+          return id || "";
+        }
+
+        if (host.includes("youtube.com")) {
+          if (u.pathname.startsWith("/watch")) {
+            return (u.searchParams.get("v") || "").trim();
+          }
+          if (u.pathname.startsWith("/shorts/")) {
+            const id = u.pathname.split("/shorts/")[1]?.split(/[/?#]/)[0];
+            return (id || "").trim();
+          }
+          if (u.pathname.startsWith("/embed/")) {
+            const id = u.pathname.split("/embed/")[1]?.split(/[/?#]/)[0];
+            return (id || "").trim();
+          }
+        }
+      } catch {}
+      return "";
+    }
+
+    function renderProof(proofUrl) {
+      const proofEl = $("sumProof");
+      const embedEl = $("proofEmbed");
+      embedEl.innerHTML = "";
+
+      const url = normalizeUrl(proofUrl);
+      if (!url) {
+        proofEl.textContent = "—";
         return;
       }
 
-      const items = rules.map(x => {
-        const code = (x.code || x.Code || "").trim();
-        const title = (x.title || x.Title || "").trim();
-        const pen = (x.penalty || x.Penalty || "").trim();
-        if (!code && !title) return "";
-        return pen ? `${code} — ${title} (${pen})` : `${code} — ${title}`;
-      }).filter(Boolean);
+      proofEl.innerHTML = `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open proof link</a>`;
 
-      // de-dupe
-      const seen = new Set();
-      const unique = items.filter(s => (seen.has(s) ? false : (seen.add(s), true)));
-
-      for (const s of unique) {
-        const opt = document.createElement("option");
-        opt.value = s;
-        dl.appendChild(opt);
+      const yt = youtubeIdFromUrl(url);
+      if (yt) {
+        embedEl.innerHTML = `
+          <div class="videoWrap" aria-label="Proof video">
+            <iframe
+              src="https://www.youtube.com/embed/${encodeURIComponent(yt)}"
+              title="Proof video"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen></iframe>
+          </div>
+        `;
+        return;
       }
-      hint.textContent = `Loaded ${unique.length} penalty codes.`;
+
+      if (/\.(mp4|webm|ogg)(\?|#|$)/i.test(url)) {
+        embedEl.innerHTML = `
+          <div class="videoWrap" aria-label="Proof video">
+            <video controls src="${escapeHtml(url)}"></video>
+          </div>
+        `;
+      }
     }
 
     // ---------- auth / role ----------
+    let currentUser = null;
     let currentEmail = "";
-    let selectedTicketId = "";
+    let isHead = false;
 
-    // ---------- UI ----------
+    // ---------- state ----------
+    let selectedTicketId = "";
+    let selectedTicketSnap = null;
+
+    // ---------- UI refs ----------
     const ticketListEl = $("ticketList");
     const ticketHintEl = $("ticketHint");
     const filterEl = $("filter");
 
+    const submitReviewBtn = $("submitReviewBtn");
+    const loadMyReviewBtn = $("loadMyReviewBtn");
+
+    // ---------- navigation ----------
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
     $("refreshTicketsBtn").onclick = () => loadTickets();
     $("refreshStatementsBtn").onclick = () => loadStatements();
     filterEl.onchange = () => loadTickets();
 
-    $("loadMyReviewBtn").onclick = () => loadMyReview();
-    $("submitReviewBtn").onclick = () => submitMyReview();
+    loadMyReviewBtn.onclick = () => loadMyReview();
+    submitReviewBtn.onclick = () => submitMyReview();
 
     // ---------- gating ----------
     auth.onAuthStateChanged(async (user) => {
-      if (!user) { window.location.href = "admin.html"; return; }
-      currentEmail = (user.email || "").toLowerCase().trim();
+      try {
+        if (!user) { window.location.href = "admin.html"; return; }
+        currentUser = user;
+        currentEmail = (user.email || "").toLowerCase().trim();
 
-      // must exist in /admins/<email>
-      const adminSnap = await db.collection("admins").doc(currentEmail).get();
-      if (!adminSnap.exists) { await auth.signOut(); window.location.href = "admin.html"; return; }
+        const adminSnap = await db.collection("admins").doc(currentEmail).get();
+        if (!adminSnap.exists) { await auth.signOut(); window.location.href = "admin.html"; return; }
 
-      const data = adminSnap.data() || {};
-      const roleRaw = (data.role || "").toLowerCase();
-      const isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
+        const data = adminSnap.data() || {};
+        const roleRaw = (data.role || "").toLowerCase();
+        isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
 
-      $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "steward"}`;
+        // If head, send them to head steward page
+        if (isHead) {
+          window.location.href = "headsteward.html";
+          return;
+        }
 
-      // steward page: if head, allow them but redirect is handled by admin.html
-      await loadPenaltyCodes();
-      await loadTickets();
+        $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "steward"}`;
+        await loadTickets();
+      } catch (e) {
+        toast("Auth error: " + (e?.message || e));
+      }
     });
 
     // ---------- tickets ----------
@@ -300,7 +398,10 @@
       const s = (status || "").trim().toLowerCase();
 
       if (f === "All (non-finalised)") return s !== "finalised";
-      if (f === "Awaiting Review") return s === "" || s === "under review" || s === "awaiting review";
+
+      if (f === "Awaiting Review") {
+        return s === "" || s === "under review" || s === "awaiting review";
+      }
       if (f === "In Review") return s === "in review";
       if (f === "Ready to Publish") return s === "ready to publish";
       return true;
@@ -323,10 +424,11 @@
         const div = document.createElement("div");
         div.className = "ticket" + (d.id === selectedTicketId ? " active" : "");
         div.innerHTML = `
-          <div class="id">${d.id}</div>
-          <div class="status"><b>Status:</b> ${status || "Under Review"}</div>
+          <div class="id">${escapeHtml(d.id)}</div>
+          <div class="status"><b>Status:</b> ${escapeHtml(status || "Under Review")}</div>
           <div class="muted" style="margin-top:4px;">
-            ${data.event ? `<b>Event:</b> ${escapeHtml(data.event)}` : ""} ${data.accused ? ` | <b>Accused:</b> ${escapeHtml(data.accused)}` : ""}
+            ${data.event ? `<b>Event:</b> ${escapeHtml(data.event)}` : ""}
+            ${data.accused ? ` | <b>Accused:</b> ${escapeHtml(data.accused)}` : ""}
           </div>
         `;
         div.onclick = async () => {
@@ -348,17 +450,24 @@
       $("myReviewStatus").textContent = "Not submitted";
       $("myReviewStatus").className = "badge";
 
-      const ref = db.collection("tickets").doc(ticketId);
-      const snap = await ref.get();
-      if (!snap.exists) { toast("Ticket not found"); return; }
+      $("statementsHint").textContent = "Loading statements…";
+      $("statementsList").innerHTML = "";
 
-      const t = snap.data() || {};
+      const ref = db.collection("tickets").doc(ticketId);
+      selectedTicketSnap = await ref.get();
+
+      if (!selectedTicketSnap.exists) {
+        toast("Ticket not found");
+        return;
+      }
+
+      const t = selectedTicketSnap.data() || {};
       $("sumAccused").textContent = t.accused || "—";
       $("sumReporter").textContent = t.reporter || "—";
       $("sumCompetition").textContent = t.competition || "—";
       $("sumEvent").textContent = t.event || "—";
       $("sumRule").textContent = t.ruleBreach || "—";
-      $("sumProof").textContent = t.proofUrl || "—";
+      renderProof(t.proofUrl || "");
       $("sumIncident").value = t.fullIncident || "";
 
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
@@ -390,7 +499,7 @@
         const ts = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate() : null;
         const when = ts ? ts.toLocaleString() : "";
         return { role, name, statement, when };
-      }).filter(x => x.statement);
+      }).filter(r => r.statement);
 
       const order = { accused:1, reporter:2, witness:3 };
       rows.sort((a,b) => (order[a.role?.toLowerCase()]||99)-(order[b.role?.toLowerCase()]||99));
@@ -399,108 +508,29 @@
         const box = document.createElement("div");
         box.style.border = "1px solid #e5e7eb";
         box.style.borderRadius = "12px";
-        box.style.padding = "10px";
+        box.style.padding = "12px";
         box.style.background = "#fff";
-        box.innerHTML = `
-          <div class="row" style="justify-content:space-between;">
-            <div><b>${escapeHtml((r.role||"").toUpperCase())} — ${escapeHtml(r.name || "")}</b></div>
-            <div class="muted">${escapeHtml(r.when || "")}</div>
-          </div>
-          <div style="margin-top:6px; white-space:pre-wrap;">${escapeHtml(r.statement)}</div>
-        `;
+
+        const top = document.createElement("div");
+        top.className = "row";
+        top.style.justifyContent = "space-between";
+
+        const left = document.createElement("div");
+        left.innerHTML = `<b>${escapeHtml((r.role||"").toUpperCase())} — ${escapeHtml(r.name || "")}</b><div class="muted" style="margin-top:4px;">${escapeHtml(r.when || "")}</div>`;
+
+        top.appendChild(left);
+
+        const body = document.createElement("div");
+        body.style.marginTop = "10px";
+        body.style.whiteSpace = "pre-wrap";
+        body.textContent = r.statement;
+
+        box.appendChild(top);
+        box.appendChild(body);
         $("statementsList").appendChild(box);
       }
 
       $("statementsHint").textContent = `Loaded ${rows.length} statement(s).`;
-    }
-
-    // ---------- aggregate + status updater (WPF-matching logic) ----------
-    async function updateAggregateAndStatus(ticketId) {
-      const ticketRef = db.collection("tickets").doc(ticketId);
-
-      // required reviews (default 3)
-      let required = 3;
-      try {
-        const tSnap = await ticketRef.get();
-        if (tSnap.exists) {
-          const rr = tSnap.data()?.requiredReviews;
-          if (typeof rr === "number" && rr > 0 && rr < 50) required = rr;
-        }
-      } catch { }
-
-      // fetch all reviews
-      const reviewsSnap = await ticketRef.collection("reviews").get();
-      const reviews = reviewsSnap.docs.map(d => d.data() || {});
-      const completed = reviews.length;
-
-      const avgScore = (key) => {
-        const vals = [];
-        for (const r of reviews) {
-          const v = r?.CAUSE?.[key]?.score;
-          const n = Number(v || 0);
-          if (n > 0) vals.push(n);
-        }
-        if (!vals.length) return 0;
-        return Math.round((vals.reduce((a,b)=>a+b,0) / vals.length) * 100) / 100;
-      };
-
-      const avg = (xs) => {
-        const vals = xs.filter(x => x > 0);
-        if (!vals.length) return 0;
-        return Math.round((vals.reduce((a,b)=>a+b,0) / vals.length) * 100) / 100;
-      };
-
-      const avgC = avgScore("control");
-      const avgA = avgScore("awareness");
-      const avgU = avgScore("userInput");
-      const avgS = avgScore("severity");
-      const avgE = avgScore("environment");
-      const total = avg([avgC, avgA, avgU, avgS, avgE]);
-
-      const consensusPenalty = () => {
-        const list = reviews.map(r => (r.penaltyCode || "").trim()).filter(Boolean);
-        if (!list.length) return "";
-        const counts = new Map();
-        for (const s of list) counts.set(s.toLowerCase(), (counts.get(s.toLowerCase())||0) + 1);
-        let bestKey = "";
-        let bestCount = -1;
-        for (const [k,c] of counts.entries()) {
-          if (c > bestCount) { bestCount = c; bestKey = k; }
-        }
-        // return original casing from first match
-        return list.find(x => x.toLowerCase() === bestKey) || "";
-      };
-
-      const suggestTier = (t) => {
-        if (t <= 0) return "No data";
-        if (t < 2.0) return "Racing Incident / No Action";
-        if (t < 3.0) return "Minor Penalty / Warning";
-        if (t < 3.7) return "Moderate Penalty";
-        if (t < 4.4) return "Severe Penalty";
-        return "Extreme / Disqualification Consideration";
-      };
-
-      const aggregate = {
-        reviewsRequired: required,
-        reviewsCompleted: completed,
-        averages: { control: avgC, awareness: avgA, userInput: avgU, severity: avgS, environment: avgE },
-        CAUSE_total: total,
-        suggestedTier: suggestTier(total),
-        penaltyConsensus: consensusPenalty()
-      };
-
-      // write aggregate/latest
-      await ticketRef.collection("aggregate").doc("latest").set(aggregate, { merge: true });
-
-      // update ticket status
-      const newStatus =
-        completed <= 0 ? "Awaiting Review" :
-        completed < required ? "In Review" :
-        "Ready to Publish";
-
-      await ticketRef.set({ status: newStatus }, { merge: true });
-
-      return { completed, required, newStatus, total };
     }
 
     // ---------- reviews ----------
@@ -521,22 +551,21 @@
       const cause = d.CAUSE || {};
 
       $("cScore").value = String(clampScore(cause.control?.score));
-      $("cText").value  = cause.control?.text || "";
+      $("cText").value = cause.control?.text || "";
 
       $("aScore").value = String(clampScore(cause.awareness?.score));
-      $("aText").value  = cause.awareness?.text || "";
+      $("aText").value = cause.awareness?.text || "";
 
       $("uScore").value = String(clampScore(cause.userInput?.score));
-      $("uText").value  = cause.userInput?.text || "";
+      $("uText").value = cause.userInput?.text || "";
 
       $("sScore").value = String(clampScore(cause.severity?.score));
-      $("sText").value  = cause.severity?.text || "";
+      $("sText").value = cause.severity?.text || "";
 
       $("eScore").value = String(clampScore(cause.environment?.score));
-      $("eText").value  = cause.environment?.text || "";
+      $("eText").value = cause.environment?.text || "";
 
       $("penaltyCode").value = d.penaltyCode || "";
-      $("privateOpinion").value = d.privateOpinion || "";
 
       $("myReviewStatus").textContent = "Submitted ✅";
       $("myReviewStatus").className = "badge ok";
@@ -545,11 +574,13 @@
 
     async function submitMyReview() {
       if (!selectedTicketId) { toast("Select a ticket first"); return; }
+
       const pen = ($("penaltyCode").value || "").trim();
       if (!pen) { toast("Penalty code required"); return; }
 
-      const btn = $("submitReviewBtn");
-      btn.disabled = true;
+      submitReviewBtn.disabled = true;
+      const original = submitReviewBtn.textContent;
+      submitReviewBtn.textContent = "Submitting…";
 
       try {
         const reviewId = safeKey(currentEmail);
@@ -566,24 +597,21 @@
             severity:     { score: Number($("sScore").value), text: ($("sText").value||"").trim() },
             environment:  { score: Number($("eScore").value), text: ($("eText").value||"").trim() },
           },
-          penaltyCode: pen,
-          privateOpinion: "" // steward page doesn't submit this
+          penaltyCode: pen
         };
 
         await ref.set(review, { merge: true });
 
-        // ✅ auto update aggregate + ticket status
-        const res = await updateAggregateAndStatus(selectedTicketId);
-
         $("myReviewStatus").textContent = "Submitted ✅";
         $("myReviewStatus").className = "badge ok";
 
-        toast(`Submitted. Status: ${res.newStatus}`);
+        toast("Review submitted ✅");
         await loadTickets();
       } catch (e) {
-        toast("Submit failed: " + e.message);
+        toast("Submit failed: " + (e?.message || e));
       } finally {
-        btn.disabled = false;
+        submitReviewBtn.textContent = original;
+        submitReviewBtn.disabled = false;
       }
     }
   </script>
