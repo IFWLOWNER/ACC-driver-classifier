@@ -113,6 +113,35 @@
       color:#991b1b;
     }
 
+    /* NEW: statement status box on ticket cards (Accused + Reporter only) */
+    .stmtTag {
+      margin-top:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      font-size:12px;
+      font-weight:900;
+      line-height:1.2;
+      border:1px solid #e5e7eb;
+      background:#f9fafb;
+      color:#111827;
+    }
+    .stmtOk {
+      border-color:#86efac;
+      background:#ecfdf5;
+      color:#065f46;
+    }
+    .stmtBad {
+      border-color:#fca5a5;
+      background:#fef2f2;
+      color:#991b1b;
+    }
+    .stmtTag small {
+      display:block;
+      margin-top:4px;
+      font-weight:800;
+      opacity:0.95;
+    }
+
     .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; }
     .toast.show { opacity:1; transform: translateY(0); }
 
@@ -450,6 +479,70 @@
       }
     }
 
+    // ---------- NEW: statement status (accused + reporter only) ----------
+    const statementStatusCache = new Map(); // ticketId -> { accused:bool, reporter:bool }
+
+    async function getAccusedReporterStatementStatus(ticketId) {
+      if (statementStatusCache.has(ticketId)) return statementStatusCache.get(ticketId);
+
+      const col = db.collection("tickets").doc(ticketId).collection("player_statements");
+
+      // Efficient query first; fallback to full fetch if it errors
+      try {
+        const snap = await col.where("role", "in", ["accused", "reporter"]).get();
+        let accused = false, reporter = false;
+
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const role = String(d.role || "").toLowerCase().trim();
+          const statement = String(d.statement || "").trim();
+          if (!statement) return;
+          if (role === "accused") accused = true;
+          if (role === "reporter") reporter = true;
+        });
+
+        const res = { accused, reporter };
+        statementStatusCache.set(ticketId, res);
+        return res;
+      } catch (e) {
+        console.warn("role IN query failed; falling back to full statements fetch:", ticketId, e);
+
+        const snap = await col.get();
+        let accused = false, reporter = false;
+
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const role = String(d.role || "").toLowerCase().trim();
+          const statement = String(d.statement || "").trim();
+          if (!statement) return;
+          if (role === "accused") accused = true;
+          if (role === "reporter") reporter = true;
+        });
+
+        const res = { accused, reporter };
+        statementStatusCache.set(ticketId, res);
+        return res;
+      }
+    }
+
+    function renderStatementTag(el, st) {
+      const accusedOk = !!st?.accused;
+      const reporterOk = !!st?.reporter;
+
+      if (accusedOk && reporterOk) {
+        el.className = "stmtTag stmtOk";
+        el.innerHTML = `Statements: ✅ Accused + Reporter<br><small>Ready for review</small>`;
+        return;
+      }
+
+      const missing = [];
+      if (!accusedOk) missing.push("Accused");
+      if (!reporterOk) missing.push("Reporter");
+
+      el.className = "stmtTag stmtBad";
+      el.innerHTML = `Statements: ❌ Missing ${missing.join(" + ")}<br><small>Awaiting required statements</small>`;
+    }
+
     // ---------- penalty codes dropdown (matches your JSON keys) ----------
     async function loadPenaltyCodes() {
       const sel = $("penaltyCode");
@@ -559,7 +652,7 @@
 
         if (isHead) { window.location.href = "headsteward.html"; return; }
 
-        // Welcome line (welcoming + clear responsibility)
+        // Welcome line
         const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
         const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
         welcomeLineEl.textContent = `Welcome, ${niceName}. Your live workload is shown on the left — please review any tickets marked as needing your CAUSE input.`;
@@ -599,7 +692,6 @@
         const snap = await ref.get();
         return snap.exists;
       } catch (e) {
-        // If something goes wrong, don't block rendering tickets
         console.warn("Review check failed for ticket:", ticketId, e);
         return false;
       }
@@ -611,21 +703,21 @@
       workloadPillEl.textContent = "Loading…";
       workloadSubEl.textContent = "Live tickets are non-finalised tickets that may still need a CAUSE review from you.";
 
+      // reset statement cache each refresh so changes show
+      statementStatusCache.clear();
+
       const snap = await db.collection("tickets").limit(200).get();
       const docs = snap.docs;
 
-      // Build an array of ticket objects first (so we can compute workload + render)
       const tickets = docs.map(d => {
         const data = d.data() || {};
         const status = (data.status || "").trim();
         return { id: d.id, data, status };
       });
 
-      // Workload = non-finalised tickets in the fetched batch
       const liveTickets = tickets.filter(t => !isFinalised(t.status));
       const liveCount = liveTickets.length;
 
-      // Determine which of the LIVE tickets still need *your* CAUSE input
       const myReviewChecks = liveTickets.map(async (t) => {
         const hasMine = await doesMyReviewExist(t.id);
         return { id: t.id, hasMine };
@@ -633,10 +725,8 @@
 
       const myReviewResults = await Promise.all(myReviewChecks);
       const myReviewMap = new Map(myReviewResults.map(x => [x.id, x.hasMine]));
-
       const needsMyInputCount = liveTickets.filter(t => !myReviewMap.get(t.id)).length;
 
-      // Update workload pill
       workloadPillEl.innerHTML = `Live: <strong>${liveCount}</strong> • Needs your input: <strong>${needsMyInputCount}</strong>`;
 
       if (liveCount === 0) {
@@ -647,7 +737,6 @@
         workloadSubEl.textContent = "Tickets marked “Needs your CAUSE input” do not currently have a submitted review from you.";
       }
 
-      // Now render list based on current filter
       let shown = 0;
       for (const t of tickets) {
         if (!passesFilter(t.status)) continue;
@@ -663,19 +752,38 @@
             ${t.data.event ? `<b>Event:</b> ${escapeHtml(t.data.event)}` : ""}
             ${t.data.accused ? ` | <b>Accused:</b> ${escapeHtml(t.data.accused)}` : ""}
           </div>
+          <div class="stmtTag" id="stmt_${escapeHtml(t.id)}">Statements: Checking…<small>Accused + Reporter</small></div>
           ${needsMyInput ? `<div class="needTag">Needs your CAUSE input</div>` : ""}
         `;
+
         div.onclick = async () => {
           selectedTicketId = t.id;
           await selectTicket(t.id);
           [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
           div.classList.add("active");
         };
+
         ticketListEl.appendChild(div);
         shown++;
+
+        // async update statement tag
+        (async () => {
+          try {
+            const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
+            if (!tagEl) return;
+            const st = await getAccusedReporterStatementStatus(t.id);
+            renderStatementTag(tagEl, st);
+          } catch (e) {
+            console.warn("Statement status check failed:", t.id, e);
+            const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
+            if (tagEl) {
+              tagEl.className = "stmtTag stmtBad";
+              tagEl.innerHTML = `Statements: ❌ Check failed<br><small>Open console for details</small>`;
+            }
+          }
+        })();
       }
 
-      // Hint line: show filter-aware count + workload count
       const filterName = filterEl.value;
       ticketHintEl.textContent = `Showing ${shown} ticket(s) for filter: "${filterName}". Live workload in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max 200 fetched).`;
     }
@@ -753,6 +861,10 @@
       }
 
       $("statementsHint").textContent = `Loaded ${rows.length} statement(s).`;
+
+      // optional: refresh ticket list so the statement boxes update quickly after new statements
+      // (keeps features intact; just updates UI)
+      await loadTickets();
     }
 
     // ---------- reviews ----------
