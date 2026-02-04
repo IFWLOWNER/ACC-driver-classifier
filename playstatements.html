@@ -175,8 +175,18 @@
     </div>
   </div>
 
-  <script type="module">
-    import { db, firebaseNS } from './firebase-init.js';
+  <!-- ✅ FIX A: Use Firebase compat SDK + your existing NON-module firebase-init.js -->
+  <!-- If you already include these scripts globally in a layout, you can remove duplicates,
+       but this full file is safe as a standalone drop-in. -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="./firebase-init.js"></script>
+
+  <script>
+    // Grab globals created by firebase-init.js
+    const db = window.db;
+    const firebaseNS = window.firebaseNS;
 
     const MAX = 250;
 
@@ -209,7 +219,12 @@
     });
     updateCount();
 
-    if (!ticketId || !inviteId) {
+    // Basic sanity checks (also guards against firebase init problems)
+    if (!db || !firebaseNS) {
+      linkStatus.innerHTML = `<span class="err">Firebase failed to initialise.</span>`;
+      setStatus("If you're an admin: check firebase-init.js is present and loaded (and Firebase scripts are not blocked).", "err");
+      submitBtn.disabled = true;
+    } else if (!ticketId || !inviteId) {
       linkStatus.innerHTML = `<span class="err">Invalid link.</span> Missing ticketId/inviteId.`;
       submitBtn.disabled = true;
     } else {
