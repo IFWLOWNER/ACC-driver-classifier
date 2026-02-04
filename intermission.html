@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>7-Car Stream Racer</title>
+  <style>
+    :root { --bg:#0b0f14; --panel:#121a24; --text:#e7eef8; --muted:#9fb2c9; --accent:#4dd4ff; --danger:#ff5b6b; }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial; }
+    .wrap { display:grid; grid-template-columns: 1fr; gap:12px; max-width:1100px; margin:0 auto; padding:12px; }
+    header { display:flex; gap:12px; align-items:center; justify-content:space-between; background:var(--panel); border-radius:14px; padding:10px 12px; }
+    header .left { display:flex; gap:12px; align-items:center; }
+    .pill { font-size:12px; padding:6px 10px; border-radius:999px; background:#0e1620; color:var(--muted); border:1px solid #1b2a3b; }
+    .pill strong { color:var(--text); }
+    .grid { display:grid; grid-template-columns: 1fr 340px; gap:12px; }
+    @media (max-width: 980px){ .grid{ grid-template-columns:1fr; } }
+    .card { background:var(--panel); border-radius:14px; padding:12px; border:1px solid #1b2a3b; }
+    canvas { width:100%; height:auto; display:block; background:#070a0f; border-radius:14px; border:1px solid #1b2a3b; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    input,button { border-radius:12px; border:1px solid #1b2a3b; background:#0e1620; color:var(--text); padding:10px 12px; font-size:14px; }
+    input { flex:1; min-width:180px; outline:none; }
+    button { cursor:pointer; }
+    button.primary { background:linear-gradient(180deg,#1a7ea0,#0f5f7b); border-color:#2aa6ce; }
+    button.danger { background:linear-gradient(180deg,#a01a2a,#7b0f1c); border-color:#ff5b6b55; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .hint { color:var(--muted); font-size:12px; line-height:1.35; }
+    .big { font-size:18px; font-weight:700; }
+    .leaderboard { display:grid; gap:8px; }
+    .lb-item { display:flex; justify-content:space-between; gap:10px; padding:10px; border-radius:12px; background:#0e1620; border:1px solid #1b2a3b; }
+    .lb-item.out { opacity:.65; }
+    .controls { display:none; gap:10px; margin-top:10px; }
+    .controls button { flex:1; padding:14px 12px; font-size:16px; }
+    .modeBanner { margin-left:auto; }
+    .hr { height:1px; background:#1b2a3b; margin:10px 0; }
+    .warn { color:#ffd38a; }
+    .ok { color:#93ffd2; }
+    .small { font-size:12px; color:var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="left">
+      <div class="pill"><strong>7-Car Stream Racer</strong></div>
+      <div class="pill">Race: <strong id="phaseText">—</strong></div>
+      <div class="pill">Time: <strong id="timeText">—</strong></div>
+    </div>
+    <div class="pill modeBanner" id="modePill">Mode: <strong>—</strong></div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <canvas id="game" width="960" height="540"></canvas>
+      <div class="controls" id="touchControls">
+        <button id="btnLeft">⬅️ Left</button>
+        <button id="btnRight">Right ➡️</button>
+      </div>
+      <div class="hint" style="margin-top:10px">
+        <span class="ok">Player:</span> Enter your name → join a car (max 7). Optional steering on mobile via buttons.<br/>
+        <span class="warn">Host:</span> Open with <span class="mono">?host=1</span> to run the race engine for stream display.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="big" id="sideTitle">Join</div>
+      <div class="hint" id="sideHint" style="margin-top:6px">
+        Type your name and press Enter. First come first served.
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row">
+        <input id="nameInput" placeholder="Your name…" maxlength="18" />
+        <button class="primary" id="joinBtn">Join</button>
+        <button class="danger" id="leaveBtn" disabled>Leave</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px" id="statusLine">Status: —</div>
+
+      <div class="hr"></div>
+
+      <div class="big" style="font-size:16px">Cars</div>
+      <div class="leaderboard" id="carsList" style="margin-top:8px"></div>
+
+      <div class="hr"></div>
+
+      <div class="big" style="font-size:16px">Leaderboard</div>
+      <div class="hint" style="margin:6px 0 8px">Shown automatically for 30s after each 60s race.</div>
+      <div class="leaderboard" id="lbList"></div>
+
+      <div class="hr"></div>
+
+      <div class="small">
+        <div><strong>Firebase setup:</strong> paste config in the script below. If you don’t, it runs in “local demo” mode (no realtime).</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase (optional but recommended for real viewer joining) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-database-compat.js"></script>
+
+<script>
+(() => {
+  // ----------------------------
+  // 1) CONFIG
+  // ----------------------------
+  const MAX_CARS = 7;
+  const RACE_SECONDS = 60;
+  const LEADERBOARD_SECONDS = 30;
+
+  // Paste your Firebase config here (Realtime Database).
+  // If left empty, the game runs in LOCAL DEMO mode (no shared joining).
+  const firebaseConfig = {
+    // apiKey: "…",
+    // authDomain: "…",
+    // databaseURL: "https://YOUR-PROJECT.firebaseio.com",
+    // projectId: "…",
+    // storageBucket: "…",
+    // messagingSenderId: "…",
+    // appId: "…"
+  };
+
+  // Room key (so you can run multiple “rooms” if you want later)
+  const ROOM = "main";
+
+  // ----------------------------
+  // 2) DOM
+  // ----------------------------
+  const qs = new URLSearchParams(location.search);
+  const isHost = qs.get("host") === "1";
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const phaseText = document.getElementById("phaseText");
+  const timeText = document.getElementById("timeText");
+  const modePill = document.getElementById("modePill");
+
+  const nameInput = document.getElementById("nameInput");
+  const joinBtn = document.getElementById("joinBtn");
+  const leaveBtn = document.getElementById("leaveBtn");
+  const statusLine = document.getElementById("statusLine");
+  const carsList = document.getElementById("carsList");
+  const lbList = document.getElementById("lbList");
+  const touchControls = document.getElementById("touchControls");
+  const btnLeft = document.getElementById("btnLeft");
+  const btnRight = document.getElementById("btnRight");
+  const sideTitle = document.getElementById("sideTitle");
+  const sideHint = document.getElementById("sideHint");
+
+  modePill.innerHTML = `Mode: <strong>${isHost ? "HOST" : "PLAYER"}</strong>`;
+
+  // ----------------------------
+  // 3) STATE
+  // ----------------------------
+  const localMode = !firebaseConfig || !firebaseConfig.databaseURL;
+  let db = null;
+
+  // Local in-memory “db”
+  const localDB = {
+    room: {
+      phase: "lobby", // lobby | race | leaderboard
+      phaseEndsAt: Date.now() + 99999999,
+      cars: {}, // slot -> { name, alive, score, input, eliminatedAt }
+      obstacles: [], // host only
+      seed: 1,
+      hostPing: Date.now(),
+    }
+  };
+
+  // Player identity
+  const playerId = (crypto?.randomUUID?.() || (Date.now()+"-"+Math.random())).slice(0,24);
+  let mySlot = null;
+
+  // Simple palette for 7 cars
+  const carColors = ["#ff4d6d","#4dd4ff","#93ffd2","#ffd38a","#b39cff","#a7ff4d","#ff9bf5"];
+
+  // ----------------------------
+  // 4) FIREBASE HELPERS
+  // ----------------------------
+  function setStatus(msg){ statusLine.textContent = "Status: " + msg; }
+
+  function initFirebase(){
+    if (localMode) return;
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+  }
+
+  function roomRef(path=""){
+    if (localMode) return null;
+    const base = db.ref(`rooms/${ROOM}`);
+    return path ? base.child(path) : base;
+  }
+
+  async function fbGet(path){
+    const snap = await roomRef(path).get();
+    return snap.val();
+  }
+  async function fbSet(path, value){
+    await roomRef(path).set(value);
+  }
+  async function fbUpdate(path, patch){
+    await roomRef(path).update(patch);
+  }
+  function fbOn(path, cb){
+    roomRef(path).on("value", s => cb(s.val()));
+  }
+
+  // ----------------------------
+  // 5) GAME LOGIC (HOST authoritative)
+  // ----------------------------
+  function makeDefaultRoom(){
+    const cars = {};
+    for (let i=0;i<MAX_CARS;i++){
+      cars[i] = { name:"", alive:false, score:0, input:0, eliminatedAt:null };
+    }
+    return {
+      phase:"lobby",
+      phaseEndsAt: Date.now() + 10_000,
+      cars,
+      obstacles: [],
+      seed: Math.floor(Math.random()*1e9),
+      hostPing: Date.now(),
+      lastTick: Date.now(),
+      t: 0
+    };
+  }
+
+  function resetForRace(room){
+    room.phase = "race";
+    room.phaseEndsAt = Date.now() + RACE_SECONDS*1000;
+
+    // reset cars (keep names if assigned)
+    for (let i=0;i<MAX_CARS;i++){
+      const c = room.cars[i];
+      if (c.name && c.name.trim()){
+        c.alive = true;
+        c.score = 0;
+        c.input = 0;
+        c.eliminatedAt = null;
+      } else {
+        c.alive = false;
+        c.score = 0;
+        c.input = 0;
+        c.eliminatedAt = null;
+      }
+    }
+
+    room.obstacles = [];
+    room.t = 0;
+    room.lastTick = Date.now();
+  }
+
+  function resetForLeaderboard(room){
+    room.phase = "leaderboard";
+    room.phaseEndsAt = Date.now() + LEADERBOARD_SECONDS*1000;
+  }
+
+  function resetForLobby(room){
+    room.phase = "lobby";
+    room.phaseEndsAt = Date.now() + 10_000; // short lobby between cycles
+    // keep names, set alive false
+    for (let i=0;i<MAX_CARS;i++){
+      const c = room.cars[i];
+      c.alive = false;
+      c.score = 0;
+      c.input = 0;
+      c.eliminatedAt = null;
+    }
+    room.obstacles = [];
+    room.t = 0;
+    room.lastTick = Date.now();
+  }
+
+  // Track definition in host simulation space:
+  // - We render a road band centered at centerX + wobble(t)
+  // - Cars are fixed in vertical positions but their relative lateral position matters
+  // - Obstacles spawn ahead and move down
+  function hostTick(room){
+    const now = Date.now();
+    const dt = Math.min(0.05, (now - room.lastTick)/1000);
+    room.lastTick = now;
+    room.t += dt;
+
+    // wobble
+    const wobble = Math.sin(room.t*1.2) * 120; // px shift left/right
+    const roadHalf = 210;
+
+    // car positions (lanes)
+    const laneCount = MAX_CARS;
+    const laneW = (roadHalf*2) / laneCount;
+
+    // spawn obstacles
+    // A few blocks per second, random lane, varying sizes
+    if (Math.random() < 0.09){
+      const lane = Math.floor(Math.random()*laneCount);
+      room.obstacles.push({
+        lane,
+        y: -40,
+        w: Math.max(40, laneW*0.8),
+        h: 26,
+        speed: 220 + Math.random()*120,
+      });
+    }
+
+    // move obstacles
+    for (const ob of room.obstacles){
+      ob.y += ob.speed * dt;
+    }
+    // cull
+    room.obstacles = room.obstacles.filter(o => o.y < 620);
+
+    // update cars + collisions
+    for (let i=0;i<MAX_CARS;i++){
+      const c = room.cars[i];
+      if (!c.name || !c.alive) continue;
+
+      // score for survival time
+      c.score += dt;
+
+      // car lateral position (center of its lane) + input steering (small offset)
+      const roadCenter = 480 + wobble;
+      const laneCenter = (roadCenter - roadHalf) + laneW*(i + 0.5);
+      const steerOffset = c.input * 55; // -1..1
+      const carX = laneCenter + steerOffset;
+      const carY = 440; // constant row
+
+      // bounds: if car drifts outside road -> out
+      if (carX < roadCenter - roadHalf + 18 || carX > roadCenter + roadHalf - 18){
+        c.alive = false;
+        c.eliminatedAt = now;
+        continue;
+      }
+
+      // collision with blocks in same lane
+      // We treat “lane” collisions but also allow steer to avoid slightly.
+      for (const ob of room.obstacles){
+        if (ob.lane !== i) continue;
+        const obX = (roadCenter - roadHalf) + laneW*(ob.lane + 0.5);
+        const obY = ob.y;
+
+        // simple AABB with some tolerance for steer
+        const dx = Math.abs(carX - obX);
+        const dy = Math.abs(carY - obY);
+        if (dx < (ob.w/2 - 8) && dy < (ob.h/2 + 12)){
+          c.alive = false;
+          c.eliminatedAt = now;
+          break;
+        }
+      }
+    }
+  }
+
+  function computeLeaderboard(room){
+    const entries = [];
+    for (let i=0;i<MAX_CARS;i++){
+      const c = room.cars[i];
+      if (!c.name) continue;
+      entries.push({ slot:i, name:c.name, score:c.score, alive:c.alive });
+    }
+    entries.sort((a,b) => b.score - a.score);
+    return entries;
+  }
+
+  // ----------------------------
+  // 6) JOIN / LEAVE / INPUT (PLAYER)
+  // ----------------------------
+  function sanitizeName(s){
+    return (s || "").trim().replace(/\s+/g," ").slice(0,18);
+  }
+
+  async function join(name){
+    name = sanitizeName(name);
+    if (!name) return setStatus("Enter a name first.");
+
+    if (localMode){
+      // find free slot
+      const room = localDB.room;
+      let free = null;
+      for (let i=0;i<MAX_CARS;i++){
+        if (!room.cars[i].name) { free = i; break; }
+      }
+      if (free === null) return setStatus("All 7 cars are taken.");
+      room.cars[free].name = name;
+      mySlot = free;
+      leaveBtn.disabled = false;
+      setStatus(`Joined car #${free+1} as ${name}.`);
+      return;
+    }
+
+    // Firebase: transaction on cars to claim first free slot
+    const carsPath = `rooms/${ROOM}/cars`;
+    const carsRef = db.ref(carsPath);
+
+    const res = await carsRef.transaction(cars => {
+      if (!cars) {
+        cars = {};
+        for (let i=0;i<MAX_CARS;i++) cars[i] = { name:"", alive:false, score:0, input:0, eliminatedAt:null };
+      }
+      // already in a slot with same name? don’t auto-merge; still claim first free
+      let free = null;
+      for (let i=0;i<MAX_CARS;i++){
+        if (!cars[i]?.name) { free = i; break; }
+      }
+      if (free === null) return; // abort
+      cars[free] = cars[free] || { name:"", alive:false, score:0, input:0, eliminatedAt:null };
+      cars[free].name = name;
+      cars[free].input = 0;
+      cars[free].alive = false; // host will set alive on race start
+      cars[free].score = 0;
+      cars[free].eliminatedAt = null;
+      // store who claimed it (non-authoritative but helps UI)
+      cars[free]._pid = playerId;
+      return cars;
+    });
+
+    if (!res.committed){
+      setStatus("All 7 cars are taken.");
+      return;
+    }
+
+    // Figure out which slot is ours (by _pid)
+    const cars = res.snapshot.val();
+    let slot = null;
+    for (let i=0;i<MAX_CARS;i++){
+      if (cars[i]?._pid === playerId) { slot = i; break; }
+    }
+    if (slot === null){
+      // fallback: search by name and pick first match
+      for (let i=0;i<MAX_CARS;i++){
+        if (cars[i]?.name === name) { slot = i; break; }
+      }
+    }
+
+    mySlot = slot;
+    leaveBtn.disabled = false;
+    setStatus(`Joined car #${slot+1} as ${name}.`);
+  }
+
+  async function leave(){
+    if (mySlot === null) return;
+
+    if (localMode){
+      const room = localDB.room;
+      room.cars[mySlot] = { name:"", alive:false, score:0, input:0, eliminatedAt:null };
+      setStatus("Left the car.");
+      mySlot = null;
+      leaveBtn.disabled = true;
+      return;
+    }
+
+    const slot = mySlot;
+    mySlot = null;
+    leaveBtn.disabled = true;
+
+    // Only clear if the slot was claimed by us (by _pid). If not, don’t nuke someone else.
+    const slotRef = roomRef(`cars/${slot}`);
+    const snap = await slotRef.get();
+    const val = snap.val();
+    if (val && val._pid === playerId){
+      await slotRef.set({ name:"", alive:false, score:0, input:0, eliminatedAt:null });
+      setStatus("Left the car.");
+    } else {
+      setStatus("Left (slot not owned by this device).");
+    }
+  }
+
+  async function sendInput(dir){ // dir: -1 or +1
+    if (mySlot === null) return;
+    if (localMode){
+      localDB.room.cars[mySlot].input = dir;
+      return;
+    }
+    await roomRef(`cars/${mySlot}/input`).set(dir);
+  }
+
+  // ----------------------------
+  // 7) RENDER
+  // ----------------------------
+  function draw(room){
+    // clear
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // background stars-ish
+    ctx.fillStyle = "#060a10";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    const t = (room.t || 0);
+    const wobble = Math.sin(t*1.2) * 120;
+    const roadCenter = 480 + wobble;
+    const roadHalf = 210;
+    const top = 40, bottom = 520;
+
+    // road
+    ctx.fillStyle = "#0a121b";
+    ctx.fillRect(roadCenter-roadHalf, top, roadHalf*2, bottom-top);
+
+    // road borders
+    ctx.strokeStyle = "#22364a";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(roadCenter-roadHalf, top, roadHalf*2, bottom-top);
+
+    // lane lines
+    const laneW = (roadHalf*2)/MAX_CARS;
+    ctx.strokeStyle = "#162636";
+    ctx.lineWidth = 2;
+    for (let i=1;i<MAX_CARS;i++){
+      const x = (roadCenter-roadHalf) + laneW*i;
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
+      ctx.stroke();
+    }
+
+    // obstacles
+    if (room.obstacles && room.obstacles.length){
+      for (const ob of room.obstacles){
+        const laneCenter = (roadCenter-roadHalf) + laneW*(ob.lane+0.5);
+        ctx.fillStyle = "#2a3c52";
+        ctx.fillRect(laneCenter - ob.w/2, ob.y - ob.h/2, ob.w, ob.h);
+        ctx.strokeStyle = "#476587";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(laneCenter - ob.w/2, ob.y - ob.h/2, ob.w, ob.h);
+      }
+    }
+
+    // cars
+    for (let i=0;i<MAX_CARS;i++){
+      const c = room.cars?.[i];
+      const laneCenter = (roadCenter-roadHalf) + laneW*(i+0.5);
+      const steerOffset = (c?.input || 0) * 55;
+      const x = laneCenter + steerOffset;
+      const y = 440;
+
+      const hasName = c?.name && c.name.trim();
+      const alive = !!c?.alive;
+
+      // car body
+      ctx.fillStyle = hasName ? carColors[i] : "#1c2a3a";
+      ctx.globalAlpha = hasName ? (alive ? 1 : 0.35) : 0.25;
+      ctx.fillRect(x-18, y-12, 36, 24);
+      ctx.globalAlpha = 1;
+
+      // name label
+      if (hasName){
+        ctx.fillStyle = "#e7eef8";
+        ctx.font = "12px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(c.name, x, y-18);
+
+        if (!alive && room.phase === "race"){
+          ctx.fillStyle = "#ff5b6b";
+          ctx.fillText("OUT", x, y+30);
+        }
+      }
+    }
+
+    // overlay phase
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(0,0,canvas.width,32);
+    ctx.fillStyle = "#e7eef8";
+    ctx.font = "14px system-ui";
+    ctx.textAlign = "left";
+    ctx.fillText(`Phase: ${room.phase}`, 10, 21);
+
+    if (room.phase === "lobby"){
+      ctx.textAlign = "center";
+      ctx.font = "700 26px system-ui";
+      ctx.fillStyle = "#e7eef8";
+      ctx.fillText("Lobby — join now!", canvas.width/2, 120);
+      ctx.font = "14px system-ui";
+      ctx.fillStyle = "#9fb2c9";
+      ctx.fillText("Race auto-starts after each cycle", canvas.width/2, 150);
+    }
+
+    if (room.phase === "leaderboard"){
+      ctx.textAlign = "center";
+      ctx.font = "700 26px system-ui";
+      ctx.fillStyle = "#e7eef8";
+      ctx.fillText("Leaderboard", canvas.width/2, 120);
+    }
+  }
+
+  function renderSide(room){
+    // Cars list
+    carsList.innerHTML = "";
+    for (let i=0;i<MAX_CARS;i++){
+      const c = room.cars[i];
+      const taken = c.name && c.name.trim();
+      const el = document.createElement("div");
+      el.className = "lb-item" + (taken && room.phase==="race" && !c.alive ? " out" : "");
+      el.innerHTML = `
+        <div><strong>#${i+1}</strong> ${taken ? "— "+escapeHtml(c.name) : "<span class='small'>(empty)</span>"}</div>
+        <div class="mono">${taken ? (room.phase==="race" ? (c.alive ? "IN" : "OUT") : "") : ""}</div>
+      `;
+      carsList.appendChild(el);
+    }
+
+    // Leaderboard list
+    lbList.innerHTML = "";
+    const entries = computeLeaderboard(room);
+    entries.forEach((e, idx) => {
+      const el = document.createElement("div");
+      el.className = "lb-item" + (!e.alive && room.phase==="race" ? " out" : "");
+      el.innerHTML = `
+        <div><strong>${idx+1}.</strong> ${escapeHtml(e.name)} <span class="small">(Car #${e.slot+1})</span></div>
+        <div class="mono">${e.score.toFixed(2)}</div>
+      `;
+      lbList.appendChild(el);
+    });
+
+    // Phase/time labels
+    phaseText.textContent = room.phase;
+    const msLeft = Math.max(0, (room.phaseEndsAt || Date.now()) - Date.now());
+    timeText.textContent = (msLeft/1000).toFixed(1) + "s";
+
+    // Player UI hints
+    if (isHost){
+      sideTitle.textContent = "Host Panel";
+      sideHint.innerHTML = `
+        You are the host. Keep this page open on stream PC.<br/>
+        Share this link with viewers: <span class="mono">${location.origin + location.pathname}</span>
+      `;
+      nameInput.disabled = true;
+      joinBtn.disabled = true;
+      leaveBtn.disabled = true;
+      touchControls.style.display = "none";
+    } else {
+      sideTitle.textContent = "Join";
+      sideHint.textContent = "Type your name and press Enter. First come first served.";
+      nameInput.disabled = false;
+      joinBtn.disabled = false;
+      touchControls.style.display = mySlot !== null ? "flex" : "none";
+    }
+  }
+
+  function escapeHtml(s){
+    return (s||"").replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
+
+  // ----------------------------
+  // 8) MAIN LOOP / SYNC
+  // ----------------------------
+  let currentRoom = makeDefaultRoom();
+
+  async function hostInit(){
+    setStatus(localMode ? "HOST (local demo)" : "HOST (Firebase)");
+    if (localMode){
+      localDB.room = makeDefaultRoom();
+      currentRoom = localDB.room;
+      // start cycle immediately
+      resetForRace(currentRoom);
+      return;
+    }
+
+    // Initialize room if missing
+    const existing = await fbGet("");
+    if (!existing || !existing.cars){
+      await fbSet("", makeDefaultRoom());
+    }
+    // Start race right away if in lobby too long
+    const room = await fbGet("");
+    if (room.phase !== "race") {
+      resetForRace(room);
+      await fbSet("", room);
+    }
+  }
+
+  async function playerInit(){
+    setStatus(localMode ? "PLAYER (local demo)" : "PLAYER (Firebase)");
+  }
+
+  function localLoop(){
+    const room = localDB.room;
+
+    // host drives phases in local mode too
+    if (isHost){
+      room.hostPing = Date.now();
+
+      if (room.phase === "race"){
+        hostTick(room);
+        if (Date.now() >= room.phaseEndsAt){
+          resetForLeaderboard(room);
+        }
+      } else if (room.phase === "leaderboard"){
+        if (Date.now() >= room.phaseEndsAt){
+          resetForLobby(room);
+          resetForRace(room); // auto restart
+        }
+      } else {
+        // lobby
+        if (Date.now() >= room.phaseEndsAt){
+          resetForRace(room);
+        }
+      }
+    } else {
+      // in local mode (no backend), non-host still sees localDB (same device only)
+    }
+
+    currentRoom = room;
+    draw(currentRoom);
+    renderSide(currentRoom);
+    requestAnimationFrame(localLoop);
+  }
+
+  function firebaseLoop(){
+    // Host: ticks at ~20Hz and writes room
+    if (isHost){
+      const tick = async () => {
+        try{
+          const room = await fbGet("");
+          if (!room) return;
+
+          room.hostPing = Date.now();
+
+          if (room.phase === "race"){
+            hostTick(room);
+            if (Date.now() >= room.phaseEndsAt){
+              resetForLeaderboard(room);
+            }
+          } else if (room.phase === "leaderboard"){
+            if (Date.now() >= room.phaseEndsAt){
+              resetForLobby(room);
+              resetForRace(room); // auto restart
+            }
+          } else {
+            if (Date.now() >= room.phaseEndsAt){
+              resetForRace(room);
+            }
+          }
+
+          await fbSet("", room);
+        } catch(e){
+          console.error(e);
+        }
+        setTimeout(tick, 50); // ~20Hz
+      };
+      tick();
+    }
+
+    // Everyone: subscribe for rendering
+    fbOn("", room => {
+      if (!room) return;
+      currentRoom = room;
+      draw(currentRoom);
+      renderSide(currentRoom);
+    });
+  }
+
+  // ----------------------------
+  // 9) UI EVENTS
+  // ----------------------------
+  function tryJoin(){
+    join(nameInput.value);
+  }
+
+  joinBtn.addEventListener("click", tryJoin);
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryJoin();
+  });
+  leaveBtn.addEventListener("click", leave);
+
+  // Touch steering
+  const steerHold = { left:false, right:false };
+  function updateSteer(){
+    if (mySlot === null) return;
+    const dir = steerHold.left && !steerHold.right ? -1 : steerHold.right && !steerHold.left ? 1 : 0;
+    sendInput(dir);
+  }
+  function bindHold(btn, side){
+    const down = () => { steerHold[side]=true; updateSteer(); };
+    const up = () => { steerHold[side]=false; updateSteer(); };
+    btn.addEventListener("pointerdown", down);
+    btn.addEventListener("pointerup", up);
+    btn.addEventListener("pointercancel", up);
+    btn.addEventListener("pointerleave", up);
+  }
+  bindHold(btnLeft, "left");
+  bindHold(btnRight, "right");
+
+  // Keyboard steering (optional on desktop)
+  window.addEventListener("keydown", (e) => {
+    if (mySlot === null) return;
+    if (e.key === "ArrowLeft" || e.key.toLowerCase()==="a") { steerHold.left=true; updateSteer(); }
+    if (e.key === "ArrowRight" || e.key.toLowerCase()==="d") { steerHold.right=true; updateSteer(); }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (mySlot === null) return;
+    if (e.key === "ArrowLeft" || e.key.toLowerCase()==="a") { steerHold.left=false; updateSteer(); }
+    if (e.key === "ArrowRight" || e.key.toLowerCase()==="d") { steerHold.right=false; updateSteer(); }
+  });
+
+  // ----------------------------
+  // 10) BOOT
+  // ----------------------------
+  initFirebase();
+
+  (async () => {
+    if (isHost) await hostInit();
+    else await playerInit();
+
+    if (localMode){
+      // local-only render loop
+      localDB.room = localDB.room || makeDefaultRoom();
+      currentRoom = localDB.room;
+      // if host, kick into race right away
+      if (isHost && currentRoom.phase !== "race") resetForRace(currentRoom);
+      requestAnimationFrame(localLoop);
+    } else {
+      // firebase mode
+      if (!isHost) {
+        // players show touch controls when joined
+        setInterval(() => {
+          touchControls.style.display = (mySlot !== null) ? "flex" : "none";
+          leaveBtn.disabled = (mySlot === null);
+        }, 250);
+      }
+      firebaseLoop();
+    }
+  })();
+})();
+</script>
+</body>
+</html>
