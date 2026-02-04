@@ -5,8 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { font-family: Arial, sans-serif; margin:0; background:#f3f4f6; }
-    header { padding:14px 18px; background:#111827; color:#fff; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+
+    header {
+      padding:14px 18px;
+      background:#111827;
+      color:#fff;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    /* Header branding */
+    .brand {
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      min-width:0;
+    }
+    .brand img {
+      width:38px;
+      height:38px;
+      object-fit:contain;
+      margin-top:2px;
+      flex:0 0 auto;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+    }
+    .brandText { min-width:0; }
     header .small { font-size:12px; opacity:0.85; margin-top:4px; line-height:1.2; word-break:break-word; }
+    .welcomeLine { font-size:12px; opacity:0.95; margin-top:6px; line-height:1.25; }
+
     .wrap { display:grid; grid-template-columns: 380px 1fr; gap:14px; padding:14px; }
 
     .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
@@ -35,8 +63,55 @@
     .sec { border:1px solid #e5e7eb; border-radius:12px; padding:12px; background:#fafafa; margin-top:10px; }
 
     .sec h3 { margin:0 0 8px; font-size:14px; }
+
     .badge { display:inline-block; padding:4px 10px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; }
     .ok { color:#047857; font-weight:700; }
+
+    /* Workload UI */
+    .workloadBox {
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      padding:10px 12px;
+      background:#fafafa;
+      margin:10px 0 12px;
+    }
+    .workloadTop {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .workloadTitle {
+      font-weight:800;
+      font-size:13px;
+      margin:0;
+    }
+    .pill {
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      font-size:12px;
+      color:#111827;
+      white-space:nowrap;
+    }
+    .pill strong { font-weight:800; }
+    .workloadSub { margin-top:6px; font-size:12px; color:#6b7280; line-height:1.25; }
+    .needTag {
+      display:inline-block;
+      margin-top:8px;
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:800;
+      border:1px solid #fca5a5;
+      background:#fef2f2;
+      color:#991b1b;
+    }
 
     .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; }
     .toast.show { opacity:1; transform: translateY(0); }
@@ -90,16 +165,24 @@
       #refreshTicketsBtn { width:100%; }
       #filter { font-size:16px; }
       .sec { padding:12px; }
+      .brand { align-items:center; }
+      .brand img { width:34px; height:34px; margin-top:0; }
     }
   </style>
 </head>
 
 <body>
   <header>
-    <div>
-      <div style="font-weight:800; font-size:18px;">IFWL Steward Dashboard</div>
-      <div class="small" id="who">Loading…</div>
+    <div class="brand">
+      <!-- IFWL logo from GitHub root -->
+      <img src="./ifwl_logo.png" alt="IFWL logo">
+      <div class="brandText">
+        <div style="font-weight:800; font-size:18px;">IFWL Steward Dashboard</div>
+        <div class="welcomeLine" id="welcomeLine">Welcome — loading your profile…</div>
+        <div class="small" id="who">Loading…</div>
+      </div>
     </div>
+
     <div class="row">
       <button id="backBtn">Back to Classifier</button>
       <button id="logoutBtn">Sign out</button>
@@ -110,8 +193,19 @@
     <!-- LEFT -->
     <div class="card">
       <div class="row" style="justify-content:space-between;">
-        <div class="title">Tickets</div>
+        <div class="title" style="margin:0;">Live Workload</div>
         <button id="refreshTicketsBtn">Refresh</button>
+      </div>
+
+      <!-- Workload summary -->
+      <div class="workloadBox" aria-label="Workload summary">
+        <div class="workloadTop">
+          <div class="workloadTitle">Tickets needing steward input</div>
+          <div class="pill" id="workloadPill">Loading…</div>
+        </div>
+        <div class="workloadSub" id="workloadSub">
+          Live tickets are non-finalised tickets that may still need a CAUSE review from you.
+        </div>
       </div>
 
       <div class="row" style="margin-bottom:10px;">
@@ -381,8 +475,6 @@
         for (const r of rules) {
           if (!r || typeof r !== "object") continue;
 
-          // Your file uses capitalised keys: Code/Group/Title/Description/Who/Penalty
-          // (but we also support lowercase just in case)
           const code = String((r.Code ?? r.code ?? "")).trim();
           const title = String((r.Title ?? r.title ?? "")).trim();
           const group = String((r.Group ?? r.group ?? "")).trim();
@@ -390,18 +482,12 @@
 
           if (!code && !title) continue;
 
-          // Value stored to Firestore (stable, readable)
-          // Keep this as-is so existing saved values still match your current format.
           const value = `${code}${title ? " — " + title : ""}${pen ? " (" + pen + ")" : ""}`.trim();
-
-          // Text shown in dropdown: CODE then Title (as requested)
-          // (We keep group/penalty out of the visible label to keep it clean.)
           const label = `${code}${title ? " — " + title : ""}`.trim();
 
           const opt = document.createElement("option");
           opt.value = value;
           opt.textContent = label;
-          // keep extra data attached (doesn't change UI, but preserves info if you want it later)
           opt.dataset.group = group;
           opt.dataset.penalty = pen;
           sel.appendChild(opt);
@@ -442,6 +528,11 @@
     const submitReviewBtn = $("submitReviewBtn");
     const loadMyReviewBtn = $("loadMyReviewBtn");
 
+    // Workload UI
+    const workloadPillEl = $("workloadPill");
+    const workloadSubEl = $("workloadSub");
+    const welcomeLineEl = $("welcomeLine");
+
     // ---------- navigation ----------
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
@@ -468,6 +559,11 @@
 
         if (isHead) { window.location.href = "headsteward.html"; return; }
 
+        // Welcome line (welcoming + clear responsibility)
+        const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+        const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
+        welcomeLineEl.textContent = `Welcome, ${niceName}. Your live workload is shown on the left — please review any tickets marked as needing your CAUSE input.`;
+
         $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "steward"}`;
 
         await loadPenaltyCodes();
@@ -490,33 +586,88 @@
       return true;
     }
 
+    function isFinalised(status) {
+      const s = (status || "").trim().toLowerCase();
+      return s === "finalised";
+    }
+
+    async function doesMyReviewExist(ticketId) {
+      try {
+        const reviewId = safeKey(currentEmail);
+        if (!reviewId) return false;
+        const ref = db.collection("tickets").doc(ticketId).collection("reviews").doc(reviewId);
+        const snap = await ref.get();
+        return snap.exists;
+      } catch (e) {
+        // If something goes wrong, don't block rendering tickets
+        console.warn("Review check failed for ticket:", ticketId, e);
+        return false;
+      }
+    }
+
     async function loadTickets() {
       ticketListEl.innerHTML = "";
       ticketHintEl.textContent = "Loading tickets…";
+      workloadPillEl.textContent = "Loading…";
+      workloadSubEl.textContent = "Live tickets are non-finalised tickets that may still need a CAUSE review from you.";
 
       const snap = await db.collection("tickets").limit(200).get();
       const docs = snap.docs;
 
-      let shown = 0;
-      for (const d of docs) {
+      // Build an array of ticket objects first (so we can compute workload + render)
+      const tickets = docs.map(d => {
         const data = d.data() || {};
         const status = (data.status || "").trim();
+        return { id: d.id, data, status };
+      });
 
-        if (!passesFilter(status)) continue;
+      // Workload = non-finalised tickets in the fetched batch
+      const liveTickets = tickets.filter(t => !isFinalised(t.status));
+      const liveCount = liveTickets.length;
+
+      // Determine which of the LIVE tickets still need *your* CAUSE input
+      const myReviewChecks = liveTickets.map(async (t) => {
+        const hasMine = await doesMyReviewExist(t.id);
+        return { id: t.id, hasMine };
+      });
+
+      const myReviewResults = await Promise.all(myReviewChecks);
+      const myReviewMap = new Map(myReviewResults.map(x => [x.id, x.hasMine]));
+
+      const needsMyInputCount = liveTickets.filter(t => !myReviewMap.get(t.id)).length;
+
+      // Update workload pill
+      workloadPillEl.innerHTML = `Live: <strong>${liveCount}</strong> • Needs your input: <strong>${needsMyInputCount}</strong>`;
+
+      if (liveCount === 0) {
+        workloadSubEl.textContent = "No live tickets found. You're all caught up ✅";
+      } else if (needsMyInputCount === 0) {
+        workloadSubEl.textContent = "All live tickets in this batch already have your CAUSE review submitted ✅";
+      } else {
+        workloadSubEl.textContent = "Tickets marked “Needs your CAUSE input” do not currently have a submitted review from you.";
+      }
+
+      // Now render list based on current filter
+      let shown = 0;
+      for (const t of tickets) {
+        if (!passesFilter(t.status)) continue;
+
+        const needsMyInput = (!isFinalised(t.status)) && !myReviewMap.get(t.id);
 
         const div = document.createElement("div");
-        div.className = "ticket" + (d.id === selectedTicketId ? " active" : "");
+        div.className = "ticket" + (t.id === selectedTicketId ? " active" : "");
         div.innerHTML = `
-          <div class="id">${escapeHtml(d.id)}</div>
-          <div class="status"><b>Status:</b> ${escapeHtml(status || "Under Review")}</div>
+          <div class="id">${escapeHtml(t.id)}</div>
+          <div class="status"><b>Status:</b> ${escapeHtml(t.status || "Under Review")}</div>
           <div class="muted" style="margin-top:4px;">
-            ${data.event ? `<b>Event:</b> ${escapeHtml(data.event)}` : ""}
-            ${data.accused ? ` | <b>Accused:</b> ${escapeHtml(data.accused)}` : ""}
+            ${t.data.event ? `<b>Event:</b> ${escapeHtml(t.data.event)}` : ""}
+            ${t.data.accused ? ` | <b>Accused:</b> ${escapeHtml(t.data.accused)}` : ""}
           </div>
+          ${needsMyInput ? `<div class="needTag">Needs your CAUSE input</div>` : ""}
         `;
         div.onclick = async () => {
-          selectedTicketId = d.id;
-          await selectTicket(d.id);
+          selectedTicketId = t.id;
+          await selectTicket(t.id);
           [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
           div.classList.add("active");
         };
@@ -524,7 +675,9 @@
         shown++;
       }
 
-      ticketHintEl.textContent = `Showing ${shown} tickets (max 200 fetched).`;
+      // Hint line: show filter-aware count + workload count
+      const filterName = filterEl.value;
+      ticketHintEl.textContent = `Showing ${shown} ticket(s) for filter: "${filterName}". Live workload in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max 200 fetched).`;
     }
 
     async function selectTicket(ticketId) {
