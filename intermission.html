@@ -6,9 +6,11 @@
   <title>IFWL Stream Racer</title>
   <style>
     :root { --bg:#0b0f14; --panel:#121a24; --text:#e7eef8; --muted:#9fb2c9; --accent:#4dd4ff; --danger:#ff5b6b; }
-    html,body { height:100%; margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial; }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--text);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial; }
     .wrap { display:grid; gap:12px; max-width:1100px; margin:0 auto; padding:12px; }
-    header { display:flex; gap:12px; align-items:center; justify-content:space-between; background:var(--panel); border-radius:14px; padding:10px 12px; border:1px solid #1b2a3b; }
+    header { display:flex; gap:12px; align-items:center; justify-content:space-between;
+      background:var(--panel); border-radius:14px; padding:10px 12px; border:1px solid #1b2a3b; }
     header .left { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .pill { font-size:12px; padding:6px 10px; border-radius:999px; background:#0e1620; color:var(--muted); border:1px solid #1b2a3b; }
     .pill strong { color:var(--text); }
@@ -33,6 +35,19 @@
     .hr { height:1px; background:#1b2a3b; margin:10px 0; }
     .small { font-size:12px; color:var(--muted); }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+    .banner {
+      display:none;
+      background: rgba(255,91,107,0.12);
+      border: 1px solid rgba(255,91,107,0.35);
+      color: #ffd7dc;
+      border-radius: 12px;
+      padding: 10px 12px;
+      line-height: 1.35;
+      font-size: 13px;
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
@@ -48,6 +63,7 @@
 
   <div class="grid">
     <div class="card">
+      <div class="banner" id="errBanner"></div>
       <canvas id="game" width="960" height="540"></canvas>
 
       <div class="controls" id="touchControls">
@@ -89,26 +105,24 @@
       <div class="leaderboard" id="lbList"></div>
 
       <div class="hr"></div>
-      <div class="small">Tip: if nothing moves, make sure a host tab is open: <span class="mono">?host=1</span></div>
+      <div class="small">
+        If nothing moves: check your RTDB Rules are open for this project:
+        <span class="mono">{ ".read": true, ".write": true }</span>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- Firebase RTDB compat -->
 <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-database-compat.js"></script>
 
 <script>
 (() => {
-  // ----------------------------
-  // CONFIG
-  // ----------------------------
   const MAX_CARS = 7;
   const RACE_SECONDS = 60;
   const LEADERBOARD_SECONDS = 30;
   const ROOM = "main";
 
-  // ✅ Your Firebase config (already inserted)
   const firebaseConfig = {
     apiKey: "AIzaSyDDV3oaa0PCRSbVP3-jplsFUHiLm6Zil1M",
     authDomain: "ifwl-stream-game.firebaseapp.com",
@@ -120,9 +134,6 @@
     measurementId: "G-EV4Z45T295"
   };
 
-  // ----------------------------
-  // DOM
-  // ----------------------------
   const qs = new URLSearchParams(location.search);
   const isHost = qs.get("host") === "1";
 
@@ -133,12 +144,12 @@
   const timeText  = document.getElementById("timeText");
   const modePill  = document.getElementById("modePill");
 
-  const nameInput   = document.getElementById("nameInput");
-  const joinBtn     = document.getElementById("joinBtn");
-  const leaveBtn    = document.getElementById("leaveBtn");
-  const statusLine  = document.getElementById("statusLine");
-  const carsList    = document.getElementById("carsList");
-  const lbList      = document.getElementById("lbList");
+  const nameInput  = document.getElementById("nameInput");
+  const joinBtn    = document.getElementById("joinBtn");
+  const leaveBtn   = document.getElementById("leaveBtn");
+  const statusLine = document.getElementById("statusLine");
+  const carsList   = document.getElementById("carsList");
+  const lbList     = document.getElementById("lbList");
 
   const touchControls = document.getElementById("touchControls");
   const btnLeft  = document.getElementById("btnLeft");
@@ -147,41 +158,48 @@
   const sideTitle = document.getElementById("sideTitle");
   const sideHint  = document.getElementById("sideHint");
 
+  const errBanner = document.getElementById("errBanner");
+
   modePill.innerHTML = `Mode: <strong>${isHost ? "HOST" : "PLAYER"}</strong>`;
 
   function setStatus(msg){ statusLine.textContent = "Status: " + msg; }
+  function showErr(msg){
+    errBanner.style.display = "block";
+    errBanner.textContent = msg;
+  }
+  function clearErr(){
+    errBanner.style.display = "none";
+    errBanner.textContent = "";
+  }
   function escapeHtml(s){
     return (s||"").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
   }
 
-  // ----------------------------
-  // FIREBASE INIT
-  // ----------------------------
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
-
-  function roomRef(path=""){
-    const base = db.ref(`rooms/${ROOM}`);
-    return path ? base.child(path) : base;
-  }
-  async function fbGet(path){
-    const snap = await roomRef(path).get();
-    return snap.val();
-  }
-  async function fbSet(path, value){
-    await roomRef(path).set(value);
-  }
-  function fbOn(path, cb){
-    roomRef(path).on("value", s => cb(s.val()));
-  }
-
-  // ----------------------------
-  // STATE
-  // ----------------------------
+  // Hard-safe id generator (no crypto)
   const playerId = (Date.now().toString(36) + Math.random().toString(36).slice(2)).slice(0,24);
   let mySlot = null;
 
   const carColors = ["#ff4d6d","#4dd4ff","#93ffd2","#ffd38a","#b39cff","#a7ff4d","#ff9bf5"];
+
+  // Firebase init
+  try {
+    firebase.initializeApp(firebaseConfig);
+  } catch (e) {
+    // ignore "already exists" in case of double loads
+  }
+  const db = firebase.database();
+
+  function baseRef(){ return db.ref(`rooms/${ROOM}`); }
+  function childRef(p){ return db.ref(`rooms/${ROOM}/${p}`); }
+
+  async function safeSet(ref, value){
+    try { await ref.set(value); clearErr(); }
+    catch(e){ showErr("DATABASE WRITE ERROR:\n" + (e?.message || String(e)) + "\n\nFix: RTDB Rules must allow read/write for this project."); throw e; }
+  }
+  async function safeUpdate(ref, patch){
+    try { await ref.update(patch); clearErr(); }
+    catch(e){ showErr("DATABASE UPDATE ERROR:\n" + (e?.message || String(e)) + "\n\nFix: RTDB Rules must allow read/write for this project."); throw e; }
+  }
 
   function makeDefaultRoom(){
     const cars = {};
@@ -194,9 +212,8 @@
       cars,
       obstacles: [],
       t: 0,
-      lastTick: Date.now(),
       scroll: 0,
-      seed: Math.floor(Math.random()*1e9),
+      lastTick: Date.now(),
       hostPing: Date.now()
     };
   }
@@ -246,11 +263,8 @@
     room.lastTick = Date.now();
   }
 
-  // ----------------------------
-  // TRACK + PHYSICS (scrolling top-down)
-  // ----------------------------
+  // Track / physics
   function centerX(worldY, t){
-    // A few sine waves blended = believable bends
     return 480
       + Math.sin((worldY*0.0022) + t*0.9) * 160
       + Math.sin((worldY*0.0011) + t*0.4) * 80;
@@ -258,23 +272,21 @@
 
   const ROAD_HALF = 190;
   const KERB = 18;
-
   const CAR_W = 28;
   const CAR_H = 46;
   const CAR_Y = 420;
   const SCROLL_SPEED = 270;
 
-  function hostTick(room){
+  function hostSimStep(room){
     const now = Date.now();
     const dt = Math.min(0.05, (now - room.lastTick)/1000);
     room.lastTick = now;
-
     room.t += dt;
     room.scroll += SCROLL_SPEED * dt;
 
-    // spawn obstacles ahead
+    // Spawn obstacles
     if (Math.random() < 0.11){
-      const spawnWY = room.scroll - 120; // above top
+      const spawnWY = room.scroll - 120;
       const cx = centerX(spawnWY, room.t);
       const offset = (Math.random()*2 - 1) * (ROAD_HALF - 40);
       room.obstacles.push({
@@ -284,11 +296,9 @@
         kind: Math.random() < 0.6 ? "block" : "cone"
       });
     }
-
-    // cull obstacles behind
     room.obstacles = room.obstacles.filter(o => o.wy < room.scroll + 900);
 
-    // update cars
+    // Update cars
     for (let i=0;i<MAX_CARS;i++){
       const c = room.cars[i];
       if (!c.name || !c.alive) continue;
@@ -304,21 +314,18 @@
       const carX = cx + laneOffset + steer;
       const carY = CAR_Y;
 
-      // off track = out
       if (Math.abs(carX - cx) > (ROAD_HALF - 14)){
         c.alive = false;
         c.eliminatedAt = now;
         continue;
       }
 
-      // collision vs obstacles
       for (const ob of room.obstacles){
         const sy = ob.wy - room.scroll;
         if (sy < carY - 70 || sy > carY + 70) continue;
 
         const dx = Math.abs(carX - ob.wx);
         const dy = Math.abs(carY - sy);
-
         if (dx < (CAR_W/2 + ob.r*0.7) && dy < (CAR_H/2 + ob.r*0.7)){
           c.alive = false;
           c.eliminatedAt = now;
@@ -339,9 +346,6 @@
     return entries;
   }
 
-  // ----------------------------
-  // RENDER
-  // ----------------------------
   function draw(room){
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
@@ -359,16 +363,13 @@
       const left = cx - ROAD_HALF;
       const right = cx + ROAD_HALF;
 
-      // asphalt
       ctx.fillStyle = (Math.floor((wy/60)) % 2 === 0) ? "#0b141f" : "#0a121b";
       ctx.fillRect(left, y, right-left, 6);
 
-      // kerbs
       ctx.fillStyle = (Math.floor((wy/24)) % 2 === 0) ? "#c92b2b" : "#e7eef8";
       ctx.fillRect(left - KERB, y, KERB, 6);
       ctx.fillRect(right, y, KERB, 6);
 
-      // edge line
       ctx.fillStyle = "#22364a";
       ctx.fillRect(left-1, y, 1, 6);
       ctx.fillRect(right, y, 1, 6);
@@ -419,30 +420,24 @@
       ctx.save();
       ctx.globalAlpha = alive ? 1 : 0.3;
 
-      // shadow
       ctx.fillStyle = "rgba(0,0,0,0.35)";
       ctx.fillRect(x - CAR_W/2 + 2, y - CAR_H/2 + 6, CAR_W, CAR_H);
 
-      // body
       ctx.fillStyle = carColors[i];
       ctx.fillRect(x - CAR_W/2, y - CAR_H/2, CAR_W, CAR_H);
 
-      // cockpit
       ctx.fillStyle = "#071019";
       ctx.fillRect(x - CAR_W/2 + 5, y - CAR_H/2 + 10, CAR_W-10, 16);
 
-      // wings
       ctx.fillStyle = "#0e1620";
       ctx.fillRect(x - CAR_W/2 - 6, y - CAR_H/2 - 6, CAR_W + 12, 8);
       ctx.fillRect(x - CAR_W/2 - 6, y + CAR_H/2 - 2, CAR_W + 12, 8);
 
-      // number
       ctx.fillStyle = "#e7eef8";
       ctx.font = "700 12px system-ui";
       ctx.textAlign = "center";
       ctx.fillText(String(i+1), x, y+4);
 
-      // name
       ctx.font = "12px system-ui";
       ctx.fillText(c.name, x, y - CAR_H/2 - 10);
 
@@ -456,7 +451,6 @@
       }
     }
 
-    // HUD
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.fillRect(0,0,canvas.width,30);
     ctx.fillStyle = "#e7eef8";
@@ -466,7 +460,6 @@
   }
 
   function renderSide(room){
-    // cars list
     carsList.innerHTML = "";
     for (let i=0;i<MAX_CARS;i++){
       const c = room.cars[i];
@@ -480,7 +473,6 @@
       carsList.appendChild(el);
     }
 
-    // leaderboard list
     lbList.innerHTML = "";
     const entries = computeLeaderboard(room);
     entries.forEach((e, idx) => {
@@ -493,12 +485,10 @@
       lbList.appendChild(el);
     });
 
-    // header stats
     phaseText.textContent = room.phase || "—";
     const msLeft = Math.max(0, (room.phaseEndsAt || Date.now()) - Date.now());
     timeText.textContent = (msLeft/1000).toFixed(1) + "s";
 
-    // disable/enable UI based on host/player
     if (isHost){
       sideTitle.textContent = "Host Panel";
       sideHint.innerHTML = `You are the host. Keep this open on stream PC.<br/>Share: <span class="mono">${location.origin + location.pathname}</span>`;
@@ -516,9 +506,7 @@
     }
   }
 
-  // ----------------------------
-  // JOIN / LEAVE / INPUT
-  // ----------------------------
+  // Join/leave/input
   function sanitizeName(s){
     return (s || "").trim().replace(/\s+/g," ").slice(0,18);
   }
@@ -537,11 +525,12 @@
       for (let i=0;i<MAX_CARS;i++){
         if (!cars[i]?.name) { free = i; break; }
       }
-      if (free === null) return; // abort
+      if (free === null) return;
+
       cars[free] = cars[free] || { name:"", alive:false, score:0, input:0, eliminatedAt:null };
       cars[free].name = name;
       cars[free].input = 0;
-      cars[free].alive = false; // host sets alive at race start
+      cars[free].alive = false;
       cars[free].score = 0;
       cars[free].eliminatedAt = null;
       cars[free]._pid = playerId;
@@ -573,12 +562,12 @@
     const slot = mySlot;
     mySlot = null;
 
-    const slotRef = roomRef(`cars/${slot}`);
+    const slotRef = db.ref(`rooms/${ROOM}/cars/${slot}`);
     const snap = await slotRef.get();
     const val = snap.val();
 
     if (val && val._pid === playerId){
-      await slotRef.set({ name:"", alive:false, score:0, input:0, eliminatedAt:null });
+      await safeSet(slotRef, { name:"", alive:false, score:0, input:0, eliminatedAt:null });
       setStatus("Left the car.");
     } else {
       setStatus("Left (slot not owned by this device).");
@@ -587,76 +576,90 @@
 
   async function sendInput(dir){
     if (mySlot === null) return;
-    await roomRef(`cars/${mySlot}/input`).set(dir);
+    await safeSet(db.ref(`rooms/${ROOM}/cars/${mySlot}/input`), dir);
   }
 
-  // ----------------------------
-  // HOST + SUBSCRIBE
-  // ----------------------------
-  async function hostInit(){
-    setStatus("HOST running.");
-    const existing = await fbGet("");
-    if (!existing || !existing.cars){
+  // Boot + loops
+  async function ensureRoom(){
+    const snap = await baseRef().get();
+    const room = snap.val();
+    if (!room || !room.cars){
       const fresh = makeDefaultRoom();
       resetForRace(fresh);
-      await fbSet("", fresh);
+      await safeSet(baseRef(), fresh);
       return;
     }
-    // If exists, ensure we're in race
-    if (!existing.phase || existing.phase !== "race"){
-      resetForRace(existing);
-      await fbSet("", existing);
+    if (!room.phase){
+      const fresh = makeDefaultRoom();
+      resetForRace(fresh);
+      await safeSet(baseRef(), fresh);
+      return;
     }
   }
 
-  function startLoops(){
-    // Host authoritative loop
-    if (isHost){
-      const tick = async () => {
-        try{
-          const room = await fbGet("");
-          if (!room) return;
+  async function hostStart(){
+    await ensureRoom();
 
-          room.hostPing = Date.now();
+    // Heartbeat: proves host is alive + proves rules allow writes
+    setInterval(async () => {
+      try {
+        await safeUpdate(baseRef(), { hostPing: Date.now() });
+      } catch(e) {}
+    }, 1000);
 
-          if (room.phase === "race"){
-            hostTick(room);
-            if (Date.now() >= room.phaseEndsAt){
-              resetForLeaderboard(room);
-            }
-          } else if (room.phase === "leaderboard"){
-            if (Date.now() >= room.phaseEndsAt){
-              resetForLobby(room);
-              resetForRace(room);
-            }
-          } else {
-            if (Date.now() >= room.phaseEndsAt){
-              resetForRace(room);
-            }
+    // Tick loop
+    const tick = async () => {
+      try{
+        const snap = await baseRef().get();
+        const room = snap.val();
+        if (!room) return setTimeout(tick, 200);
+
+        if (room.phase === "race"){
+          hostSimStep(room);
+          if (Date.now() >= room.phaseEndsAt){
+            resetForLeaderboard(room);
           }
-
-          await fbSet("", room);
-        } catch(e){
-          console.error("HOST TICK ERROR:", e);
+        } else if (room.phase === "leaderboard"){
+          if (Date.now() >= room.phaseEndsAt){
+            resetForLobby(room);
+            resetForRace(room);
+          }
+        } else {
+          if (Date.now() >= room.phaseEndsAt){
+            resetForRace(room);
+          }
         }
-        setTimeout(tick, 50); // ~20Hz
-      };
-      tick();
-    }
 
-    // Everyone subscribes for rendering
-    fbOn("", room => {
+        // Write minimal moving fields + full cars/obstacles (needed for all clients)
+        await safeUpdate(baseRef(), {
+          phase: room.phase,
+          phaseEndsAt: room.phaseEndsAt,
+          t: room.t,
+          scroll: room.scroll,
+          lastTick: room.lastTick,
+          obstacles: room.obstacles,
+          cars: room.cars
+        });
+
+      } catch(e){
+        // banner already shows error
+      }
+      setTimeout(tick, 50);
+    };
+    tick();
+  }
+
+  function subscribe(){
+    baseRef().on("value", snap => {
+      const room = snap.val();
       if (!room) return;
       draw(room);
       renderSide(room);
     });
   }
 
-  // ----------------------------
-  // UI EVENTS
-  // ----------------------------
+  // UI
   function tryJoin(){ join(nameInput.value); }
-
   joinBtn.addEventListener("click", tryJoin);
   nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryJoin(); });
   leaveBtn.addEventListener("click", leave);
@@ -689,13 +692,20 @@
     if (e.key === "ArrowRight" || e.key.toLowerCase()==="d") { steerHold.right=false; updateSteer(); }
   });
 
-  // ----------------------------
-  // BOOT
-  // ----------------------------
+  // Start
   (async () => {
-    if (isHost) await hostInit();
-    startLoops();
-    setStatus(isHost ? "HOST ready. Track should move now." : "PLAYER ready. If nothing moves, open a host tab with ?host=1.");
+    try{
+      subscribe();
+      if (isHost){
+        setStatus("HOST starting…");
+        await hostStart();
+        setStatus("HOST running. Track should move.");
+      } else {
+        setStatus("PLAYER ready. If nothing moves, open a host tab with ?host=1.");
+      }
+    } catch (e){
+      showErr("BOOT ERROR:\n" + (e?.message || String(e)));
+    }
   })();
 })();
 </script>
