@@ -25,7 +25,6 @@
       gap:12px;
     }
 
-    /* Header branding (logo + welcome) */
     .brand {
       display:flex;
       gap:12px;
@@ -71,10 +70,7 @@
     .sec h3 { margin:0 0 8px; font-size:14px; }
     .badge { display:inline-block; padding:4px 10px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; }
     .ok { color:#047857; font-weight:700; }
-    .warn { color:#b45309; font-weight:700; }
-    .danger { color:#b91c1c; font-weight:700; }
 
-    /* Workload UI (matches steward dashboard) */
     .workloadBox {
       border:1px solid #e5e7eb;
       border-radius:12px;
@@ -108,6 +104,7 @@
     }
     .pill strong { font-weight:800; }
     .workloadSub { margin-top:6px; font-size:12px; color:#6b7280; line-height:1.25; }
+
     .needTag {
       display:inline-block;
       margin-top:8px;
@@ -120,7 +117,35 @@
       color:#991b1b;
     }
 
-    /* Info banner for head steward context */
+    /* NEW: statement status box on ticket cards */
+    .stmtTag {
+      margin-top:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      font-size:12px;
+      font-weight:900;
+      line-height:1.2;
+      border:1px solid #e5e7eb;
+      background:#f9fafb;
+      color:#111827;
+    }
+    .stmtOk {
+      border-color:#86efac;
+      background:#ecfdf5;
+      color:#065f46;
+    }
+    .stmtBad {
+      border-color:#fca5a5;
+      background:#fef2f2;
+      color:#991b1b;
+    }
+    .stmtTag small {
+      display:block;
+      margin-top:4px;
+      font-weight:800;
+      opacity:0.95;
+    }
+
     .infoBox{
       border:1px solid #fde68a;
       background:#fffbeb;
@@ -147,7 +172,6 @@
     a { color:#111827; }
     a:hover { opacity:0.85; }
 
-    /* Responsive video embed */
     .videoWrap {
       position:relative;
       width:100%;
@@ -166,7 +190,6 @@
       border:0;
     }
 
-    /* Mobile friendliness */
     @media (max-width: 980px) {
       body { background-attachment:scroll; }
       header { flex-direction:column; align-items:stretch; }
@@ -175,7 +198,6 @@
       .wrap { grid-template-columns: 1fr; }
       .list { max-height:320px; }
       .grid2 { grid-template-columns: 1fr; }
-      button { width:auto; }
       #publishAllBtn { width:100%; }
       #refreshStatementsBtn { width:100%; }
       #refreshTicketsBtn { width:100%; }
@@ -366,7 +388,6 @@
 
   <script>
     // ---------- CONFIG ----------
-    // TEST WEBHOOK OK (keep it in for now)
     const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1468028412634333236/ZwevuKcMblac5jLWroXxnfCAOfqGFscMFm0bPWFt6Xdcptj3j1DQ6QNT8s6LT64zX_0V";
 
     // ---------- helpers ----------
@@ -504,6 +525,68 @@
       }
     }
 
+    // NEW: statement status (accused + reporter only)
+    const statementStatusCache = new Map(); // ticketId -> { accused:bool, reporter:bool }
+    async function getAccusedReporterStatementStatus(ticketId) {
+      if (statementStatusCache.has(ticketId)) return statementStatusCache.get(ticketId);
+
+      const col = db.collection("tickets").doc(ticketId).collection("player_statements");
+
+      // Try efficient query first (role IN accused/reporter). If it errors, fall back to full get().
+      try {
+        const snap = await col.where("role", "in", ["accused", "reporter"]).get();
+        let accused = false, reporter = false;
+
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const role = String(d.role || "").toLowerCase().trim();
+          const statement = String(d.statement || "").trim();
+          if (!statement) return;
+          if (role === "accused") accused = true;
+          if (role === "reporter") reporter = true;
+        });
+
+        const res = { accused, reporter };
+        statementStatusCache.set(ticketId, res);
+        return res;
+      } catch (e) {
+        console.warn("role IN query failed; falling back to full statements fetch:", ticketId, e);
+        const snap = await col.get();
+        let accused = false, reporter = false;
+
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const role = String(d.role || "").toLowerCase().trim();
+          const statement = String(d.statement || "").trim();
+          if (!statement) return;
+          if (role === "accused") accused = true;
+          if (role === "reporter") reporter = true;
+        });
+
+        const res = { accused, reporter };
+        statementStatusCache.set(ticketId, res);
+        return res;
+      }
+    }
+
+    function renderStatementTag(el, statusObj) {
+      const accusedOk = !!statusObj?.accused;
+      const reporterOk = !!statusObj?.reporter;
+
+      if (accusedOk && reporterOk) {
+        el.className = "stmtTag stmtOk";
+        el.innerHTML = `Statements: ✅ Accused + Reporter<br><small>Ready for review</small>`;
+        return;
+      }
+
+      const missing = [];
+      if (!accusedOk) missing.push("Accused");
+      if (!reporterOk) missing.push("Reporter");
+
+      el.className = "stmtTag stmtBad";
+      el.innerHTML = `Statements: ❌ Missing ${missing.join(" + ")}<br><small>Awaiting required statements</small>`;
+    }
+
     // ---------- auth / role ----------
     let currentUser = null;
     let currentEmail = "";
@@ -583,6 +666,9 @@
       workloadPillEl.textContent = "Loading…";
       workloadSubEl.textContent = "As Head Steward, you oversee all live tickets. “Needs your CAUSE input” is optional, but useful for tie-breaks.";
 
+      // Reset statement cache each refresh so you see live status changes after submissions
+      statementStatusCache.clear();
+
       const snap = await db.collection("tickets").limit(200).get();
       const docs = snap.docs;
 
@@ -611,6 +697,7 @@
       else workloadSubEl.textContent = "“Needs your CAUSE input” indicates you have not submitted a Head Steward review for this live ticket (optional).";
 
       let shown = 0;
+
       for (const t of tickets) {
         if (!passesFilter(t.status)) continue;
 
@@ -618,6 +705,7 @@
 
         const div = document.createElement("div");
         div.className = "ticket" + (t.id === selectedTicketId ? " active" : "");
+
         div.innerHTML = `
           <div class="id">${escapeHtml(t.id)}</div>
           <div class="status"><b>Status:</b> ${escapeHtml(t.status || "Under Review")}</div>
@@ -625,16 +713,37 @@
             ${t.data.event ? `<b>Event:</b> ${escapeHtml(t.data.event)}` : ""}
             ${t.data.accused ? ` | <b>Accused:</b> ${escapeHtml(t.data.accused)}` : ""}
           </div>
+          <div class="stmtTag" id="stmt_${escapeHtml(t.id)}">Statements: Checking…<small>Accused + Reporter</small></div>
           ${needsMyInput ? `<div class="needTag">Needs your CAUSE input (optional)</div>` : ""}
         `;
+
         div.onclick = async () => {
           selectedTicketId = t.id;
           await selectTicket(t.id);
           [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
           div.classList.add("active");
         };
+
         ticketListEl.appendChild(div);
         shown++;
+
+        // Update the statement tag async after render
+        (async () => {
+          try {
+            const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
+            if (!tagEl) return;
+
+            const st = await getAccusedReporterStatementStatus(t.id);
+            renderStatementTag(tagEl, st);
+          } catch (e) {
+            console.warn("Statement status check failed:", t.id, e);
+            const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
+            if (tagEl) {
+              tagEl.className = "stmtTag stmtBad";
+              tagEl.innerHTML = `Statements: ❌ Check failed<br><small>Open console for details</small>`;
+            }
+          }
+        })();
       }
 
       const filterName = filterEl.value;
@@ -774,6 +883,9 @@
 
         $("statementsHint").textContent = "Published all statements ✅";
         toast("Published all ✅");
+
+        // Refresh ticket list statement statuses after publish
+        await loadTickets();
       } catch (e) {
         $("statementsHint").textContent = "Publish failed: " + (e?.message || e);
         toast("Publish failed");
