@@ -428,10 +428,14 @@
       return "Extreme / Disqualification Consideration";
     }
 
+    function isFinalised(status) {
+      const s = (status || "").trim().toLowerCase();
+      return s === "finalised";
+    }
+
     function normalizeUrl(u) {
       const s = (u || "").trim();
       if (!s) return "";
-      // If user pasted without protocol, attempt https
       if (!/^https?:\/\//i.test(s) && !s.startsWith("mailto:")) return "https://" + s;
       return s;
     }
@@ -440,28 +444,12 @@
       try {
         const u = new URL(url);
         const host = u.hostname.toLowerCase();
+        if (host === "youtu.be") return (u.pathname || "").replace("/", "").trim();
 
-        // youtu.be/<id>
-        if (host === "youtu.be") {
-          const id = u.pathname.replace("/", "").trim();
-          return id || "";
-        }
-
-        // youtube.com/watch?v=<id>
         if (host.includes("youtube.com")) {
-          if (u.pathname.startsWith("/watch")) {
-            return (u.searchParams.get("v") || "").trim();
-          }
-          // youtube.com/shorts/<id>
-          if (u.pathname.startsWith("/shorts/")) {
-            const id = u.pathname.split("/shorts/")[1]?.split(/[/?#]/)[0];
-            return (id || "").trim();
-          }
-          // youtube.com/embed/<id>
-          if (u.pathname.startsWith("/embed/")) {
-            const id = u.pathname.split("/embed/")[1]?.split(/[/?#]/)[0];
-            return (id || "").trim();
-          }
+          if (u.pathname.startsWith("/watch")) return (u.searchParams.get("v") || "").trim();
+          if (u.pathname.startsWith("/shorts/")) return (u.pathname.split("/shorts/")[1] || "").split(/[/?#]/)[0].trim();
+          if (u.pathname.startsWith("/embed/")) return (u.pathname.split("/embed/")[1] || "").split(/[/?#]/)[0].trim();
         }
       } catch {}
       return "";
@@ -494,13 +482,25 @@
         return;
       }
 
-      // If it's a direct video file, try embed <video>
       if (/\.(mp4|webm|ogg)(\?|#|$)/i.test(url)) {
         embedEl.innerHTML = `
           <div class="videoWrap" aria-label="Proof video">
             <video controls src="${escapeHtml(url)}"></video>
           </div>
         `;
+      }
+    }
+
+    async function doesMyReviewExist(ticketId, email) {
+      try {
+        const reviewId = safeKey(email);
+        if (!reviewId) return false;
+        const ref = db.collection("tickets").doc(ticketId).collection("reviews").doc(reviewId);
+        const snap = await ref.get();
+        return snap.exists;
+      } catch (e) {
+        console.warn("Review check failed for ticket:", ticketId, e);
+        return false;
       }
     }
 
@@ -522,7 +522,6 @@
     const loadMyReviewBtn = $("loadMyReviewBtn");
     const publishAllBtn = $("publishAllBtn");
 
-    // Workload UI
     const workloadPillEl = $("workloadPill");
     const workloadSubEl = $("workloadSub");
     const welcomeLineEl = $("welcomeLine");
@@ -553,10 +552,7 @@
         const roleRaw = (data.role || "").toLowerCase();
         isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
 
-        if (!isHead) {
-          window.location.href = "steward.html";
-          return;
-        }
+        if (!isHead) { window.location.href = "steward.html"; return; }
 
         const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
         const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Head Steward";
@@ -575,31 +571,10 @@
       const s = (status || "").trim().toLowerCase();
 
       if (f === "All (non-finalised)") return s !== "finalised";
-
-      if (f === "Awaiting Review") {
-        return s === "" || s === "under review" || s === "awaiting review";
-      }
+      if (f === "Awaiting Review") return s === "" || s === "under review" || s === "awaiting review";
       if (f === "In Review") return s === "in review";
       if (f === "Ready to Publish") return s === "ready to publish";
       return true;
-    }
-
-    function isFinalised(status) {
-      const s = (status || "").trim().toLowerCase();
-      return s === "finalised";
-    }
-
-    async function doesMyReviewExist(ticketId) {
-      try {
-        const reviewId = safeKey(currentEmail);
-        if (!reviewId) return false;
-        const ref = db.collection("tickets").doc(ticketId).collection("reviews").doc(reviewId);
-        const snap = await ref.get();
-        return snap.exists;
-      } catch (e) {
-        console.warn("Review check failed for ticket:", ticketId, e);
-        return false;
-      }
     }
 
     async function loadTickets() {
@@ -621,24 +596,19 @@
       const liveCount = liveTickets.length;
 
       const myReviewChecks = liveTickets.map(async (t) => {
-        const hasMine = await doesMyReviewExist(t.id);
+        const hasMine = await doesMyReviewExist(t.id, currentEmail);
         return { id: t.id, hasMine };
       });
 
       const myReviewResults = await Promise.all(myReviewChecks);
       const myReviewMap = new Map(myReviewResults.map(x => [x.id, x.hasMine]));
-
       const needsMyInputCount = liveTickets.filter(t => !myReviewMap.get(t.id)).length;
 
       workloadPillEl.innerHTML = `Live: <strong>${liveCount}</strong> • Needs your input: <strong>${needsMyInputCount}</strong>`;
 
-      if (liveCount === 0) {
-        workloadSubEl.textContent = "No live tickets found. You're all caught up ✅";
-      } else if (needsMyInputCount === 0) {
-        workloadSubEl.textContent = "All live tickets in this batch already have your CAUSE review submitted ✅ (optional, but logged).";
-      } else {
-        workloadSubEl.textContent = "“Needs your CAUSE input” indicates you have not submitted a Head Steward review for this live ticket (optional).";
-      }
+      if (liveCount === 0) workloadSubEl.textContent = "No live tickets found. You're all caught up ✅";
+      else if (needsMyInputCount === 0) workloadSubEl.textContent = "All live tickets in this batch already have your Head Steward review submitted ✅ (optional).";
+      else workloadSubEl.textContent = "“Needs your CAUSE input” indicates you have not submitted a Head Steward review for this live ticket (optional).";
 
       let shown = 0;
       for (const t of tickets) {
@@ -686,10 +656,7 @@
       const ref = db.collection("tickets").doc(ticketId);
       selectedTicketSnap = await ref.get();
 
-      if (!selectedTicketSnap.exists) {
-        toast("Ticket not found");
-        return;
-      }
+      if (!selectedTicketSnap.exists) { toast("Ticket not found"); return; }
 
       const t = selectedTicketSnap.data() || {};
       $("sumAccused").textContent = t.accused || "—";
@@ -699,7 +666,6 @@
       $("sumRule").textContent = t.ruleBreach || "—";
       renderProof(t.proofUrl || "");
       $("sumIncident").value = t.fullIncident || "";
-
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
 
       await loadStatements();
@@ -717,10 +683,7 @@
       const col = db.collection("tickets").doc(selectedTicketId).collection("player_statements");
       const snap = await col.get();
 
-      if (snap.empty) {
-        $("statementsHint").textContent = "No player statements submitted yet.";
-        return;
-      }
+      if (snap.empty) { $("statementsHint").textContent = "No player statements submitted yet."; return; }
 
       const rows = snap.docs.map(d => {
         const x = d.data() || {};
@@ -846,7 +809,7 @@
 
       if (!resp.ok) {
         const txt = await resp.text();
-        throw new Error(\`Discord publish failed: \${resp.status} \${resp.statusText} \${txt}\`);
+        throw new Error(`Discord publish failed: ${resp.status} ${resp.statusText} ${txt}`);
       }
 
       toast("Published to Discord ✅");
