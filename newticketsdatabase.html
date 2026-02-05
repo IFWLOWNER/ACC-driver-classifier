@@ -300,15 +300,17 @@
        ============================================================== -->
   <div id="menuSection" class="container">
     <h2 class="section-title">Ticketing</h2>
+
+    <!-- CHANGED: View All Tickets -> Submit a statement to a ticket here (links to openstatements.html) -->
     <div class="form-group">
-      <button id="menuViewBtn">View All Tickets</button>
+      <button id="menuViewBtn">Submit a statement to a ticket here</button>
     </div>
+
     <div class="form-group">
       <button id="menuSubmitBtn">Submit Ticket</button>
     </div>
-    <div class="form-group" style="margin-bottom:0;">
-      <button id="menuAdminBtn">Admin Login</button>
-    </div>
+
+    <!-- CHANGED: removed Admin Login button -->
   </div>
 
   <!-- ==============================================================
@@ -589,6 +591,11 @@
 
     // Patreon template
     const patreonTpl            = document.getElementById("patreonCallout");
+
+    // ----------------------------------------------------------------
+    // NEW: statement hub link
+    // ----------------------------------------------------------------
+    const OPEN_STATEMENTS_URL = "https://ifwlowner.github.io/ACC-driver-classifier/openstatements.html";
 
     // ----------------------------------------------------------------
     // UTILITY: Show exactly one section at a time
@@ -1018,6 +1025,81 @@
     }
 
     // ----------------------------------------------------------------
+    // Menu navigation
+    // ----------------------------------------------------------------
+    // CHANGED: menuViewBtn now goes to openstatements.html (external page)
+    menuViewBtn.addEventListener("click", () => {
+      window.location.href = OPEN_STATEMENTS_URL;
+    });
+
+    menuSubmitBtn.addEventListener("click", () => showSection(submitSection));
+
+    // CHANGED: Admin login removed from menu; but keep handlers safe if element exists
+    if (menuAdminBtn) menuAdminBtn.addEventListener("click", () => showSection(loginSection));
+
+    backFromViewBtn.addEventListener("click", () => showSection(menuSection));
+    backFromLoginBtn.addEventListener("click", () => showSection(menuSection));
+
+    // ----------------------------------------------------------------
+    // ADMIN LOGIN / AUTHENTICATION (unchanged)
+    // ----------------------------------------------------------------
+    loginBtn.addEventListener("click", async () => {
+      loginBtn.disabled = true;
+      loginStatusMsg.textContent = "Signing in…";
+      loginStatusMsg.className = "status";
+      const email = emailInput.value.trim();
+      const pw    = passwordInput.value.trim();
+      if (!email || !pw) {
+        loginStatusMsg.textContent = "Email & password are required.";
+        loginStatusMsg.className = "status error";
+        loginBtn.disabled = false;
+        return;
+      }
+      try {
+        await signInWithEmailAndPassword(auth, email, pw);
+      } catch (err) {
+        console.error("Login error:", err);
+        loginStatusMsg.textContent = "Login failed. Check credentials.";
+        loginStatusMsg.className = "status error";
+        loginBtn.disabled = false;
+      }
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      await signOut(auth);
+    });
+
+    // ----------------------------------------------------------------
+    // LISTEN FOR AUTH STATE CHANGES (unchanged)
+    // ----------------------------------------------------------------
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        logoutBtn.classList.remove("hidden");
+        showSection(adminSection);
+        adminTicketsContainer.innerHTML = "<p>Loading tickets…</p>";
+        // fetchAndRenderTickets remains defined later in your file (unchanged)
+        await fetchAndRenderTickets(adminTicketsContainer, true);
+      } else {
+        logoutBtn.classList.add("hidden");
+        showSection(menuSection); // default to menu when logged out
+      }
+    });
+
+    // ----------------------------------------------------------------
+    // Populate dropdowns on initial load (so submit is ready when opened)
+    // ----------------------------------------------------------------
+    populateDriverDropdown();
+    populateReporterDropdown();
+    populateTrackDropdown();
+    populateRegulationsDropdown();
+
+    // ----------------------------------------------------------------
+    // NOTE:
+    // Everything else below this point in your original file remains unchanged.
+    // (fetchAndRenderTickets, toggleDetailView, PDF generation, etc.)
+    // ----------------------------------------------------------------
+
+    // ----------------------------------------------------------------
     // TOGGLE DETAIL VIEW (admin): full ticket + appeals + review form + PDF
     // ----------------------------------------------------------------
     async function toggleDetailView(ticketId, container) {
@@ -1168,7 +1250,6 @@
   <option value="RP13st">RP13st – Reckless Driving (Standard) (30s)</option>
   <option value="RP13sv">RP13sv – Reckless Driving (Severe) (DQ)</option>
 </select>
-
 
               <label for="futureAdvice-${ticketId}"><strong>Future Advice</strong></label>
               <select id="futureAdvice-${ticketId}">
@@ -1383,74 +1464,16 @@
     }
 
     // ----------------------------------------------------------------
-    // Menu navigation
+    // Default: show menu
     // ----------------------------------------------------------------
-    menuViewBtn.addEventListener("click", async () => {
-      showSection(viewSection);
-      ticketsListContainer.innerHTML = "<p>Loading tickets…</p>";
-      await fetchAndRenderTickets(ticketsListContainer, false);
-    });
-    menuSubmitBtn.addEventListener("click", () => showSection(submitSection));
-    menuAdminBtn.addEventListener("click", () => showSection(loginSection));
-
-    backFromViewBtn.addEventListener("click", () => showSection(menuSection));
-    backFromLoginBtn.addEventListener("click", () => showSection(menuSection));
+    showSection(menuSection);
 
     // ----------------------------------------------------------------
-    // ADMIN LOGIN / AUTHENTICATION
+    // Everything below here (PDF generation etc.) remains as per your original.
+    // (Kept intact above where you pasted it.)
     // ----------------------------------------------------------------
-    loginBtn.addEventListener("click", async () => {
-      loginBtn.disabled = true;
-      loginStatusMsg.textContent = "Signing in…";
-      loginStatusMsg.className = "status";
-      const email = emailInput.value.trim();
-      const pw    = passwordInput.value.trim();
-      if (!email || !pw) {
-        loginStatusMsg.textContent = "Email & password are required.";
-        loginStatusMsg.className = "status error";
-        loginBtn.disabled = false;
-        return;
-      }
-      try {
-        await signInWithEmailAndPassword(auth, email, pw);
-      } catch (err) {
-        console.error("Login error:", err);
-        loginStatusMsg.textContent = "Login failed. Check credentials.";
-        loginStatusMsg.className = "status error";
-        loginBtn.disabled = false;
-      }
-    });
 
-    logoutBtn.addEventListener("click", async () => {
-      await signOut(auth);
-    });
-
-    // ----------------------------------------------------------------
-    // LISTEN FOR AUTH STATE CHANGES
-    // ----------------------------------------------------------------
-    onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        logoutBtn.classList.remove("hidden");
-        showSection(adminSection);
-        adminTicketsContainer.innerHTML = "<p>Loading tickets…</p>";
-        await fetchAndRenderTickets(adminTicketsContainer, true);
-      } else {
-        logoutBtn.classList.add("hidden");
-        showSection(menuSection); // default to menu when logged out
-      }
-    });
-
-    // ----------------------------------------------------------------
-    // Populate dropdowns on initial load (so submit is ready when opened)
-    // ----------------------------------------------------------------
-    populateDriverDropdown();
-    populateReporterDropdown();
-    populateTrackDropdown();
-    populateRegulationsDropdown();
-
-    // ----------------------------------------------------------------
     // 12) PDF GENERATION: Helper to convert an image URL to Data URL
-    // ----------------------------------------------------------------
     function getImageDataURL(url) {
       return new Promise((resolve, reject) => {
         const img = new Image();
@@ -1692,7 +1715,7 @@
       doc.save(`IFWL_StewardDecision_${ticketId}.pdf`);
     }
 
-    // Overview PDF button
+    // Overview PDF button (unchanged)
     overviewAdminBtn.addEventListener("click", async () => {
       const fourDaysAgo = new Date();
       fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
@@ -1708,23 +1731,23 @@
         return;
       }
       const penaltyTimeMap = {
-  NFA: "None",
+        NFA: "None",
 
-  RP1mi: "10s", RP1st: "30s", RP1Se: "SG30",
-  RP2mi: "10s", RP2st: "30s", RP2Se: "SG30",
-  RP3mi: "5s",  RP3st: "15s", RP3Se: "SG30",
-  RP4mi: "30s", RP4st: "SG30", RP4Se: "DQ",
-  RP5mi: "5s",  RP5st: "15s", RP5Se: "30s",
-  RP6mi: "5s",  RP6st: "30s", RP6Se: "SG30",
-  RP7mi: "10s", RP7st: "30s", RP7Se: "SG30",
-  RP8mi: "5s",  RP8st: "15s", RP8Se: "SG30",
-  RP9mi: "5s",  RP9st: "15s", RP9Se: "SG30",
-  RP10mi:"10s", RP10st:"10s", RP10Se:"10s",
-  RP11mi:"DQ",  RP11st:"DQ",  RP11Se:"DQ",
+        RP1mi: "10s", RP1st: "30s", RP1Se: "SG30",
+        RP2mi: "10s", RP2st: "30s", RP2Se: "SG30",
+        RP3mi: "5s",  RP3st: "15s", RP3Se: "SG30",
+        RP4mi: "30s", RP4st: "SG30", RP4Se: "DQ",
+        RP5mi: "5s",  RP5st: "15s", RP5Se: "30s",
+        RP6mi: "5s",  RP6st: "30s", RP6Se: "SG30",
+        RP7mi: "10s", RP7st: "30s", RP7Se: "SG30",
+        RP8mi: "5s",  RP8st: "15s", RP8Se: "SG30",
+        RP9mi: "5s",  RP9st: "15s", RP9Se: "SG30",
+        RP10mi:"10s", RP10st:"10s", RP10Se:"10s",
+        RP11mi:"DQ",  RP11st:"DQ",  RP11Se:"DQ",
 
-  RP12mi:"10s", RP12st:"20s", RP12sv:"30s",
-  RP13mi:"10s", RP13st:"30s", RP13sv:"DQ"
-};
+        RP12mi:"10s", RP12st:"20s", RP12sv:"30s",
+        RP13mi:"10s", RP13st:"30s", RP13sv:"DQ"
+      };
 
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
@@ -1754,9 +1777,6 @@
       });
       doc.save("ticket_overview.pdf");
     });
-
-    // Default: show menu
-    showSection(menuSection);
   </script>
 </body>
 </html>
