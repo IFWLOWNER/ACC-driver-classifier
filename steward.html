@@ -52,6 +52,21 @@
     }
     textarea { min-height:70px; resize:vertical; }
 
+    /* NEW: non-editable INFO boxes for CAUSE guidance */
+    .infoBox{
+      padding:10px;
+      border:1px solid #d1d5db;
+      border-radius:12px;
+      width:100%;
+      box-sizing:border-box;
+      font-size:16px;
+      background:#f9fafb;
+      color:#6b7280;
+      line-height:1.35;
+      user-select:none;
+      cursor:default;
+    }
+
     .list { display:flex; flex-direction:column; gap:8px; max-height:680px; overflow:auto; -webkit-overflow-scrolling:touch; }
     .ticket { padding:12px; border:1px solid #e5e7eb; border-radius:12px; cursor:pointer; background:#fff; }
     .ticket:hover { background:#f9fafb; }
@@ -313,31 +328,31 @@
             <div>
               <label class="muted">C — Control (1–5)</label>
               <select id="cScore"></select>
-              <textarea id="cText" placeholder="Score on the merit of the footage: control/loss of control, stability, reactions."></textarea>
+              <div class="infoBox" id="cText">Score on the merit of the footage: control/loss of control, stability, reactions.</div>
             </div>
 
             <div>
               <label class="muted">A — Awareness (1–5)</label>
               <select id="aScore"></select>
-              <textarea id="aText" placeholder="Score on the merit of the footage: awareness of surroundings, mirrors, positioning."></textarea>
+              <div class="infoBox" id="aText">Score on the merit of the footage: awareness of surroundings, mirrors, positioning.</div>
             </div>
 
             <div>
               <label class="muted">U — User Input (1–5)</label>
               <select id="uScore"></select>
-              <textarea id="uText" placeholder="Score on the merit of the footage: braking/steering inputs, corrections, avoidability."></textarea>
+              <div class="infoBox" id="uText">Score on the merit of the footage: braking/steering inputs, corrections, avoidability.</div>
             </div>
 
             <div>
               <label class="muted">S — Severity (1–5)</label>
               <select id="sScore"></select>
-              <textarea id="sText" placeholder="Score on the merit of the footage: impact, time loss, damage, race outcome."></textarea>
+              <div class="infoBox" id="sText">Score on the merit of the footage: impact, time loss, damage, race outcome.</div>
             </div>
 
             <div>
               <label class="muted">E — Environment (1–5)</label>
               <select id="eScore"></select>
-              <textarea id="eText" placeholder="Score on the merit of the footage: conditions, visibility, track factors."></textarea>
+              <div class="infoBox" id="eText">Score on the merit of the footage: conditions, visibility, track factors.</div>
             </div>
 
             <div>
@@ -638,6 +653,24 @@
     const workloadSubEl = $("workloadSub");
     const welcomeLineEl = $("welcomeLine");
 
+    // ---------- NEW: CAUSE "text" fields are now INFO boxes ----------
+    // Only read/write .value for real inputs; INFO boxes return "" so stewards can't "submit" guidance text.
+    function isFormTextInput(el) {
+      if (!el) return false;
+      const tag = (el.tagName || "").toUpperCase();
+      return tag === "TEXTAREA" || tag === "INPUT";
+    }
+    function getFreeText(id) {
+      const el = $(id);
+      if (!isFormTextInput(el)) return "";
+      return (el.value || "").trim();
+    }
+    function setFreeText(id, v) {
+      const el = $(id);
+      if (!isFormTextInput(el)) return;
+      el.value = v || "";
+    }
+
     // ---------- navigation ----------
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
@@ -897,20 +930,20 @@
       const cause = d.CAUSE || {};
 
       $("cScore").value = String(clampScore(cause.control?.score));
-      $("cText").value = cause.control?.text || "";
+      setFreeText("cText", cause.control?.text || "");
 
       $("aScore").value = String(clampScore(cause.awareness?.score));
-      $("aText").value = cause.awareness?.text || "";
+      setFreeText("aText", cause.awareness?.text || "");
 
       // IMPORTANT: show steward-facing U score (unreverse what was stored)
       $("uScore").value = String(unreverseScore(cause.userInput?.score));
-      $("uText").value = cause.userInput?.text || "";
+      setFreeText("uText", cause.userInput?.text || "");
 
       $("sScore").value = String(clampScore(cause.severity?.score));
-      $("sText").value = cause.severity?.text || "";
+      setFreeText("sText", cause.severity?.text || "");
 
       $("eScore").value = String(clampScore(cause.environment?.score));
-      $("eText").value = cause.environment?.text || "";
+      setFreeText("eText", cause.environment?.text || "");
 
       $("penaltyCode").value = d.penaltyCode || "";
 
@@ -942,11 +975,11 @@
           submittedAt: firebase.firestore.Timestamp.fromDate(new Date()),
           isFinal: true,
           CAUSE: {
-            control:      { score: Number($("cScore").value), text: ($("cText").value||"").trim() },
-            awareness:    { score: Number($("aScore").value), text: ($("aText").value||"").trim() },
-            userInput:    { score: uStored,                 text: ($("uText").value||"").trim() },
-            severity:     { score: Number($("sScore").value), text: ($("sText").value||"").trim() },
-            environment:  { score: Number($("eScore").value), text: ($("eText").value||"").trim() },
+            control:      { score: Number($("cScore").value), text: getFreeText("cText") },
+            awareness:    { score: Number($("aScore").value), text: getFreeText("aText") },
+            userInput:    { score: uStored,                 text: getFreeText("uText") },
+            severity:     { score: Number($("sScore").value), text: getFreeText("sText") },
+            environment:  { score: Number($("eScore").value), text: getFreeText("eText") },
           },
           penaltyCode: pen
         };
