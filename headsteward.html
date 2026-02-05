@@ -433,6 +433,33 @@
       return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
     }
 
+    // --- NEW: reverse mapping for U (User Input) ---
+    // UI scale: 1..5 (minimal..extreme)
+    // Scoring/storage scale: reversed (minimal->5, extreme->1)
+    function reverseScore(v) {
+      const n = clampScore(v);
+      return 6 - n;
+    }
+    function unreverseScore(v) {
+      const n = clampScore(v);
+      return 6 - n;
+    }
+
+    // NEW: get the U score for *scoring* (aggregate) with legacy compatibility
+    function getUserInputScoreForAggregate(review) {
+      const rawStored = clampScore(review?.CAUSE?.userInput?.score || 0);
+      if (!rawStored) return 0;
+
+      const reversedFlag = review?.CAUSE?.userInput?.reversed === true;
+      const schema2 = (review?.schemaVersion || 0) >= 2;
+
+      // If new schema, stored is already reversed => use as-is
+      if (reversedFlag || schema2) return rawStored;
+
+      // If legacy, stored is UI scale => reverse now for scoring
+      return reverseScore(rawStored);
+    }
+
     function avg(nums) {
       const xs = nums.filter(x => x > 0);
       if (!xs.length) return 0;
@@ -532,7 +559,6 @@
 
       const col = db.collection("tickets").doc(ticketId).collection("player_statements");
 
-      // Try efficient query first (role IN accused/reporter). If it errors, fall back to full get().
       try {
         const snap = await col.where("role", "in", ["accused", "reporter"]).get();
         let accused = false, reporter = false;
@@ -666,7 +692,6 @@
       workloadPillEl.textContent = "Loading…";
       workloadSubEl.textContent = "As Head Steward, you oversee all live tickets. “Needs your CAUSE input” is optional, but useful for tie-breaks.";
 
-      // Reset statement cache each refresh so you see live status changes after submissions
       statementStatusCache.clear();
 
       const snap = await db.collection("tickets").limit(200).get();
@@ -727,7 +752,6 @@
         ticketListEl.appendChild(div);
         shown++;
 
-        // Update the statement tag async after render
         (async () => {
           try {
             const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
@@ -884,7 +908,6 @@
         $("statementsHint").textContent = "Published all statements ✅";
         toast("Published all ✅");
 
-        // Refresh ticket list statement statuses after publish
         await loadTickets();
       } catch (e) {
         $("statementsHint").textContent = "Publish failed: " + (e?.message || e);
@@ -921,7 +944,7 @@
 
       if (!resp.ok) {
         const txt = await resp.text();
-        throw new Error(`Discord publish failed: ${resp.status} ${resp.statusText} ${txt}`);
+        throw new Error(\`Discord publish failed: \${resp.status} \${resp.statusText} \${txt}\`);
       }
 
       toast("Published to Discord ✅");
@@ -950,8 +973,12 @@
       $("aScore").value = String(clampScore(cause.awareness?.score));
       $("aText").value = cause.awareness?.text || "";
 
-      $("uScore").value = String(clampScore(cause.userInput?.score));
-      $("uText").value = cause.userInput?.text || "";
+      // IMPORTANT: display steward-facing U even though stored is reversed (new schema)
+      const uObj = cause.userInput || {};
+      const uStored = clampScore(uObj.score);
+      const isReversed = (uObj.reversed === true) || ((d.schemaVersion || 0) >= 2);
+      $("uScore").value = String(isReversed ? unreverseScore(uStored) : uStored);
+      $("uText").value = uObj.text || "";
 
       $("sScore").value = String(clampScore(cause.severity?.score));
       $("sText").value = cause.severity?.text || "";
@@ -981,14 +1008,21 @@
         const reviewId = safeKey(currentEmail);
         const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
 
+        // IMPORTANT: store reversed U score (UI 5 extreme -> stored 1)
+        const uUi = Number($("uScore").value);
+        const uStored = reverseScore(uUi);
+
         const review = {
           stewardEmail: currentEmail,
           submittedAt: firebase.firestore.Timestamp.fromDate(new Date()),
           isFinal: true,
+          schemaVersion: 2, // NEW
           CAUSE: {
             control:      { score: Number($("cScore").value), text: ($("cText").value||"").trim() },
             awareness:    { score: Number($("aScore").value), text: ($("aText").value||"").trim() },
-            userInput:    { score: Number($("uScore").value), text: ($("uText").value||"").trim() },
+
+            userInput:    { score: uStored, text: ($("uText").value||"").trim(), reversed: true },
+
             severity:     { score: Number($("sScore").value), text: ($("sText").value||"").trim() },
             environment:  { score: Number($("eScore").value), text: ($("eText").value||"").trim() },
           },
@@ -1001,7 +1035,7 @@
         $("myReviewStatus").textContent = "Submitted ✅";
         $("myReviewStatus").className = "badge ok";
 
-        toast("Review submitted ✅");
+        toast(`Review submitted ✅ (U stored as ${uStored})`);
         await loadTickets();
         await refreshAggregate();
       } catch (e) {
@@ -1028,15 +1062,20 @@
         }
 
         const reviews = snap.docs.map(d => d.data() || {});
+
         const scores = (key) => reviews.map(r => clampScore(r?.CAUSE?.[key]?.score || 0));
 
         const avgC = avg(scores("control"));
         const avgA = avg(scores("awareness"));
-        const avgU = avg(scores("userInput"));
+
+        // IMPORTANT: U uses corrected scoring (legacy reversed on the fly)
+        const uScores = reviews.map(r => getUserInputScoreForAggregate(r));
+        const avgU = avg(uScores);
+
         const avgS = avg(scores("severity"));
         const avgE = avg(scores("environment"));
-        const total = avg([avgC, avgA, avgU, avgS, avgE]);
 
+        const total = avg([avgC, avgA, avgU, avgS, avgE]);
         const tier = suggestTier(total);
 
         $("aggHint").textContent = `Reviews: ${reviews.length} | CAUSE Total: ${total} | Suggested: ${tier}`;
@@ -1048,6 +1087,9 @@
             <div><b>U</b> (User Input): ${avgU}</div>
             <div><b>S</b> (Severity): ${avgS}</div>
             <div><b>E</b> (Environment): ${avgE}</div>
+          </div>
+          <div class="muted" style="margin-top:8px;">
+            Note: U (User Input) is scored with a reversed scale for CAUSE (legacy reviews are auto-corrected).
           </div>
         `;
       } catch (e) {
