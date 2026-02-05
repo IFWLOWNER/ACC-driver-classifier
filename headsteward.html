@@ -117,7 +117,6 @@
       color:#991b1b;
     }
 
-    /* NEW: statement status box on ticket cards */
     .stmtTag {
       margin-top:8px;
       padding:8px 10px;
@@ -164,7 +163,7 @@
       opacity:0.9;
     }
 
-    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; }
+    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; max-width: min(520px, calc(100vw - 32px)); white-space: pre-wrap; }
     .toast.show { opacity:1; transform: translateY(0); }
 
     code { background:#f2f2f2; padding:2px 6px; border-radius:6px; }
@@ -396,8 +395,20 @@
     function toast(msg) {
       toastEl.textContent = msg;
       toastEl.classList.add("show");
-      setTimeout(() => toastEl.classList.remove("show"), 1400);
+      setTimeout(() => toastEl.classList.remove("show"), 2200);
     }
+
+    // Show JS errors as toast so you instantly see what's wrong if anything breaks
+    window.addEventListener("error", (e) => {
+      const msg = (e?.message || "Unknown JS error") + (e?.filename ? `\n${e.filename}:${e.lineno || 0}` : "");
+      console.error("JS error:", e);
+      toast("JS ERROR:\n" + msg);
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      console.error("Promise rejection:", e);
+      toast("PROMISE ERROR:\n" + (e?.reason?.message || e?.reason || "Unknown"));
+    });
+
     function safeKey(email) { return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
 
     function optionList() {
@@ -433,32 +444,9 @@
       return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
     }
 
-    // --- NEW: reverse mapping for U (User Input) ---
-    // UI scale: 1..5 (minimal..extreme)
-    // Scoring/storage scale: reversed (minimal->5, extreme->1)
-    function reverseScore(v) {
-      const n = clampScore(v);
-      return 6 - n;
-    }
-    function unreverseScore(v) {
-      const n = clampScore(v);
-      return 6 - n;
-    }
-
-    // NEW: get the U score for *scoring* (aggregate) with legacy compatibility
-    function getUserInputScoreForAggregate(review) {
-      const rawStored = clampScore(review?.CAUSE?.userInput?.score || 0);
-      if (!rawStored) return 0;
-
-      const reversedFlag = review?.CAUSE?.userInput?.reversed === true;
-      const schema2 = (review?.schemaVersion || 0) >= 2;
-
-      // If new schema, stored is already reversed => use as-is
-      if (reversedFlag || schema2) return rawStored;
-
-      // If legacy, stored is UI scale => reverse now for scoring
-      return reverseScore(rawStored);
-    }
+    // --- U reverse mapping ---
+    function reverseScore(v) { return 6 - clampScore(v); }
+    function unreverseScore(v) { return 6 - clampScore(v); }
 
     function avg(nums) {
       const xs = nums.filter(x => x > 0);
@@ -481,6 +469,20 @@
       return s === "finalised";
     }
 
+    function getUserInputScoreForAggregate(review) {
+      const stored = clampScore(review?.CAUSE?.userInput?.score || 0);
+      if (!stored) return 0;
+
+      const reversedFlag = review?.CAUSE?.userInput?.reversed === true;
+      const schema2 = (review?.schemaVersion || 0) >= 2;
+
+      // New schema: stored already reversed => use as-is
+      if (reversedFlag || schema2) return stored;
+
+      // Legacy: stored was UI scale => reverse for scoring
+      return reverseScore(stored);
+    }
+
     function normalizeUrl(u) {
       const s = (u || "").trim();
       if (!s) return "";
@@ -493,7 +495,6 @@
         const u = new URL(url);
         const host = u.hostname.toLowerCase();
         if (host === "youtu.be") return (u.pathname || "").replace("/", "").trim();
-
         if (host.includes("youtube.com")) {
           if (u.pathname.startsWith("/watch")) return (u.searchParams.get("v") || "").trim();
           if (u.pathname.startsWith("/shorts/")) return (u.pathname.split("/shorts/")[1] || "").split(/[/?#]/)[0].trim();
@@ -509,10 +510,7 @@
       embedEl.innerHTML = "";
 
       const url = normalizeUrl(proofUrl);
-      if (!url) {
-        proofEl.textContent = "—";
-        return;
-      }
+      if (!url) { proofEl.textContent = "—"; return; }
 
       proofEl.innerHTML = `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open proof link</a>`;
 
@@ -547,13 +545,13 @@
         const snap = await ref.get();
         return snap.exists;
       } catch (e) {
-        console.warn("Review check failed for ticket:", ticketId, e);
+        console.warn("Review check failed:", ticketId, e);
         return false;
       }
     }
 
-    // NEW: statement status (accused + reporter only)
-    const statementStatusCache = new Map(); // ticketId -> { accused:bool, reporter:bool }
+    // statement status (accused + reporter only)
+    const statementStatusCache = new Map();
     async function getAccusedReporterStatementStatus(ticketId) {
       if (statementStatusCache.has(ticketId)) return statementStatusCache.get(ticketId);
 
@@ -562,7 +560,6 @@
       try {
         const snap = await col.where("role", "in", ["accused", "reporter"]).get();
         let accused = false, reporter = false;
-
         snap.forEach(doc => {
           const d = doc.data() || {};
           const role = String(d.role || "").toLowerCase().trim();
@@ -571,15 +568,12 @@
           if (role === "accused") accused = true;
           if (role === "reporter") reporter = true;
         });
-
         const res = { accused, reporter };
         statementStatusCache.set(ticketId, res);
         return res;
-      } catch (e) {
-        console.warn("role IN query failed; falling back to full statements fetch:", ticketId, e);
+      } catch {
         const snap = await col.get();
         let accused = false, reporter = false;
-
         snap.forEach(doc => {
           const d = doc.data() || {};
           const role = String(d.role || "").toLowerCase().trim();
@@ -588,16 +582,15 @@
           if (role === "accused") accused = true;
           if (role === "reporter") reporter = true;
         });
-
         const res = { accused, reporter };
         statementStatusCache.set(ticketId, res);
         return res;
       }
     }
 
-    function renderStatementTag(el, statusObj) {
-      const accusedOk = !!statusObj?.accused;
-      const reporterOk = !!statusObj?.reporter;
+    function renderStatementTag(el, st) {
+      const accusedOk = !!st?.accused;
+      const reporterOk = !!st?.reporter;
 
       if (accusedOk && reporterOk) {
         el.className = "stmtTag stmtOk";
@@ -613,12 +606,10 @@
       el.innerHTML = `Statements: ❌ Missing ${missing.join(" + ")}<br><small>Awaiting required statements</small>`;
     }
 
-    // ---------- auth / role ----------
+    // ---------- state ----------
     let currentUser = null;
     let currentEmail = "";
     let isHead = false;
-
-    // ---------- state ----------
     let selectedTicketId = "";
     let selectedTicketSnap = null;
 
@@ -626,11 +617,9 @@
     const ticketListEl = $("ticketList");
     const ticketHintEl = $("ticketHint");
     const filterEl = $("filter");
-
     const submitReviewBtn = $("submitReviewBtn");
     const loadMyReviewBtn = $("loadMyReviewBtn");
     const publishAllBtn = $("publishAllBtn");
-
     const workloadPillEl = $("workloadPill");
     const workloadSubEl = $("workloadSub");
     const welcomeLineEl = $("welcomeLine");
@@ -642,43 +631,13 @@
     $("refreshStatementsBtn").onclick = () => loadStatements();
     $("refreshAggBtn").onclick = () => refreshAggregate();
     filterEl.onchange = () => loadTickets();
-
     loadMyReviewBtn.onclick = () => loadMyReview();
     submitReviewBtn.onclick = () => submitMyReview();
     publishAllBtn.onclick = () => publishAllStatements();
 
-    // ---------- gating ----------
-    auth.onAuthStateChanged(async (user) => {
-      try {
-        if (!user) { window.location.href = "admin.html"; return; }
-        currentUser = user;
-        currentEmail = (user.email || "").toLowerCase().trim();
-
-        const adminSnap = await db.collection("admins").doc(currentEmail).get();
-        if (!adminSnap.exists) { await auth.signOut(); window.location.href = "admin.html"; return; }
-
-        const data = adminSnap.data() || {};
-        const roleRaw = (data.role || "").toLowerCase();
-        isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
-
-        if (!isHead) { window.location.href = "steward.html"; return; }
-
-        const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
-        const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Head Steward";
-        welcomeLineEl.textContent = `Welcome, ${niceName}. You oversee all live tickets — publish statements, monitor aggregate CAUSE, and guide steward outcomes.`;
-
-        $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
-        await loadTickets();
-      } catch (e) {
-        toast("Auth error: " + (e?.message || e));
-      }
-    });
-
-    // ---------- tickets ----------
     function passesFilter(status) {
       const f = filterEl.value;
       const s = (status || "").trim().toLowerCase();
-
       if (f === "All (non-finalised)") return s !== "finalised";
       if (f === "Awaiting Review") return s === "" || s === "under review" || s === "awaiting review";
       if (f === "In Review") return s === "in review";
@@ -695,9 +654,7 @@
       statementStatusCache.clear();
 
       const snap = await db.collection("tickets").limit(200).get();
-      const docs = snap.docs;
-
-      const tickets = docs.map(d => {
+      const tickets = snap.docs.map(d => {
         const data = d.data() || {};
         const status = (data.status || "").trim();
         return { id: d.id, data, status };
@@ -706,20 +663,17 @@
       const liveTickets = tickets.filter(t => !isFinalised(t.status));
       const liveCount = liveTickets.length;
 
-      const myReviewChecks = liveTickets.map(async (t) => {
-        const hasMine = await doesMyReviewExist(t.id, currentEmail);
-        return { id: t.id, hasMine };
-      });
-
-      const myReviewResults = await Promise.all(myReviewChecks);
+      const myReviewResults = await Promise.all(
+        liveTickets.map(async (t) => ({ id: t.id, hasMine: await doesMyReviewExist(t.id, currentEmail) }))
+      );
       const myReviewMap = new Map(myReviewResults.map(x => [x.id, x.hasMine]));
       const needsMyInputCount = liveTickets.filter(t => !myReviewMap.get(t.id)).length;
 
       workloadPillEl.innerHTML = `Live: <strong>${liveCount}</strong> • Needs your input: <strong>${needsMyInputCount}</strong>`;
 
       if (liveCount === 0) workloadSubEl.textContent = "No live tickets found. You're all caught up ✅";
-      else if (needsMyInputCount === 0) workloadSubEl.textContent = "All live tickets in this batch already have your Head Steward review submitted ✅ (optional).";
-      else workloadSubEl.textContent = "“Needs your CAUSE input” indicates you have not submitted a Head Steward review for this live ticket (optional).";
+      else if (needsMyInputCount === 0) workloadSubEl.textContent = "All live tickets already have your optional Head Steward review ✅";
+      else workloadSubEl.textContent = "“Needs your CAUSE input” means you haven't submitted your optional Head Steward review.";
 
       let shown = 0;
 
@@ -730,7 +684,6 @@
 
         const div = document.createElement("div");
         div.className = "ticket" + (t.id === selectedTicketId ? " active" : "");
-
         div.innerHTML = `
           <div class="id">${escapeHtml(t.id)}</div>
           <div class="status"><b>Status:</b> ${escapeHtml(t.status || "Under Review")}</div>
@@ -753,25 +706,14 @@
         shown++;
 
         (async () => {
-          try {
-            const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
-            if (!tagEl) return;
-
-            const st = await getAccusedReporterStatementStatus(t.id);
-            renderStatementTag(tagEl, st);
-          } catch (e) {
-            console.warn("Statement status check failed:", t.id, e);
-            const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
-            if (tagEl) {
-              tagEl.className = "stmtTag stmtBad";
-              tagEl.innerHTML = `Statements: ❌ Check failed<br><small>Open console for details</small>`;
-            }
-          }
-        })();
+          const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
+          if (!tagEl) return;
+          const st = await getAccusedReporterStatementStatus(t.id);
+          renderStatementTag(tagEl, st);
+        })().catch(() => {});
       }
 
-      const filterName = filterEl.value;
-      ticketHintEl.textContent = `Showing ${shown} ticket(s) for filter: "${filterName}". Live in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max 200 fetched).`;
+      ticketHintEl.textContent = `Showing ${shown} ticket(s). (Max 200 fetched).`;
     }
 
     async function selectTicket(ticketId) {
@@ -782,13 +724,11 @@
 
       $("aggHint").textContent = "Loading aggregate…";
       $("aggBox").innerHTML = "";
-
       $("statementsHint").textContent = "Loading statements…";
       $("statementsList").innerHTML = "";
 
       const ref = db.collection("tickets").doc(ticketId);
       selectedTicketSnap = await ref.get();
-
       if (!selectedTicketSnap.exists) { toast("Ticket not found"); return; }
 
       const t = selectedTicketSnap.data() || {};
@@ -806,10 +746,8 @@
       await refreshAggregate();
     }
 
-    // ---------- statements ----------
     async function loadStatements() {
       if (!selectedTicketId) { $("statementsHint").textContent = "Select a ticket to view statements."; return; }
-
       $("statementsList").innerHTML = "";
       $("statementsHint").textContent = "Loading statements…";
 
@@ -843,6 +781,7 @@
         publishBtn.style.minWidth = "110px";
         publishBtn.onclick = async () => {
           publishBtn.disabled = true;
+          const original = publishBtn.textContent;
           publishBtn.textContent = "Publishing…";
           try {
             await publishStatementToDiscord(selectedTicketId, r);
@@ -850,7 +789,7 @@
           } catch (e) {
             $("statementsHint").textContent = "Publish failed: " + (e?.message || e);
           } finally {
-            publishBtn.textContent = "Publish";
+            publishBtn.textContent = original;
             publishBtn.disabled = false;
           }
         };
@@ -901,13 +840,10 @@
           when: x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate().toLocaleString() : ""
         })).filter(x => x.statement);
 
-        for (const r of rows) {
-          await publishStatementToDiscord(selectedTicketId, r);
-        }
+        for (const r of rows) await publishStatementToDiscord(selectedTicketId, r);
 
         $("statementsHint").textContent = "Published all statements ✅";
         toast("Published all ✅");
-
         await loadTickets();
       } catch (e) {
         $("statementsHint").textContent = "Publish failed: " + (e?.message || e);
@@ -944,13 +880,10 @@
 
       if (!resp.ok) {
         const txt = await resp.text();
-        throw new Error(\`Discord publish failed: \${resp.status} \${resp.statusText} \${txt}\`);
+        throw new Error(`Discord publish failed: ${resp.status} ${resp.statusText} ${txt}`);
       }
-
-      toast("Published to Discord ✅");
     }
 
-    // ---------- reviews ----------
     async function loadMyReview() {
       if (!selectedTicketId) return;
 
@@ -973,7 +906,6 @@
       $("aScore").value = String(clampScore(cause.awareness?.score));
       $("aText").value = cause.awareness?.text || "";
 
-      // IMPORTANT: display steward-facing U even though stored is reversed (new schema)
       const uObj = cause.userInput || {};
       const uStored = clampScore(uObj.score);
       const isReversed = (uObj.reversed === true) || ((d.schemaVersion || 0) >= 2);
@@ -1008,7 +940,6 @@
         const reviewId = safeKey(currentEmail);
         const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
 
-        // IMPORTANT: store reversed U score (UI 5 extreme -> stored 1)
         const uUi = Number($("uScore").value);
         const uStored = reverseScore(uUi);
 
@@ -1016,13 +947,11 @@
           stewardEmail: currentEmail,
           submittedAt: firebase.firestore.Timestamp.fromDate(new Date()),
           isFinal: true,
-          schemaVersion: 2, // NEW
+          schemaVersion: 2,
           CAUSE: {
             control:      { score: Number($("cScore").value), text: ($("cText").value||"").trim() },
             awareness:    { score: Number($("aScore").value), text: ($("aText").value||"").trim() },
-
             userInput:    { score: uStored, text: ($("uText").value||"").trim(), reversed: true },
-
             severity:     { score: Number($("sScore").value), text: ($("sText").value||"").trim() },
             environment:  { score: Number($("eScore").value), text: ($("eText").value||"").trim() },
           },
@@ -1035,7 +964,7 @@
         $("myReviewStatus").textContent = "Submitted ✅";
         $("myReviewStatus").className = "badge ok";
 
-        toast(`Review submitted ✅ (U stored as ${uStored})`);
+        toast(`Review submitted ✅ (U stored: ${uStored})`);
         await loadTickets();
         await refreshAggregate();
       } catch (e) {
@@ -1056,22 +985,14 @@
         const col = db.collection("tickets").doc(selectedTicketId).collection("reviews");
         const snap = await col.get();
 
-        if (snap.empty) {
-          $("aggHint").textContent = "No reviews submitted yet.";
-          return;
-        }
+        if (snap.empty) { $("aggHint").textContent = "No reviews submitted yet."; return; }
 
         const reviews = snap.docs.map(d => d.data() || {});
-
         const scores = (key) => reviews.map(r => clampScore(r?.CAUSE?.[key]?.score || 0));
 
         const avgC = avg(scores("control"));
         const avgA = avg(scores("awareness"));
-
-        // IMPORTANT: U uses corrected scoring (legacy reversed on the fly)
-        const uScores = reviews.map(r => getUserInputScoreForAggregate(r));
-        const avgU = avg(uScores);
-
+        const avgU = avg(reviews.map(r => getUserInputScoreForAggregate(r)));
         const avgS = avg(scores("severity"));
         const avgE = avg(scores("environment"));
 
@@ -1079,7 +1000,6 @@
         const tier = suggestTier(total);
 
         $("aggHint").textContent = `Reviews: ${reviews.length} | CAUSE Total: ${total} | Suggested: ${tier}`;
-
         $("aggBox").innerHTML = `
           <div class="grid2">
             <div><b>C</b> (Control): ${avgC}</div>
@@ -1089,13 +1009,58 @@
             <div><b>E</b> (Environment): ${avgE}</div>
           </div>
           <div class="muted" style="margin-top:8px;">
-            Note: U (User Input) is scored with a reversed scale for CAUSE (legacy reviews are auto-corrected).
+            U is scored on a reversed scale for CAUSE (legacy reviews auto-corrected).
           </div>
         `;
       } catch (e) {
         $("aggHint").textContent = "Aggregate failed: " + (e?.message || e);
       }
     }
+
+    // ---------- STARTUP ----------
+    async function waitForFirebaseReady(maxMs = 8000) {
+      const start = Date.now();
+      while (Date.now() - start < maxMs) {
+        if (typeof auth !== "undefined" && typeof db !== "undefined" && auth && db) return true;
+        await new Promise(r => setTimeout(r, 80));
+      }
+      return false;
+    }
+
+    (async () => {
+      const ok = await waitForFirebaseReady();
+      if (!ok) {
+        toast("Firebase not ready.\nCheck firebase-init.js path + console.");
+        return;
+      }
+
+      auth.onAuthStateChanged(async (user) => {
+        try {
+          if (!user) { window.location.href = "admin.html"; return; }
+          currentUser = user;
+          currentEmail = (user.email || "").toLowerCase().trim();
+
+          const adminSnap = await db.collection("admins").doc(currentEmail).get();
+          if (!adminSnap.exists) { await auth.signOut(); window.location.href = "admin.html"; return; }
+
+          const data = adminSnap.data() || {};
+          const roleRaw = (data.role || "").toLowerCase();
+          isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
+
+          if (!isHead) { window.location.href = "steward.html"; return; }
+
+          const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+          const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Head Steward";
+          welcomeLineEl.textContent = `Welcome, ${niceName}. You oversee all live tickets — publish statements, monitor aggregate CAUSE, and guide steward outcomes.`;
+
+          $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
+
+          await loadTickets();
+        } catch (e) {
+          toast("Auth/load error: " + (e?.message || e));
+        }
+      });
+    })();
   </script>
 </body>
 </html>
