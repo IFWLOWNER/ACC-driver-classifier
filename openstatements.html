@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IFWL — Open Tickets (Statements)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      margin:0;
+      background:
+        linear-gradient(rgba(2,6,23,0.72), rgba(2,6,23,0.72)),
+        url("./ifwl_bg.webp");
+      background-size:cover;
+      background-position:center;
+      background-attachment:fixed;
+      color:#0f172a;
+    }
+
+    header{
+      padding:14px 18px;
+      background:#111827;
+      color:#fff;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .brand{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      min-width:0;
+    }
+    .brand img{
+      width:38px; height:38px;
+      object-fit:contain;
+      margin-top:2px;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+      flex:0 0 auto;
+    }
+    .brandText{ min-width:0; }
+    .small{ font-size:12px; opacity:0.85; margin-top:4px; line-height:1.2; word-break:break-word; }
+    .welcomeLine{ font-size:12px; opacity:0.95; margin-top:6px; line-height:1.25; }
+
+    .wrap{ max-width:1200px; margin:0 auto; padding:14px; }
+
+    .card{
+      background:rgba(255,255,255,0.92);
+      border:1px solid rgba(229,231,235,0.95);
+      border-radius:12px;
+      padding:12px;
+      box-shadow:0 10px 28px rgba(0,0,0,0.18);
+      margin-bottom:14px;
+    }
+
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .title{ font-weight:800; font-size:18px; margin:0; }
+    .muted{ color:#6b7280; font-size:12px; line-height:1.25; }
+
+    input, select{
+      padding:10px;
+      border:1px solid #d1d5db;
+      border-radius:12px;
+      font-size:16px;
+      background:#fff;
+      width:100%;
+      box-sizing:border-box;
+    }
+
+    button{
+      padding:10px 12px;
+      border:1px solid #d1d5db;
+      border-radius:12px;
+      background:#fff;
+      cursor:pointer;
+      font-weight:700;
+    }
+    button.primary{
+      background:#111827;
+      color:#fff;
+      border-color:#111827;
+    }
+    button:disabled{
+      opacity:0.55;
+      cursor:not-allowed;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      font-size:12px;
+      color:#111827;
+      white-space:nowrap;
+    }
+    .pill strong{ font-weight:900; }
+
+    .tickets{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .ticketCard{
+      background:#fff;
+      border:1px solid #e5e7eb;
+      border-radius:14px;
+      padding:12px;
+    }
+
+    .ticketTop{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .id{
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size:12px;
+      color:#111827;
+      word-break:break-all;
+      opacity:0.9;
+    }
+
+    .kv{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      margin-top:10px;
+    }
+
+    .label{ font-size:12px; color:#6b7280; }
+    .value{ font-weight:800; color:#111827; }
+
+    .videoWrap{
+      position:relative;
+      width:100%;
+      padding-top:56.25%;
+      background:#000;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid #e5e7eb;
+      margin-top:10px;
+    }
+    .videoWrap iframe, .videoWrap video{
+      position:absolute;
+      top:0; left:0;
+      width:100%;
+      height:100%;
+      border:0;
+    }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+
+    .noteBox{
+      border:1px solid #fde68a;
+      background:#fffbeb;
+      color:#92400e;
+      border-radius:12px;
+      padding:10px 12px;
+      font-size:13px;
+      line-height:1.25;
+      font-weight:800;
+      margin-top:10px;
+    }
+    .noteBox small{
+      display:block;
+      margin-top:6px;
+      font-weight:700;
+      opacity:0.9;
+    }
+
+    .toast{
+      position:fixed;
+      right:16px;
+      bottom:16px;
+      background:#111827;
+      color:#fff;
+      padding:10px 12px;
+      border-radius:12px;
+      opacity:0;
+      transform: translateY(8px);
+      transition: all .18s ease;
+      z-index:9999;
+      max-width: min(520px, calc(100vw - 32px));
+      white-space: pre-wrap;
+    }
+    .toast.show{ opacity:1; transform: translateY(0); }
+
+    @media (max-width: 980px){
+      body{ background-attachment:scroll; }
+      header{ flex-direction:column; align-items:stretch; }
+      .row button{ width:100%; }
+      .kv{ grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">
+      <img src="./ifwl_logo.png" alt="IFWL logo">
+      <div class="brandText">
+        <div style="font-weight:800; font-size:18px;">IFWL Open Tickets — Statements</div>
+        <div class="welcomeLine">View open incidents and submit your statement using your ticket’s invite link.</div>
+        <div class="small" id="statusLine">Loading…</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="refreshBtn">Refresh</button>
+      <button id="goClassifierBtn">Back to Classifier</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div class="title">Open tickets</div>
+          <div class="muted" style="margin-top:6px;">
+            Click the correct role button to continue to the statement form.
+          </div>
+        </div>
+        <div class="pill" id="countPill">Loading…</div>
+      </div>
+
+      <div class="noteBox" aria-label="How this works">
+        How it works:
+        <small>
+          This page lists open tickets. Your statement is submitted via your ticket’s invite link (generated by IFWL staff).
+          If a role button is disabled, that invite isn’t available or has expired/been used.
+        </small>
+      </div>
+
+      <div class="row" style="margin-top:12px;">
+        <div style="flex:1; min-width:240px;">
+          <label class="muted">Search (ticket id / accused / event)</label>
+          <input id="searchBox" placeholder="Search…" />
+        </div>
+
+        <div style="width:260px; min-width:220px;">
+          <label class="muted">Filter</label>
+          <select id="filter">
+            <option value="nonfinal">All (non-finalised)</option>
+            <option value="under_review">Under Review</option>
+            <option value="in_review">In Review</option>
+            <option value="awaiting_review">Awaiting Review</option>
+            <option value="ready_to_publish">Ready to Publish</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div id="tickets" class="tickets"></div>
+      <div class="muted" id="hint" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Saved</div>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="./firebase-init.js"></script>
+
+  <script>
+    // ---- CONFIG: statement page base ----
+    // This is the page you already use in PC app
+    const STATEMENT_PAGE = "https://ifwlowner.github.io/ACC-driver-classifier/playstatements.html";
+
+    // ---- helpers ----
+    const $ = (id) => document.getElementById(id);
+    const toastEl = $("toast");
+    function toast(msg){
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 1800);
+    }
+
+    function escapeHtml(s){
+      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
+    function norm(s){ return String(s || "").trim(); }
+    function lower(s){ return norm(s).toLowerCase(); }
+
+    function normalizeUrl(u){
+      const s = (u || "").trim();
+      if (!s) return "";
+      if (!/^https?:\/\//i.test(s) && !s.startsWith("mailto:")) return "https://" + s;
+      return s;
+    }
+
+    function youtubeIdFromUrl(url){
+      try{
+        const u = new URL(url);
+        const host = u.hostname.toLowerCase();
+        if (host === "youtu.be") return (u.pathname || "").replace("/", "").trim();
+        if (host.includes("youtube.com")){
+          if (u.pathname.startsWith("/watch")) return (u.searchParams.get("v") || "").trim();
+          if (u.pathname.startsWith("/shorts/")) return (u.pathname.split("/shorts/")[1] || "").split(/[/?#]/)[0].trim();
+          if (u.pathname.startsWith("/embed/")) return (u.pathname.split("/embed/")[1] || "").split(/[/?#]/)[0].trim();
+        }
+      }catch{}
+      return "";
+    }
+
+    function renderProofEmbed(container, proofUrl){
+      container.innerHTML = "";
+      const url = normalizeUrl(proofUrl);
+      if (!url){
+        return;
+      }
+
+      const yt = youtubeIdFromUrl(url);
+      if (yt){
+        container.innerHTML = `
+          <div class="videoWrap" aria-label="Proof video">
+            <iframe
+              src="https://www.youtube.com/embed/${encodeURIComponent(yt)}"
+              title="Proof video"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen></iframe>
+          </div>
+        `;
+        return;
+      }
+
+      if (/\.(mp4|webm|ogg)(\?|#|$)/i.test(url)){
+        container.innerHTML = `
+          <div class="videoWrap" aria-label="Proof video">
+            <video controls src="${escapeHtml(url)}"></video>
+          </div>
+        `;
+        return;
+      }
+
+      // If it's some other link, show a simple button
+      container.innerHTML = `<div class="muted" style="margin-top:10px;">
+        Proof link: <a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open</a>
+      </div>`;
+    }
+
+    function buildStatementLink(ticketId, inviteId){
+      const sep = STATEMENT_PAGE.includes("?") ? "&" : "?";
+      return `${STATEMENT_PAGE}${sep}ticketId=${encodeURIComponent(ticketId)}&inviteId=${encodeURIComponent(inviteId)}`;
+    }
+
+    function isFinalised(status){
+      return lower(status) === "finalised";
+    }
+
+    function matchesFilter(ticket){
+      const f = $("filter").value;
+      const s = lower(ticket.status);
+
+      if (f === "nonfinal") return !isFinalised(s);
+      if (f === "under_review") return (s === "under review" || s === "under_review" || s === "underreview");
+      if (f === "in_review") return (s === "in review" || s === "in_review" || s === "inreview");
+      if (f === "awaiting_review") return (s === "awaiting review" || s === "awaiting_review" || s === "awaitingreview" || s === "" || s === "under review");
+      if (f === "ready_to_publish") return (s === "ready to publish" || s === "ready_to_publish" || s === "readytopublish");
+      return true;
+    }
+
+    function matchesSearch(ticket){
+      const q = lower($("searchBox").value);
+      if (!q) return true;
+
+      const hay = [
+        ticket.id,
+        ticket.accused,
+        ticket.event,
+        ticket.competition
+      ].map(lower).join(" | ");
+
+      return hay.includes(q);
+    }
+
+    // Invite validity (based on your invite docs)
+    function inviteIsUsable(inv){
+      const active = inv.active !== false; // default true
+      if (!active) return false;
+
+      // expiresAt
+      if (inv.expiresAt && inv.expiresAt.toDate){
+        const exp = inv.expiresAt.toDate();
+        if (exp && exp.getTime && exp.getTime() < Date.now()) return false;
+      }
+
+      // used flag
+      if (inv.used === true) return false;
+
+      // uses/maxUses
+      const uses = Number(inv.uses || 0);
+      const maxUses = Math.max(1, Number(inv.maxUses || 1));
+      if (uses >= maxUses) return false;
+
+      return true;
+    }
+
+    // ---- state ----
+    let allTickets = []; // {id, accused, reporter, event, competition, status, proofUrl}
+    let inviteCache = new Map(); // ticketId -> { accusedInviteId, reporterInviteId, witnessInviteId, usable flags }
+
+    // ---- core load ----
+    async function loadTickets(){
+      $("tickets").innerHTML = "";
+      $("hint").textContent = "Loading tickets…";
+      $("statusLine").textContent = "Loading open tickets…";
+      $("countPill").textContent = "Loading…";
+      inviteCache.clear();
+
+      // Wait for firebase-init.js to expose db
+      if (typeof db === "undefined" || !db){
+        $("statusLine").textContent = "Firestore not ready. Check firebase-init.js path.";
+        $("hint").textContent = "Firestore not ready.";
+        return;
+      }
+
+      try{
+        const snap = await db.collection("tickets").limit(200).get();
+        const rows = snap.docs.map(doc => {
+          const d = doc.data() || {};
+          return {
+            id: doc.id,
+            accused: norm(d.accused),
+            reporter: norm(d.reporter),
+            event: norm(d.event),
+            competition: norm(d.competition),
+            status: norm(d.status || "Under Review"),
+            proofUrl: norm(d.proofUrl),
+          };
+        });
+
+        // Keep only non-finalised by default, but allow filter dropdown to change view
+        allTickets = rows;
+
+        $("statusLine").textContent = "Loaded.";
+        renderTickets();
+      }catch(e){
+        console.error(e);
+        $("statusLine").textContent = "Load failed (see console).";
+        $("hint").textContent = "Failed to load tickets.";
+      }
+    }
+
+    function renderTickets(){
+      const filtered = allTickets
+        .filter(t => matchesFilter(t))
+        .filter(t => matchesSearch(t));
+
+      const nonFinalTotal = allTickets.filter(t => !isFinalised(t.status)).length;
+      $("countPill").innerHTML = `Open: <strong>${nonFinalTotal}</strong> • Showing: <strong>${filtered.length}</strong>`;
+
+      if (!filtered.length){
+        $("tickets").innerHTML = `<div class="muted">No tickets match your filter/search.</div>`;
+        $("hint").textContent = "";
+        return;
+      }
+
+      $("tickets").innerHTML = "";
+      $("hint").textContent = `Showing up to 200 tickets (Firestore limit).`;
+
+      // Sort: try newest-ish by id desc
+      filtered.sort((a,b) => String(b.id).localeCompare(String(a.id)));
+
+      for (const t of filtered){
+        const card = document.createElement("div");
+        card.className = "ticketCard";
+
+        const top = document.createElement("div");
+        top.className = "ticketTop";
+
+        const left = document.createElement("div");
+        left.style.minWidth = "260px";
+        left.innerHTML = `
+          <div class="id">${escapeHtml(t.id)}</div>
+          <div style="margin-top:6px; font-size:14px;">
+            <span class="label">Status</span>
+            <span class="value" style="margin-left:8px;">${escapeHtml(t.status || "Under Review")}</span>
+          </div>
+        `;
+
+        const right = document.createElement("div");
+        right.innerHTML = `
+          <div class="muted" style="text-align:right;">
+            Click the correct role to submit.
+          </div>
+        `;
+
+        top.appendChild(left);
+        top.appendChild(right);
+
+        const kv = document.createElement("div");
+        kv.className = "kv";
+        kv.innerHTML = `
+          <div>
+            <div class="label">Accused</div>
+            <div class="value">${escapeHtml(t.accused || "—")}</div>
+          </div>
+          <div>
+            <div class="label">Event</div>
+            <div class="value">${escapeHtml(t.event || "—")}</div>
+          </div>
+        `;
+
+        const embed = document.createElement("div");
+        renderProofEmbed(embed, t.proofUrl);
+
+        const actions = document.createElement("div");
+        actions.className = "actions";
+
+        const accusedBtn = document.createElement("button");
+        accusedBtn.className = "primary";
+        accusedBtn.textContent = "Accused statement";
+        accusedBtn.onclick = async () => goToInvite(t.id, "accused");
+
+        const witnessBtn = document.createElement("button");
+        witnessBtn.textContent = "Witness statement";
+        witnessBtn.onclick = async () => goToInvite(t.id, "witness");
+
+        const reporterBtn = document.createElement("button");
+        reporterBtn.textContent = "Reporter statement";
+        reporterBtn.onclick = async () => goToInvite(t.id, "reporter");
+
+        // Default disabled until we check invites
+        accusedBtn.disabled = true;
+        witnessBtn.disabled = true;
+        reporterBtn.disabled = true;
+
+        actions.appendChild(accusedBtn);
+        actions.appendChild(witnessBtn);
+        actions.appendChild(reporterBtn);
+
+        const inviteHint = document.createElement("div");
+        inviteHint.className = "muted";
+        inviteHint.style.marginTop = "10px";
+        inviteHint.textContent = "Checking statement links…";
+
+        card.appendChild(top);
+        card.appendChild(kv);
+        card.appendChild(embed);
+        card.appendChild(actions);
+        card.appendChild(inviteHint);
+
+        $("tickets").appendChild(card);
+
+        // async load invites for this ticket and enable buttons
+        (async () => {
+          const inv = await getInvitesForTicket(t.id);
+          // enable buttons if usable
+          accusedBtn.disabled = !inv.accused.usable;
+          reporterBtn.disabled = !inv.reporter.usable;
+          witnessBtn.disabled = !inv.witness.usable;
+
+          const msgs = [];
+          if (inv.accused.usable) msgs.push("Accused ✅");
+          else msgs.push("Accused ❌");
+
+          if (inv.reporter.usable) msgs.push("Reporter ✅");
+          else msgs.push("Reporter ❌");
+
+          if (inv.witness.usable) msgs.push("Witness ✅");
+          else msgs.push("Witness ❌");
+
+          inviteHint.textContent = `Statement links: ${msgs.join(" • ")}`;
+        })().catch((e) => {
+          console.warn("Invite check failed:", t.id, e);
+          inviteHint.textContent = "Statement links: check failed (refresh)";
+        });
+      }
+    }
+
+    async function getInvitesForTicket(ticketId){
+      if (inviteCache.has(ticketId)) return inviteCache.get(ticketId);
+
+      const res = {
+        accused: { inviteId:"", usable:false },
+        reporter:{ inviteId:"", usable:false },
+        witness: { inviteId:"", usable:false },
+      };
+
+      try{
+        const col = db.collection("tickets").doc(ticketId).collection("invites");
+        const snap = await col.get();
+
+        // pick first usable invite per role
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const role = lower(d.role);
+          const usable = inviteIsUsable(d);
+
+          if (role === "accused" && !res.accused.inviteId){
+            res.accused.inviteId = doc.id;
+            res.accused.usable = usable;
+          }
+          if (role === "reporter" && !res.reporter.inviteId){
+            res.reporter.inviteId = doc.id;
+            res.reporter.usable = usable;
+          }
+          if (role === "witness" && !res.witness.inviteId){
+            res.witness.inviteId = doc.id;
+            res.witness.usable = usable;
+          }
+
+          // If we already have an invite but it’s not usable, prefer a usable one
+          if (role === "accused" && usable && !res.accused.usable){
+            res.accused.inviteId = doc.id;
+            res.accused.usable = true;
+          }
+          if (role === "reporter" && usable && !res.reporter.usable){
+            res.reporter.inviteId = doc.id;
+            res.reporter.usable = true;
+          }
+          if (role === "witness" && usable && !res.witness.usable){
+            res.witness.inviteId = doc.id;
+            res.witness.usable = true;
+          }
+        });
+
+        inviteCache.set(ticketId, res);
+        return res;
+      }catch(e){
+        console.warn("getInvitesForTicket failed:", ticketId, e);
+        inviteCache.set(ticketId, res);
+        return res;
+      }
+    }
+
+    async function goToInvite(ticketId, role){
+      try{
+        const inv = await getInvitesForTicket(ticketId);
+        const bucket = inv[role];
+
+        if (!bucket || !bucket.inviteId || !bucket.usable){
+          toast("That statement link is not available.");
+          return;
+        }
+
+        const url = buildStatementLink(ticketId, bucket.inviteId);
+        window.location.href = url;
+      }catch(e){
+        toast("Could not open statement link.");
+      }
+    }
+
+    // ---- UI hooks ----
+    $("refreshBtn").onclick = () => loadTickets();
+    $("goClassifierBtn").onclick = () => window.location.href = "index.html";
+    $("searchBox").addEventListener("input", () => renderTickets());
+    $("filter").addEventListener("change", () => renderTickets());
+
+    // ---- start ----
+    (async () => {
+      // small wait for firebase-init.js to load
+      const start = Date.now();
+      while (Date.now() - start < 8000){
+        if (typeof db !== "undefined" && db) break;
+        await new Promise(r => setTimeout(r, 80));
+      }
+      await loadTickets();
+    })();
+  </script>
+</body>
+</html>
