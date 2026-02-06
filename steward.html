@@ -337,7 +337,7 @@
 
           <!-- CHANGED: text only (no other UI changes) -->
           <div class="muted" style="margin-top:6px;">
-            Comments show the steward who posted them (email) + time.
+            Comments show the steward who posted them (masked) + time.
           </div>
 
           <div id="discussionList" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;"></div>
@@ -444,6 +444,15 @@
       setTimeout(() => toastEl.classList.remove("show"), 1400);
     }
     function safeKey(email) { return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
+
+    // NEW: mask email for display (show only the part before @)
+    function maskEmail(email) {
+      const e = String(email || "").trim();
+      if (!e) return "";
+      const at = e.indexOf("@");
+      if (at <= 0) return e;  // not an email, return as-is
+      return e.slice(0, at);
+    }
 
     function optionList() {
       return [
@@ -746,7 +755,8 @@
         const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
         welcomeLineEl.textContent = `Welcome, ${niceName}. Your live workload is shown on the left — please review any tickets marked as needing your CAUSE input.`;
 
-        $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "steward"}`;
+        // CHANGED: display masked email (no domain)
+        $("who").textContent = `Signed in as: ${maskEmail(currentEmail)} | role: ${data.role || "steward"}`;
 
         await loadPenaltyCodes();
         await loadTickets();
@@ -955,7 +965,7 @@
       await loadTickets();
     }
 
-    // ---------- steward discussion (SHOWS who posted using authorKey) ----------
+    // ---------- steward discussion (MASKED display, still stores same authorKey) ----------
     async function loadDiscussion() {
       const list = $("discussionList");
 
@@ -985,7 +995,8 @@
           const when = ts ? ts.toLocaleString() : "—";
 
           const authorKey = String(d.authorKey || "").trim();
-          const who = authorKey || "Unknown";
+          // CHANGED: display masked (no domain)
+          const who = authorKey ? maskEmail(authorKey) : "Unknown";
 
           const box = document.createElement("div");
           box.className = "commentBox";
