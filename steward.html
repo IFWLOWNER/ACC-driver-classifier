@@ -352,7 +352,7 @@
           </div>
 
           <div class="muted" style="margin-top:8px;">
-            Writes to <code>/tickets/&lt;ticket&gt;/steward_comments</code>
+            Writes to <code>/tickets&lt;ticket&gt;/steward_comments</code>
           </div>
         </div>
 
@@ -478,13 +478,11 @@
       return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
     }
 
-    // --- NEW: reverse mapping for U (User Input) ---
-    // UI is 1..5 (minimal..extreme), but stored score should be reversed: stored = 6 - ui
+    // --- reverse mapping for U (User Input) ---
     function reverseScore(v) {
       const n = clampScore(v);
       return 6 - n;
     }
-    // When loading from DB, convert stored back into the UI scale:
     function unreverseScore(v) {
       const n = clampScore(v);
       return 6 - n;
@@ -549,7 +547,7 @@
       }
     }
 
-    // ---------- NEW: statement status (accused + reporter only) ----------
+    // ---------- statement status (accused + reporter only) ----------
     const statementStatusCache = new Map(); // ticketId -> { accused:bool, reporter:bool }
 
     async function getAccusedReporterStatementStatus(ticketId) {
@@ -557,7 +555,6 @@
 
       const col = db.collection("tickets").doc(ticketId).collection("player_statements");
 
-      // Efficient query first; fallback to full fetch if it errors
       try {
         const snap = await col.where("role", "in", ["accused", "reporter"]).get();
         let accused = false, reporter = false;
@@ -613,7 +610,7 @@
       el.innerHTML = `Statements: ❌ Missing ${missing.join(" + ")}<br><small>Awaiting required statements</small>`;
     }
 
-    // ---------- penalty codes dropdown (matches your JSON keys) ----------
+    // ---------- penalty codes dropdown ----------
     async function loadPenaltyCodes() {
       const sel = $("penaltyCode");
       if (!sel) return;
@@ -700,8 +697,7 @@
     const refreshDiscussionBtn = $("refreshDiscussionBtn");
     const postDiscussionBtn = $("postDiscussionBtn");
 
-    // ---------- NEW: CAUSE "text" fields are now INFO boxes ----------
-    // Only read/write .value for real inputs; INFO boxes return "" so stewards can't "submit" guidance text.
+    // ---------- CAUSE "text" fields are INFO boxes ----------
     function isFormTextInput(el) {
       if (!el) return false;
       const tag = (el.tagName || "").toUpperCase();
@@ -746,7 +742,6 @@
 
         if (isHead) { window.location.href = "headsteward.html"; return; }
 
-        // Welcome line
         const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
         const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
         welcomeLineEl.textContent = `Welcome, ${niceName}. Your live workload is shown on the left — please review any tickets marked as needing your CAUSE input.`;
@@ -797,7 +792,6 @@
       workloadPillEl.textContent = "Loading…";
       workloadSubEl.textContent = "Live tickets are non-finalised tickets that may still need a CAUSE review from you.";
 
-      // reset statement cache each refresh so changes show
       statementStatusCache.clear();
 
       const snap = await db.collection("tickets").limit(200).get();
@@ -860,7 +854,6 @@
         ticketListEl.appendChild(div);
         shown++;
 
-        // async update statement tag
         (async () => {
           try {
             const tagEl = div.querySelector(`[id="stmt_${CSS.escape(t.id)}"]`);
@@ -891,7 +884,6 @@
       $("statementsHint").textContent = "Loading statements…";
       $("statementsList").innerHTML = "";
 
-      // discussion UI reset
       $("discussionList").innerHTML = `<div class="muted">Loading comments…</div>`;
       $("discussionInput").value = "";
 
@@ -960,13 +952,10 @@
       }
 
       $("statementsHint").textContent = `Loaded ${rows.length} statement(s).`;
-
-      // optional: refresh ticket list so the statement boxes update quickly after new statements
-      // (keeps features intact; just updates UI)
       await loadTickets();
     }
 
-    // ---------- steward discussion (NOW shows who posted) ----------
+    // ---------- steward discussion (SHOWS who posted using authorKey) ----------
     async function loadDiscussion() {
       const list = $("discussionList");
 
@@ -995,11 +984,8 @@
           const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
           const when = ts ? ts.toLocaleString() : "—";
 
-          // NEW: show who posted it (for stewards + head steward)
-          // Prefer authorEmail; fallback to authorKey for older records
-          const authorEmail = String(d.authorEmail || "").trim();
           const authorKey = String(d.authorKey || "").trim();
-          const who = authorEmail || authorKey || "Unknown";
+          const who = authorKey || "Unknown";
 
           const box = document.createElement("div");
           box.className = "commentBox";
@@ -1036,15 +1022,13 @@
       try {
         const col = db.collection("tickets").doc(selectedTicketId).collection("steward_comments");
 
-        // Keep authorKey (compat), ADD authorEmail so stewards can see who posted
+        // IMPORTANT: must match Firestore rules hasOnly(["text","createdAt","authorKey"])
         const authorKey = safeKey(currentEmail);
-        const authorEmail = currentEmail;
 
         await col.add({
           text,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          authorKey,
-          authorEmail
+          authorKey
         });
 
         input.value = "";
@@ -1081,7 +1065,6 @@
       $("aScore").value = String(clampScore(cause.awareness?.score));
       setFreeText("aText", cause.awareness?.text || "");
 
-      // IMPORTANT: show steward-facing U score (unreverse what was stored)
       $("uScore").value = String(unreverseScore(cause.userInput?.score));
       setFreeText("uText", cause.userInput?.text || "");
 
@@ -1112,7 +1095,6 @@
         const reviewId = safeKey(currentEmail);
         const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
 
-        // IMPORTANT: store reversed U score so "extreme" (5) becomes 1 (most punished)
         const uUi = Number($("uScore").value);
         const uStored = reverseScore(uUi);
 
