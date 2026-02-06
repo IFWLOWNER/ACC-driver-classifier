@@ -256,6 +256,7 @@
       <div class="muted" style="margin-top:8px;">
         Shows finalised tickets. Greenlit means Head Steward has approved it for publishing.
         Pending green light means it is awaiting Head Steward confirmation.
+        Submitted to SimGrid means SimGrid has processed it and it’s now completed (hidden from this queue).
         <span id="headHint"></span>
       </div>
 
@@ -423,6 +424,7 @@
     let roleText = "";
     let isHeadSteward = false;
     let isSimgrid = false;
+    let isSimgridOnly = false; // ONLY simgrid users get "Submitted to SimGrid"
 
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
@@ -440,8 +442,8 @@
       const hay = [
         t.id, t.status, t.event, t.competition, t.accused, t.reporter, t.track,
         t.stewardDecision, t.postRaceCode, t.ruleBreach,
-        t.simgridGreenlitBy, t.simgridRevokedBy,
-        t.simgridPendingBy
+        t.simgridGreenlitBy, t.simgridRevokedBy, t.simgridPendingBy,
+        t.simgridSubmittedBy
       ].map(x => String(x || "").toLowerCase()).join(" | ");
       return hay.includes(s);
     }
@@ -608,9 +610,55 @@
       }
     }
 
+    async function setSubmittedToSimgrid(ticketId){
+      if (!isSimgridOnly){
+        toast("Only SimGrid users can submit tickets to SimGrid.");
+        return;
+      }
+      if (!ticketId) return;
+
+      if (busyIds.has(ticketId)) return;
+      busyIds.add(ticketId);
+      renderFiltered();
+
+      try{
+        const ref = db.collection("tickets").doc(ticketId);
+
+        // Mark completed for SimGrid processing.
+        // This hides it from this queue (we filter out submitted).
+        await ref.update({
+          simgridSubmitted: true,
+          simgridSubmittedBy: currentEmail,
+          simgridSubmittedAt: serverNow(),
+
+          // optional clean-up so it doesn't sit in pending
+          simgridPendingGreenlit: false,
+          simgridPendingBy: firebase.firestore.FieldValue.delete(),
+          simgridPendingAt: firebase.firestore.FieldValue.delete()
+        });
+
+        toast("Submitted to SimGrid ✅ (Completed)");
+        await loadFinalised();
+      } finally {
+        busyIds.delete(ticketId);
+        renderFiltered();
+      }
+    }
+
     function auditText(t){
+      const submitted = !!t.simgridSubmitted;
       const green = !!t.simgridGreenlit;
       const pending = !!t.simgridPendingGreenlit && !green;
+
+      if (submitted){
+        const who = t.simgridSubmittedBy ? escapeHtml(t.simgridSubmittedBy) : "—";
+        const when = t.simgridSubmittedAt ? escapeHtml(formatTimestamp(t.simgridSubmittedAt)) : "—";
+        return `
+          <span class="tag ok">Submitted</span>
+          <div class="muted" style="margin-top:4px;">By: ${who}</div>
+          <div class="muted">At: ${when}</div>
+        `;
+      }
 
       if (green){
         const who = t.simgridGreenlitBy ? escapeHtml(t.simgridGreenlitBy) : "—";
@@ -653,8 +701,10 @@
       const mode = $("viewMode").value;
       const q = ($("search").value || "").trim();
 
+      // IMPORTANT: submitted tickets are considered "completed" and removed from this queue
       const filtered = allRows
         .filter(t => isFinalised(t.status))
+        .filter(t => !t.simgridSubmitted)
         .filter(t => {
           if (mode === "all") return true;
           if (mode === "greenlit") return !!t.simgridGreenlit;
@@ -670,8 +720,14 @@
           mode === "pending" ? "Pending green light" :
           "Greenlit only"
         }`;
-      $("permPill").textContent = `Permissions: ${isHeadSteward ? "Head Steward" : "Read-only"}`;
-      $("headHint").textContent = isHeadSteward ? " You can approve/revoke tickets below." : "";
+
+      // display permissions clearly
+      const permLabel =
+        isHeadSteward ? "Head Steward" :
+        isSimgridOnly ? "SimGrid" :
+        "Read-only";
+      $("permPill").textContent = `Permissions: ${permLabel}`;
+      $("headHint").textContent = isHeadSteward ? " You can approve/revoke tickets below." : (isSimgridOnly ? " You can submit greenlit tickets to SimGrid." : "");
 
       $("hint").textContent = `Showing ${filtered.length} ticket(s). (Newest first)`;
 
@@ -689,39 +745,52 @@
         const proofLink = proof ? `<a href="${escapeHtml(proof)}" target="_blank" rel="noopener">Open</a>` : "—";
 
         const isBusy = busyIds.has(t.id);
-        const canAct = isHeadSteward && !isBusy;
 
-        // actions (head steward only)
+        const canHeadAct = isHeadSteward && !isBusy;
+        const canSimgridAct = isSimgridOnly && !isBusy;
+
+        // actions
         let actionHtml = "—";
+
+        // Head steward actions
         if (isHeadSteward){
           if (green){
             actionHtml = `
-              <button class="danger" ${canAct ? "" : "disabled"} data-action="revoke" data-id="${escapeHtml(t.id)}">
+              <button class="danger" ${canHeadAct ? "" : "disabled"} data-action="revoke" data-id="${escapeHtml(t.id)}">
                 Revoke
               </button>
             `;
           } else {
-            // Not greenlit: show BOTH buttons (Greenlight + Pending Green Light)
             actionHtml = `
               <div class="row" style="gap:8px;">
-                <button class="primary" ${canAct ? "" : "disabled"} data-action="approve" data-id="${escapeHtml(t.id)}">
+                <button class="primary" ${canHeadAct ? "" : "disabled"} data-action="approve" data-id="${escapeHtml(t.id)}">
                   Greenlight
                 </button>
                 ${
                   pending
-                    ? `<button ${canAct ? "" : "disabled"} data-action="clearPending" data-id="${escapeHtml(t.id)}">
+                    ? `<button ${canHeadAct ? "" : "disabled"} data-action="clearPending" data-id="${escapeHtml(t.id)}">
                          Pending green light
                        </button>`
-                    : `<button ${canAct ? "" : "disabled"} data-action="pending" data-id="${escapeHtml(t.id)}">
+                    : `<button ${canHeadAct ? "" : "disabled"} data-action="pending" data-id="${escapeHtml(t.id)}">
                          Pending green light
                        </button>`
                 }
               </div>
             `;
           }
-          if (isBusy){
-            actionHtml += `<div class="muted" style="margin-top:6px;">Updating…</div>`;
-          }
+        }
+
+        // SimGrid actions (ONLY simgrid users, ONLY when already greenlit)
+        if (isSimgridOnly && green){
+          actionHtml = `
+            <button class="primary" ${canSimgridAct ? "" : "disabled"} data-action="submitSimgrid" data-id="${escapeHtml(t.id)}">
+              Submitted to SimGrid
+            </button>
+          `;
+        }
+
+        if ((isHeadSteward || isSimgridOnly) && isBusy){
+          actionHtml += `<div class="muted" style="margin-top:6px;">Updating…</div>`;
         }
 
         const auditHtml = auditText(t);
@@ -747,14 +816,19 @@
         tbody.appendChild(tr);
       }
 
-      // wire row buttons (event delegation)
       tbody.querySelectorAll("button[data-action]").forEach(btn => {
         btn.onclick = () => {
-          if (!isHeadSteward) return toast("Read-only account.");
           const id = btn.getAttribute("data-id");
           const action = btn.getAttribute("data-action");
           const ticket = allRows.find(x => x.id === id);
           if (!ticket) return;
+
+          // Permissions gate
+          if (action === "submitSimgrid"){
+            if (!isSimgridOnly) return toast("Read-only account.");
+          } else {
+            if (!isHeadSteward) return toast("Read-only account.");
+          }
 
           const metaRows = [
             { k: "Ticket", v: `<span class="mono">${escapeHtml(ticket.id)}</span>` },
@@ -805,6 +879,19 @@
             return;
           }
 
+          if (action === "submitSimgrid"){
+            openModal({
+              title: "Submit to SimGrid and complete?",
+              subtitle: "SimGrid processing action (final step)",
+              body: "This will mark the ticket as submitted to SimGrid and remove it from this queue (completed).",
+              confirmText: "Submit to SimGrid",
+              confirmStyle: "primary",
+              metaRows,
+              onConfirm: async () => setSubmittedToSimgrid(id)
+            });
+            return;
+          }
+
           // revoke
           openModal({
             title: "Revoke greenlight?",
@@ -846,18 +933,23 @@
             simgridGreenlitBy: x.simgridGreenlitBy || "",
             simgridGreenlitAt: x.simgridGreenlitAt || null,
 
-            // pending green light (new)
+            // pending green light
             simgridPendingGreenlit: x.simgridPendingGreenlit === true,
             simgridPendingBy: x.simgridPendingBy || "",
             simgridPendingAt: x.simgridPendingAt || null,
 
-            // revoke audit (new)
+            // submitted to simgrid (completion)
+            simgridSubmitted: x.simgridSubmitted === true,
+            simgridSubmittedBy: x.simgridSubmittedBy || "",
+            simgridSubmittedAt: x.simgridSubmittedAt || null,
+
+            // revoke audit
             simgridRevokedBy: x.simgridRevokedBy || "",
             simgridRevokedAt: x.simgridRevokedAt || null
           };
         });
 
-        // NEW: sort by timestamp newest first (most recent downwards)
+        // sort by timestamp newest first
         rows.sort((a,b) => timestampMs(b.timestamp) - timestampMs(a.timestamp));
 
         allRows = rows;
@@ -899,6 +991,9 @@
           isSimgrid = roleText.includes("simgrid");
           isHeadSteward = roleText.includes("head") || data.headsteward === true || data.owner === true;
 
+          // ONLY simgrid users get the "Submitted to SimGrid" action
+          isSimgridOnly = isSimgrid && !isHeadSteward;
+
           // Keep access rules the same: SimGrid OR Head can view.
           if (!isSimgrid && !isHeadSteward){
             toast("Access denied (simgrid only).");
@@ -909,13 +1004,22 @@
 
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Admin";
-          $("welcomeLine").textContent =
-            isHeadSteward
-              ? `Welcome, ${niceName}. You can approve/revoke finalised tickets for publishing (or mark them pending).`
-              : `Welcome, ${niceName}. This page shows finalised tickets approved for publishing.`;
+
+          if (isHeadSteward){
+            $("welcomeLine").textContent = `Welcome, ${niceName}. You can approve/revoke finalised tickets for publishing (or mark them pending).`;
+          } else if (isSimgridOnly){
+            $("welcomeLine").textContent = `Welcome, ${niceName}. You can submit greenlit tickets to SimGrid to complete them.`;
+          } else {
+            $("welcomeLine").textContent = `Welcome, ${niceName}. This page shows finalised tickets approved for publishing.`;
+          }
 
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
-          $("permPill").textContent = `Permissions: ${isHeadSteward ? "Head Steward" : "Read-only"}`;
+
+          const permLabel =
+            isHeadSteward ? "Head Steward" :
+            isSimgridOnly ? "SimGrid" :
+            "Read-only";
+          $("permPill").textContent = `Permissions: ${permLabel}`;
 
           await loadFinalised();
         }catch(e){
