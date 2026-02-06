@@ -204,6 +204,64 @@
       word-break: break-word;
     }
 
+    /* --- NEW: Steward audit table --- */
+    .auditBox{
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      padding:10px 12px;
+      background:rgba(250,250,250,0.92);
+      margin:10px 0 12px;
+    }
+    .auditTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .auditTitle{
+      font-weight:900;
+      font-size:13px;
+      margin:0;
+    }
+    .auditMeta{
+      margin-top:6px;
+      font-size:12px;
+      color:#6b7280;
+      line-height:1.25;
+    }
+    .auditTableWrap{
+      margin-top:10px;
+      overflow:auto;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+    }
+    table.auditTable{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:520px;
+    }
+    .auditTable th, .auditTable td{
+      padding:10px 10px;
+      border-bottom:1px solid #f3f4f6;
+      font-size:13px;
+      text-align:left;
+      vertical-align:top;
+    }
+    .auditTable th{
+      position:sticky;
+      top:0;
+      background:#f9fafb;
+      z-index:2;
+      font-size:12px;
+      color:#111827;
+      border-bottom:1px solid #e5e7eb;
+    }
+    .auditTable tr:last-child td{ border-bottom:0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
     @media (max-width: 980px) {
       body { background-attachment:scroll; }
       header { flex-direction:column; align-items:stretch; }
@@ -221,6 +279,7 @@
       .brand img { width:34px; height:34px; margin-top:0; }
       #refreshDiscussionBtn { width:100%; }
       #postDiscussionBtn { width:100%; }
+      #refreshAuditBtn { width:100%; }
     }
   </style>
 </head>
@@ -257,6 +316,37 @@
         </div>
         <div class="workloadSub" id="workloadSub">
           As Head Steward, you oversee all live tickets. “Needs your CAUSE input” is optional, but useful for tie-breaks.
+        </div>
+      </div>
+
+      <!-- NEW: Steward Input (Last 7 Days) -->
+      <div class="auditBox" aria-label="Steward input audit">
+        <div class="auditTop">
+          <div class="auditTitle">Steward Input (Last 7 Days)</div>
+          <div class="row">
+            <button id="refreshAuditBtn">Refresh</button>
+          </div>
+        </div>
+
+        <div class="auditMeta" id="auditMeta">Loading…</div>
+
+        <div class="auditTableWrap" id="auditTableWrap" style="display:none;">
+          <table class="auditTable" aria-label="Steward input table">
+            <thead>
+              <tr>
+                <th>Steward</th>
+                <th>Comments (7d)</th>
+                <th>Reviews (7d)</th>
+                <th>Tickets Touched (7d)</th>
+                <th>Last Active</th>
+              </tr>
+            </thead>
+            <tbody id="auditTbody"></tbody>
+          </table>
+        </div>
+
+        <div class="muted" style="margin-top:8px;">
+          Counts include <code>collectionGroup</code> queries across all tickets.
         </div>
       </div>
 
@@ -679,6 +769,7 @@
     $("refreshStatementsBtn").onclick = () => loadStatements();
     $("refreshAggBtn").onclick = () => refreshAggregate();
     if (refreshDiscussionBtn) refreshDiscussionBtn.onclick = () => loadDiscussion();
+    $("refreshAuditBtn").onclick = () => loadStewardAudit7d();
     filterEl.onchange = () => loadTickets();
     loadMyReviewBtn.onclick = () => loadMyReview();
     submitReviewBtn.onclick = () => submitMyReview();
@@ -1026,6 +1117,131 @@
       }
     }
 
+    // ---------- NEW: Steward Input Audit (Last 7 Days) ----------
+    async function loadStewardAudit7d() {
+      const metaEl = $("auditMeta");
+      const wrapEl = $("auditTableWrap");
+      const bodyEl = $("auditTbody");
+
+      wrapEl.style.display = "none";
+      bodyEl.innerHTML = "";
+      metaEl.textContent = "Loading steward input…";
+
+      const now = Date.now();
+      const sinceMs = now - (7 * 24 * 60 * 60 * 1000);
+      const since = firebase.firestore.Timestamp.fromDate(new Date(sinceMs));
+
+      // Map: key -> stats
+      const m = new Map();
+      function getOrCreate(key, label) {
+        if (!m.has(key)) {
+          m.set(key, {
+            key,
+            label: label || key,
+            comments: 0,
+            reviews: 0,
+            tickets: new Set(),
+            lastActiveMs: 0
+          });
+        }
+        return m.get(key);
+      }
+
+      // Extract ticketId from /tickets/<ticketId>/<subcollection>/<docId>
+      function ticketIdFromDocRef(docRef) {
+        try {
+          return docRef?.parent?.parent?.id || "";
+        } catch {
+          return "";
+        }
+      }
+
+      let commentDocs = 0;
+      let reviewDocs = 0;
+
+      try {
+        // Comments (7 days) — collectionGroup
+        const commentsSnap = await db
+          .collectionGroup("steward_comments")
+          .where("createdAt", ">=", since)
+          .get();
+
+        commentDocs = commentsSnap.size;
+
+        commentsSnap.forEach(doc => {
+          const d = doc.data() || {};
+          const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
+          if (!ts) return;
+
+          const author = String(d.authorKey || d.stewardEmail || "unknown").trim() || "unknown";
+          const key = safeKey(author) || "unknown";
+          const ticketId = ticketIdFromDocRef(doc.ref);
+
+          const s = getOrCreate(key, author);
+          s.comments += 1;
+          if (ticketId) s.tickets.add(ticketId);
+
+          const tms = ts.getTime();
+          if (tms > s.lastActiveMs) s.lastActiveMs = tms;
+        });
+
+        // Reviews (7 days) — optional but very useful “input”
+        const reviewsSnap = await db
+          .collectionGroup("reviews")
+          .where("submittedAt", ">=", since)
+          .get();
+
+        reviewDocs = reviewsSnap.size;
+
+        reviewsSnap.forEach(doc => {
+          const d = doc.data() || {};
+          const ts = d.submittedAt && d.submittedAt.toDate ? d.submittedAt.toDate() : null;
+          if (!ts) return;
+
+          const author = String(d.stewardEmail || d.authorKey || "unknown").trim() || "unknown";
+          const key = safeKey(author) || "unknown";
+          const ticketId = ticketIdFromDocRef(doc.ref);
+
+          const s = getOrCreate(key, author);
+          s.reviews += 1;
+          if (ticketId) s.tickets.add(ticketId);
+
+          const tms = ts.getTime();
+          if (tms > s.lastActiveMs) s.lastActiveMs = tms;
+        });
+
+        const rows = [...m.values()]
+          .filter(x => (x.comments + x.reviews) > 0)
+          .sort((a,b) => ((b.comments + b.reviews) - (a.comments + a.reviews)) || (b.lastActiveMs - a.lastActiveMs));
+
+        if (!rows.length) {
+          metaEl.textContent = "No steward activity in the last 7 days.";
+          return;
+        }
+
+        for (const r of rows) {
+          const tr = document.createElement("tr");
+          const last = r.lastActiveMs ? new Date(r.lastActiveMs).toLocaleString() : "—";
+          const ticketsTouched = r.tickets.size;
+
+          tr.innerHTML = `
+            <td class="mono">${escapeHtml(r.label)}</td>
+            <td><b>${r.comments}</b></td>
+            <td><b>${r.reviews}</b></td>
+            <td><b>${ticketsTouched}</b></td>
+            <td>${escapeHtml(last)}</td>
+          `;
+          bodyEl.appendChild(tr);
+        }
+
+        wrapEl.style.display = "block";
+        metaEl.textContent = `Loaded. Comments scanned: ${commentDocs} • Reviews scanned: ${reviewDocs} • Window: last 7 days.`;
+      } catch (e) {
+        console.error("loadStewardAudit7d failed:", e);
+        metaEl.textContent = "Audit failed. Likely missing Firestore index for collectionGroup query, or rules deny access. Check console for the exact Firebase error (it often includes a 'create index' link).";
+      }
+    }
+
     async function loadMyReview() {
       if (!selectedTicketId) return;
 
@@ -1198,6 +1414,7 @@
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
 
           await loadTickets();
+          await loadStewardAudit7d(); // NEW: auto-load audit panel
         } catch (e) {
           toast("Auth/load error: " + (e?.message || e));
         }
