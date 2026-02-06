@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IFWL SimGrid — Finalised Tickets</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      margin:0;
+      background:
+        linear-gradient(rgba(2,6,23,0.72), rgba(2,6,23,0.72)),
+        url("./ifwl_bg.webp");
+      background-size:cover;
+      background-position:center;
+      background-attachment:fixed;
+    }
+
+    header{
+      padding:14px 18px;
+      background:#111827;
+      color:#fff;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .brand{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      min-width:0;
+    }
+    .brand img{
+      width:38px;height:38px;object-fit:contain;margin-top:2px;flex:0 0 auto;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+    }
+    .brandText{min-width:0;}
+    header .small{font-size:12px;opacity:0.85;margin-top:4px;line-height:1.2;word-break:break-word;}
+    .welcomeLine{font-size:12px;opacity:0.95;margin-top:6px;line-height:1.25;}
+
+    .wrap{padding:14px; display:grid; grid-template-columns: 1fr; gap:14px;}
+
+    .card{
+      background:rgba(255,255,255,0.92);
+      border:1px solid rgba(229,231,235,0.95);
+      border-radius:12px;
+      padding:12px;
+      box-shadow:0 10px 28px rgba(0,0,0,0.18);
+    }
+
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+    .title{font-weight:800; font-size:16px; margin:0;}
+    .muted{color:#6b7280; font-size:12px;}
+
+    button{padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer;}
+    button.primary{background:#111827;color:#fff;border-color:#111827;}
+    button:disabled{opacity:0.6;cursor:not-allowed;}
+
+    select, input{
+      padding:10px; border:1px solid #d1d5db; border-radius:12px;
+      box-sizing:border-box; font-size:16px; background:#fff;
+    }
+
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:4px 10px; border-radius:999px;
+      border:1px solid #e5e7eb; background:#fff;
+      font-size:12px; color:#111827; white-space:nowrap;
+    }
+    .pill strong{font-weight:900;}
+
+    .tableWrap{
+      overflow:auto;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      margin-top:10px;
+    }
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:1100px;
+    }
+    th, td{
+      padding:10px;
+      border-bottom:1px solid #f3f4f6;
+      font-size:13px;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      position:sticky;
+      top:0;
+      background:#f9fafb;
+      z-index:2;
+      font-size:12px;
+      color:#111827;
+      border-bottom:1px solid #e5e7eb;
+      white-space:nowrap;
+    }
+    tr:last-child td{border-bottom:0;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
+    a{color:#111827;}
+    a:hover{opacity:0.85;}
+
+    .tag{
+      display:inline-block;
+      padding:3px 10px;
+      border-radius:999px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .tag.ok{border-color:#86efac;background:#ecfdf5;color:#065f46;}
+    .tag.bad{border-color:#fca5a5;background:#fef2f2;color:#991b1b;}
+
+    .toast{
+      position:fixed; right:16px; bottom:16px;
+      background:#111827; color:#fff;
+      padding:10px 12px; border-radius:12px;
+      opacity:0; transform: translateY(8px);
+      transition: all .18s ease;
+      z-index:9999;
+      max-width: min(520px, calc(100vw - 32px));
+      white-space: pre-wrap;
+    }
+    .toast.show{opacity:1; transform: translateY(0);}
+
+    @media (max-width: 980px){
+      body{background-attachment:scroll;}
+      header{flex-direction:column; align-items:stretch;}
+      header .row{width:100%;}
+      header button{width:100%;}
+      table{min-width:980px;}
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">
+      <img src="./ifwl_logo.png" alt="IFWL logo">
+      <div class="brandText">
+        <div style="font-weight:800; font-size:18px;">IFWL SimGrid — Finalised Tickets</div>
+        <div class="welcomeLine" id="welcomeLine">Loading your profile…</div>
+        <div class="small" id="who">Loading…</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="backBtn">Back to Classifier</button>
+      <button id="logoutBtn">Sign out</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div class="title">Publish Queue</div>
+        <div class="row">
+          <button id="refreshBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px; justify-content:space-between;">
+        <div class="row">
+          <span class="pill" id="countPill">Loading…</span>
+          <span class="pill" id="modePill">Mode: …</span>
+        </div>
+
+        <div class="row">
+          <label class="muted" style="margin-right:6px;">Show</label>
+          <select id="viewMode">
+            <option value="greenlit" selected>Greenlit only</option>
+            <option value="all">All finalised</option>
+          </select>
+
+          <input id="search" placeholder="Search ticket / accused / reporter / event…" style="min-width:280px;">
+        </div>
+      </div>
+
+      <div class="muted" style="margin-top:8px;">
+        Shows finalised tickets. Greenlit means Head Steward has approved it for Discord publishing.
+      </div>
+
+      <div class="tableWrap">
+        <table aria-label="Finalised tickets table">
+          <thead>
+            <tr>
+              <th>Greenlit</th>
+              <th>Ticket</th>
+              <th>Status</th>
+              <th>Event</th>
+              <th>Competition</th>
+              <th>Accused</th>
+              <th>Reporter</th>
+              <th>Track</th>
+              <th>Penalty</th>
+              <th>Decision</th>
+              <th>Timestamp</th>
+              <th>Proof</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="muted" style="margin-top:8px;" id="hint">—</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Saved</div>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="./firebase-init.js"></script>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const toastEl = $("toast");
+    function toast(msg){
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 2200);
+    }
+
+    function safeKey(email){ return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
+    function escapeHtml(s){ return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+
+    function isFinalised(status){
+      const s = (status || "").trim().toUpperCase();
+      return s === "FINALISED" || s === "FINALIZED" || s === "CLOSED" || s === "RESOLVED";
+    }
+
+    // RP code -> penalty fallback (only used if no (15s) present)
+    const rpPenaltyMap = {
+      "RP1MI":"10s","RP1ST":"30s","RP1SE":"SG30",
+      "RP2MI":"10s","RP2ST":"30s","RP2SE":"SG30",
+      "RP3MI":"5s","RP3ST":"15s","RP3SE":"SG30",
+      "RP4MI":"30s","RP4ST":"SG30","RP4SE":"DQ",
+      "RP5MI":"5s","RP5ST":"15s","RP5SE":"30s",
+      "RP6MI":"5s","RP6ST":"30s","RP6SE":"SG30",
+      "RP7MI":"10s","RP7ST":"30s","RP7SE":"SG30",
+      "RP8MI":"5s","RP8ST":"15s","RP8SE":"SG30",
+      "RP9MI":"5s","RP9ST":"15s","RP9SE":"SG30",
+      "RP10MI":"10s","RP10ST":"10s","RP10SE":"10s",
+      "RP11MI":"DQ","RP11ST":"DQ","RP11SE":"DQ",
+      "RP12MI":"10s","RP12ST":"20s","RP12SV":"30s",
+      "RP13MI":"10s","RP13ST":"30s","RP13SV":"DQ"
+    };
+
+    function parsePenaltyFromText(text){
+      const src = String(text || "").trim();
+      if (!src) return "-";
+
+      const up = src.toUpperCase();
+
+      // Explicit outcomes
+      if (up.includes("NFA")) return "NFA";
+      // If the text itself contains DQ anywhere, respect it
+      if (up.includes("DQ")) return "DQ";
+
+      // Seconds in brackets: (15s) / (15 s) / (15sec)
+      const mSec = src.match(/\((\s*\d+\s*)(s|sec|secs|seconds)?\s*\)/i);
+      if (mSec && mSec[1]) {
+        const n = parseInt(String(mSec[1]).replace(/\D/g,""), 10);
+        if (!isNaN(n) && n > 0) return `${n}s`;
+      }
+
+      // RP code fallback
+      const mRp = src.match(/\b(RP[0-9A-Z]+)\b/i);
+      if (mRp && mRp[1]) {
+        const code = String(mRp[1]).toUpperCase();
+        if (rpPenaltyMap[code]) return rpPenaltyMap[code];
+        return code;
+      }
+
+      return src.slice(0, 80);
+    }
+
+    function ticketPenalty(ticket){
+      // prefer postRaceCode, fallback ruleBreach
+      const prc = ticket.postRaceCode || "";
+      const rb  = ticket.ruleBreach || "";
+      return parsePenaltyFromText(prc || rb);
+    }
+
+    function formatTimestamp(v){
+      try{
+        if (!v) return "";
+        if (v.toDate) return v.toDate().toLocaleString();
+        const d = new Date(v);
+        if (!isNaN(d.getTime())) return d.toLocaleString();
+      }catch{}
+      return "";
+    }
+
+    // auth state
+    let currentEmail = "";
+    let roleText = "";
+
+    $("backBtn").onclick = () => window.location.href = "index.html";
+    $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
+
+    $("refreshBtn").onclick = () => loadFinalised();
+    $("viewMode").onchange = () => loadFinalised();
+    $("search").oninput = () => renderFiltered();
+
+    let allRows = []; // cached ticket objects
+
+    function matchesSearch(t, q){
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const hay = [
+        t.id, t.status, t.event, t.competition, t.accused, t.reporter, t.track, t.stewardDecision, t.postRaceCode, t.ruleBreach
+      ].map(x => String(x || "").toLowerCase()).join(" | ");
+      return hay.includes(s);
+    }
+
+    function renderFiltered(){
+      const tbody = $("tbody");
+      tbody.innerHTML = "";
+
+      const mode = $("viewMode").value;
+      const q = ($("search").value || "").trim();
+
+      const filtered = allRows
+        .filter(t => isFinalised(t.status))
+        .filter(t => mode === "all" ? true : !!t.simgridGreenlit)
+        .filter(t => matchesSearch(t, q));
+
+      $("countPill").innerHTML = `Tickets: <strong>${filtered.length}</strong>`;
+      $("modePill").textContent = `Mode: ${mode === "all" ? "All finalised" : "Greenlit only"}`;
+      $("hint").textContent = `Showing ${filtered.length} ticket(s).`;
+
+      for (const t of filtered){
+        const tr = document.createElement("tr");
+
+        const green = !!t.simgridGreenlit;
+        const greenTag = green
+          ? `<span class="tag ok">YES</span>`
+          : `<span class="tag bad">NO</span>`;
+
+        const proof = (t.proofUrl || "").trim();
+        const proofLink = proof ? `<a href="${escapeHtml(proof)}" target="_blank" rel="noopener">Open</a>` : "—";
+
+        tr.innerHTML = `
+          <td>${greenTag}</td>
+          <td class="mono">${escapeHtml(t.id)}</td>
+          <td>${escapeHtml(t.status || "")}</td>
+          <td>${escapeHtml(t.event || "")}</td>
+          <td>${escapeHtml(t.competition || "")}</td>
+          <td>${escapeHtml(t.accused || "")}</td>
+          <td>${escapeHtml(t.reporter || "")}</td>
+          <td>${escapeHtml(t.track || "")}</td>
+          <td><b>${escapeHtml(ticketPenalty(t))}</b></td>
+          <td>${escapeHtml(t.stewardDecision || "")}</td>
+          <td>${escapeHtml(formatTimestamp(t.timestamp))}</td>
+          <td>${proofLink}</td>
+        `;
+
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function loadFinalised(){
+      try{
+        $("tbody").innerHTML = "";
+        $("countPill").textContent = "Loading…";
+        $("hint").textContent = "Loading tickets…";
+
+        const snap = await db.collection("tickets").limit(500).get();
+        const rows = snap.docs.map(d => {
+          const x = d.data() || {};
+          return {
+            id: d.id,
+            status: x.status || "",
+            event: x.event || "",
+            competition: x.competition || "",
+            accused: x.accused || "",
+            reporter: x.reporter || "",
+            track: x.track || "",
+            postRaceCode: x.postRaceCode || "",
+            ruleBreach: x.ruleBreach || "",
+            stewardDecision: x.stewardDecision || "",
+            proofUrl: x.proofUrl || "",
+            timestamp: x.timestamp || null,
+            simgridGreenlit: x.simgridGreenlit === true,
+            simgridGreenlitBy: x.simgridGreenlitBy || "",
+            simgridGreenlitAt: x.simgridGreenlitAt || null
+          };
+        });
+
+        allRows = rows;
+        renderFiltered();
+        toast("Loaded ✅");
+      }catch(e){
+        console.error(e);
+        toast("Load failed:\n" + (e?.message || e));
+      }
+    }
+
+    async function waitForFirebaseReady(maxMs = 8000){
+      const start = Date.now();
+      while (Date.now() - start < maxMs){
+        if (typeof auth !== "undefined" && typeof db !== "undefined" && auth && db) return true;
+        await new Promise(r => setTimeout(r, 80));
+      }
+      return false;
+    }
+
+    (async () => {
+      const ok = await waitForFirebaseReady();
+      if (!ok){
+        toast("Firebase not ready.\nCheck firebase-init.js path + console.");
+        return;
+      }
+
+      auth.onAuthStateChanged(async (user) => {
+        try{
+          if (!user){ window.location.href = "admin.html"; return; }
+          currentEmail = (user.email || "").toLowerCase().trim();
+
+          const adminSnap = await db.collection("admins").doc(currentEmail).get();
+          if (!adminSnap.exists){ await auth.signOut(); window.location.href = "admin.html"; return; }
+
+          const data = adminSnap.data() || {};
+          roleText = String(data.role || "").toLowerCase();
+
+          const isSimgrid = roleText.includes("simgrid");
+          const isHead = roleText.includes("head") || data.headsteward === true || data.owner === true;
+
+          if (!isSimgrid && !isHead){
+            toast("Access denied (simgrid only).");
+            await auth.signOut();
+            window.location.href = "admin.html";
+            return;
+          }
+
+          const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+          const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Admin";
+          $("welcomeLine").textContent = `Welcome, ${niceName}. This page shows finalised tickets approved for SimGrid publishing.`;
+          $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
+
+          await loadFinalised();
+        }catch(e){
+          toast("Auth/load error:\n" + (e?.message || e));
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
