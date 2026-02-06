@@ -521,7 +521,8 @@
 
   <script>
     // ---------- CONFIG ----------
-    const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1468028412634333236/ZwevuKcMblac5jLWroXxnfCAOfqGFscMFm0bPWFt6Xdcptj3j1DQ6QNT8s6LT64zX_0V";
+    // UPDATED to your provided webhook
+    const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1469289068130074675/Ic3VC8dpmNpV6bZOdIEXPSGSwdAauQ1WMcEy8YAimcYraAHcivJYK3e10GR5iR-3FJJP";
 
     // ---------- helpers ----------
     const $ = (id) => document.getElementById(id);
@@ -544,6 +545,15 @@
     });
 
     function safeKey(email) { return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
+
+    // NEW: mask email for Discord audit output (keeps your UI unchanged)
+    function maskEmail(email) {
+      const e = String(email || "").trim();
+      if (!e) return "";
+      const at = e.indexOf("@");
+      if (at <= 0) return e;
+      return e.slice(0, at); // only local part
+    }
 
     function optionList() {
       return [
@@ -740,6 +750,130 @@
       el.innerHTML = `Statements: ❌ Missing ${missing.join(" + ")}<br><small>Awaiting required statements</small>`;
     }
 
+    // ---------- NEW: Patreon Audit (Discord webhook post) ----------
+    async function discordPost(content) {
+      if (!DISCORD_WEBHOOK_URL.startsWith("https://discord.com/api/webhooks/")) {
+        throw new Error("Webhook invalid");
+      }
+      const resp = await fetch(DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content })
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(`Discord publish failed: ${resp.status} ${resp.statusText} ${txt}`);
+      }
+    }
+
+    function splitDiscordMessages(fullText, maxLen = 1900) {
+      // keep a bit under 2000 to be safe
+      const lines = String(fullText || "").split("\n");
+      const chunks = [];
+      let cur = "";
+      for (const line of lines) {
+        const add = (cur ? "\n" : "") + line;
+        if ((cur.length + add.length) > maxLen) {
+          if (cur.trim()) chunks.push(cur);
+          cur = line;
+        } else {
+          cur += add;
+        }
+      }
+      if (cur.trim()) chunks.push(cur);
+      return chunks.length ? chunks : [fullText.slice(0, maxLen)];
+    }
+
+    async function computeAggregateForTicket(ticketId) {
+      const col = db.collection("tickets").doc(ticketId).collection("reviews");
+      const snap = await col.get();
+      if (snap.empty) return null;
+
+      const reviews = snap.docs.map(d => d.data() || {});
+      const scores = (key) => reviews.map(r => clampScore(r?.CAUSE?.[key]?.score || 0));
+
+      const avgC = avg(scores("control"));
+      const avgA = avg(scores("awareness"));
+      const avgU = avg(reviews.map(r => getUserInputScoreForAggregate(r)));
+      const avgS = avg(scores("severity"));
+      const avgE = avg(scores("environment"));
+
+      const total = avg([avgC, avgA, avgU, avgS, avgE]);
+      const tier = suggestTier(total);
+
+      return { reviewsCount: reviews.length, avgC, avgA, avgU, avgS, avgE, total, tier };
+    }
+
+    async function fetchStewardComments(ticketId) {
+      const col = db.collection("tickets").doc(ticketId).collection("steward_comments");
+      const snap = await col.orderBy("createdAt", "asc").limit(250).get();
+      if (snap.empty) return [];
+
+      const rows = [];
+      snap.forEach(doc => {
+        const d = doc.data() || {};
+        const text = String(d.text || "").trim();
+        if (!text) return;
+
+        const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
+        const when = ts ? ts.toLocaleString() : "—";
+        const author = String(d.authorKey || d.stewardEmail || "unknown").trim() || "unknown";
+
+        rows.push({ when, author, text });
+      });
+      return rows;
+    }
+
+    async function postPatreonAudit(ticketId) {
+      toast("Building Patreon audit…");
+
+      const ticketSnap = await db.collection("tickets").doc(ticketId).get();
+      if (!ticketSnap.exists) throw new Error("Ticket not found");
+
+      const t = ticketSnap.data() || {};
+      const status = (t.status || "Under Review");
+      const event = (t.event || "—");
+      const accused = (t.accused || "—");
+      const reporter = (t.reporter || "—");
+
+      const agg = await computeAggregateForTicket(ticketId);
+      const comments = await fetchStewardComments(ticketId);
+
+      const header =
+`🧾 **IFWL Patreon Audit**
+**Ticket:** \`${ticketId}\`
+**Status:** ${status}
+**Event:** ${event}
+**Accused:** ${accused}
+**Reporter:** ${reporter}`;
+
+      const aggBlock = agg
+        ? `\n\n🎯 **CAUSE Aggregate** (reviews: ${agg.reviewsCount})
+**Total:** ${agg.total}  —  *${agg.tier}*
+C:${agg.avgC}  A:${agg.avgA}  U:${agg.avgU}  S:${agg.avgS}  E:${agg.avgE}`
+        : `\n\n🎯 **CAUSE Aggregate**
+No reviews submitted yet.`;
+
+      const commentsHeader = `\n\n💬 **Steward Comments** (${comments.length})`;
+      const commentLines = comments.length
+        ? comments.map(c => {
+            const who = maskEmail(c.author);
+            // keep each comment reasonably sized (Discord is strict)
+            const text = String(c.text || "").replace(/\s+/g, " ").trim();
+            const clipped = text.length > 350 ? text.slice(0, 350) + "…" : text;
+            return `- [${c.when}] ${who}: ${clipped}`;
+          }).join("\n")
+        : `- None`;
+
+      const full = header + aggBlock + commentsHeader + "\n" + commentLines;
+
+      const chunks = splitDiscordMessages(full, 1900);
+      for (let i = 0; i < chunks.length; i++) {
+        const prefix = chunks.length > 1 ? `(${i+1}/${chunks.length}) ` : "";
+        await discordPost(prefix + chunks[i]);
+      }
+    }
+
     // ---------- state ----------
     let currentUser = null;
     let currentEmail = "";
@@ -834,6 +968,11 @@
           </div>
           <div class="stmtTag" id="stmt_${escapeHtml(t.id)}">Statements: Checking…<small>Accused + Reporter</small></div>
           ${needsMyInput ? `<div class="needTag">Needs your CAUSE input (optional)</div>` : ""}
+
+          <!-- NEW: Patreon Audit button on every ticket -->
+          <div class="row" style="justify-content:flex-end; margin-top:10px;">
+            <button class="primary patreonAuditBtn" data-ticket="${escapeHtml(t.id)}">Patreon Audit</button>
+          </div>
         `;
 
         div.onclick = async () => {
@@ -842,6 +981,32 @@
           [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
           div.classList.add("active");
         };
+
+        // Wire Patreon Audit button (stop it triggering ticket select)
+        const auditBtn = div.querySelector(".patreonAuditBtn");
+        if (auditBtn) {
+          auditBtn.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+
+            const ticketId = auditBtn.getAttribute("data-ticket");
+            if (!ticketId) return;
+
+            auditBtn.disabled = true;
+            const original = auditBtn.textContent;
+            auditBtn.textContent = "Posting…";
+            try {
+              await postPatreonAudit(ticketId);
+              toast("Patreon audit posted ✅");
+            } catch (e) {
+              console.error("Patreon audit failed:", e);
+              toast("Audit failed:\n" + (e?.message || e));
+            } finally {
+              auditBtn.textContent = original;
+              auditBtn.disabled = false;
+            }
+          });
+        }
 
         ticketListEl.appendChild(div);
         shown++;
@@ -1185,7 +1350,7 @@
           if (tms > s.lastActiveMs) s.lastActiveMs = tms;
         });
 
-        // Reviews (7 days) — optional but very useful “input”
+        // Reviews (7 days)
         const reviewsSnap = await db
           .collectionGroup("reviews")
           .where("submittedAt", ">=", since)
