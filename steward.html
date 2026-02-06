@@ -878,23 +878,44 @@
       }
     }
 
-    // NEW: query builder for tickets (fixes missing tickets due to .limit(200) + no ordering)
-    async function fetchTicketsSnapshot() {
-      // Prefer ordering by submittedAt (most recent first)
-      // If your Firestore doesn't have submittedAt on ALL ticket docs, the orderBy may throw.
-      try {
-        return await db.collection("tickets")
-          .orderBy("submittedAt", "desc")
-          .limit(500)
-          .get();
-      } catch (e) {
-        console.warn("Ticket query orderBy(submittedAt) failed; falling back to orderBy(docId):", e);
-        // Fallback: deterministic order by document ID (still better than arbitrary batch)
-        return await db.collection("tickets")
-          .orderBy(firebase.firestore.FieldPath.documentId())
-          .limit(500)
-          .get();
-      }
+    // NEW: query builder for tickets (robust + won't return 0 due to ordering fallback issues)
+async function fetchTicketsSnapshot() {
+  // 1) Best: newest-first by submittedAt
+  try {
+    return await db.collection("tickets")
+      .orderBy("submittedAt", "desc")
+      .limit(500)
+      .get();
+  } catch (e1) {
+    console.warn("orderBy(submittedAt) failed:", e1);
+  }
+
+  // 2) Next best: if you use createdAt anywhere
+  try {
+    return await db.collection("tickets")
+      .orderBy("createdAt", "desc")
+      .limit(500)
+      .get();
+  } catch (e2) {
+    console.warn("orderBy(createdAt) failed:", e2);
+  }
+
+  // 3) Deterministic fallback: document id ordering using __name__
+  try {
+    return await db.collection("tickets")
+      .orderBy("__name__")
+      .limit(500)
+      .get();
+  } catch (e3) {
+    console.warn("orderBy(__name__) failed:", e3);
+  }
+
+  // 4) Last resort: no ordering at all (should always return something if collection exists)
+  return await db.collection("tickets")
+    .limit(500)
+    .get();
+}
+
     }
 
     async function loadTickets() {
