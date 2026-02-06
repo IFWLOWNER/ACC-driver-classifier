@@ -328,15 +328,16 @@
           <div id="statementsList" style="margin-top:8px; display:flex; flex-direction:column; gap:8px;"></div>
         </div>
 
-        <!-- NEW: Stewards Discussion (anonymous display) -->
+        <!-- Stewards Discussion (NOW shows who posted) -->
         <div class="sec" id="discussionSec">
           <div class="row" style="justify-content:space-between;">
             <h3 style="margin:0;">Stewards Discussion</h3>
             <button id="refreshDiscussionBtn">Refresh</button>
           </div>
 
+          <!-- CHANGED: text only (no other UI changes) -->
           <div class="muted" style="margin-top:6px;">
-            Comments are anonymous to stewards (shown as “Stewards comment” + time only).
+            Comments show the steward who posted them (email) + time.
           </div>
 
           <div id="discussionList" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;"></div>
@@ -695,7 +696,7 @@
     const workloadSubEl = $("workloadSub");
     const welcomeLineEl = $("welcomeLine");
 
-    // NEW: discussion buttons
+    // discussion buttons
     const refreshDiscussionBtn = $("refreshDiscussionBtn");
     const postDiscussionBtn = $("postDiscussionBtn");
 
@@ -965,7 +966,7 @@
       await loadTickets();
     }
 
-    // ---------- NEW: steward discussion (anonymous display) ----------
+    // ---------- steward discussion (NOW shows who posted) ----------
     async function loadDiscussion() {
       const list = $("discussionList");
 
@@ -994,10 +995,16 @@
           const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
           const when = ts ? ts.toLocaleString() : "—";
 
+          // NEW: show who posted it (for stewards + head steward)
+          // Prefer authorEmail; fallback to authorKey for older records
+          const authorEmail = String(d.authorEmail || "").trim();
+          const authorKey = String(d.authorKey || "").trim();
+          const who = authorEmail || authorKey || "Unknown";
+
           const box = document.createElement("div");
           box.className = "commentBox";
           box.innerHTML = `
-            <div><b>Stewards comment</b></div>
+            <div><b>Steward:</b> ${escapeHtml(who)}</div>
             <div class="commentMeta">${escapeHtml(when)}</div>
           `;
 
@@ -1029,14 +1036,15 @@
       try {
         const col = db.collection("tickets").doc(selectedTicketId).collection("steward_comments");
 
-        // Store authorKey for audit/moderation (never shown in UI).
-        // If you want “hard anonymity”, remove this field entirely.
+        // Keep authorKey (compat), ADD authorEmail so stewards can see who posted
         const authorKey = safeKey(currentEmail);
+        const authorEmail = currentEmail;
 
         await col.add({
           text,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          authorKey
+          authorKey,
+          authorEmail
         });
 
         input.value = "";
