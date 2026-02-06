@@ -844,21 +844,25 @@
     });
 
     // ---------- tickets ----------
+    // UPDATED: filter uses substring matching (because your statuses can be "Under Review #7 ..." etc.)
     function passesFilter(status) {
       const f = filterEl.value;
-      const s = (status || "").trim().toLowerCase();
+      const s = String(status || "").trim().toLowerCase();
 
-      if (f === "All (non-finalised)") return s !== "finalised";
+      if (f === "All (non-finalised)") return !s.includes("finalised");
 
-      if (f === "Awaiting Review") return s === "" || s === "under review" || s === "awaiting review";
-      if (f === "In Review") return s === "in review";
-      if (f === "Ready to Publish") return s === "ready to publish";
+      if (f === "Awaiting Review") {
+        // treat "Under Review ..." and "Awaiting Review ..." as awaiting review
+        return s === "" || s.includes("under review") || s.includes("awaiting review");
+      }
+      if (f === "In Review") return s.includes("in review");
+      if (f === "Ready to Publish") return s.includes("ready to publish");
       return true;
     }
 
     function isFinalised(status) {
-      const s = (status || "").trim().toLowerCase();
-      return s === "finalised";
+      const s = String(status || "").trim().toLowerCase();
+      return s.includes("finalised");
     }
 
     async function doesMyReviewExist(ticketId) {
@@ -874,6 +878,25 @@
       }
     }
 
+    // NEW: query builder for tickets (fixes missing tickets due to .limit(200) + no ordering)
+    async function fetchTicketsSnapshot() {
+      // Prefer ordering by submittedAt (most recent first)
+      // If your Firestore doesn't have submittedAt on ALL ticket docs, the orderBy may throw.
+      try {
+        return await db.collection("tickets")
+          .orderBy("submittedAt", "desc")
+          .limit(500)
+          .get();
+      } catch (e) {
+        console.warn("Ticket query orderBy(submittedAt) failed; falling back to orderBy(docId):", e);
+        // Fallback: deterministic order by document ID (still better than arbitrary batch)
+        return await db.collection("tickets")
+          .orderBy(firebase.firestore.FieldPath.documentId())
+          .limit(500)
+          .get();
+      }
+    }
+
     async function loadTickets() {
       ticketListEl.innerHTML = "";
       ticketHintEl.textContent = "Loading tickets…";
@@ -883,12 +906,13 @@
       statementStatusCache.clear();
       deliberationStatusCache.clear();
 
-      const snap = await db.collection("tickets").limit(200).get();
+      // UPDATED: fetch ordered + larger batch so "PVT" ticket doesn't get excluded
+      const snap = await fetchTicketsSnapshot();
       const docs = snap.docs;
 
       const tickets = docs.map(d => {
         const data = d.data() || {};
-        const status = (data.status || "").trim();
+        const status = String(data.status || "").trim();
         return { id: d.id, data, status };
       });
 
@@ -990,7 +1014,7 @@
       }
 
       const filterName = filterEl.value;
-      ticketHintEl.textContent = `Showing ${shown} ticket(s) for filter: "${filterName}". Live workload in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max 200 fetched).`;
+      ticketHintEl.textContent = `Showing ${shown} ticket(s) for filter: "${filterName}". Live workload in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max ${docs.length} fetched).`;
     }
 
     async function selectTicket(ticketId) {
