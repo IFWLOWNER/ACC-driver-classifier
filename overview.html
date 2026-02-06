@@ -245,6 +245,7 @@
           <label class="muted" style="margin-right:6px;">Show</label>
           <select id="viewMode">
             <option value="greenlit" selected>Greenlit only</option>
+            <option value="pending">Pending green light</option>
             <option value="all">All finalised</option>
           </select>
 
@@ -254,6 +255,7 @@
 
       <div class="muted" style="margin-top:8px;">
         Shows finalised tickets. Greenlit means Head Steward has approved it for publishing.
+        Pending green light means it is awaiting Head Steward confirmation.
         <span id="headHint"></span>
       </div>
 
@@ -404,6 +406,18 @@
       return "";
     }
 
+    function timestampMs(v){
+      try{
+        if (!v) return 0;
+        if (v.toDate) return v.toDate().getTime();
+        const d = new Date(v);
+        const ms = d.getTime();
+        return isNaN(ms) ? 0 : ms;
+      }catch{
+        return 0;
+      }
+    }
+
     // auth state
     let currentEmail = "";
     let roleText = "";
@@ -426,7 +440,8 @@
       const hay = [
         t.id, t.status, t.event, t.competition, t.accused, t.reporter, t.track,
         t.stewardDecision, t.postRaceCode, t.ruleBreach,
-        t.simgridGreenlitBy, t.simgridRevokedBy
+        t.simgridGreenlitBy, t.simgridRevokedBy,
+        t.simgridPendingBy
       ].map(x => String(x || "").toLowerCase()).join(" | ");
       return hay.includes(s);
     }
@@ -505,6 +520,43 @@
       return firebase.firestore.FieldValue.serverTimestamp();
     }
 
+    async function setPendingGreenlight(ticketId, makePending){
+      if (!isHeadSteward){
+        toast("Only Head Stewards can set pending green light.");
+        return;
+      }
+      if (!ticketId) return;
+
+      if (busyIds.has(ticketId)) return;
+      busyIds.add(ticketId);
+      renderFiltered();
+
+      try{
+        const ref = db.collection("tickets").doc(ticketId);
+
+        if (makePending){
+          await ref.update({
+            simgridPendingGreenlit: true,
+            simgridPendingBy: currentEmail,
+            simgridPendingAt: serverNow()
+          });
+          toast("Marked as Pending ✅");
+        } else {
+          await ref.update({
+            simgridPendingGreenlit: false,
+            simgridPendingBy: firebase.firestore.FieldValue.delete(),
+            simgridPendingAt: firebase.firestore.FieldValue.delete()
+          });
+          toast("Pending cleared ✅");
+        }
+
+        await loadFinalised();
+      } finally {
+        busyIds.delete(ticketId);
+        renderFiltered();
+      }
+    }
+
     async function setGreenlight(ticketId, makeGreenlit){
       if (!isHeadSteward){
         toast("Only Head Stewards can greenlight/revoke.");
@@ -523,6 +575,12 @@
             simgridGreenlit: true,
             simgridGreenlitBy: currentEmail,
             simgridGreenlitAt: serverNow(),
+
+            // clear pending (since it is now confirmed)
+            simgridPendingGreenlit: false,
+            simgridPendingBy: firebase.firestore.FieldValue.delete(),
+            simgridPendingAt: firebase.firestore.FieldValue.delete(),
+
             // clear revoke audit fields (optional)
             simgridRevokedBy: firebase.firestore.FieldValue.delete(),
             simgridRevokedAt: firebase.firestore.FieldValue.delete()
@@ -531,6 +589,12 @@
         } else {
           await ref.update({
             simgridGreenlit: false,
+
+            // clear pending when revoking to avoid confusion
+            simgridPendingGreenlit: false,
+            simgridPendingBy: firebase.firestore.FieldValue.delete(),
+            simgridPendingAt: firebase.firestore.FieldValue.delete(),
+
             simgridRevokedBy: currentEmail,
             simgridRevokedAt: serverNow()
           });
@@ -546,6 +610,8 @@
 
     function auditText(t){
       const green = !!t.simgridGreenlit;
+      const pending = !!t.simgridPendingGreenlit && !green;
+
       if (green){
         const who = t.simgridGreenlitBy ? escapeHtml(t.simgridGreenlitBy) : "—";
         const when = t.simgridGreenlitAt ? escapeHtml(formatTimestamp(t.simgridGreenlitAt)) : "—";
@@ -555,6 +621,18 @@
           <div class="muted">At: ${when}</div>
         `;
       }
+
+      if (pending){
+        const who = t.simgridPendingBy ? escapeHtml(t.simgridPendingBy) : "—";
+        const when = t.simgridPendingAt ? escapeHtml(formatTimestamp(t.simgridPendingAt)) : "—";
+        return `
+          <span class="tag neutral">Pending</span>
+          <div class="muted" style="margin-top:4px;">By: ${who}</div>
+          <div class="muted">At: ${when}</div>
+          <div class="muted" style="margin-top:4px;">Awaiting Head Steward confirmation.</div>
+        `;
+      }
+
       // not greenlit:
       const revokedBy = t.simgridRevokedBy ? escapeHtml(t.simgridRevokedBy) : "";
       const revokedAt = t.simgridRevokedAt ? escapeHtml(formatTimestamp(t.simgridRevokedAt)) : "";
@@ -577,23 +655,35 @@
 
       const filtered = allRows
         .filter(t => isFinalised(t.status))
-        .filter(t => mode === "all" ? true : !!t.simgridGreenlit)
+        .filter(t => {
+          if (mode === "all") return true;
+          if (mode === "greenlit") return !!t.simgridGreenlit;
+          if (mode === "pending") return (!!t.simgridPendingGreenlit && !t.simgridGreenlit);
+          return true;
+        })
         .filter(t => matchesSearch(t, q));
 
       $("countPill").innerHTML = `Tickets: <strong>${filtered.length}</strong>`;
-      $("modePill").textContent = `Mode: ${mode === "all" ? "All finalised" : "Greenlit only"}`;
+      $("modePill").textContent =
+        `Mode: ${
+          mode === "all" ? "All finalised" :
+          mode === "pending" ? "Pending green light" :
+          "Greenlit only"
+        }`;
       $("permPill").textContent = `Permissions: ${isHeadSteward ? "Head Steward" : "Read-only"}`;
       $("headHint").textContent = isHeadSteward ? " You can approve/revoke tickets below." : "";
 
-      $("hint").textContent = `Showing ${filtered.length} ticket(s).`;
+      $("hint").textContent = `Showing ${filtered.length} ticket(s). (Newest first)`;
 
       for (const t of filtered){
         const tr = document.createElement("tr");
 
         const green = !!t.simgridGreenlit;
+        const pending = !!t.simgridPendingGreenlit && !green;
+
         const greenTag = green
           ? `<span class="tag ok">YES</span>`
-          : `<span class="tag bad">NO</span>`;
+          : (pending ? `<span class="tag neutral">PENDING</span>` : `<span class="tag bad">NO</span>`);
 
         const proof = (t.proofUrl || "").trim();
         const proofLink = proof ? `<a href="${escapeHtml(proof)}" target="_blank" rel="noopener">Open</a>` : "—";
@@ -611,10 +701,22 @@
               </button>
             `;
           } else {
+            // Not greenlit: show BOTH buttons (Greenlight + Pending Green Light)
             actionHtml = `
-              <button class="primary" ${canAct ? "" : "disabled"} data-action="approve" data-id="${escapeHtml(t.id)}">
-                Greenlight
-              </button>
+              <div class="row" style="gap:8px;">
+                <button class="primary" ${canAct ? "" : "disabled"} data-action="approve" data-id="${escapeHtml(t.id)}">
+                  Greenlight
+                </button>
+                ${
+                  pending
+                    ? `<button ${canAct ? "" : "disabled"} data-action="clearPending" data-id="${escapeHtml(t.id)}">
+                         Pending green light
+                       </button>`
+                    : `<button ${canAct ? "" : "disabled"} data-action="pending" data-id="${escapeHtml(t.id)}">
+                         Pending green light
+                       </button>`
+                }
+              </div>
             `;
           }
           if (isBusy){
@@ -674,17 +776,45 @@
               metaRows,
               onConfirm: async () => setGreenlight(id, true)
             });
-          } else {
+            return;
+          }
+
+          if (action === "pending"){
             openModal({
-              title: "Revoke greenlight?",
-              subtitle: "This will remove publishing approval",
-              body: "This will mark the ticket as NOT greenlit. It will disappear from the 'Greenlit only' view.",
-              confirmText: "Revoke",
+              title: "Mark as Pending green light?",
+              subtitle: "Awaiting Head Steward confirmation",
+              body: "This will place the ticket into the 'Pending green light' list until it is greenlit or cleared.",
+              confirmText: "Set pending",
+              confirmStyle: "primary",
+              metaRows,
+              onConfirm: async () => setPendingGreenlight(id, true)
+            });
+            return;
+          }
+
+          if (action === "clearPending"){
+            openModal({
+              title: "Clear Pending green light?",
+              subtitle: "Remove from pending list",
+              body: "This will remove the pending status (ticket will no longer appear in 'Pending green light' view).",
+              confirmText: "Clear pending",
               confirmStyle: "danger",
               metaRows,
-              onConfirm: async () => setGreenlight(id, false)
+              onConfirm: async () => setPendingGreenlight(id, false)
             });
+            return;
           }
+
+          // revoke
+          openModal({
+            title: "Revoke greenlight?",
+            subtitle: "This will remove publishing approval",
+            body: "This will mark the ticket as NOT greenlit. It will disappear from the 'Greenlit only' view.",
+            confirmText: "Revoke",
+            confirmStyle: "danger",
+            metaRows,
+            onConfirm: async () => setGreenlight(id, false)
+          });
         };
       });
     }
@@ -716,11 +846,19 @@
             simgridGreenlitBy: x.simgridGreenlitBy || "",
             simgridGreenlitAt: x.simgridGreenlitAt || null,
 
+            // pending green light (new)
+            simgridPendingGreenlit: x.simgridPendingGreenlit === true,
+            simgridPendingBy: x.simgridPendingBy || "",
+            simgridPendingAt: x.simgridPendingAt || null,
+
             // revoke audit (new)
             simgridRevokedBy: x.simgridRevokedBy || "",
             simgridRevokedAt: x.simgridRevokedAt || null
           };
         });
+
+        // NEW: sort by timestamp newest first (most recent downwards)
+        rows.sort((a,b) => timestampMs(b.timestamp) - timestampMs(a.timestamp));
 
         allRows = rows;
         renderFiltered();
@@ -773,7 +911,7 @@
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Admin";
           $("welcomeLine").textContent =
             isHeadSteward
-              ? `Welcome, ${niceName}. You can approve/revoke finalised tickets for publishing.`
+              ? `Welcome, ${niceName}. You can approve/revoke finalised tickets for publishing (or mark them pending).`
               : `Welcome, ${niceName}. This page shows finalised tickets approved for publishing.`;
 
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
