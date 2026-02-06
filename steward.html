@@ -157,6 +157,30 @@
       opacity:0.95;
     }
 
+    /* NEW: deliberation status box on ticket cards (per-steward comment check) */
+    .delibTag {
+      margin-top:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      font-size:12px;
+      font-weight:900;
+      line-height:1.2;
+      border:1px solid #e5e7eb;
+      background:#f9fafb;
+      color:#111827;
+    }
+    .delibBad {
+      border-color:#fca5a5;
+      background:#fef2f2;
+      color:#991b1b;
+    }
+    .delibTag small {
+      display:block;
+      margin-top:4px;
+      font-weight:800;
+      opacity:0.95;
+    }
+
     .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; }
     .toast.show { opacity:1; transform: translateY(0); }
 
@@ -619,6 +643,60 @@
       el.innerHTML = `Statements: ❌ Missing ${missing.join(" + ")}<br><small>Awaiting required statements</small>`;
     }
 
+    // ---------- NEW: deliberation status (your steward comment exists?) ----------
+    const deliberationStatusCache = new Map(); // ticketId -> bool (hasMyComment)
+
+    async function getMyDeliberationStatus(ticketId) {
+      if (deliberationStatusCache.has(ticketId)) return deliberationStatusCache.get(ticketId);
+
+      const authorKey = safeKey(currentEmail);
+      if (!authorKey) {
+        deliberationStatusCache.set(ticketId, false);
+        return false;
+      }
+
+      const col = db.collection("tickets").doc(ticketId).collection("steward_comments");
+
+      try {
+        // Fast path: query by your authorKey
+        const snap = await col.where("authorKey", "==", authorKey).limit(1).get();
+        const has = !snap.empty;
+        deliberationStatusCache.set(ticketId, has);
+        return has;
+      } catch (e) {
+        console.warn("Deliberation query failed; falling back to scan:", ticketId, e);
+
+        // Fallback: scan comments and match authorKey
+        const snap = await col.limit(250).get();
+        let has = false;
+
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const ak = String(d.authorKey || "").trim();
+          const text = String(d.text || "").trim();
+          if (ak === authorKey && text) has = true;
+        });
+
+        deliberationStatusCache.set(ticketId, has);
+        return has;
+      }
+    }
+
+    function renderDelibTag(el, hasMyComment) {
+      if (!el) return;
+
+      if (hasMyComment) {
+        // Remove the box entirely when you HAVE commented
+        el.style.display = "none";
+        el.innerHTML = "";
+        return;
+      }
+
+      el.style.display = "block";
+      el.className = "delibTag delibBad";
+      el.innerHTML = `Requires deliberation<br><small>No steward comment from you yet</small>`;
+    }
+
     // ---------- penalty codes dropdown ----------
     async function loadPenaltyCodes() {
       const sel = $("penaltyCode");
@@ -803,6 +881,7 @@
       workloadSubEl.textContent = "Live tickets are non-finalised tickets that may still need a CAUSE review from you.";
 
       statementStatusCache.clear();
+      deliberationStatusCache.clear();
 
       const snap = await db.collection("tickets").limit(200).get();
       const docs = snap.docs;
@@ -850,7 +929,12 @@
             ${t.data.event ? `<b>Event:</b> ${escapeHtml(t.data.event)}` : ""}
             ${t.data.accused ? ` | <b>Accused:</b> ${escapeHtml(t.data.accused)}` : ""}
           </div>
+
           <div class="stmtTag" id="stmt_${escapeHtml(t.id)}">Statements: Checking…<small>Accused + Reporter</small></div>
+
+          <!-- NEW: shows only when you have NOT commented (requires deliberation) -->
+          <div class="delibTag" id="delib_${escapeHtml(t.id)}">Deliberation: Checking…<small>Your comment status</small></div>
+
           ${needsMyInput ? `<div class="needTag">Needs your CAUSE input</div>` : ""}
         `;
 
@@ -876,6 +960,30 @@
             if (tagEl) {
               tagEl.className = "stmtTag stmtBad";
               tagEl.innerHTML = `Statements: ❌ Check failed<br><small>Open console for details</small>`;
+            }
+          }
+        })();
+
+        (async () => {
+          try {
+            const delibEl = div.querySelector(`[id="delib_${CSS.escape(t.id)}"]`);
+            if (!delibEl) return;
+
+            // Only matters for live (non-finalised) tickets; hide for finalised
+            if (isFinalised(t.status)) {
+              delibEl.style.display = "none";
+              delibEl.innerHTML = "";
+              return;
+            }
+
+            const hasMine = await getMyDeliberationStatus(t.id);
+            renderDelibTag(delibEl, hasMine);
+          } catch (e) {
+            console.warn("Deliberation status check failed:", t.id, e);
+            const delibEl = div.querySelector(`[id="delib_${CSS.escape(t.id)}"]`);
+            if (delibEl) {
+              delibEl.className = "delibTag delibBad";
+              delibEl.innerHTML = `Requires deliberation<br><small>Check failed (open console)</small>`;
             }
           }
         })();
@@ -982,6 +1090,8 @@
 
         if (snap.empty) {
           list.innerHTML = `<div class="muted">No steward comments yet.</div>`;
+          // NEW: update ticket list tags (still "requires deliberation" if you haven't commented)
+          await loadTickets();
           return;
         }
 
@@ -1013,6 +1123,9 @@
           box.appendChild(body);
           list.appendChild(box);
         });
+
+        // NEW: refresh the ticket list so "Requires deliberation" clears immediately after your comment exists
+        await loadTickets();
       } catch (e) {
         console.error("loadDiscussion failed:", e);
         list.innerHTML = `<div class="muted">Failed to load comments (check console).</div>`;
@@ -1045,6 +1158,7 @@
         input.value = "";
         toast("Comment posted ✅");
         await loadDiscussion();
+        // (loadDiscussion now calls loadTickets(), so the red "Requires deliberation" box clears on the left)
       } catch (e) {
         toast("Post failed: " + (e?.message || e));
       } finally {
