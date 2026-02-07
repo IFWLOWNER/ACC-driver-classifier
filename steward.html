@@ -60,7 +60,7 @@
     }
 
     /* NEW: penalty info preview box */
-    .penPreview {
+    .penPreview{
       margin-top:10px;
       padding:10px 12px;
       border:1px solid #e5e7eb;
@@ -72,11 +72,11 @@
     }
     .penPreview .mutedLine { color:#6b7280; font-size:12px; margin-top:6px; }
     .penPreview .k { font-weight:900; }
-    .penPreview pre {
+    .penPreview pre{
       margin:8px 0 0;
       white-space:pre-wrap;
       font-family: inherit;
-      background: transparent;
+      background:transparent;
     }
 
     .list { display:flex; flex-direction:column; gap:8px; max-height:680px; overflow:auto; -webkit-overflow-scrolling:touch; }
@@ -332,7 +332,7 @@
               <select id="penaltyCode"></select>
               <div class="muted" style="margin-top:8px;">Head Steward-only notes are not shown here.</div>
 
-              <!-- NEW: guidance preview -->
+              <!-- NEW: guidance preview (Description + Example from JSON) -->
               <div class="penPreview" id="penaltyPreview" style="display:none;">
                 <div><span class="k">Penalty:</span> <span id="ppPenalty">—</span></div>
                 <div class="mutedLine"><span class="k">Who:</span> <span id="ppWho">—</span></div>
@@ -591,7 +591,7 @@
       el.innerHTML = `Requires deliberation<br><small>No steward comment from you yet</small>`;
     }
 
-    // ---------- penalty preview ----------
+    // ---------- penalty preview (NEW) ----------
     function setPenaltyPreviewFromSelected() {
       const sel = $("penaltyCode");
       const box = $("penaltyPreview");
@@ -627,12 +627,12 @@
       sel.appendChild(ph);
 
       try {
-        // CHANGED: load the new JSON file with Example + NFA
-        const res = await fetch("./steward_rules.json", { cache: "no-store" });
-        if (!res.ok) throw new Error(`Could not load rules JSON (${res.status})`);
+        // UPDATED: load your new JSON with Example + NFA
+        const res = await fetch("./ifwl_stewarding_codes_with_examples_and_nfa.json", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Could not load steward rules JSON (${res.status})`);
 
         const rules = await res.json();
-        if (!Array.isArray(rules)) throw new Error("Rules file is not a JSON array");
+        if (!Array.isArray(rules)) throw new Error("Rules JSON is not a JSON array");
 
         let added = 0;
 
@@ -657,11 +657,10 @@
           const opt = document.createElement("option");
           opt.value = value;
           opt.textContent = label;
-
           opt.dataset.group = group;
           opt.dataset.penalty = pen;
 
-          // NEW datasets used by preview
+          // NEW datasets used for preview
           opt.dataset.desc = desc;
           opt.dataset.example = example;
           opt.dataset.who = who;
@@ -678,10 +677,8 @@
           sel.appendChild(opt);
         }
 
-        // NEW: update preview when user changes selection
+        // NEW: live preview on change
         sel.onchange = () => setPenaltyPreviewFromSelected();
-
-        // Ensure preview hidden at start
         setPenaltyPreviewFromSelected();
 
       } catch (e) {
@@ -814,6 +811,7 @@
       statementStatusCache.clear();
       deliberationStatusCache.clear();
 
+      // ✅ ONLY CHANGE: 200 -> 400
       const snap = await db.collection("tickets").limit(400).get();
 
       const docs = snap.docs;
@@ -920,6 +918,7 @@
 
       const filterName = filterEl.value;
 
+      // ✅ ONLY CHANGE: 200 -> 400
       ticketHintEl.textContent =
         `Showing ${shown} ticket(s) for filter: "${filterName}". Live workload in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max 400 fetched).`;
     }
@@ -1126,7 +1125,7 @@
 
       $("penaltyCode").value = d.penaltyCode || "";
 
-      // NEW: update preview when loading saved review
+      // NEW: ensure preview updates when loading saved review
       setPenaltyPreviewFromSelected();
 
       $("myReviewStatus").textContent = "Submitted ✅";
