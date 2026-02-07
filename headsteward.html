@@ -262,6 +262,19 @@
     .auditTable tr:last-child td{ border-bottom:0; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+    /* NEW: penalty preview cards */
+    .penPreview {
+      margin-top:10px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      border-radius:12px;
+      padding:10px 12px;
+      display:none;
+    }
+    .mutedLine { margin-top:6px; font-size:12px; color:#6b7280; line-height:1.25; }
+    .k { font-weight:800; color:#111827; }
+    pre { white-space:pre-wrap; margin:8px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+
     @media (max-width: 980px) {
       body { background-attachment:scroll; }
       header { flex-direction:column; align-items:stretch; }
@@ -280,6 +293,7 @@
       #refreshDiscussionBtn { width:100%; }
       #postDiscussionBtn { width:100%; }
       #refreshAuditBtn { width:100%; }
+      #postPenaltyOpinionBtn { width:100%; }
     }
   </style>
 </head>
@@ -426,6 +440,27 @@
             Head Steward view: comment author email is shown for oversight.
           </div>
 
+          <!-- NEW: Penalty opinion (posts to discussion so all stewards see it) -->
+          <div style="margin-top:10px;">
+            <label class="muted">Penalty opinion (posts to stewards discussion)</label>
+            <select id="discussionPenaltyCode"></select>
+
+            <div class="penPreview" id="discussionPenaltyPreview">
+              <div><span class="k">Penalty:</span> <span id="dppPenalty">—</span></div>
+              <div class="mutedLine"><span class="k">Who:</span> <span id="dppWho">—</span></div>
+              <pre id="dppDesc"></pre>
+              <pre id="dppExample"></pre>
+            </div>
+
+            <div class="row" style="justify-content:flex-end; margin-top:10px;">
+              <button class="primary" id="postPenaltyOpinionBtn">Submit Penalty Opinion to Chat</button>
+            </div>
+
+            <div class="muted" style="margin-top:6px;">
+              This posts into the discussion thread so all stewards can see your suggested outcome.
+            </div>
+          </div>
+
           <div id="discussionList" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;"></div>
 
           <div style="margin-top:10px;">
@@ -438,7 +473,7 @@
           </div>
 
           <div class="muted" style="margin-top:8px;">
-            Writes to <code>/tickets/&lt;ticket&gt;/steward_comments</code>
+            Writes to <code>/tickets&lt;ticket&gt;/steward_comments</code>
           </div>
         </div>
 
@@ -494,7 +529,17 @@
 
             <div>
               <label class="muted">Penalty Code (required)</label>
-              <input id="penaltyCode" placeholder="e.g. AC EVO|Technical Infractions - Incorrect Pit Stop Procedure">
+              <!-- CHANGED: input -> select (populated from steward_rules.json) -->
+              <select id="penaltyCode"></select>
+
+              <!-- NEW: Penalty preview for Head Steward CAUSE selection -->
+              <div class="penPreview" id="penaltyPreview">
+                <div><span class="k">Penalty:</span> <span id="ppPenalty">—</span></div>
+                <div class="mutedLine"><span class="k">Who:</span> <span id="ppWho">—</span></div>
+                <pre id="ppDesc"></pre>
+                <pre id="ppExample"></pre>
+              </div>
+
               <label class="muted" style="margin-top:8px; display:block;">Private Opinion (Head Steward)</label>
               <textarea id="privateOpinion" placeholder="Saved and visible to Head Steward."></textarea>
             </div>
@@ -752,6 +797,132 @@
       el.innerHTML = `Statements: ❌ Missing ${missing.join(" + ")}<br><small>Awaiting required statements</small>`;
     }
 
+    // ---------- NEW: penalty previews ----------
+    function setPenaltyPreviewFromSelected() {
+      const sel = $("penaltyCode");
+      const box = $("penaltyPreview");
+      if (!sel || !box) return;
+
+      const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
+      if (!opt || !opt.value) { box.style.display = "none"; return; }
+
+      const pen = (opt.dataset.penalty || "").trim();
+      const who = (opt.dataset.who || "").trim();
+      const desc = (opt.dataset.desc || "").trim();
+      const ex = (opt.dataset.example || "").trim();
+
+      $("ppPenalty").textContent = pen || "—";
+      $("ppWho").textContent = who || "—";
+      $("ppDesc").textContent = desc ? `Description:\n${desc}` : "";
+      $("ppExample").textContent = ex ? `\nExample:\n${ex}` : "";
+
+      box.style.display = "block";
+    }
+
+    function setDiscussionPenaltyPreviewFromSelected() {
+      const sel = $("discussionPenaltyCode");
+      const box = $("discussionPenaltyPreview");
+      if (!sel || !box) return;
+
+      const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
+      if (!opt || !opt.value) { box.style.display = "none"; return; }
+
+      const pen = (opt.dataset.penalty || "").trim();
+      const who = (opt.dataset.who || "").trim();
+      const desc = (opt.dataset.desc || "").trim();
+      const ex = (opt.dataset.example || "").trim();
+
+      $("dppPenalty").textContent = pen || "—";
+      $("dppWho").textContent = who || "—";
+      $("dppDesc").textContent = desc ? `Description:\n${desc}` : "";
+      $("dppExample").textContent = ex ? `\nExample:\n${ex}` : "";
+
+      box.style.display = "block";
+    }
+
+    // ---------- penalty codes (Head Steward: CAUSE dropdown + Discussion dropdown) ----------
+    async function loadPenaltyCodes() {
+      async function fillSelect(selectId) {
+        const sel = $(selectId);
+        if (!sel) return;
+
+        sel.innerHTML = "";
+        const ph = document.createElement("option");
+        ph.value = "";
+        ph.textContent = "Select a penalty code…";
+        ph.disabled = true;
+        ph.selected = true;
+        sel.appendChild(ph);
+
+        const res = await fetch("./steward_rules.json", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Could not load steward_rules.json (${res.status})`);
+
+        const rules = await res.json();
+        if (!Array.isArray(rules)) throw new Error("steward_rules.json is not a JSON array");
+
+        let added = 0;
+
+        for (const r of rules) {
+          if (!r || typeof r !== "object") continue;
+
+          const code = String((r.Code ?? r.code ?? "")).trim();
+          const title = String((r.Title ?? r.title ?? "")).trim();
+          const group = String((r.Group ?? r.group ?? "")).trim();
+          const pen = String((r.Penalty ?? r.penalty ?? "")).trim();
+
+          const desc = String((r.Description ?? r.description ?? "")).trim();
+          const example = String((r.Example ?? r.example ?? "")).trim();
+          const who = String((r.Who ?? r.who ?? "")).trim();
+
+          if (!code && !title) continue;
+
+          const value = `${code}${title ? " — " + title : ""}${pen ? " (" + pen + ")" : ""}`.trim();
+          const label = `${code}${title ? " — " + title : ""}`.trim();
+
+          const opt = document.createElement("option");
+          opt.value = value;
+          opt.textContent = label;
+
+          opt.dataset.group = group;
+          opt.dataset.penalty = pen;
+          opt.dataset.desc = desc;
+          opt.dataset.example = example;
+          opt.dataset.who = who;
+          opt.dataset.code = code;
+          opt.dataset.title = title;
+
+          sel.appendChild(opt);
+          added++;
+        }
+
+        if (!added) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "No valid penalty codes found (check JSON).";
+          opt.disabled = true;
+          sel.appendChild(opt);
+        }
+      }
+
+      try {
+        await fillSelect("penaltyCode");             // CAUSE dropdown (Head Steward)
+        await fillSelect("discussionPenaltyCode");   // Discussion dropdown (Head Steward)
+      } catch (e) {
+        console.error("Penalty code load failed:", e);
+
+        for (const id of ["penaltyCode", "discussionPenaltyCode"]) {
+          const sel = $(id);
+          if (!sel) continue;
+          sel.innerHTML = "";
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "Failed to load penalty codes (open console).";
+          opt.disabled = true;
+          sel.appendChild(opt);
+        }
+      }
+    }
+
     // ---------- NEW: Patreon Audit (Discord webhook post) ----------
     async function discordPost(content) {
       if (!DISCORD_WEBHOOK_URL.startsWith("https://discord.com/api/webhooks/")) {
@@ -897,6 +1068,7 @@ No reviews submitted yet.`;
     // NEW: discussion UI refs
     const refreshDiscussionBtn = $("refreshDiscussionBtn");
     const postDiscussionBtn = $("postDiscussionBtn");
+    const postPenaltyOpinionBtn = $("postPenaltyOpinionBtn");
 
     // ---------- navigation ----------
     $("backBtn").onclick = () => window.location.href = "index.html";
@@ -913,6 +1085,7 @@ No reviews submitted yet.`;
     submitReviewBtn.onclick = () => submitMyReview();
     publishAllBtn.onclick = () => publishAllStatements();
     if (postDiscussionBtn) postDiscussionBtn.onclick = () => postDiscussion();
+    if (postPenaltyOpinionBtn) postPenaltyOpinionBtn.onclick = () => postPenaltyOpinion();
 
     function passesFilter(status) {
       const f = filterEl.value;
@@ -1040,6 +1213,7 @@ No reviews submitted yet.`;
       // NEW: reset discussion UI
       $("discussionList").innerHTML = `<div class="muted">Loading comments…</div>`;
       $("discussionInput").value = "";
+      setDiscussionPenaltyPreviewFromSelected();
 
       const ref = db.collection("tickets").doc(ticketId);
       selectedTicketSnap = await ref.get();
@@ -1286,6 +1460,63 @@ No reviews submitted yet.`;
       }
     }
 
+    // ---------- NEW: penalty opinion poster (Head Steward) ----------
+    async function postPenaltyOpinion() {
+      if (!selectedTicketId) { toast("Select a ticket first"); return; }
+
+      const sel = $("discussionPenaltyCode");
+      if (!sel) { toast("Penalty opinion dropdown missing"); return; }
+
+      const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
+      const value = (sel.value || "").trim();
+      if (!opt || !value) { toast("Select a penalty code first"); return; }
+
+      const code = (opt.dataset.code || "").trim();
+      const title = (opt.dataset.title || "").trim();
+      const pen = (opt.dataset.penalty || "").trim();
+      const who = (opt.dataset.who || "").trim();
+      const desc = (opt.dataset.desc || "").trim();
+      const ex = (opt.dataset.example || "").trim();
+
+      const note = ($("discussionInput")?.value || "").trim();
+
+      const msg =
+`🧾 PENALTY OPINION (HEAD STEWARD)
+Code: ${code}${title ? " — " + title : ""}
+Penalty: ${pen || "—"}
+Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExample:\n" + ex : ""}${note ? "\n\nHead Steward note:\n" + note : ""}`;
+
+      const btn = $("postPenaltyOpinionBtn");
+      if (btn) {
+        btn.disabled = true;
+        var original = btn.textContent;
+        btn.textContent = "Posting…";
+      }
+
+      try {
+        const col = db.collection("tickets").doc(selectedTicketId).collection("steward_comments");
+        const authorKey = safeKey(currentEmail);
+
+        await col.add({
+          text: msg,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          authorKey,
+          kind: "penalty_opinion",
+          penaltyCode: value
+        });
+
+        toast("Penalty opinion posted ✅");
+        await loadDiscussion();
+      } catch (e) {
+        toast("Post failed: " + (e?.message || e));
+      } finally {
+        if (btn) {
+          btn.textContent = original || "Submit Penalty Opinion to Chat";
+          btn.disabled = false;
+        }
+      }
+    }
+
     // ---------- NEW: Steward Input Audit (Last 7 Days) ----------
     async function loadStewardAudit7d() {
       const metaEl = $("auditMeta");
@@ -1448,6 +1679,9 @@ No reviews submitted yet.`;
       $("penaltyCode").value = d.penaltyCode || "";
       $("privateOpinion").value = d.privateOpinion || "";
 
+      // NEW: keep preview in sync when loading saved review
+      setPenaltyPreviewFromSelected();
+
       $("myReviewStatus").textContent = "Submitted ✅";
       $("myReviewStatus").className = "badge ok";
       toast("Loaded your review");
@@ -1581,6 +1815,18 @@ No reviews submitted yet.`;
           welcomeLineEl.textContent = `Welcome, ${niceName}. You oversee all live tickets — publish statements, monitor aggregate CAUSE, and guide steward outcomes.`;
 
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
+
+          // NEW: load penalty codes for Head Steward CAUSE + discussion dropdowns
+          await loadPenaltyCodes();
+
+          // NEW: wire previews
+          const causeSel = $("penaltyCode");
+          if (causeSel) causeSel.onchange = () => setPenaltyPreviewFromSelected();
+          setPenaltyPreviewFromSelected();
+
+          const dSel = $("discussionPenaltyCode");
+          if (dSel) dSel.onchange = () => setDiscussionPenaltyPreviewFromSelected();
+          setDiscussionPenaltyPreviewFromSelected();
 
           await loadTickets();
           await loadStewardAudit7d(); // NEW: auto-load audit panel
