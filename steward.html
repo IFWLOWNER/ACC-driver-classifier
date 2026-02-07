@@ -265,6 +265,27 @@
             <button id="refreshDiscussionBtn">Refresh</button>
           </div>
 
+          <!-- Penalty opinion (posts to discussion so all stewards see it) -->
+<div style="margin-top:10px;">
+  <label class="muted">Penalty opinion (posts to stewards discussion)</label>
+  <select id="discussionPenaltyCode"></select>
+
+  <div class="penPreview" id="discussionPenaltyPreview" style="display:none;">
+    <div><span class="k">Penalty:</span> <span id="dppPenalty">—</span></div>
+    <div class="mutedLine"><span class="k">Who:</span> <span id="dppWho">—</span></div>
+    <pre id="dppDesc"></pre>
+    <pre id="dppExample"></pre>
+  </div>
+
+  <div class="row" style="justify-content:flex-end; margin-top:10px;">
+    <button class="primary" id="postPenaltyOpinionBtn">Submit Penalty Opinion to Chat</button>
+  </div>
+
+  <div class="muted" style="margin-top:6px;">
+    This posts into the discussion thread so all stewards can see your suggested outcome.
+  </div>
+
+
           <div class="muted" style="margin-top:6px;">
             Please remain professional and respectful - Please remember PATREONS can request audits and comments are included.
           </div>
@@ -612,84 +633,115 @@
 
       box.style.display = "block";
     }
+// ---------- discussion penalty preview ----------
+function setDiscussionPenaltyPreviewFromSelected() {
+  const sel = $("discussionPenaltyCode");
+  const box = $("discussionPenaltyPreview");
+  if (!sel || !box) return;
 
+  const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
+  if (!opt || !opt.value) { box.style.display = "none"; return; }
+
+  const pen = (opt.dataset.penalty || "").trim();
+  const who = (opt.dataset.who || "").trim();
+  const desc = (opt.dataset.desc || "").trim();
+  const ex = (opt.dataset.example || "").trim();
+
+  $("dppPenalty").textContent = pen || "—";
+  $("dppWho").textContent = who || "—";
+  $("dppDesc").textContent = desc ? `Description:\n${desc}` : "";
+  $("dppExample").textContent = ex ? `\nExample:\n${ex}` : "";
+
+  box.style.display = "block";
+}
+
+  
     // ---------- penalty codes ----------
-    async function loadPenaltyCodes() {
-      const sel = $("penaltyCode");
-      if (!sel) return;
+async function loadPenaltyCodes() {
 
-      sel.innerHTML = "";
-      const ph = document.createElement("option");
-      ph.value = "";
-      ph.textContent = "Select a penalty code…";
-      ph.disabled = true;
-      ph.selected = true;
-      sel.appendChild(ph);
+  async function fillSelect(selectId) {
+    const sel = $(selectId);
+    if (!sel) return;
 
-      try {
-        // UPDATED: load your new JSON with Example + NFA
-        const res = await fetch("./steward_rules.json", { cache: "no-store" });
-        if (!res.ok) throw new Error(`Could not load steward rules JSON (${res.status})`);
+    sel.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = "Select a penalty code…";
+    ph.disabled = true;
+    ph.selected = true;
+    sel.appendChild(ph);
 
-        const rules = await res.json();
-        if (!Array.isArray(rules)) throw new Error("Rules JSON is not a JSON array");
+    const res = await fetch("./steward_rules.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`Could not load steward_rules.json (${res.status})`);
 
-        let added = 0;
+    const rules = await res.json();
+    if (!Array.isArray(rules)) throw new Error("steward_rules.json is not a JSON array");
 
-        for (const r of rules) {
-          if (!r || typeof r !== "object") continue;
+    let added = 0;
 
-          const code = String((r.Code ?? r.code ?? "")).trim();
-          const title = String((r.Title ?? r.title ?? "")).trim();
-          const group = String((r.Group ?? r.group ?? "")).trim();
-          const pen = String((r.Penalty ?? r.penalty ?? "")).trim();
+    for (const r of rules) {
+      if (!r || typeof r !== "object") continue;
 
-          // NEW fields
-          const desc = String((r.Description ?? r.description ?? "")).trim();
-          const example = String((r.Example ?? r.example ?? "")).trim();
-          const who = String((r.Who ?? r.who ?? "")).trim();
+      const code = String((r.Code ?? r.code ?? "")).trim();
+      const title = String((r.Title ?? r.title ?? "")).trim();
+      const group = String((r.Group ?? r.group ?? "")).trim();
+      const pen = String((r.Penalty ?? r.penalty ?? "")).trim();
 
-          if (!code && !title) continue;
+      // NEW fields (so we can show preview + post opinion)
+      const desc = String((r.Description ?? r.description ?? "")).trim();
+      const example = String((r.Example ?? r.example ?? "")).trim();
+      const who = String((r.Who ?? r.who ?? "")).trim();
 
-          const value = `${code}${title ? " — " + title : ""}${pen ? " (" + pen + ")" : ""}`.trim();
-          const label = `${code}${title ? " — " + title : ""}`.trim();
+      if (!code && !title) continue;
 
-          const opt = document.createElement("option");
-          opt.value = value;
-          opt.textContent = label;
-          opt.dataset.group = group;
-          opt.dataset.penalty = pen;
+      const value = `${code}${title ? " — " + title : ""}${pen ? " (" + pen + ")" : ""}`.trim();
+      const label = `${code}${title ? " — " + title : ""}`.trim();
 
-          // NEW datasets used for preview
-          opt.dataset.desc = desc;
-          opt.dataset.example = example;
-          opt.dataset.who = who;
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
 
-          sel.appendChild(opt);
-          added++;
-        }
+      // store everything we need for previews + posting
+      opt.dataset.group = group;
+      opt.dataset.penalty = pen;
+      opt.dataset.desc = desc;
+      opt.dataset.example = example;
+      opt.dataset.who = who;
+      opt.dataset.code = code;
+      opt.dataset.title = title;
 
-        if (!added) {
-          const opt = document.createElement("option");
-          opt.value = "";
-          opt.textContent = "No valid penalty codes found (check JSON).";
-          opt.disabled = true;
-          sel.appendChild(opt);
-        }
-
-        // NEW: live preview on change
-        sel.onchange = () => setPenaltyPreviewFromSelected();
-        setPenaltyPreviewFromSelected();
-
-      } catch (e) {
-        console.error("Penalty code load failed:", e);
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "Failed to load penalty codes (open console).";
-        opt.disabled = true;
-        sel.appendChild(opt);
-      }
+      sel.appendChild(opt);
+      added++;
     }
+
+    if (!added) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No valid penalty codes found (check JSON).";
+      opt.disabled = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  try {
+    await fillSelect("penaltyCode");            // existing CAUSE dropdown
+    await fillSelect("discussionPenaltyCode");  // NEW discussion dropdown
+  } catch (e) {
+    console.error("Penalty code load failed:", e);
+
+    for (const id of ["penaltyCode", "discussionPenaltyCode"]) {
+      const sel = $(id);
+      if (!sel) continue;
+      sel.innerHTML = "";
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "Failed to load penalty codes (open console).";
+      opt.disabled = true;
+      sel.appendChild(opt);
+    }
+  }
+}
+
 
     // ---------- auth / role ----------
     let currentUser = null;
@@ -743,6 +795,8 @@
     loadMyReviewBtn.onclick = () => loadMyReview();
     submitReviewBtn.onclick = () => submitMyReview();
     if (postDiscussionBtn) postDiscussionBtn.onclick = () => postDiscussion();
+const postPenaltyOpinionBtn = $("postPenaltyOpinionBtn");
+if (postPenaltyOpinionBtn) postPenaltyOpinionBtn.onclick = () => postPenaltyOpinion();
 
     // ---------- gating ----------
     auth.onAuthStateChanged(async (user) => {
@@ -768,7 +822,13 @@
         $("who").textContent = `Signed in as: ${maskEmail(currentEmail)} | role: ${data.role || "steward"}`;
 
         await loadPenaltyCodes();
-        await loadTickets();
+
+// NEW: wire discussion dropdown preview
+const dSel = $("discussionPenaltyCode");
+if (dSel) dSel.onchange = () => setDiscussionPenaltyPreviewFromSelected();
+setDiscussionPenaltyPreviewFromSelected();
+
+await loadTickets();
       } catch (e) {
         toast("Auth error: " + (e?.message || e));
       }
@@ -1090,6 +1150,65 @@
         postDiscussionBtn.disabled = false;
       }
     }
+    
+async function postPenaltyOpinion() {
+  if (!selectedTicketId) { toast("Select a ticket first"); return; }
+
+  const sel = $("discussionPenaltyCode");
+  if (!sel) { toast("Penalty opinion dropdown missing"); return; }
+
+  const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
+  const value = (sel.value || "").trim();
+  if (!opt || !value) { toast("Select a penalty code first"); return; }
+
+  const code = (opt.dataset.code || "").trim();
+  const title = (opt.dataset.title || "").trim();
+  const pen = (opt.dataset.penalty || "").trim();
+  const who = (opt.dataset.who || "").trim();
+  const desc = (opt.dataset.desc || "").trim();
+  const ex = (opt.dataset.example || "").trim();
+
+  const note = ($("discussionInput")?.value || "").trim();
+
+  const msg =
+`🧾 PENALTY OPINION
+Code: ${code}${title ? " — " + title : ""}
+Penalty: ${pen || "—"}
+Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExample:\n" + ex : ""}${note ? "\n\nSteward note:\n" + note : ""}`;
+
+  const btn = $("postPenaltyOpinionBtn");
+  if (btn) {
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = "Posting…";
+  }
+
+  try {
+    const col = db.collection("tickets").doc(selectedTicketId).collection("steward_comments");
+    const authorKey = safeKey(currentEmail);
+
+    await col.add({
+      text: msg,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      authorKey,
+      kind: "penalty_opinion",
+      penaltyCode: value
+    });
+
+    toast("Penalty opinion posted ✅");
+
+    if ($("discussionInput")) $("discussionInput").value = "";
+
+    await loadDiscussion();
+  } catch (e) {
+    toast("Post failed: " + (e?.message || e));
+  } finally {
+    if (btn) {
+      btn.textContent = original || "Submit Penalty Opinion to Chat";
+      btn.disabled = false;
+    }
+  }
+}
 
     // ---------- reviews ----------
     async function loadMyReview() {
