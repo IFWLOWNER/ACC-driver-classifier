@@ -190,6 +190,76 @@
     }
     .toast.show{opacity:1; transform: translateY(0);}
 
+    /* ───────── NEW: Steward Input audit (Owner) ───────── */
+    .auditBox{
+      border:1px solid #e5e7eb;
+      border-radius:14px;
+      padding:12px;
+      background:rgba(250,250,250,0.92);
+      margin-top:12px;
+    }
+    .auditTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .auditTitle{
+      font-weight:900;
+      font-size:14px;
+      margin:0;
+    }
+    .auditMeta{
+      margin-top:6px;
+      font-size:12px;
+      color:#6b7280;
+      line-height:1.25;
+    }
+    .auditTableWrap{
+      margin-top:10px;
+      overflow:auto;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+    }
+    table.auditTable{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:860px;
+    }
+    .auditTable th, .auditTable td{
+      padding:10px;
+      border-bottom:1px solid #f3f4f6;
+      font-size:13px;
+      text-align:left;
+      vertical-align:top;
+      white-space:nowrap;
+    }
+    .auditTable th{
+      position:sticky;
+      top:0;
+      background:#f9fafb;
+      z-index:2;
+      font-size:12px;
+      color:#111827;
+      border-bottom:1px solid #e5e7eb;
+    }
+    .auditTable tr:last-child td{border-bottom:0;}
+
+    /* row highlight for "done none of that" */
+    .auditTable tr.inactive td{
+      background:#fef2f2;
+      color:#991b1b;
+      font-weight:900;
+    }
+    .auditTable tr.inactive td .mutedInline{
+      color:#991b1b;
+      font-weight:900;
+      opacity:0.9;
+    }
+
     @media (max-width: 1200px){
       .kpiGrid{grid-template-columns: repeat(3, minmax(0, 1fr));}
       .grid2{grid-template-columns:1fr;}
@@ -203,6 +273,7 @@
       .gridCharts{grid-template-columns:1fr;}
       canvas{height:260px !important;}
       table{min-width:860px;}
+      table.auditTable{min-width:860px;}
     }
   </style>
 </head>
@@ -242,6 +313,42 @@
             <option value="30">Last 30 days</option>
           </select>
           <button id="refreshBtn" class="primary">Refresh</button>
+        </div>
+      </div>
+
+      <!-- NEW: Steward Input (Last 7 Days) + roster inactive highlights -->
+      <div class="auditBox" aria-label="Steward input audit">
+        <div class="auditTop">
+          <div class="auditTitle">Steward Input (Last 7 Days) — roster accountability</div>
+          <div class="row">
+            <label class="muted" style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="showOnlyInactive">
+              Show only inactive
+            </label>
+            <button id="refreshAuditBtn">Refresh</button>
+          </div>
+        </div>
+
+        <div class="auditMeta" id="auditMeta">Loading…</div>
+
+        <div class="auditTableWrap" id="auditTableWrap" style="display:none;">
+          <table class="auditTable" aria-label="Steward input table">
+            <thead>
+              <tr>
+                <th>Steward</th>
+                <th>Comments (7d)</th>
+                <th>Reviews (7d)</th>
+                <th>Tickets Touched (7d)</th>
+                <th>Last Active</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="auditTbody"></tbody>
+          </table>
+        </div>
+
+        <div class="muted" style="margin-top:8px;">
+          Counts include <span class="mono">collectionGroup</span> queries across all tickets. Inactive stewards are highlighted red.
         </div>
       </div>
 
@@ -333,59 +440,6 @@
         </div>
       </div>
 
-      <!-- Steward accountability -->
-      <div class="grid2" style="margin-top:12px;">
-        <div class="chartCard">
-          <div class="rowBetween">
-            <div>
-              <div class="chartTitle">Steward activity (comments / reviews)</div>
-              <div class="muted" id="stewardActivityHint">Loading…</div>
-            </div>
-          </div>
-          <div class="tableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Steward</th>
-                  <th>Email / Key</th>
-                  <th>Comments (range)</th>
-                  <th>Reviews (range)</th>
-                  <th>Last commented</th>
-                  <th>Last reviewed</th>
-                  <th>Last action</th>
-                </tr>
-              </thead>
-              <tbody id="tbodyStewardActivity"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="chartCard">
-          <div class="rowBetween">
-            <div>
-              <div class="chartTitle">“Naughty list” — stewards who have failed to do their role</div>
-              <div class="muted" id="naughtyHint">Loading…</div>
-            </div>
-          </div>
-          <div class="tableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Steward</th>
-                  <th>Email / Key</th>
-                  <th>Last action</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody id="tbodyNaughty"></tbody>
-            </table>
-          </div>
-          <div class="muted" style="margin-top:8px;" id="naughtyFooterNote">
-            If you see “admins load failed”, update Firestore rules to let Head Steward/Owner read the admins roster.
-          </div>
-        </div>
-      </div>
-
       <div class="muted" style="margin-top:10px;" id="notes">
         This dashboard will use fallbacks if some timestamps aren’t stored yet:
         <span class="mono">open→finalised</span> will use <span class="mono">finalisedAt</span> if present,
@@ -414,6 +468,17 @@
       toastEl.classList.add("show");
       setTimeout(() => toastEl.classList.remove("show"), 2200);
     }
+
+    // Show JS errors as toast so breakages are obvious
+    window.addEventListener("error", (e) => {
+      const msg = (e?.message || "Unknown JS error") + (e?.filename ? `\n${e.filename}:${e.lineno || 0}` : "");
+      console.error("JS error:", e);
+      toast("JS ERROR:\n" + msg);
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      console.error("Promise rejection:", e);
+      toast("PROMISE ERROR:\n" + (e?.reason?.message || e?.reason || "Unknown"));
+    });
 
     function escapeHtml(s){
       return (s ?? "").toString()
@@ -463,20 +528,14 @@
       return `${sec}s`;
     }
 
-    function normKey(s){ return (s || "").toString().trim().toLowerCase(); }
-    function safeNameFromKey(key){
-      const k = normKey(key);
-      if (!k) return "";
-      if (k.includes("@")){
-        const nameGuess = (k.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
-        return nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : k;
-      }
-      return k;
+    // Best-effort "created" timestamp:
+    function getCreatedMs(x){
+      return pickFirstMs(x, [
+        "timestamp","createdAt","created","submittedAt","openedAt","openAt"
+      ]);
     }
 
-    function getCreatedMs(x){
-      return pickFirstMs(x, ["timestamp","createdAt","created","submittedAt","openedAt","openAt"]);
-    }
+    // Best-effort "finalised" timestamp:
     function getFinalisedMs(x){
       const direct = pickFirstMs(x, [
         "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
@@ -489,15 +548,23 @@
       ]);
       return proxy || 0;
     }
+
     function getPendingMs(x){
-      return pickFirstMs(x, ["simgridPendingAt","simgridPendingGreenlitAt","pendingAt","pendingGreenlitAt","pendingSince"]);
+      return pickFirstMs(x, [
+        "simgridPendingAt","simgridPendingGreenlitAt","pendingAt","pendingGreenlitAt","pendingSince"
+      ]);
     }
     function getSubmittedMs(x){
-      return pickFirstMs(x, ["simgridSubmittedAt","simgridSubmittedOn","submittedToSimgridAt","submittedAtSimgrid","simgridCompletedAt"]);
+      return pickFirstMs(x, [
+        "simgridSubmittedAt","simgridSubmittedOn","submittedToSimgridAt","submittedAtSimgrid","simgridCompletedAt"
+      ]);
     }
 
     function ticketUrl(id){ return `ticket.html?id=${encodeURIComponent(id || "")}`; }
 
+    // ---------------------------
+    // Auth / role gating
+    // ---------------------------
     $("backHeadBtn").onclick = () => window.location.href = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
     $("backClassifierBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
@@ -505,7 +572,13 @@
     $("refreshBtn").onclick = () => loadDashboard();
     $("rangeDays").onchange = () => loadDashboard();
 
+    // NEW: audit refresh
+    $("refreshAuditBtn").onclick = () => loadStewardAudit7d();
+    $("showOnlyInactive").onchange = () => renderAuditTableFromCache();
+
+    // ---------------------------
     // Charts
+    // ---------------------------
     let chartDaily = null;
     let chartPipeline = null;
     let chartTAT = null;
@@ -518,6 +591,9 @@
       chartDaily = chartPipeline = chartTAT = chartPendingSubmit = null;
     }
 
+    // ---------------------------
+    // Stats helpers
+    // ---------------------------
     function median(arr){
       if (!arr.length) return null;
       const a = [...arr].sort((x,y)=>x-y);
@@ -611,192 +687,205 @@
       }
     }
 
-    function isStewardRole(roleVal){
-      const r = (roleVal || "").toString().toLowerCase();
-      return r.includes("steward");
+    // ---------------------------
+    // NEW: Steward audit (Owner) — cached rows for filtering
+    // ---------------------------
+    let auditRowsCache = []; // {email, comments, reviews, ticketsTouched, lastActiveMs, inactive, statusLabel}
+    function safeKey(email){ return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
+
+    function roleLooksLikeSteward(adminDoc){
+      const role = String(adminDoc?.role || "").toLowerCase();
+      // include stewards + head stewards + owners (they’re still part of accountability)
+      return (
+        role.includes("steward") ||
+        role.includes("head") ||
+        adminDoc?.headsteward === true ||
+        adminDoc?.owner === true
+      );
     }
 
-    function renderStewardActivity(rows){
-      const tbody = $("tbodyStewardActivity");
-      tbody.innerHTML = "";
+    function ticketIdFromDocRef(docRef){
+      try{ return docRef?.parent?.parent?.id || ""; }catch{ return ""; }
+    }
+
+    function renderAuditTableFromCache(){
+      const metaEl = $("auditMeta");
+      const wrapEl = $("auditTableWrap");
+      const bodyEl = $("auditTbody");
+      const onlyInactive = $("showOnlyInactive").checked === true;
+
+      bodyEl.innerHTML = "";
+
+      const rows = onlyInactive
+        ? auditRowsCache.filter(r => r.inactive)
+        : [...auditRowsCache];
+
       if (!rows.length){
-        tbody.innerHTML = `<tr><td colspan="7" class="muted">No stewards found (admins.role must include “steward”).</td></tr>`;
+        wrapEl.style.display = "none";
+        metaEl.textContent = onlyInactive
+          ? "No inactive stewards in this window ✅"
+          : "No steward roster/activity data to display.";
         return;
       }
+
       for (const r of rows){
-        const active = (r.rangeComments + r.rangeReviews) > 0;
-        const tag = active ? `<span class="tag ok">ACTIVE</span>` : `<span class="tag bad">INACTIVE</span>`;
-        tbody.insertAdjacentHTML("beforeend", `
-          <tr>
-            <td><b>${escapeHtml(r.name || "—")}</b> ${tag}</td>
-            <td class="mono">${escapeHtml(r.key)}</td>
-            <td><b>${r.rangeComments}</b></td>
-            <td><b>${r.rangeReviews}</b></td>
-            <td>${escapeHtml(fmtDate(r.lastCommentMs))}</td>
-            <td>${escapeHtml(fmtDate(r.lastReviewMs))}</td>
-            <td><b>${escapeHtml(fmtDate(r.lastActionMs))}</b></td>
-          </tr>
-        `);
+        const tr = document.createElement("tr");
+        if (r.inactive) tr.className = "inactive";
+
+        const last = r.lastActiveMs ? new Date(r.lastActiveMs).toLocaleString() : "—";
+        const statusTxt = r.inactive ? "FAILED ROLE (no activity)" : "OK";
+
+        tr.innerHTML = `
+          <td class="mono">${escapeHtml(r.email)}</td>
+          <td><b>${r.comments}</b></td>
+          <td><b>${r.reviews}</b></td>
+          <td><b>${r.ticketsTouched}</b></td>
+          <td>${escapeHtml(last)}</td>
+          <td>${escapeHtml(statusTxt)}</td>
+        `;
+        bodyEl.appendChild(tr);
       }
+
+      wrapEl.style.display = "block";
     }
 
-    function renderNaughty(rows, days){
-      const tbody = $("tbodyNaughty");
-      tbody.innerHTML = "";
-      if (!rows.length){
-        tbody.innerHTML = `<tr><td colspan="4" class="muted">No one on the naughty list 🎉</td></tr>`;
-        return;
-      }
-      for (const r of rows){
-        tbody.insertAdjacentHTML("beforeend", `
-          <tr>
-            <td><b>${escapeHtml(r.name || "—")}</b></td>
-            <td class="mono">${escapeHtml(r.key)}</td>
-            <td><b>${escapeHtml(fmtDate(r.lastActionMs))}</b></td>
-            <td><span class="tag bad">No comment/review in last ${days}d</span></td>
-          </tr>
-        `);
-      }
-    }
+    async function loadStewardAudit7d(){
+      const metaEl = $("auditMeta");
+      const wrapEl = $("auditTableWrap");
+      const bodyEl = $("auditTbody");
 
-    async function loadStewardAccountability({days, rangeStartMs, nowMs}){
-      $("stewardActivityHint").textContent = "Loading…";
-      $("naughtyHint").textContent = "Loading…";
-      $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">Loading…</td></tr>`;
-      $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
+      wrapEl.style.display = "none";
+      bodyEl.innerHTML = "";
+      metaEl.textContent = "Loading…";
 
-      // 1) Load roster (this was failing due to rules)
-      let stewards = [];
+      auditRowsCache = [];
+
+      const now = Date.now();
+      const sinceMs = now - (7 * 24 * 60 * 60 * 1000);
+      const since = firebase.firestore.Timestamp.fromDate(new Date(sinceMs));
+
+      // Step 1: roster (admins)
+      let rosterEmails = [];
       try{
-        const adminSnap = await db.collection("admins").limit(2000).get();
-        const admins = adminSnap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
-        stewards = admins
-          .filter(a => isStewardRole(a.role))
-          .map(a => {
-            const key = normKey(a.email || a.authorKey || a.key || a.id);
-            const name = a.name || a.displayName || safeNameFromKey(key);
-            return { key, name };
-          })
-          .filter(s => !!s.key);
+        const adminsSnap = await db.collection("admins").get();
+        rosterEmails = adminsSnap.docs
+          .map(d => ({ id: d.id, data: d.data() || {} }))
+          .filter(x => roleLooksLikeSteward(x.data))
+          .map(x => String(x.id || "").toLowerCase().trim())
+          .filter(Boolean);
       }catch(e){
-        console.error("admins load failed", e);
-        $("stewardActivityHint").textContent = "Admins roster blocked by Firestore rules (update rules to allow Head Steward/Owner read).";
-        $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">admins load failed: ${escapeHtml(e?.message || e)}</td></tr>`;
-        $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">Cannot build naughty list (no steward roster).</td></tr>`;
-        $("naughtyHint").textContent = "Roster not available.";
+        console.error("Admins roster read failed:", e);
+        metaEl.textContent = "Audit failed: cannot read /admins roster. This is a Firestore rules permission issue for /admins (Owner/Head Stewards must be allowed). Check console for exact error.";
         return;
       }
 
-      const map = new Map();
-      for (const s of stewards){
-        map.set(s.key, {
-          key: s.key,
-          name: s.name,
-          rangeComments: 0,
-          rangeReviews: 0,
-          lastCommentMs: 0,
-          lastReviewMs: 0,
-          lastActionMs: 0
-        });
-      }
-
-      const rangeStartDate = new Date(rangeStartMs);
-      const nowDate = new Date(nowMs);
-
-      function apply(type, key, ms, inRange){
-        const k = normKey(key);
-        if (!k || !map.has(k) || !ms) return;
-        const row = map.get(k);
-
-        if (type === "comment"){
-          row.lastCommentMs = Math.max(row.lastCommentMs || 0, ms);
-          if (inRange) row.rangeComments++;
-        } else if (type === "review"){
-          row.lastReviewMs = Math.max(row.lastReviewMs || 0, ms);
-          if (inRange) row.rangeReviews++;
+      // Stats map: key(email) -> stats
+      const m = new Map();
+      function getOrCreate(email){
+        const k = safeKey(email || "unknown") || "unknown";
+        if (!m.has(k)){
+          m.set(k, { email: email || "unknown", comments:0, reviews:0, tickets:new Set(), lastActiveMs:0 });
         }
-        row.lastActionMs = Math.max(row.lastActionMs || 0, ms);
+        return m.get(k);
       }
 
-      // 2) Comments in range
-      let commentsOk = true;
+      let commentDocs = 0;
+      let reviewDocs = 0;
+
       try{
-        const snap = await db.collectionGroup("steward_comments")
-          .where("createdAt", ">=", rangeStartDate)
-          .where("createdAt", "<=", nowDate)
-          .orderBy("createdAt", "desc")
-          .limit(5000)
+        // Comments in last 7 days (collectionGroup)
+        const commentsSnap = await db
+          .collectionGroup("steward_comments")
+          .where("createdAt", ">=", since)
           .get();
 
-        snap.forEach(doc => {
-          const d = doc.data() || {};
-          apply("comment", d.authorKey, msFromTs(d.createdAt), true);
-        });
-      }catch(e){
-        commentsOk = false;
-        console.error("steward_comments query blocked", e);
-      }
+        commentDocs = commentsSnap.size;
 
-      // 3) Reviews in range (optional)
-      let reviewsOk = true;
-      try{
-        const snap = await db.collectionGroup("reviews")
-          .where("createdAt", ">=", rangeStartDate)
-          .where("createdAt", "<=", nowDate)
-          .orderBy("createdAt", "desc")
-          .limit(5000)
+        commentsSnap.forEach(doc => {
+          const d = doc.data() || {};
+          const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
+          if (!ts) return;
+
+          // Your DB shows authorKey is the email string (good)
+          const author = String(d.authorKey || d.stewardEmail || "unknown").trim() || "unknown";
+          const s = getOrCreate(author);
+          s.comments += 1;
+
+          const ticketId = ticketIdFromDocRef(doc.ref);
+          if (ticketId) s.tickets.add(ticketId);
+
+          const tms = ts.getTime();
+          if (tms > s.lastActiveMs) s.lastActiveMs = tms;
+        });
+
+        // Reviews in last 7 days (collectionGroup)
+        // NOTE: your Head Steward page uses submittedAt. Keep the same.
+        const reviewsSnap = await db
+          .collectionGroup("reviews")
+          .where("submittedAt", ">=", since)
           .get();
 
-        snap.forEach(doc => {
+        reviewDocs = reviewsSnap.size;
+
+        reviewsSnap.forEach(doc => {
           const d = doc.data() || {};
-          apply("review", d.authorKey || d.reviewerKey, msFromTs(d.createdAt), true);
+          const ts = d.submittedAt && d.submittedAt.toDate ? d.submittedAt.toDate() : null;
+          if (!ts) return;
+
+          const author = String(d.stewardEmail || d.authorKey || "unknown").trim() || "unknown";
+          const s = getOrCreate(author);
+          s.reviews += 1;
+
+          const ticketId = ticketIdFromDocRef(doc.ref);
+          if (ticketId) s.tickets.add(ticketId);
+
+          const tms = ts.getTime();
+          if (tms > s.lastActiveMs) s.lastActiveMs = tms;
         });
+
       }catch(e){
-        reviewsOk = false;
-        console.error("reviews query blocked", e);
+        console.error("Steward audit collectionGroup failed:", e);
+        metaEl.textContent =
+          "Audit failed. This is either:\n" +
+          "• Firestore rules denying collectionGroup reads for steward_comments/reviews\n" +
+          "• Or an index requirement.\n" +
+          "Open console for the exact Firebase error (it often includes a 'create index' link).";
+        return;
       }
 
-      // 4) Best-effort last action overall
-      try{
-        const recent = await db.collectionGroup("steward_comments").orderBy("createdAt","desc").limit(2000).get();
-        recent.forEach(doc => {
-          const d = doc.data() || {};
-          apply("comment", d.authorKey, msFromTs(d.createdAt), false);
-        });
-      }catch(e){ /* optional */ }
-
-      try{
-        const recent = await db.collectionGroup("reviews").orderBy("createdAt","desc").limit(2000).get();
-        recent.forEach(doc => {
-          const d = doc.data() || {};
-          apply("review", d.authorKey || d.reviewerKey, msFromTs(d.createdAt), false);
-        });
-      }catch(e){ /* optional */ }
-
-      const rows = Array.from(map.values()).sort((a,b) => {
-        const aScore = a.rangeComments*3 + a.rangeReviews*2;
-        const bScore = b.rangeComments*3 + b.rangeReviews*2;
-        if (bScore !== aScore) return bScore - aScore;
-        return (b.lastActionMs||0) - (a.lastActionMs||0);
+      // Step 3: build rows for ALL roster members (including zero activity) and highlight inactive
+      const rosterRows = rosterEmails.map(email => {
+        const k = safeKey(email) || "unknown";
+        const existing = m.get(k);
+        const comments = existing ? existing.comments : 0;
+        const reviews = existing ? existing.reviews : 0;
+        const ticketsTouched = existing ? existing.tickets.size : 0;
+        const lastActiveMs = existing ? existing.lastActiveMs : 0;
+        const inactive = (comments + reviews) === 0;
+        return { email, comments, reviews, ticketsTouched, lastActiveMs, inactive };
       });
 
-      const naughty = rows.filter(r => (r.rangeComments + r.rangeReviews) === 0);
+      // Sort: inactive first (so failures are obvious), then by total activity desc, then last active desc
+      rosterRows.sort((a,b) => {
+        if (a.inactive !== b.inactive) return a.inactive ? -1 : 1;
+        const at = (a.comments + a.reviews);
+        const bt = (b.comments + b.reviews);
+        if (bt !== at) return bt - at;
+        return (b.lastActiveMs || 0) - (a.lastActiveMs || 0);
+      });
 
-      const bits = [
-        `Selected range: last ${days} day(s)`,
-        `Stewards: ${rows.length}`,
-        `Inactive: ${naughty.length}`
-      ];
-      if (!commentsOk) bits.push("comments query blocked");
-      if (!reviewsOk) bits.push("reviews query blocked");
-      $("stewardActivityHint").textContent = bits.join(" • ");
+      auditRowsCache = rosterRows;
 
-      $("naughtyHint").textContent = `No comment/review detected in last ${days} day(s).`;
+      const inactiveCount = rosterRows.filter(r => r.inactive).length;
+      metaEl.textContent =
+        `Loaded. Roster: ${rosterEmails.length} • Inactive: ${inactiveCount} • Comments scanned: ${commentDocs} • Reviews scanned: ${reviewDocs} • Window: last 7 days.`;
 
-      renderStewardActivity(rows);
-      renderNaughty(naughty, days);
+      renderAuditTableFromCache();
     }
 
+    // ---------------------------
+    // Main load
+    // ---------------------------
     async function loadDashboard(){
       try{
         destroyCharts();
@@ -820,14 +909,6 @@
         const rangeStartMs = nowMs - days*24*60*60*1000;
         const range7StartMs = nowMs - 7*24*60*60*1000;
 
-        // Steward accountability runs in parallel (won’t break page)
-        loadStewardAccountability({days, rangeStartMs, nowMs}).catch(e => {
-          console.error("steward accountability failed", e);
-          $("stewardActivityHint").textContent = "Steward section failed (see console).";
-          $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">Error: ${escapeHtml(e?.message || e)}</td></tr>`;
-          $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">—</td></tr>`;
-        });
-
         const snap = await db.collection("tickets").limit(2000).get();
         const tickets = snap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
 
@@ -841,12 +922,14 @@
 
         const tatSamplesMs = [];
         const pendingToSubmitSamplesMs = [];
+
         let tatUsedProxyCount = 0;
 
         for (const t of tickets){
           const status = (t.status || "").toString();
           const createdMs = getCreatedMs(t);
           const finalMs = getFinalisedMs(t);
+
           const fin = isFinalised(status);
 
           if (!fin) openTickets.push({ ...t, createdMs });
@@ -876,12 +959,17 @@
             submittedSimgrid.push({ ...t, submittedMs });
           }
 
+          // Turnaround samples: finalised happened in last 7 days
           if (createdMs && finalMs && finalMs >= range7StartMs){
-            const directFinal = pickFirstMs(t, ["finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp","statusFinalisedAt","statusFinalizedAt"]);
+            const directFinal = pickFirstMs(t, [
+              "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
+              "statusFinalisedAt","statusFinalizedAt"
+            ]);
             if (!directFinal) tatUsedProxyCount++;
             tatSamplesMs.push(finalMs - createdMs);
           }
 
+          // Pending->Submit samples (submitted in chosen range + have pending)
           const pendingMs = getPendingMs(t);
           const submittedMs = getSubmittedMs(t);
           if (pendingMs && submittedMs && submittedMs >= rangeStartMs){
@@ -889,6 +977,7 @@
           }
         }
 
+        // Open age stats
         const openAgesMs = openTickets
           .map(t => t.createdMs ? (nowMs - t.createdMs) : null)
           .filter(x => x != null && x >= 0);
@@ -896,25 +985,55 @@
         openTickets.sort((a,b) => (a.createdMs||0) - (b.createdMs||0));
         const oldestOpen = openTickets[0];
 
+        // Pending stats
         pendingGreen.sort((a,b) => (a.pendingMs||0) - (b.pendingMs||0));
+        const pendingAgesMs = pendingGreen
+          .map(t => t.pendingMs ? (nowMs - t.pendingMs) : null)
+          .filter(x => x != null && x >= 0);
 
+        // Submitted in range
         const submittedInRange = submittedSimgrid.filter(t => (t.submittedMs||0) >= rangeStartMs);
 
         const tatAvg = avg(tatSamplesMs);
         const tatMed = median(tatSamplesMs);
+
         const p2sAvg = avg(pendingToSubmitSamplesMs);
         const p2sMed = median(pendingToSubmitSamplesMs);
 
         renderKPIs([
-          { label:"Tickets live (open)", value:String(openTickets.length), sub: openTickets.length ? "Status not finalised" : "No open tickets 🎉" },
-          { label:"Oldest open ticket", value: oldestOpen?.createdMs ? fmtDuration(nowMs - oldestOpen.createdMs) : "—", sub: oldestOpen ? `Ticket: ${oldestOpen.id}` : "—" },
-          { label:"Avg age of open", value: openAgesMs.length ? fmtDuration(avg(openAgesMs)) : "—", sub: openAgesMs.length ? `Median: ${fmtDuration(median(openAgesMs))}` : "—" },
-          { label:"Pending green light", value:String(pendingGreen.length), sub: pendingGreen.length ? `Oldest: ${fmtDuration(nowMs - (pendingGreen[0].pendingMs||nowMs))}` : "None pending" },
-          { label:"Submitted to SimGrid", value:String(submittedInRange.length), sub: `In last ${days} day(s)` },
-          { label:"Avg pending → submit", value: p2sAvg ? fmtDuration(p2sAvg) : "—", sub: p2sMed ? `Median: ${fmtDuration(p2sMed)}` : "—" }
+          {
+            label:"Tickets live (open)",
+            value:String(openTickets.length),
+            sub: openTickets.length ? "Status not finalised" : "No open tickets 🎉"
+          },
+          {
+            label:"Oldest open ticket",
+            value: oldestOpen?.createdMs ? fmtDuration(nowMs - oldestOpen.createdMs) : "—",
+            sub: oldestOpen ? `Ticket: ${oldestOpen.id}` : "—"
+          },
+          {
+            label:"Avg age of open",
+            value: openAgesMs.length ? fmtDuration(avg(openAgesMs)) : "—",
+            sub: openAgesMs.length ? `Median: ${fmtDuration(median(openAgesMs))}` : "—"
+          },
+          {
+            label:"Pending green light",
+            value:String(pendingGreen.length),
+            sub: pendingGreen.length ? `Oldest: ${fmtDuration(nowMs - (pendingGreen[0].pendingMs||nowMs))}` : "None pending"
+          },
+          {
+            label:"Submitted to SimGrid",
+            value:String(submittedInRange.length),
+            sub: `In last ${days} day(s)`
+          },
+          {
+            label:"Avg pending → submit",
+            value: p2sAvg ? fmtDuration(p2sAvg) : "—",
+            sub: p2sMed ? `Median: ${fmtDuration(p2sMed)}` : "—"
+          }
         ]);
 
-        renderOldestOpen(openTickets.slice(0, 12).map(t => ({
+        const oldestOpenRows = openTickets.slice(0, 12).map(t => ({
           id: t.id,
           status: t.status || "",
           event: t.event || "",
@@ -922,17 +1041,19 @@
           reporter: t.reporter || "",
           createdMs: t.createdMs || 0,
           ageLabel: t.createdMs ? fmtDuration(nowMs - t.createdMs) : "—"
-        })));
+        }));
+        renderOldestOpen(oldestOpenRows);
 
-        renderPending(pendingGreen.slice(0, 12).map(t => ({
+        const pendingRows = pendingGreen.slice(0, 12).map(t => ({
           id: t.id,
           pendingMs: t.pendingMs || 0,
           pendingAgeLabel: t.pendingMs ? fmtDuration(nowMs - t.pendingMs) : "—",
           event: t.event || "",
           accused: t.accused || ""
-        })));
+        }));
+        renderPending(pendingRows);
 
-        // Charts
+        // Chart 1: created vs finalised
         const dateKeys = makeDateKeysBack(Math.min(days, 30));
         const createdSeries = dateKeys.map(k => createdCounts.get(k) || 0);
         const finalisedSeries = dateKeys.map(k => finalisedCounts.get(k) || 0);
@@ -941,25 +1062,47 @@
 
         chartDaily = new Chart($("chartDaily"), {
           type: "line",
-          data: { labels: dateKeys, datasets: [
-            { label: "Created", data: createdSeries, tension: 0.3 },
-            { label: "Finalised", data: finalisedSeries, tension: 0.3 }
-          ]},
-          options: { responsive: true, plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+          data: {
+            labels: dateKeys,
+            datasets: [
+              { label: "Created", data: createdSeries, tension: 0.3 },
+              { label: "Finalised", data: finalisedSeries, tension: 0.3 }
+            ]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: true } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
         });
 
+        // Chart 2: pipeline breakdown
         const greenlitNotSubmitted = finalisedTickets.filter(t => (t.simgridGreenlit === true && t.simgridSubmitted !== true));
         $("pipelineHint").textContent = "Counts are current; submitted is in selected range";
 
         chartPipeline = new Chart($("chartPipeline"), {
           type: "bar",
-          data: { labels: ["Open", "Finalised", "Greenlit", "Pending", `Submitted (${days}d)`], datasets: [{
-            label: "Tickets",
-            data: [openTickets.length, finalisedTickets.length, greenlitNotSubmitted.length, pendingGreen.length, submittedInRange.length]
-          }]},
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+          data: {
+            labels: ["Open", "Finalised", "Greenlit", "Pending", `Submitted (${days}d)`],
+            datasets: [{
+              label: "Tickets",
+              data: [
+                openTickets.length,
+                finalisedTickets.length,
+                greenlitNotSubmitted.length,
+                pendingGreen.length,
+                submittedInRange.length
+              ]
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
         });
 
+        // Chart 3: turnaround distribution (last 7 days)
         const tatBuckets = new Map([["<2h",0],["2–6h",0],["6–12h",0],["12–24h",0],["1–2d",0],["2–4d",0],["4d+",0]]);
         for (const ms of tatSamplesMs){
           const hours = ms / (1000*60*60);
@@ -969,17 +1112,25 @@
         const tatLabels = Array.from(tatBuckets.keys());
         const tatValues = tatLabels.map(k => tatBuckets.get(k) || 0);
 
-        $("tatHint").textContent = !tatSamplesMs.length
-          ? "Last 7 days • No usable timestamps found (need created + finalised/greenlit/submitted timestamps)"
-          : `Last 7 days • Avg: ${fmtDuration(tatAvg)} • Median: ${fmtDuration(tatMed)}`
+        if (!tatSamplesMs.length){
+          $("tatHint").textContent = "Last 7 days • No usable timestamps found (need created + finalised/greenlit/submitted timestamps)";
+        } else {
+          $("tatHint").textContent =
+            `Last 7 days • Avg: ${fmtDuration(tatAvg)} • Median: ${fmtDuration(tatMed)}`
             + (tatUsedProxyCount ? ` • Proxy used: ${tatUsedProxyCount}/${tatSamplesMs.length}` : "");
+        }
 
         chartTAT = new Chart($("chartTAT"), {
           type: "bar",
           data: { labels: tatLabels, datasets: [{ label: "Tickets", data: tatValues }] },
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
         });
 
+        // Chart 4: pending -> submit distribution (selected range)
         const p2sBuckets = new Map([["<2h",0],["2–6h",0],["6–12h",0],["12–24h",0],["1–2d",0],["2–4d",0],["4d+",0]]);
         for (const ms of pendingToSubmitSamplesMs){
           const hours = ms / (1000*60*60);
@@ -996,7 +1147,11 @@
         chartPendingSubmit = new Chart($("chartPendingSubmit"), {
           type: "bar",
           data: { labels: p2sLabels, datasets: [{ label: "Tickets", data: p2sValues }] },
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
         });
 
         toast("Dashboard loaded ✅");
@@ -1046,9 +1201,11 @@
           const nameGuess = (email.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Owner";
 
-          $("welcomeLine").textContent = `Welcome, ${niceName}. This page shows live ops stats + performance.`;
+          $("welcomeLine").textContent = `Welcome, ${niceName}. This page shows live ops stats + steward accountability.`;
           $("who").textContent = `Signed in as: ${email} | role: ${data.role || "admin"}`;
 
+          // Load both panels
+          await loadStewardAudit7d();
           await loadDashboard();
         }catch(e){
           console.error(e);
