@@ -333,7 +333,7 @@
         </div>
       </div>
 
-      <!-- Steward accountability (matches your Firestore structure: tickets/{id}/steward_comments/*) -->
+      <!-- Steward accountability -->
       <div class="grid2" style="margin-top:12px;">
         <div class="chartCard">
           <div class="rowBetween">
@@ -358,10 +358,6 @@
               <tbody id="tbodyStewardActivity"></tbody>
             </table>
           </div>
-          <div class="muted" style="margin-top:8px;" id="stewardNote">
-            Uses <span class="mono">collectionGroup("steward_comments")</span> and <span class="mono">collectionGroup("reviews")</span> with fields:
-            <span class="mono">authorKey</span> + <span class="mono">createdAt</span>.
-          </div>
         </div>
 
         <div class="chartCard">
@@ -385,7 +381,7 @@
             </table>
           </div>
           <div class="muted" style="margin-top:8px;" id="naughtyFooterNote">
-            If your Firestore rules or indexes block collectionGroup queries, this section will show an error note instead of breaking the page.
+            If you see “admins load failed”, update Firestore rules to let Head Steward/Owner read the admins roster.
           </div>
         </div>
       </div>
@@ -432,7 +428,7 @@
     function msFromTs(v){
       try{
         if (!v) return 0;
-        if (v.toDate) return v.toDate().getTime(); // Firestore Timestamp
+        if (v.toDate) return v.toDate().getTime();
         if (typeof v === "number") return v;
         const d = new Date(v);
         const ms = d.getTime();
@@ -467,10 +463,7 @@
       return `${sec}s`;
     }
 
-    function normKey(s){
-      return (s || "").toString().trim().toLowerCase();
-    }
-
+    function normKey(s){ return (s || "").toString().trim().toLowerCase(); }
     function safeNameFromKey(key){
       const k = normKey(key);
       if (!k) return "";
@@ -481,14 +474,9 @@
       return k;
     }
 
-    // Best-effort "created" timestamp:
     function getCreatedMs(x){
-      return pickFirstMs(x, [
-        "timestamp","createdAt","created","submittedAt","openedAt","openAt"
-      ]);
+      return pickFirstMs(x, ["timestamp","createdAt","created","submittedAt","openedAt","openAt"]);
     }
-
-    // Best-effort "finalised" timestamp:
     function getFinalisedMs(x){
       const direct = pickFirstMs(x, [
         "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
@@ -501,23 +489,15 @@
       ]);
       return proxy || 0;
     }
-
     function getPendingMs(x){
-      return pickFirstMs(x, [
-        "simgridPendingAt","simgridPendingGreenlitAt","pendingAt","pendingGreenlitAt","pendingSince"
-      ]);
+      return pickFirstMs(x, ["simgridPendingAt","simgridPendingGreenlitAt","pendingAt","pendingGreenlitAt","pendingSince"]);
     }
     function getSubmittedMs(x){
-      return pickFirstMs(x, [
-        "simgridSubmittedAt","simgridSubmittedOn","submittedToSimgridAt","submittedAtSimgrid","simgridCompletedAt"
-      ]);
+      return pickFirstMs(x, ["simgridSubmittedAt","simgridSubmittedOn","submittedToSimgridAt","submittedAtSimgrid","simgridCompletedAt"]);
     }
 
     function ticketUrl(id){ return `ticket.html?id=${encodeURIComponent(id || "")}`; }
 
-    // ---------------------------
-    // Auth / role gating
-    // ---------------------------
     $("backHeadBtn").onclick = () => window.location.href = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
     $("backClassifierBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
@@ -525,9 +505,7 @@
     $("refreshBtn").onclick = () => loadDashboard();
     $("rangeDays").onchange = () => loadDashboard();
 
-    // ---------------------------
     // Charts
-    // ---------------------------
     let chartDaily = null;
     let chartPipeline = null;
     let chartTAT = null;
@@ -540,9 +518,6 @@
       chartDaily = chartPipeline = chartTAT = chartPendingSubmit = null;
     }
 
-    // ---------------------------
-    // Stats helpers
-    // ---------------------------
     function median(arr){
       if (!arr.length) return null;
       const a = [...arr].sort((x,y)=>x-y);
@@ -636,11 +611,6 @@
       }
     }
 
-    // ---------------------------
-    // Steward accountability (based on your DB screenshots)
-    // tickets/{ticketId}/steward_comments/{commentId}: { authorKey, createdAt, text }
-    // tickets/{ticketId}/reviews/{reviewId}: (assumed) { authorKey, createdAt, ... }
-    // ---------------------------
     function isStewardRole(roleVal){
       const r = (roleVal || "").toString().toLowerCase();
       return r.includes("steward");
@@ -695,15 +665,14 @@
       $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">Loading…</td></tr>`;
       $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
 
-      // 1) Load steward roster from admins
+      // 1) Load roster (this was failing due to rules)
       let stewards = [];
       try{
-        const adminSnap = await db.collection("admins").limit(1000).get();
+        const adminSnap = await db.collection("admins").limit(2000).get();
         const admins = adminSnap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
         stewards = admins
           .filter(a => isStewardRole(a.role))
           .map(a => {
-            // Your system uses "authorKey" in subcollections (looks like an email).
             const key = normKey(a.email || a.authorKey || a.key || a.id);
             const name = a.name || a.displayName || safeNameFromKey(key);
             return { key, name };
@@ -711,9 +680,10 @@
           .filter(s => !!s.key);
       }catch(e){
         console.error("admins load failed", e);
-        $("stewardActivityHint").textContent = "Could not load stewards from admins (permissions?).";
-        $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">Admins load failed: ${escapeHtml(e?.message || e)}</td></tr>`;
+        $("stewardActivityHint").textContent = "Admins roster blocked by Firestore rules (update rules to allow Head Steward/Owner read).";
+        $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">admins load failed: ${escapeHtml(e?.message || e)}</td></tr>`;
         $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">Cannot build naughty list (no steward roster).</td></tr>`;
+        $("naughtyHint").textContent = "Roster not available.";
         return;
       }
 
@@ -733,8 +703,7 @@
       const rangeStartDate = new Date(rangeStartMs);
       const nowDate = new Date(nowMs);
 
-      // helper apply action
-      function applyAction(type, key, ms, inRange){
+      function apply(type, key, ms, inRange){
         const k = normKey(key);
         if (!k || !map.has(k) || !ms) return;
         const row = map.get(k);
@@ -749,8 +718,8 @@
         row.lastActionMs = Math.max(row.lastActionMs || 0, ms);
       }
 
-      // 2) Pull steward_comments in range
-      let commentsRangeOk = true;
+      // 2) Comments in range
+      let commentsOk = true;
       try{
         const snap = await db.collectionGroup("steward_comments")
           .where("createdAt", ">=", rangeStartDate)
@@ -761,17 +730,15 @@
 
         snap.forEach(doc => {
           const d = doc.data() || {};
-          const key = d.authorKey || d.author || d.email || d.userEmail;
-          const ms = msFromTs(d.createdAt);
-          applyAction("comment", key, ms, true);
+          apply("comment", d.authorKey, msFromTs(d.createdAt), true);
         });
       }catch(e){
-        commentsRangeOk = false;
-        console.error("steward_comments range query failed", e);
+        commentsOk = false;
+        console.error("steward_comments query blocked", e);
       }
 
-      // 3) Pull reviews in range (if you use tickets/{id}/reviews/*)
-      let reviewsRangeOk = true;
+      // 3) Reviews in range (optional)
+      let reviewsOk = true;
       try{
         const snap = await db.collectionGroup("reviews")
           .where("createdAt", ">=", rangeStartDate)
@@ -782,49 +749,29 @@
 
         snap.forEach(doc => {
           const d = doc.data() || {};
-          const key = d.authorKey || d.reviewerKey || d.author || d.email || d.userEmail;
-          const ms = msFromTs(d.createdAt);
-          applyAction("review", key, ms, true);
+          apply("review", d.authorKey || d.reviewerKey, msFromTs(d.createdAt), true);
         });
       }catch(e){
-        reviewsRangeOk = false;
-        console.error("reviews range query failed", e);
+        reviewsOk = false;
+        console.error("reviews query blocked", e);
       }
 
-      // 4) Best-effort “last action” outside range:
-      // If lastActionMs is still 0, try to find recent comments/reviews overall (fast + safe).
-      // (This will NOT break the page if it fails.)
+      // 4) Best-effort last action overall
       try{
-        const recentComments = await db.collectionGroup("steward_comments")
-          .orderBy("createdAt", "desc")
-          .limit(2000)
-          .get();
-
-        recentComments.forEach(doc => {
+        const recent = await db.collectionGroup("steward_comments").orderBy("createdAt","desc").limit(2000).get();
+        recent.forEach(doc => {
           const d = doc.data() || {};
-          const key = d.authorKey || d.author || d.email || d.userEmail;
-          const ms = msFromTs(d.createdAt);
-          applyAction("comment", key, ms, false);
+          apply("comment", d.authorKey, msFromTs(d.createdAt), false);
         });
-      }catch(e){
-        console.warn("recent comments query failed (optional)", e);
-      }
+      }catch(e){ /* optional */ }
 
       try{
-        const recentReviews = await db.collectionGroup("reviews")
-          .orderBy("createdAt", "desc")
-          .limit(2000)
-          .get();
-
-        recentReviews.forEach(doc => {
+        const recent = await db.collectionGroup("reviews").orderBy("createdAt","desc").limit(2000).get();
+        recent.forEach(doc => {
           const d = doc.data() || {};
-          const key = d.authorKey || d.reviewerKey || d.author || d.email || d.userEmail;
-          const ms = msFromTs(d.createdAt);
-          applyAction("review", key, ms, false);
+          apply("review", d.authorKey || d.reviewerKey, msFromTs(d.createdAt), false);
         });
-      }catch(e){
-        console.warn("recent reviews query failed (optional)", e);
-      }
+      }catch(e){ /* optional */ }
 
       const rows = Array.from(map.values()).sort((a,b) => {
         const aScore = a.rangeComments*3 + a.rangeReviews*2;
@@ -835,27 +782,21 @@
 
       const naughty = rows.filter(r => (r.rangeComments + r.rangeReviews) === 0);
 
-      const bits = [];
-      bits.push(`Selected range: last ${days} day(s)`);
-      bits.push(`Stewards: ${rows.length}`);
-      bits.push(`Inactive: ${naughty.length}`);
-      if (!commentsRangeOk) bits.push("comments query blocked");
-      if (!reviewsRangeOk) bits.push("reviews query blocked");
+      const bits = [
+        `Selected range: last ${days} day(s)`,
+        `Stewards: ${rows.length}`,
+        `Inactive: ${naughty.length}`
+      ];
+      if (!commentsOk) bits.push("comments query blocked");
+      if (!reviewsOk) bits.push("reviews query blocked");
       $("stewardActivityHint").textContent = bits.join(" • ");
 
-      if (!commentsRangeOk && !reviewsRangeOk){
-        $("naughtyHint").textContent = `Cannot compute (collectionGroup queries blocked by rules/index).`;
-      } else {
-        $("naughtyHint").textContent = `No comment/review detected in last ${days} day(s).`;
-      }
+      $("naughtyHint").textContent = `No comment/review detected in last ${days} day(s).`;
 
       renderStewardActivity(rows);
       renderNaughty(naughty, days);
     }
 
-    // ---------------------------
-    // Main load
-    // ---------------------------
     async function loadDashboard(){
       try{
         destroyCharts();
@@ -879,7 +820,7 @@
         const rangeStartMs = nowMs - days*24*60*60*1000;
         const range7StartMs = nowMs - 7*24*60*60*1000;
 
-        // Load steward accountability in parallel (won’t break page if it fails)
+        // Steward accountability runs in parallel (won’t break page)
         loadStewardAccountability({days, rangeStartMs, nowMs}).catch(e => {
           console.error("steward accountability failed", e);
           $("stewardActivityHint").textContent = "Steward section failed (see console).";
@@ -900,14 +841,12 @@
 
         const tatSamplesMs = [];
         const pendingToSubmitSamplesMs = [];
-
         let tatUsedProxyCount = 0;
 
         for (const t of tickets){
           const status = (t.status || "").toString();
           const createdMs = getCreatedMs(t);
           const finalMs = getFinalisedMs(t);
-
           const fin = isFinalised(status);
 
           if (!fin) openTickets.push({ ...t, createdMs });
@@ -938,10 +877,7 @@
           }
 
           if (createdMs && finalMs && finalMs >= range7StartMs){
-            const directFinal = pickFirstMs(t, [
-              "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
-              "statusFinalisedAt","statusFinalizedAt"
-            ]);
+            const directFinal = pickFirstMs(t, ["finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp","statusFinalisedAt","statusFinalizedAt"]);
             if (!directFinal) tatUsedProxyCount++;
             tatSamplesMs.push(finalMs - createdMs);
           }
@@ -966,44 +902,19 @@
 
         const tatAvg = avg(tatSamplesMs);
         const tatMed = median(tatSamplesMs);
-
         const p2sAvg = avg(pendingToSubmitSamplesMs);
         const p2sMed = median(pendingToSubmitSamplesMs);
 
         renderKPIs([
-          {
-            label:"Tickets live (open)",
-            value:String(openTickets.length),
-            sub: openTickets.length ? "Status not finalised" : "No open tickets 🎉"
-          },
-          {
-            label:"Oldest open ticket",
-            value: oldestOpen?.createdMs ? fmtDuration(nowMs - oldestOpen.createdMs) : "—",
-            sub: oldestOpen ? `Ticket: ${oldestOpen.id}` : "—"
-          },
-          {
-            label:"Avg age of open",
-            value: openAgesMs.length ? fmtDuration(avg(openAgesMs)) : "—",
-            sub: openAgesMs.length ? `Median: ${fmtDuration(median(openAgesMs))}` : "—"
-          },
-          {
-            label:"Pending green light",
-            value:String(pendingGreen.length),
-            sub: pendingGreen.length ? `Oldest: ${fmtDuration(nowMs - (pendingGreen[0].pendingMs||nowMs))}` : "None pending"
-          },
-          {
-            label:"Submitted to SimGrid",
-            value:String(submittedInRange.length),
-            sub: `In last ${days} day(s)`
-          },
-          {
-            label:"Avg pending → submit",
-            value: p2sAvg ? fmtDuration(p2sAvg) : "—",
-            sub: p2sMed ? `Median: ${fmtDuration(p2sMed)}` : "—"
-          }
+          { label:"Tickets live (open)", value:String(openTickets.length), sub: openTickets.length ? "Status not finalised" : "No open tickets 🎉" },
+          { label:"Oldest open ticket", value: oldestOpen?.createdMs ? fmtDuration(nowMs - oldestOpen.createdMs) : "—", sub: oldestOpen ? `Ticket: ${oldestOpen.id}` : "—" },
+          { label:"Avg age of open", value: openAgesMs.length ? fmtDuration(avg(openAgesMs)) : "—", sub: openAgesMs.length ? `Median: ${fmtDuration(median(openAgesMs))}` : "—" },
+          { label:"Pending green light", value:String(pendingGreen.length), sub: pendingGreen.length ? `Oldest: ${fmtDuration(nowMs - (pendingGreen[0].pendingMs||nowMs))}` : "None pending" },
+          { label:"Submitted to SimGrid", value:String(submittedInRange.length), sub: `In last ${days} day(s)` },
+          { label:"Avg pending → submit", value: p2sAvg ? fmtDuration(p2sAvg) : "—", sub: p2sMed ? `Median: ${fmtDuration(p2sMed)}` : "—" }
         ]);
 
-        const oldestOpenRows = openTickets.slice(0, 12).map(t => ({
+        renderOldestOpen(openTickets.slice(0, 12).map(t => ({
           id: t.id,
           status: t.status || "",
           event: t.event || "",
@@ -1011,19 +922,17 @@
           reporter: t.reporter || "",
           createdMs: t.createdMs || 0,
           ageLabel: t.createdMs ? fmtDuration(nowMs - t.createdMs) : "—"
-        }));
-        renderOldestOpen(oldestOpenRows);
+        })));
 
-        const pendingRows = pendingGreen.slice(0, 12).map(t => ({
+        renderPending(pendingGreen.slice(0, 12).map(t => ({
           id: t.id,
           pendingMs: t.pendingMs || 0,
           pendingAgeLabel: t.pendingMs ? fmtDuration(nowMs - t.pendingMs) : "—",
           event: t.event || "",
           accused: t.accused || ""
-        }));
-        renderPending(pendingRows);
+        })));
 
-        // Chart 1: created vs finalised
+        // Charts
         const dateKeys = makeDateKeysBack(Math.min(days, 30));
         const createdSeries = dateKeys.map(k => createdCounts.get(k) || 0);
         const finalisedSeries = dateKeys.map(k => finalisedCounts.get(k) || 0);
@@ -1032,47 +941,25 @@
 
         chartDaily = new Chart($("chartDaily"), {
           type: "line",
-          data: {
-            labels: dateKeys,
-            datasets: [
-              { label: "Created", data: createdSeries, tension: 0.3 },
-              { label: "Finalised", data: finalisedSeries, tension: 0.3 }
-            ]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: true } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-          }
+          data: { labels: dateKeys, datasets: [
+            { label: "Created", data: createdSeries, tension: 0.3 },
+            { label: "Finalised", data: finalisedSeries, tension: 0.3 }
+          ]},
+          options: { responsive: true, plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
         });
 
-        // Chart 2: pipeline breakdown
         const greenlitNotSubmitted = finalisedTickets.filter(t => (t.simgridGreenlit === true && t.simgridSubmitted !== true));
         $("pipelineHint").textContent = "Counts are current; submitted is in selected range";
 
         chartPipeline = new Chart($("chartPipeline"), {
           type: "bar",
-          data: {
-            labels: ["Open", "Finalised", "Greenlit", "Pending", `Submitted (${days}d)`],
-            datasets: [{
-              label: "Tickets",
-              data: [
-                openTickets.length,
-                finalisedTickets.length,
-                greenlitNotSubmitted.length,
-                pendingGreen.length,
-                submittedInRange.length
-              ]
-            }]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-          }
+          data: { labels: ["Open", "Finalised", "Greenlit", "Pending", `Submitted (${days}d)`], datasets: [{
+            label: "Tickets",
+            data: [openTickets.length, finalisedTickets.length, greenlitNotSubmitted.length, pendingGreen.length, submittedInRange.length]
+          }]},
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
         });
 
-        // Chart 3: turnaround distribution (last 7 days)
         const tatBuckets = new Map([["<2h",0],["2–6h",0],["6–12h",0],["12–24h",0],["1–2d",0],["2–4d",0],["4d+",0]]);
         for (const ms of tatSamplesMs){
           const hours = ms / (1000*60*60);
@@ -1082,25 +969,17 @@
         const tatLabels = Array.from(tatBuckets.keys());
         const tatValues = tatLabels.map(k => tatBuckets.get(k) || 0);
 
-        if (!tatSamplesMs.length){
-          $("tatHint").textContent = "Last 7 days • No usable timestamps found (need created + finalised/greenlit/submitted timestamps)";
-        } else {
-          $("tatHint").textContent =
-            `Last 7 days • Avg: ${fmtDuration(tatAvg)} • Median: ${fmtDuration(tatMed)}`
+        $("tatHint").textContent = !tatSamplesMs.length
+          ? "Last 7 days • No usable timestamps found (need created + finalised/greenlit/submitted timestamps)"
+          : `Last 7 days • Avg: ${fmtDuration(tatAvg)} • Median: ${fmtDuration(tatMed)}`
             + (tatUsedProxyCount ? ` • Proxy used: ${tatUsedProxyCount}/${tatSamplesMs.length}` : "");
-        }
 
         chartTAT = new Chart($("chartTAT"), {
           type: "bar",
           data: { labels: tatLabels, datasets: [{ label: "Tickets", data: tatValues }] },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-          }
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
         });
 
-        // Chart 4: pending -> submit distribution (selected range)
         const p2sBuckets = new Map([["<2h",0],["2–6h",0],["6–12h",0],["12–24h",0],["1–2d",0],["2–4d",0],["4d+",0]]);
         for (const ms of pendingToSubmitSamplesMs){
           const hours = ms / (1000*60*60);
@@ -1117,11 +996,7 @@
         chartPendingSubmit = new Chart($("chartPendingSubmit"), {
           type: "bar",
           data: { labels: p2sLabels, datasets: [{ label: "Tickets", data: p2sValues }] },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-          }
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
         });
 
         toast("Dashboard loaded ✅");
