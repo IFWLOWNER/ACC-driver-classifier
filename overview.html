@@ -82,7 +82,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1280px; /* slightly wider due to new columns */
+      min-width:1400px; /* wider due to new link column */
     }
     th, td{
       padding:10px;
@@ -203,7 +203,7 @@
       header{flex-direction:column; align-items:stretch;}
       header .row{width:100%;}
       header button{width:100%;}
-      table{min-width:1120px;}
+      table{min-width:1220px;}
     }
   </style>
 </head>
@@ -220,6 +220,7 @@
     </div>
 
     <div class="row">
+      <button id="backHeadBtn" style="display:none;">Back to Head Stewards Dashboard</button>
       <button id="backBtn">Back to Classifier</button>
       <button id="logoutBtn">Sign out</button>
     </div>
@@ -268,6 +269,7 @@
               <th>Actions</th>
               <th>Audit</th>
               <th>Ticket</th>
+              <th>View</th>
               <th>Status</th>
               <th>Event</th>
               <th>Competition</th>
@@ -342,6 +344,14 @@
     function isFinalised(status){
       const s = (status || "").trim().toUpperCase();
       return s === "FINALISED" || s === "FINALIZED" || s === "CLOSED" || s === "RESOLVED";
+    }
+
+    // Build a link back to the ticket page (so Head Steward can read steward comments)
+    // This uses the ticket id as a query param. If your ticket page uses a different param name,
+    // change "id=" below to match (e.g. "ticketId=").
+    function ticketViewUrl(ticketId){
+      const base = "ticket.html";
+      return `${base}?id=${encodeURIComponent(ticketId || "")}`;
     }
 
     // RP code -> penalty fallback (only used if no (15s) present)
@@ -427,6 +437,7 @@
     let isSimgridOnly = false; // ONLY simgrid users get "Submitted to SimGrid"
 
     $("backBtn").onclick = () => window.location.href = "index.html";
+    $("backHeadBtn").onclick = () => window.location.href = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
 
     $("refreshBtn").onclick = () => loadFinalised();
@@ -808,12 +819,19 @@
         // Status column MUST show "Published to SimGrid" after submission
         const statusText = submitted ? "Published to SimGrid" : (t.status || "");
 
+        // View link column:
+        // Only show this for Head Steward, as requested.
+        const viewHtml = isHeadSteward
+          ? `<a href="${ticketViewUrl(t.id)}" target="_blank" rel="noopener">Open ticket</a>`
+          : "—";
+
         tr.innerHTML = `
           <td>${greenTag}</td>
           <td>${actionHtml}</td>
           <td>${auditHtml}</td>
 
           <td class="mono">${escapeHtml(t.id)}</td>
+          <td>${viewHtml}</td>
           <td>${escapeHtml(statusText)}</td>
           <td>${escapeHtml(t.event || "")}</td>
           <td>${escapeHtml(t.competition || "")}</td>
@@ -1014,6 +1032,9 @@
             window.location.href = "admin.html";
             return;
           }
+
+          // Show the Head Steward dashboard button only for Head Stewards
+          $("backHeadBtn").style.display = isHeadSteward ? "inline-block" : "none";
 
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Admin";
