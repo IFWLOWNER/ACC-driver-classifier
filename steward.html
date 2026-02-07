@@ -59,6 +59,26 @@
       cursor:default;
     }
 
+    /* NEW: penalty info preview box */
+    .penPreview {
+      margin-top:10px;
+      padding:10px 12px;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#f9fafb;
+      color:#111827;
+      font-size:13px;
+      line-height:1.3;
+    }
+    .penPreview .mutedLine { color:#6b7280; font-size:12px; margin-top:6px; }
+    .penPreview .k { font-weight:900; }
+    .penPreview pre {
+      margin:8px 0 0;
+      white-space:pre-wrap;
+      font-family: inherit;
+      background: transparent;
+    }
+
     .list { display:flex; flex-direction:column; gap:8px; max-height:680px; overflow:auto; -webkit-overflow-scrolling:touch; }
     .ticket { padding:12px; border:1px solid #e5e7eb; border-radius:12px; cursor:pointer; background:#fff; }
     .ticket:hover { background:#f9fafb; }
@@ -311,6 +331,14 @@
               <label class="muted">What penalty best fits this incident? (required)</label>
               <select id="penaltyCode"></select>
               <div class="muted" style="margin-top:8px;">Head Steward-only notes are not shown here.</div>
+
+              <!-- NEW: guidance preview -->
+              <div class="penPreview" id="penaltyPreview" style="display:none;">
+                <div><span class="k">Penalty:</span> <span id="ppPenalty">—</span></div>
+                <div class="mutedLine"><span class="k">Who:</span> <span id="ppWho">—</span></div>
+                <pre id="ppDesc"></pre>
+                <pre id="ppExample"></pre>
+              </div>
             </div>
           </div>
 
@@ -563,6 +591,28 @@
       el.innerHTML = `Requires deliberation<br><small>No steward comment from you yet</small>`;
     }
 
+    // ---------- penalty preview ----------
+    function setPenaltyPreviewFromSelected() {
+      const sel = $("penaltyCode");
+      const box = $("penaltyPreview");
+      if (!sel || !box) return;
+
+      const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
+      if (!opt || !opt.value) { box.style.display = "none"; return; }
+
+      const pen = (opt.dataset.penalty || "").trim();
+      const who = (opt.dataset.who || "").trim();
+      const desc = (opt.dataset.desc || "").trim();
+      const ex = (opt.dataset.example || "").trim();
+
+      $("ppPenalty").textContent = pen || "—";
+      $("ppWho").textContent = who || "—";
+      $("ppDesc").textContent = desc ? `Description:\n${desc}` : "";
+      $("ppExample").textContent = ex ? `\nExample:\n${ex}` : "";
+
+      box.style.display = "block";
+    }
+
     // ---------- penalty codes ----------
     async function loadPenaltyCodes() {
       const sel = $("penaltyCode");
@@ -577,11 +627,12 @@
       sel.appendChild(ph);
 
       try {
-        const res = await fetch("./steward_rules.json", { cache: "no-store" });
-        if (!res.ok) throw new Error(`Could not load steward_rules.json (${res.status})`);
+        // CHANGED: load the new JSON file with Example + NFA
+        const res = await fetch("./ifwl_stewarding_codes_with_examples_and_nfa.json", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Could not load rules JSON (${res.status})`);
 
         const rules = await res.json();
-        if (!Array.isArray(rules)) throw new Error("steward_rules.json is not a JSON array");
+        if (!Array.isArray(rules)) throw new Error("Rules file is not a JSON array");
 
         let added = 0;
 
@@ -593,6 +644,11 @@
           const group = String((r.Group ?? r.group ?? "")).trim();
           const pen = String((r.Penalty ?? r.penalty ?? "")).trim();
 
+          // NEW fields
+          const desc = String((r.Description ?? r.description ?? "")).trim();
+          const example = String((r.Example ?? r.example ?? "")).trim();
+          const who = String((r.Who ?? r.who ?? "")).trim();
+
           if (!code && !title) continue;
 
           const value = `${code}${title ? " — " + title : ""}${pen ? " (" + pen + ")" : ""}`.trim();
@@ -601,8 +657,15 @@
           const opt = document.createElement("option");
           opt.value = value;
           opt.textContent = label;
+
           opt.dataset.group = group;
           opt.dataset.penalty = pen;
+
+          // NEW datasets used by preview
+          opt.dataset.desc = desc;
+          opt.dataset.example = example;
+          opt.dataset.who = who;
+
           sel.appendChild(opt);
           added++;
         }
@@ -614,6 +677,13 @@
           opt.disabled = true;
           sel.appendChild(opt);
         }
+
+        // NEW: update preview when user changes selection
+        sel.onchange = () => setPenaltyPreviewFromSelected();
+
+        // Ensure preview hidden at start
+        setPenaltyPreviewFromSelected();
+
       } catch (e) {
         console.error("Penalty code load failed:", e);
         const opt = document.createElement("option");
@@ -744,7 +814,6 @@
       statementStatusCache.clear();
       deliberationStatusCache.clear();
 
-      // ✅ ONLY CHANGE: 200 -> 400
       const snap = await db.collection("tickets").limit(400).get();
 
       const docs = snap.docs;
@@ -851,7 +920,6 @@
 
       const filterName = filterEl.value;
 
-      // ✅ ONLY CHANGE: 200 -> 400
       ticketHintEl.textContent =
         `Showing ${shown} ticket(s) for filter: "${filterName}". Live workload in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max 400 fetched).`;
     }
@@ -1057,6 +1125,9 @@
       setFreeText("eText", cause.environment?.text || "");
 
       $("penaltyCode").value = d.penaltyCode || "";
+
+      // NEW: update preview when loading saved review
+      setPenaltyPreviewFromSelected();
 
       $("myReviewStatus").textContent = "Submitted ✅";
       $("myReviewStatus").className = "badge ok";
