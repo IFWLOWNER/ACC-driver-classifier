@@ -122,7 +122,19 @@
     .delibBad { border-color:#fca5a5; background:#fef2f2; color:#991b1b; }
     .delibOk { border-color:#86efac; background:#ecfdf5; color:#065f46; }
     .delibTag small { display:block; margin-top:4px; font-weight:800; opacity:0.95; }
-
+    
+/* Accountability banners */
+.bannerBox{
+  border-radius:12px;
+  padding:12px 14px;
+  font-size:14px;
+  font-weight:900;
+  line-height:1.25;
+}
+.bannerRed{ border:1px solid #fca5a5; background:#fef2f2; color:#991b1b; }
+.bannerAmber{ border:1px solid #fcd34d; background:#fffbeb; color:#92400e; }
+.bannerGreen{ border:1px solid #86efac; background:#ecfdf5; color:#065f46; }
+.bannerBox small{ display:block; margin-top:6px; font-weight:800; opacity:.95; }
     .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px;
       opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; }
     .toast.show { opacity:1; transform: translateY(0); }
@@ -185,6 +197,27 @@
     </div>
   </header>
 
+<!-- Accountability (Top) -->
+<div style="padding:14px; padding-bottom:0;">
+  <div class="card" id="acctCard">
+    <div class="row" style="justify-content:space-between; align-items:flex-start;">
+      <div>
+        <div class="title" style="margin:0;">Your Steward Accountability (Last 7 Days)</div>
+        <div class="muted" id="acctSub">Loading…</div>
+      </div>
+      <button id="acctRefreshBtn">Refresh</button>
+    </div>
+
+    <div class="row" style="margin-top:10px; gap:10px; flex-wrap:wrap;">
+      <div class="pill" id="acctMinePill">You: …</div>
+      <div class="pill" id="acctTeamPill">Team avg: …</div>
+    </div>
+
+    <div id="acctBanner" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+  
   <div class="wrap">
     <!-- LEFT -->
     <div class="card">
@@ -411,6 +444,125 @@
       if (at <= 0) return e;
       return e.slice(0, at);
     }
+    
+async function loadMyAccountability() {
+  const sub = $("acctSub");
+  const minePill = $("acctMinePill");
+  const teamPill = $("acctTeamPill");
+  const banner = $("acctBanner");
+
+  if (!sub || !minePill || !teamPill || !banner) return;
+
+  const authorKey = safeKey(currentEmail);
+  if (!authorKey) return;
+
+  sub.textContent = "Loading activity…";
+  minePill.textContent = "You: …";
+  teamPill.textContent = "Team avg: …";
+  banner.innerHTML = "";
+
+  const cutoff = firebase.firestore.Timestamp.fromDate(
+    new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  );
+
+  // COMMENTS (last 7 days)
+  let commentSnap = null;
+  try {
+    commentSnap = await db.collectionGroup("steward_comments")
+      .where("createdAt", ">=", cutoff)
+      .limit(2000)
+      .get();
+  } catch (e) {
+    console.warn("Accountability comment query failed:", e);
+  }
+
+  // REVIEWS (last 7 days)
+  let reviewSnap = null;
+  try {
+    reviewSnap = await db.collectionGroup("reviews")
+      .where("submittedAt", ">=", cutoff)
+      .limit(2000)
+      .get();
+  } catch (e) {
+    console.warn("Accountability review query failed:", e);
+  }
+
+  const per = new Map(); // authorKey -> {comments, reviews, lastActiveMs}
+  function ensure(ak) {
+    if (!per.has(ak)) per.set(ak, { comments:0, reviews:0, lastActiveMs:0 });
+    return per.get(ak);
+  }
+
+  if (commentSnap) {
+    commentSnap.forEach(doc => {
+      const d = doc.data() || {};
+      const ak = String(d.authorKey || "").trim();
+      if (!ak) return;
+      const o = ensure(ak);
+      o.comments++;
+
+      const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
+      if (ts) o.lastActiveMs = Math.max(o.lastActiveMs, ts.getTime());
+    });
+  }
+
+  if (reviewSnap) {
+    reviewSnap.forEach(doc => {
+      const d = doc.data() || {};
+      const email = String(d.stewardEmail || "").toLowerCase().trim();
+      const ak = safeKey(email);
+      if (!ak) return;
+
+      const o = ensure(ak);
+      o.reviews++;
+
+      const ts = d.submittedAt && d.submittedAt.toDate ? d.submittedAt.toDate() : null;
+      if (ts) o.lastActiveMs = Math.max(o.lastActiveMs, ts.getTime());
+    });
+  }
+
+  const mine = per.get(authorKey) || { comments:0, reviews:0, lastActiveMs:0 };
+
+  const arr = [...per.values()];
+  const avgComments = arr.length ? arr.reduce((a,x)=>a+x.comments,0) / arr.length : 0;
+  const avgReviews  = arr.length ? arr.reduce((a,x)=>a+x.reviews,0) / arr.length : 0;
+
+  minePill.innerHTML = `You: <strong>${mine.comments}</strong> comments • <strong>${mine.reviews}</strong> reviews`;
+  teamPill.innerHTML = `Team avg: <strong>${avgComments.toFixed(1)}</strong> comments • <strong>${avgReviews.toFixed(1)}</strong> reviews`;
+
+  const lastActive = mine.lastActiveMs ? new Date(mine.lastActiveMs).toLocaleString() : "No activity logged";
+  sub.textContent = `Last active: ${lastActive}`;
+
+  const isRed = (mine.comments + mine.reviews) === 0;
+  const isAmber = !isRed && (mine.comments < avgComments * 0.6 || mine.reviews < avgReviews * 0.6);
+
+  if (isRed) {
+    banner.innerHTML = `
+      <div class="bannerBox bannerRed">
+        ACTION REQUIRED: No steward activity recorded in the last 7 days.
+        <small>Please add discussion comments and/or submit reviews to stay active.</small>
+      </div>
+    `;
+    return;
+  }
+
+  if (isAmber) {
+    banner.innerHTML = `
+      <div class="bannerBox bannerAmber">
+        You are active, but below team pace this week.
+        <small>Aim to increase comments/reviews so tickets keep moving.</small>
+      </div>
+    `;
+    return;
+  }
+
+  banner.innerHTML = `
+    <div class="bannerBox bannerGreen">
+      You’re on pace with the steward team ✅
+      <small>Keep going — your activity is in line with the group.</small>
+    </div>
+  `;
+}
 
     function optionList() {
       return [
@@ -795,6 +947,9 @@ async function loadPenaltyCodes() {
     if (refreshDiscussionBtn) refreshDiscussionBtn.onclick = () => loadDiscussion();
     filterEl.onchange = () => loadTickets();
 
+    $("acctRefreshBtn").onclick = () => loadMyAccountability();
+
+
     loadMyReviewBtn.onclick = () => loadMyReview();
     submitReviewBtn.onclick = () => submitMyReview();
     if (postDiscussionBtn) postDiscussionBtn.onclick = () => postDiscussion();
@@ -832,6 +987,7 @@ if (dSel) dSel.onchange = () => setDiscussionPenaltyPreviewFromSelected();
 setDiscussionPenaltyPreviewFromSelected();
 
 await loadTickets();
+await loadMyAccountability();
       } catch (e) {
         toast("Auth error: " + (e?.message || e));
       }
