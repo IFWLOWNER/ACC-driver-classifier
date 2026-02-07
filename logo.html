@@ -21,6 +21,10 @@
       padding:14px 18px;
       background:#111827;
       color:#fff;
+    }
+    .headerInner{
+      max-width:1400px;
+      margin:0 auto;
       display:flex;
       justify-content:space-between;
       align-items:flex-start;
@@ -42,7 +46,14 @@
     header .small{font-size:12px;opacity:0.85;margin-top:4px;line-height:1.2;word-break:break-word;}
     .welcomeLine{font-size:12px;opacity:0.95;margin-top:6px;line-height:1.25;}
 
-    .wrap{padding:14px; display:grid; grid-template-columns: 1fr; gap:14px; max-width:1400px; margin:0 auto;}
+    .wrap{
+      padding:14px;
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:14px;
+      max-width:1400px;
+      margin:0 auto;
+    }
 
     .card{
       background:rgba(255,255,255,0.92);
@@ -185,7 +196,7 @@
     }
     @media (max-width: 980px){
       body{background-attachment:scroll;}
-      header{flex-direction:column; align-items:stretch;}
+      .headerInner{flex-direction:column; align-items:stretch;}
       header .row{width:100%;}
       header button{width:100%;}
       .kpiGrid{grid-template-columns: repeat(2, minmax(0, 1fr));}
@@ -198,19 +209,21 @@
 
 <body>
   <header>
-    <div class="brand">
-      <img src="./ifwl_logo.png" alt="IFWL logo">
-      <div class="brandText">
-        <div class="brandTitle">IFWL Owner — Overview Dashboard</div>
-        <div class="welcomeLine" id="welcomeLine">Loading your profile…</div>
-        <div class="small" id="who">Loading…</div>
+    <div class="headerInner">
+      <div class="brand">
+        <img src="./ifwl_logo.png" alt="IFWL logo">
+        <div class="brandText">
+          <div class="brandTitle">IFWL Owner — Overview Dashboard</div>
+          <div class="welcomeLine" id="welcomeLine">Loading your profile…</div>
+          <div class="small" id="who">Loading…</div>
+        </div>
       </div>
-    </div>
 
-    <div class="row">
-      <button id="backHeadBtn">Back to Head Stewards Dashboard</button>
-      <button id="backClassifierBtn">Back to Classifier</button>
-      <button id="logoutBtn">Sign out</button>
+      <div class="row">
+        <button id="backHeadBtn">Back to Head Stewards Dashboard</button>
+        <button id="backClassifierBtn">Back to Classifier</button>
+        <button id="logoutBtn">Sign out</button>
+      </div>
     </div>
   </header>
 
@@ -232,9 +245,7 @@
         </div>
       </div>
 
-      <div class="kpiGrid" id="kpiGrid">
-        <!-- KPIs injected -->
-      </div>
+      <div class="kpiGrid" id="kpiGrid"></div>
 
       <div class="gridCharts">
         <div class="chartCard">
@@ -323,9 +334,9 @@
       </div>
 
       <div class="muted" style="margin-top:10px;" id="notes">
-        Notes: This dashboard uses best-effort timestamps. For accurate turnaround metrics, each ticket should have a clear created timestamp
-        (commonly <span class="mono">timestamp</span>) and a finalised timestamp (commonly <span class="mono">finalisedAt</span>/<span class="mono">closedAt</span>/<span class="mono">resolvedAt</span>).
-        Pending uses <span class="mono">simgridPendingAt</span>, and SimGrid submit uses <span class="mono">simgridSubmittedAt</span>.
+        This dashboard will use fallbacks if some timestamps aren’t stored yet:
+        <span class="mono">open→finalised</span> will use <span class="mono">finalisedAt</span> if present,
+        otherwise it will fall back to <span class="mono">simgridGreenlitAt</span> (or <span class="mono">simgridSubmittedAt</span>) as a proxy.
       </div>
     </div>
   </div>
@@ -365,10 +376,19 @@
       try{
         if (!v) return 0;
         if (v.toDate) return v.toDate().getTime();
+        if (typeof v === "number") return v;
         const d = new Date(v);
         const ms = d.getTime();
         return isNaN(ms) ? 0 : ms;
       }catch{ return 0; }
+    }
+
+    function pickFirstMs(obj, keys){
+      for (const k of keys){
+        const ms = msFromTs(obj?.[k]);
+        if (ms && ms > 0) return ms;
+      }
+      return 0;
     }
 
     function fmtDate(ms){
@@ -392,31 +412,45 @@
 
     // Best-effort "created" timestamp:
     function getCreatedMs(x){
-      return msFromTs(x.timestamp || x.createdAt || x.created || x.submittedAt || null);
+      return pickFirstMs(x, [
+        "timestamp","createdAt","created","submittedAt","openedAt","openAt"
+      ]);
     }
 
     // Best-effort "finalised" timestamp:
+    // If your system doesn't store finalisedAt, we fall back to simgridGreenlitAt / simgridSubmittedAt as proxy.
     function getFinalisedMs(x){
-      return msFromTs(
-        x.finalisedAt || x.finalizedAt || x.closedAt || x.resolvedAt || x.finalisedTimestamp || x.statusFinalisedAt || x.statusUpdatedAt || null
-      );
+      // direct finalised fields
+      const direct = pickFirstMs(x, [
+        "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
+        "statusFinalisedAt","statusFinalizedAt","statusUpdatedAt","updatedAt","lastUpdatedAt"
+      ]);
+      if (direct) return direct;
+
+      // proxy: greenlit/submitted timestamps are typically after finalisation in your workflow
+      const proxy = pickFirstMs(x, [
+        "simgridGreenlitAt","simgridSubmittedAt","simgridApprovedAt","simgridCompletedAt"
+      ]);
+      return proxy || 0;
     }
 
-    // For Pending + Submit pipeline:
-    function getPendingMs(x){ return msFromTs(x.simgridPendingAt || null); }
-    function getSubmittedMs(x){ return msFromTs(x.simgridSubmittedAt || null); }
+    // Pending + submit timestamp variants
+    function getPendingMs(x){
+      return pickFirstMs(x, [
+        "simgridPendingAt","simgridPendingGreenlitAt","pendingAt","pendingGreenlitAt","pendingSince"
+      ]);
+    }
+    function getSubmittedMs(x){
+      return pickFirstMs(x, [
+        "simgridSubmittedAt","simgridSubmittedOn","submittedToSimgridAt","submittedAtSimgrid","simgridCompletedAt"
+      ]);
+    }
 
-    // Ticket page link (works with the ticket.html you now have)
     function ticketUrl(id){ return `ticket.html?id=${encodeURIComponent(id || "")}`; }
 
     // ---------------------------
     // Auth / role gating
     // ---------------------------
-    let currentEmail = "";
-    let isOwner = false;
-    let isHeadSteward = false;
-    let isSimgrid = false;
-
     $("backHeadBtn").onclick = () => window.location.href = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
     $("backClassifierBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
@@ -425,7 +459,7 @@
     $("rangeDays").onchange = () => loadDashboard();
 
     // ---------------------------
-    // Charts (keep references for destroy/recreate)
+    // Charts
     // ---------------------------
     let chartDaily = null;
     let chartPipeline = null;
@@ -446,8 +480,7 @@
       if (!arr.length) return null;
       const a = [...arr].sort((x,y)=>x-y);
       const mid = Math.floor(a.length/2);
-      if (a.length % 2 === 0) return (a[mid-1] + a[mid]) / 2;
-      return a[mid];
+      return (a.length % 2 === 0) ? (a[mid-1] + a[mid]) / 2 : a[mid];
     }
     function avg(arr){
       if (!arr.length) return null;
@@ -483,8 +516,7 @@
     }
 
     function renderKPIs(kpis){
-      const grid = $("kpiGrid");
-      grid.innerHTML = kpis.map(k => `
+      $("kpiGrid").innerHTML = kpis.map(k => `
         <div class="kpi">
           <div class="label">${escapeHtml(k.label)}</div>
           <div class="value">${escapeHtml(k.value)}</div>
@@ -543,6 +575,7 @@
     async function loadDashboard(){
       try{
         destroyCharts();
+
         $("pipelineHint").textContent = "Loading…";
         $("createdFinalisedHint").textContent = "Loading…";
         $("tatHint").textContent = "Loading…";
@@ -562,52 +595,42 @@
         const rangeStartMs = nowMs - days*24*60*60*1000;
         const range7StartMs = nowMs - 7*24*60*60*1000;
 
-        // NOTE:
-        // We fetch a large set and compute locally.
-        // If you ever exceed ~2000 tickets, we can paginate or add a "createdAt" indexed query.
         const snap = await db.collection("tickets").limit(2000).get();
-
         const tickets = snap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
 
-        // Pipeline states
         const openTickets = [];
         const finalisedTickets = [];
         const pendingGreen = [];
         const submittedSimgrid = [];
 
-        // For charts
         const createdCounts = new Map();
         const finalisedCounts = new Map();
 
-        // Turnaround time samples (created -> finalised) in last 7 days (or chosen range)
         const tatSamplesMs = [];
-
-        // Pending->submit samples (pendingAt -> submittedAt) in chosen range
         const pendingToSubmitSamplesMs = [];
+
+        let tatUsedProxyCount = 0;
 
         for (const t of tickets){
           const status = (t.status || "").toString();
           const createdMs = getCreatedMs(t);
           const finalMs = getFinalisedMs(t);
 
-          const isFin = isFinalised(status);
-          if (!isFin) openTickets.push({ ...t, createdMs });
+          const fin = isFinalised(status);
 
-          if (isFin) finalisedTickets.push({ ...t, createdMs, finalMs });
+          if (!fin) openTickets.push({ ...t, createdMs });
+          if (fin) finalisedTickets.push({ ...t, createdMs, finalMs });
 
-          // created daily counts (chosen range window)
           if (createdMs && createdMs >= rangeStartMs){
             const k = dayKey(createdMs);
             createdCounts.set(k, (createdCounts.get(k) || 0) + 1);
           }
 
-          // finalised daily counts (chosen range window) - if we have finalMs, use it; else fallback to created
           if (finalMs && finalMs >= rangeStartMs){
             const k = dayKey(finalMs);
             finalisedCounts.set(k, (finalisedCounts.get(k) || 0) + 1);
           }
 
-          // pending green light (only if pending flag true AND not greenlit AND not submitted)
           const pendingFlag = t.simgridPendingGreenlit === true;
           const greenlit = t.simgridGreenlit === true;
           const submitted = t.simgridSubmitted === true;
@@ -622,13 +645,18 @@
             submittedSimgrid.push({ ...t, submittedMs });
           }
 
-          // turnaround samples: created->finalised where finalised happened in last 7 days (hard requirement)
-          // Your ask specifically: "turn around time for tickets from open to finalised in last 7 days"
+          // Turnaround samples: finalised happened in last 7 days
           if (createdMs && finalMs && finalMs >= range7StartMs){
+            // detect if finalMs likely proxy (greenlit/submitted)
+            const directFinal = pickFirstMs(t, [
+              "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
+              "statusFinalisedAt","statusFinalizedAt"
+            ]);
+            if (!directFinal) tatUsedProxyCount++;
             tatSamplesMs.push(finalMs - createdMs);
           }
 
-          // pending->submit samples: submitted in chosen range and have pendingMs
+          // Pending->Submit samples (submitted in chosen range + have pending)
           const pendingMs = getPendingMs(t);
           const submittedMs = getSubmittedMs(t);
           if (pendingMs && submittedMs && submittedMs >= rangeStartMs){
@@ -636,12 +664,12 @@
           }
         }
 
-        // Compute open ticket age stats
+        // Open age stats
         const openAgesMs = openTickets
           .map(t => t.createdMs ? (nowMs - t.createdMs) : null)
           .filter(x => x != null && x >= 0);
 
-        openTickets.sort((a,b) => (a.createdMs||0) - (b.createdMs||0)); // oldest first
+        openTickets.sort((a,b) => (a.createdMs||0) - (b.createdMs||0));
         const oldestOpen = openTickets[0];
 
         // Pending stats
@@ -650,19 +678,15 @@
           .map(t => t.pendingMs ? (nowMs - t.pendingMs) : null)
           .filter(x => x != null && x >= 0);
 
-        // SimGrid submitted stats (chosen range)
+        // Submitted in range
         const submittedInRange = submittedSimgrid.filter(t => (t.submittedMs||0) >= rangeStartMs);
-        submittedInRange.sort((a,b) => (b.submittedMs||0) - (a.submittedMs||0));
 
-        // Turnaround stats last 7 days
         const tatAvg = avg(tatSamplesMs);
         const tatMed = median(tatSamplesMs);
 
-        // Pending->Submit stats chosen range
         const p2sAvg = avg(pendingToSubmitSamplesMs);
         const p2sMed = median(pendingToSubmitSamplesMs);
 
-        // KPIs
         renderKPIs([
           {
             label:"Tickets live (open)",
@@ -696,7 +720,6 @@
           }
         ]);
 
-        // Tables
         const oldestOpenRows = openTickets.slice(0, 12).map(t => ({
           id: t.id,
           status: t.status || "",
@@ -717,8 +740,8 @@
         }));
         renderPending(pendingRows);
 
-        // CHART 1: daily created vs finalised (chosen range)
-        const dateKeys = makeDateKeysBack(Math.min(days, 30)); // keep chart sane
+        // Chart 1: created vs finalised
+        const dateKeys = makeDateKeysBack(Math.min(days, 30));
         const createdSeries = dateKeys.map(k => createdCounts.get(k) || 0);
         const finalisedSeries = dateKeys.map(k => finalisedCounts.get(k) || 0);
 
@@ -736,20 +759,13 @@
           options: {
             responsive: true,
             plugins: { legend: { display: true } },
-            scales: {
-              y: { beginAtZero: true, ticks: { precision: 0 } }
-            }
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
           }
         });
 
-        // CHART 2: pipeline breakdown (current)
-        const finalisedNotSubmitted = finalisedTickets.filter(t => (t.simgridSubmitted !== true));
+        // Chart 2: pipeline breakdown
         const greenlitNotSubmitted = finalisedTickets.filter(t => (t.simgridGreenlit === true && t.simgridSubmitted !== true));
-        const pendingCount = pendingGreen.length;
-        const openCount = openTickets.length;
-        const submittedCount = submittedInRange.length;
-
-        $("pipelineHint").textContent = "Counts are current; submitted is in range";
+        $("pipelineHint").textContent = "Counts are current; submitted is in selected range";
 
         chartPipeline = new Chart($("chartPipeline"), {
           type: "bar",
@@ -758,24 +774,22 @@
             datasets: [{
               label: "Tickets",
               data: [
-                openCount,
+                openTickets.length,
                 finalisedTickets.length,
                 greenlitNotSubmitted.length,
-                pendingCount,
-                submittedCount
+                pendingGreen.length,
+                submittedInRange.length
               ]
             }]
           },
           options: {
             responsive: true,
             plugins: { legend: { display: false } },
-            scales: {
-              y: { beginAtZero: true, ticks: { precision: 0 } }
-            }
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
           }
         });
 
-        // CHART 3: turnaround distribution (last 7 days, per your requirement)
+        // Chart 3: turnaround distribution (last 7 days)
         const tatBuckets = new Map([["<2h",0],["2–6h",0],["6–12h",0],["12–24h",0],["1–2d",0],["2–4d",0],["4d+",0]]);
         for (const ms of tatSamplesMs){
           const hours = ms / (1000*60*60);
@@ -785,26 +799,25 @@
         const tatLabels = Array.from(tatBuckets.keys());
         const tatValues = tatLabels.map(k => tatBuckets.get(k) || 0);
 
-        $("tatHint").textContent = tatSamplesMs.length
-          ? `Last 7 days • Avg: ${fmtDuration(tatAvg)} • Median: ${fmtDuration(tatMed)}`
-          : "Last 7 days • No finalised timestamps found";
+        if (!tatSamplesMs.length){
+          $("tatHint").textContent = "Last 7 days • No usable timestamps found (need created + finalised/greenlit/submitted timestamps)";
+        } else {
+          $("tatHint").textContent =
+            `Last 7 days • Avg: ${fmtDuration(tatAvg)} • Median: ${fmtDuration(tatMed)}`
+            + (tatUsedProxyCount ? ` • Proxy used: ${tatUsedProxyCount}/${tatSamplesMs.length}` : "");
+        }
 
         chartTAT = new Chart($("chartTAT"), {
           type: "bar",
-          data: {
-            labels: tatLabels,
-            datasets: [{ label: "Tickets", data: tatValues }]
-          },
+          data: { labels: tatLabels, datasets: [{ label: "Tickets", data: tatValues }] },
           options: {
             responsive: true,
             plugins: { legend: { display: false } },
-            scales: {
-              y: { beginAtZero: true, ticks: { precision: 0 } }
-            }
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
           }
         });
 
-        // CHART 4: pending -> submit distribution (chosen range)
+        // Chart 4: pending -> submit distribution (selected range)
         const p2sBuckets = new Map([["<2h",0],["2–6h",0],["6–12h",0],["12–24h",0],["1–2d",0],["2–4d",0],["4d+",0]]);
         for (const ms of pendingToSubmitSamplesMs){
           const hours = ms / (1000*60*60);
@@ -816,20 +829,15 @@
 
         $("pendingToSubmitHint").textContent = pendingToSubmitSamplesMs.length
           ? `Last ${days} days • Avg: ${fmtDuration(p2sAvg)} • Median: ${fmtDuration(p2sMed)}`
-          : `Last ${days} days • No samples (need both simgridPendingAt + simgridSubmittedAt)`;
+          : `Last ${days} days • No samples (need BOTH pending timestamp + submitted timestamp)`;
 
         chartPendingSubmit = new Chart($("chartPendingSubmit"), {
           type: "bar",
-          data: {
-            labels: p2sLabels,
-            datasets: [{ label: "Tickets", data: p2sValues }]
-          },
+          data: { labels: p2sLabels, datasets: [{ label: "Tickets", data: p2sValues }] },
           options: {
             responsive: true,
             plugins: { legend: { display: false } },
-            scales: {
-              y: { beginAtZero: true, ticks: { precision: 0 } }
-            }
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
           }
         });
 
@@ -859,19 +867,15 @@
       auth.onAuthStateChanged(async (user) => {
         try{
           if (!user){ window.location.href = "admin.html"; return; }
-          currentEmail = (user.email || "").toLowerCase().trim();
 
-          const adminSnap = await db.collection("admins").doc(currentEmail).get();
+          const email = (user.email || "").toLowerCase().trim();
+          const adminSnap = await db.collection("admins").doc(email).get();
           if (!adminSnap.exists){ await auth.signOut(); window.location.href = "admin.html"; return; }
 
           const data = adminSnap.data() || {};
           const roleText = String(data.role || "").toLowerCase();
+          const isOwner = roleText.includes("owner") || data.owner === true;
 
-          isSimgrid = roleText.includes("simgrid");
-          isHeadSteward = roleText.includes("head") || data.headsteward === true;
-          isOwner = roleText.includes("owner") || data.owner === true;
-
-          // Owner only (as requested)
           if (!isOwner){
             toast("Access denied (owner only).");
             await auth.signOut();
@@ -879,14 +883,13 @@
             return;
           }
 
-          const permLabel = "Owner";
-          $("permPill").textContent = `Permissions: ${permLabel}`;
+          $("permPill").textContent = "Permissions: Owner";
 
-          const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+          const nameGuess = (email.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Owner";
 
           $("welcomeLine").textContent = `Welcome, ${niceName}. This page shows live ops stats + performance.`;
-          $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
+          $("who").textContent = `Signed in as: ${email} | role: ${data.role || "admin"}`;
 
           await loadDashboard();
         }catch(e){
