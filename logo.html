@@ -333,13 +333,13 @@
         </div>
       </div>
 
-      <!-- NEW: Steward accountability -->
+      <!-- Steward accountability (matches your Firestore structure: tickets/{id}/steward_comments/*) -->
       <div class="grid2" style="margin-top:12px;">
         <div class="chartCard">
           <div class="rowBetween">
             <div>
-              <div class="chartTitle">Steward activity (views / comments / reviews)</div>
-              <div class="muted" id="stewardActivityHint">Counts within selected range • last action shown (best-effort)</div>
+              <div class="chartTitle">Steward activity (comments / reviews)</div>
+              <div class="muted" id="stewardActivityHint">Loading…</div>
             </div>
           </div>
           <div class="tableWrap">
@@ -347,20 +347,20 @@
               <thead>
                 <tr>
                   <th>Steward</th>
-                  <th>Email</th>
-                  <th>Views (range)</th>
+                  <th>Email / Key</th>
                   <th>Comments (range)</th>
                   <th>Reviews (range)</th>
-                  <th>Last viewed</th>
                   <th>Last commented</th>
+                  <th>Last reviewed</th>
                   <th>Last action</th>
                 </tr>
               </thead>
               <tbody id="tbodyStewardActivity"></tbody>
             </table>
           </div>
-          <div class="muted" style="margin-top:8px;">
-            Tip: best accuracy comes from storing actions on tickets (e.g. <span class="mono">comments[]</span> with <span class="mono">authorEmail</span> + <span class="mono">createdAt</span>, and <span class="mono">viewedBy</span> map with timestamps).
+          <div class="muted" style="margin-top:8px;" id="stewardNote">
+            Uses <span class="mono">collectionGroup("steward_comments")</span> and <span class="mono">collectionGroup("reviews")</span> with fields:
+            <span class="mono">authorKey</span> + <span class="mono">createdAt</span>.
           </div>
         </div>
 
@@ -368,16 +368,15 @@
           <div class="rowBetween">
             <div>
               <div class="chartTitle">“Naughty list” — stewards who have failed to do their role</div>
-              <div class="muted" id="naughtyHint">No view/comment/review found in selected range</div>
+              <div class="muted" id="naughtyHint">Loading…</div>
             </div>
           </div>
-
           <div class="tableWrap">
             <table>
               <thead>
                 <tr>
                   <th>Steward</th>
-                  <th>Email</th>
+                  <th>Email / Key</th>
                   <th>Last action</th>
                   <th>Reason</th>
                 </tr>
@@ -385,9 +384,8 @@
               <tbody id="tbodyNaughty"></tbody>
             </table>
           </div>
-
           <div class="muted" style="margin-top:8px;" id="naughtyFooterNote">
-            Note: if your ticket docs don’t currently store view/comment/review metadata, everyone may show as inactive until those fields are added.
+            If your Firestore rules or indexes block collectionGroup queries, this section will show an error note instead of breaking the page.
           </div>
         </div>
       </div>
@@ -434,7 +432,7 @@
     function msFromTs(v){
       try{
         if (!v) return 0;
-        if (v.toDate) return v.toDate().getTime();
+        if (v.toDate) return v.toDate().getTime(); // Firestore Timestamp
         if (typeof v === "number") return v;
         const d = new Date(v);
         const ms = d.getTime();
@@ -469,6 +467,20 @@
       return `${sec}s`;
     }
 
+    function normKey(s){
+      return (s || "").toString().trim().toLowerCase();
+    }
+
+    function safeNameFromKey(key){
+      const k = normKey(key);
+      if (!k) return "";
+      if (k.includes("@")){
+        const nameGuess = (k.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+        return nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : k;
+      }
+      return k;
+    }
+
     // Best-effort "created" timestamp:
     function getCreatedMs(x){
       return pickFirstMs(x, [
@@ -477,23 +489,19 @@
     }
 
     // Best-effort "finalised" timestamp:
-    // If your system doesn't store finalisedAt, we fall back to simgridGreenlitAt / simgridSubmittedAt as proxy.
     function getFinalisedMs(x){
-      // direct finalised fields
       const direct = pickFirstMs(x, [
         "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
         "statusFinalisedAt","statusFinalizedAt","statusUpdatedAt","updatedAt","lastUpdatedAt"
       ]);
       if (direct) return direct;
 
-      // proxy: greenlit/submitted timestamps are typically after finalisation in your workflow
       const proxy = pickFirstMs(x, [
         "simgridGreenlitAt","simgridSubmittedAt","simgridApprovedAt","simgridCompletedAt"
       ]);
       return proxy || 0;
     }
 
-    // Pending + submit timestamp variants
     function getPendingMs(x){
       return pickFirstMs(x, [
         "simgridPendingAt","simgridPendingGreenlitAt","pendingAt","pendingGreenlitAt","pendingSince"
@@ -629,143 +637,40 @@
     }
 
     // ---------------------------
-    // NEW: Steward accountability helpers
+    // Steward accountability (based on your DB screenshots)
+    // tickets/{ticketId}/steward_comments/{commentId}: { authorKey, createdAt, text }
+    // tickets/{ticketId}/reviews/{reviewId}: (assumed) { authorKey, createdAt, ... }
     // ---------------------------
-    function normEmail(s){
-      return (s || "").toString().trim().toLowerCase();
-    }
-
     function isStewardRole(roleVal){
       const r = (roleVal || "").toString().toLowerCase();
-      // catches "steward", "stewards", "head steward" etc.
       return r.includes("steward");
-    }
-
-    function safeNameFromEmail(email){
-      const e = normEmail(email);
-      if (!e || !e.includes("@")) return "";
-      const nameGuess = (e.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
-      return nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "";
-    }
-
-    // Extract actions from a ticket using MANY possible schemas (best-effort).
-    // Returns array of { email, type: "view"|"comment"|"review", ms }
-    function extractActionsFromTicket(t){
-      const out = [];
-
-      // 1) comments arrays (common)
-      const commentArrays = [
-        t.comments, t.commentHistory, t.commentLog, t.messages, t.thread
-      ].filter(Array.isArray);
-
-      for (const arr of commentArrays){
-        for (const c of arr){
-          const email = normEmail(c?.authorEmail || c?.email || c?.userEmail || c?.byEmail || c?.createdByEmail || c?.author || c?.by);
-          const ms = pickFirstMs(c, ["createdAt","timestamp","time","at","date","ts"]);
-          if (email && ms) out.push({ email, type:"comment", ms });
-        }
-      }
-
-      // 2) viewedBy maps (common)
-      // Examples:
-      // viewedBy: { "a@b.com": <timestamp|ms|{at:ts}> }
-      // views: [{email, at}]
-      const viewedBy = t.viewedBy || t.viewsBy || t.seenBy || t.readBy;
-      if (viewedBy && typeof viewedBy === "object" && !Array.isArray(viewedBy)){
-        for (const [k,v] of Object.entries(viewedBy)){
-          const email = normEmail(k);
-          let ms = 0;
-          if (typeof v === "number") ms = v;
-          else ms = msFromTs(v) || pickFirstMs(v, ["at","time","timestamp","ts","viewedAt","seenAt"]);
-          if (email && ms) out.push({ email, type:"view", ms });
-        }
-      }
-
-      const viewArrays = [t.views, t.viewLog, t.auditViews].filter(Array.isArray);
-      for (const arr of viewArrays){
-        for (const v of arr){
-          const email = normEmail(v?.email || v?.userEmail || v?.byEmail || v?.by || v?.viewerEmail);
-          const ms = pickFirstMs(v, ["viewedAt","seenAt","at","time","timestamp","ts"]);
-          if (email && ms) out.push({ email, type:"view", ms });
-        }
-      }
-
-      // 3) explicit last viewed/commented fields
-      // lastViewedByEmail + lastViewedAt
-      const lvEmail = normEmail(t.lastViewedByEmail || t.lastViewedBy || t.lastSeenByEmail || t.lastSeenBy);
-      const lvMs = pickFirstMs(t, ["lastViewedAt","lastSeenAt","lastViewAt"]);
-      if (lvEmail && lvMs) out.push({ email: lvEmail, type:"view", ms: lvMs });
-
-      const lcEmail = normEmail(t.lastCommentedByEmail || t.lastCommentedBy || t.lastCommentByEmail || t.lastCommentBy);
-      const lcMs = pickFirstMs(t, ["lastCommentedAt","lastCommentAt","lastCommentTimestamp"]);
-      if (lcEmail && lcMs) out.push({ email: lcEmail, type:"comment", ms: lcMs });
-
-      // 4) review / decision / workflow actions (greenlight, assigned, reviewed, decided)
-      // Common fields: reviewedByEmail, reviewedAt, decisionByEmail, decisionAt, greenlitByEmail, simgridGreenlitByEmail
-      const reviewPairs = [
-        { by: t.reviewedByEmail || t.reviewedBy || t.reviewedByUser, atKeys:["reviewedAt","reviewedOn","reviewedTimestamp"] },
-        { by: t.decisionByEmail || t.decisionBy || t.decidedByEmail || t.decidedBy, atKeys:["decisionAt","decidedAt","decisionTimestamp"] },
-        { by: t.assignedByEmail || t.assignedBy, atKeys:["assignedAt","assignedOn"] },
-        { by: t.simgridGreenlitByEmail || t.simgridGreenlitBy || t.greenlitByEmail || t.greenlitBy, atKeys:["simgridGreenlitAt","greenlitAt"] },
-        { by: t.finalisedByEmail || t.finalisedBy || t.finalizedByEmail || t.finalizedBy, atKeys:["finalisedAt","finalizedAt","closedAt","resolvedAt"] }
-      ];
-      for (const p of reviewPairs){
-        const email = normEmail(p.by);
-        const ms = pickFirstMs(t, p.atKeys);
-        if (email && ms) out.push({ email, type:"review", ms });
-      }
-
-      // 5) generic audit/activity logs if present
-      const auditArrays = [t.auditLog, t.activityLog, t.timeline].filter(Array.isArray);
-      for (const arr of auditArrays){
-        for (const a of arr){
-          const email = normEmail(a?.email || a?.userEmail || a?.byEmail || a?.actorEmail || a?.by || a?.actor);
-          const ms = pickFirstMs(a, ["at","time","timestamp","ts","createdAt"]);
-          const action = (a?.action || a?.type || a?.event || "").toString().toLowerCase();
-          if (!email || !ms) continue;
-
-          if (action.includes("view") || action.includes("seen") || action.includes("read")){
-            out.push({ email, type:"view", ms });
-          } else if (action.includes("comment") || action.includes("message") || action.includes("reply")){
-            out.push({ email, type:"comment", ms });
-          } else if (action.includes("review") || action.includes("decision") || action.includes("approve") || action.includes("resolve") || action.includes("final")){
-            out.push({ email, type:"review", ms });
-          }
-        }
-      }
-
-      return out;
     }
 
     function renderStewardActivity(rows){
       const tbody = $("tbodyStewardActivity");
       tbody.innerHTML = "";
       if (!rows.length){
-        tbody.innerHTML = `<tr><td colspan="8" class="muted">No stewards found (admins.role must include “steward”).</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="muted">No stewards found (admins.role must include “steward”).</td></tr>`;
         return;
       }
       for (const r of rows){
-        const activityTag =
-          (r.rangeViews + r.rangeComments + r.rangeReviews) > 0
-            ? `<span class="tag ok">ACTIVE</span>`
-            : `<span class="tag bad">INACTIVE</span>`;
-
+        const active = (r.rangeComments + r.rangeReviews) > 0;
+        const tag = active ? `<span class="tag ok">ACTIVE</span>` : `<span class="tag bad">INACTIVE</span>`;
         tbody.insertAdjacentHTML("beforeend", `
           <tr>
-            <td><b>${escapeHtml(r.name || "—")}</b> ${activityTag}</td>
-            <td class="mono">${escapeHtml(r.email)}</td>
-            <td><b>${r.rangeViews}</b></td>
+            <td><b>${escapeHtml(r.name || "—")}</b> ${tag}</td>
+            <td class="mono">${escapeHtml(r.key)}</td>
             <td><b>${r.rangeComments}</b></td>
             <td><b>${r.rangeReviews}</b></td>
-            <td>${escapeHtml(fmtDate(r.lastViewMs))}</td>
             <td>${escapeHtml(fmtDate(r.lastCommentMs))}</td>
+            <td>${escapeHtml(fmtDate(r.lastReviewMs))}</td>
             <td><b>${escapeHtml(fmtDate(r.lastActionMs))}</b></td>
           </tr>
         `);
       }
     }
 
-    function renderNaughty(rows){
+    function renderNaughty(rows, days){
       const tbody = $("tbodyNaughty");
       tbody.innerHTML = "";
       if (!rows.length){
@@ -776,12 +681,176 @@
         tbody.insertAdjacentHTML("beforeend", `
           <tr>
             <td><b>${escapeHtml(r.name || "—")}</b></td>
-            <td class="mono">${escapeHtml(r.email)}</td>
+            <td class="mono">${escapeHtml(r.key)}</td>
             <td><b>${escapeHtml(fmtDate(r.lastActionMs))}</b></td>
-            <td><span class="tag bad">No activity in selected range</span></td>
+            <td><span class="tag bad">No comment/review in last ${days}d</span></td>
           </tr>
         `);
       }
+    }
+
+    async function loadStewardAccountability({days, rangeStartMs, nowMs}){
+      $("stewardActivityHint").textContent = "Loading…";
+      $("naughtyHint").textContent = "Loading…";
+      $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">Loading…</td></tr>`;
+      $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
+
+      // 1) Load steward roster from admins
+      let stewards = [];
+      try{
+        const adminSnap = await db.collection("admins").limit(1000).get();
+        const admins = adminSnap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
+        stewards = admins
+          .filter(a => isStewardRole(a.role))
+          .map(a => {
+            // Your system uses "authorKey" in subcollections (looks like an email).
+            const key = normKey(a.email || a.authorKey || a.key || a.id);
+            const name = a.name || a.displayName || safeNameFromKey(key);
+            return { key, name };
+          })
+          .filter(s => !!s.key);
+      }catch(e){
+        console.error("admins load failed", e);
+        $("stewardActivityHint").textContent = "Could not load stewards from admins (permissions?).";
+        $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">Admins load failed: ${escapeHtml(e?.message || e)}</td></tr>`;
+        $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">Cannot build naughty list (no steward roster).</td></tr>`;
+        return;
+      }
+
+      const map = new Map();
+      for (const s of stewards){
+        map.set(s.key, {
+          key: s.key,
+          name: s.name,
+          rangeComments: 0,
+          rangeReviews: 0,
+          lastCommentMs: 0,
+          lastReviewMs: 0,
+          lastActionMs: 0
+        });
+      }
+
+      const rangeStartDate = new Date(rangeStartMs);
+      const nowDate = new Date(nowMs);
+
+      // helper apply action
+      function applyAction(type, key, ms, inRange){
+        const k = normKey(key);
+        if (!k || !map.has(k) || !ms) return;
+        const row = map.get(k);
+
+        if (type === "comment"){
+          row.lastCommentMs = Math.max(row.lastCommentMs || 0, ms);
+          if (inRange) row.rangeComments++;
+        } else if (type === "review"){
+          row.lastReviewMs = Math.max(row.lastReviewMs || 0, ms);
+          if (inRange) row.rangeReviews++;
+        }
+        row.lastActionMs = Math.max(row.lastActionMs || 0, ms);
+      }
+
+      // 2) Pull steward_comments in range
+      let commentsRangeOk = true;
+      try{
+        const snap = await db.collectionGroup("steward_comments")
+          .where("createdAt", ">=", rangeStartDate)
+          .where("createdAt", "<=", nowDate)
+          .orderBy("createdAt", "desc")
+          .limit(5000)
+          .get();
+
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const key = d.authorKey || d.author || d.email || d.userEmail;
+          const ms = msFromTs(d.createdAt);
+          applyAction("comment", key, ms, true);
+        });
+      }catch(e){
+        commentsRangeOk = false;
+        console.error("steward_comments range query failed", e);
+      }
+
+      // 3) Pull reviews in range (if you use tickets/{id}/reviews/*)
+      let reviewsRangeOk = true;
+      try{
+        const snap = await db.collectionGroup("reviews")
+          .where("createdAt", ">=", rangeStartDate)
+          .where("createdAt", "<=", nowDate)
+          .orderBy("createdAt", "desc")
+          .limit(5000)
+          .get();
+
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          const key = d.authorKey || d.reviewerKey || d.author || d.email || d.userEmail;
+          const ms = msFromTs(d.createdAt);
+          applyAction("review", key, ms, true);
+        });
+      }catch(e){
+        reviewsRangeOk = false;
+        console.error("reviews range query failed", e);
+      }
+
+      // 4) Best-effort “last action” outside range:
+      // If lastActionMs is still 0, try to find recent comments/reviews overall (fast + safe).
+      // (This will NOT break the page if it fails.)
+      try{
+        const recentComments = await db.collectionGroup("steward_comments")
+          .orderBy("createdAt", "desc")
+          .limit(2000)
+          .get();
+
+        recentComments.forEach(doc => {
+          const d = doc.data() || {};
+          const key = d.authorKey || d.author || d.email || d.userEmail;
+          const ms = msFromTs(d.createdAt);
+          applyAction("comment", key, ms, false);
+        });
+      }catch(e){
+        console.warn("recent comments query failed (optional)", e);
+      }
+
+      try{
+        const recentReviews = await db.collectionGroup("reviews")
+          .orderBy("createdAt", "desc")
+          .limit(2000)
+          .get();
+
+        recentReviews.forEach(doc => {
+          const d = doc.data() || {};
+          const key = d.authorKey || d.reviewerKey || d.author || d.email || d.userEmail;
+          const ms = msFromTs(d.createdAt);
+          applyAction("review", key, ms, false);
+        });
+      }catch(e){
+        console.warn("recent reviews query failed (optional)", e);
+      }
+
+      const rows = Array.from(map.values()).sort((a,b) => {
+        const aScore = a.rangeComments*3 + a.rangeReviews*2;
+        const bScore = b.rangeComments*3 + b.rangeReviews*2;
+        if (bScore !== aScore) return bScore - aScore;
+        return (b.lastActionMs||0) - (a.lastActionMs||0);
+      });
+
+      const naughty = rows.filter(r => (r.rangeComments + r.rangeReviews) === 0);
+
+      const bits = [];
+      bits.push(`Selected range: last ${days} day(s)`);
+      bits.push(`Stewards: ${rows.length}`);
+      bits.push(`Inactive: ${naughty.length}`);
+      if (!commentsRangeOk) bits.push("comments query blocked");
+      if (!reviewsRangeOk) bits.push("reviews query blocked");
+      $("stewardActivityHint").textContent = bits.join(" • ");
+
+      if (!commentsRangeOk && !reviewsRangeOk){
+        $("naughtyHint").textContent = `Cannot compute (collectionGroup queries blocked by rules/index).`;
+      } else {
+        $("naughtyHint").textContent = `No comment/review detected in last ${days} day(s).`;
+      }
+
+      renderStewardActivity(rows);
+      renderNaughty(naughty, days);
     }
 
     // ---------------------------
@@ -795,8 +864,6 @@
         $("createdFinalisedHint").textContent = "Loading…";
         $("tatHint").textContent = "Loading…";
         $("pendingToSubmitHint").textContent = "Loading…";
-        $("stewardActivityHint").textContent = "Loading steward activity…";
-        $("naughtyHint").textContent = "Loading…";
 
         renderKPIs([
           {label:"Tickets live (open)", value:"—", sub:"Loading…"},
@@ -807,40 +874,22 @@
           {label:"Avg pending → submit", value:"—", sub:"Loading…"}
         ]);
 
-        // Reset tables
-        $("tbodyStewardActivity").innerHTML = `<tr><td colspan="8" class="muted">Loading…</td></tr>`;
-        $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
-
         const days = parseInt($("rangeDays").value, 10) || 7;
         const nowMs = Date.now();
         const rangeStartMs = nowMs - days*24*60*60*1000;
         const range7StartMs = nowMs - 7*24*60*60*1000;
 
-        // ---- Pull data
-        const [ticketSnap, adminSnap] = await Promise.all([
-          db.collection("tickets").limit(2000).get(),
-          db.collection("admins").limit(1000).get()
-        ]);
-
-        const tickets = ticketSnap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
-
-        const admins = adminSnap.docs.map(d => {
-          const x = d.data() || {};
-          // your admin docs are keyed by email; keep both doc.id + data.email
-          const email = normEmail(x.email || d.id);
-          return { ...x, email, _id: d.id };
+        // Load steward accountability in parallel (won’t break page if it fails)
+        loadStewardAccountability({days, rangeStartMs, nowMs}).catch(e => {
+          console.error("steward accountability failed", e);
+          $("stewardActivityHint").textContent = "Steward section failed (see console).";
+          $("tbodyStewardActivity").innerHTML = `<tr><td colspan="7" class="muted">Error: ${escapeHtml(e?.message || e)}</td></tr>`;
+          $("tbodyNaughty").innerHTML = `<tr><td colspan="4" class="muted">—</td></tr>`;
         });
 
-        const stewards = admins
-          .filter(a => isStewardRole(a.role))
-          .map(a => ({
-            email: normEmail(a.email || a._id),
-            name: a.name || a.displayName || safeNameFromEmail(a.email || a._id),
-            role: a.role || "steward"
-          }))
-          .filter(s => !!s.email);
+        const snap = await db.collection("tickets").limit(2000).get();
+        const tickets = snap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
 
-        // ---- Existing ticket stats
         const openTickets = [];
         const finalisedTickets = [];
         const pendingGreen = [];
@@ -853,43 +902,6 @@
         const pendingToSubmitSamplesMs = [];
 
         let tatUsedProxyCount = 0;
-
-        // ---- Steward activity aggregates
-        const stewardMap = new Map(); // email -> agg
-        for (const s of stewards){
-          stewardMap.set(s.email, {
-            email: s.email,
-            name: s.name || safeNameFromEmail(s.email),
-            rangeViews: 0,
-            rangeComments: 0,
-            rangeReviews: 0,
-            lastViewMs: 0,
-            lastCommentMs: 0,
-            lastReviewMs: 0,
-            lastActionMs: 0
-          });
-        }
-
-        // Helper to ensure we still capture actions by stewards even if not in admins list (optional)
-        function ensureSteward(email){
-          const e = normEmail(email);
-          if (!e) return null;
-          if (!stewardMap.has(e)){
-            stewardMap.set(e, {
-              email: e,
-              name: safeNameFromEmail(e),
-              rangeViews: 0,
-              rangeComments: 0,
-              rangeReviews: 0,
-              lastViewMs: 0,
-              lastCommentMs: 0,
-              lastReviewMs: 0,
-              lastActionMs: 0,
-              _unknown: true
-            });
-          }
-          return stewardMap.get(e);
-        }
 
         for (const t of tickets){
           const status = (t.status || "").toString();
@@ -925,9 +937,7 @@
             submittedSimgrid.push({ ...t, submittedMs });
           }
 
-          // Turnaround samples: finalised happened in last 7 days
           if (createdMs && finalMs && finalMs >= range7StartMs){
-            // detect if finalMs likely proxy (greenlit/submitted)
             const directFinal = pickFirstMs(t, [
               "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
               "statusFinalisedAt","statusFinalizedAt"
@@ -936,40 +946,13 @@
             tatSamplesMs.push(finalMs - createdMs);
           }
 
-          // Pending->Submit samples (submitted in chosen range + have pending)
           const pendingMs = getPendingMs(t);
           const submittedMs = getSubmittedMs(t);
           if (pendingMs && submittedMs && submittedMs >= rangeStartMs){
             pendingToSubmitSamplesMs.push(submittedMs - pendingMs);
           }
-
-          // ---- Steward actions from this ticket
-          const actions = extractActionsFromTicket(t);
-          for (const a of actions){
-            const e = normEmail(a.email);
-            if (!e || !a.ms) continue;
-
-            // only count towards accountability if they're a steward in admins list
-            // (BUT we still keep "unknown stewards" in activity table if they appear)
-            const agg = stewardMap.has(e) ? stewardMap.get(e) : ensureSteward(e);
-            if (!agg) continue;
-
-            agg.lastActionMs = Math.max(agg.lastActionMs || 0, a.ms);
-
-            if (a.type === "view"){
-              agg.lastViewMs = Math.max(agg.lastViewMs || 0, a.ms);
-              if (a.ms >= rangeStartMs) agg.rangeViews++;
-            } else if (a.type === "comment"){
-              agg.lastCommentMs = Math.max(agg.lastCommentMs || 0, a.ms);
-              if (a.ms >= rangeStartMs) agg.rangeComments++;
-            } else if (a.type === "review"){
-              agg.lastReviewMs = Math.max(agg.lastReviewMs || 0, a.ms);
-              if (a.ms >= rangeStartMs) agg.rangeReviews++;
-            }
-          }
         }
 
-        // Open age stats
         const openAgesMs = openTickets
           .map(t => t.createdMs ? (nowMs - t.createdMs) : null)
           .filter(x => x != null && x >= 0);
@@ -977,13 +960,8 @@
         openTickets.sort((a,b) => (a.createdMs||0) - (b.createdMs||0));
         const oldestOpen = openTickets[0];
 
-        // Pending stats
         pendingGreen.sort((a,b) => (a.pendingMs||0) - (b.pendingMs||0));
-        const pendingAgesMs = pendingGreen
-          .map(t => t.pendingMs ? (nowMs - t.pendingMs) : null)
-          .filter(x => x != null && x >= 0);
 
-        // Submitted in range
         const submittedInRange = submittedSimgrid.filter(t => (t.submittedMs||0) >= rangeStartMs);
 
         const tatAvg = avg(tatSamplesMs);
@@ -1044,38 +1022,6 @@
           accused: t.accused || ""
         }));
         renderPending(pendingRows);
-
-        // ---------------------------
-        // Steward accountability render
-        // ---------------------------
-        const stewardRowsAll = Array.from(stewardMap.values())
-          // show "real stewards" first; keep unknowns after
-          .sort((a,b) => {
-            const aUnknown = a._unknown ? 1 : 0;
-            const bUnknown = b._unknown ? 1 : 0;
-            if (aUnknown !== bUnknown) return aUnknown - bUnknown;
-            // then most active
-            const aScore = (a.rangeComments*3) + (a.rangeReviews*2) + (a.rangeViews*1);
-            const bScore = (b.rangeComments*3) + (b.rangeReviews*2) + (b.rangeViews*1);
-            if (bScore !== aScore) return bScore - aScore;
-            return (b.lastActionMs||0) - (a.lastActionMs||0);
-          });
-
-        const stewardRowsKnown = stewardRowsAll.filter(x => !x._unknown);
-        const naughty = stewardRowsKnown.filter(s => (s.rangeViews + s.rangeComments + s.rangeReviews) === 0);
-
-        $("stewardActivityHint").textContent =
-          `Selected range: last ${days} day(s) • Stewards: ${stewardRowsKnown.length} • Inactive: ${naughty.length}`;
-
-        $("naughtyHint").textContent =
-          `No view/comment/review detected in last ${days} day(s)`;
-
-        renderStewardActivity(stewardRowsAll);
-        renderNaughty(naughty);
-
-        // ---------------------------
-        // Charts
-        // ---------------------------
 
         // Chart 1: created vs finalised
         const dateKeys = makeDateKeysBack(Math.min(days, 30));
