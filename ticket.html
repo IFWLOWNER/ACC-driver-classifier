@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IFWL — Ticket View</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      margin:0;
+      background:
+        linear-gradient(rgba(2,6,23,0.72), rgba(2,6,23,0.72)),
+        url("./ifwl_bg.webp");
+      background-size:cover;
+      background-position:center;
+      background-attachment:fixed;
+      color:#111827;
+    }
+
+    header{
+      padding:14px 18px;
+      background:#111827;
+      color:#fff;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .brand{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      min-width:0;
+    }
+    .brand img{
+      width:38px;height:38px;object-fit:contain;margin-top:2px;flex:0 0 auto;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+    }
+    .brandText{min-width:0;}
+    header .small{font-size:12px;opacity:0.85;margin-top:4px;line-height:1.2;word-break:break-word;}
+    .welcomeLine{font-size:12px;opacity:0.95;margin-top:6px;line-height:1.25;}
+
+    .wrap{padding:14px; display:grid; grid-template-columns: 1fr; gap:14px;}
+
+    .card{
+      background:rgba(255,255,255,0.92);
+      border:1px solid rgba(229,231,235,0.95);
+      border-radius:12px;
+      padding:12px;
+      box-shadow:0 10px 28px rgba(0,0,0,0.18);
+    }
+
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+    .title{font-weight:900; font-size:16px; margin:0;}
+    .muted{color:#6b7280; font-size:12px;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
+    .hr{height:1px;background:#e5e7eb;margin:10px 0;}
+
+    button{
+      padding:10px 12px;
+      border:1px solid #d1d5db;
+      border-radius:12px;
+      background:#fff;
+      cursor:pointer;
+    }
+    button.primary{background:#111827;color:#fff;border-color:#111827;}
+    button:disabled{opacity:0.6;cursor:not-allowed;}
+
+    input, textarea{
+      padding:10px;
+      border:1px solid #d1d5db;
+      border-radius:12px;
+      box-sizing:border-box;
+      font-size:16px;
+      background:#fff;
+      width:100%;
+    }
+    textarea{min-height:110px; resize:vertical;}
+
+    a{color:#111827;}
+    a:hover{opacity:0.85;}
+
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:4px 10px; border-radius:999px;
+      border:1px solid #e5e7eb; background:#fff;
+      font-size:12px; color:#111827; white-space:nowrap;
+    }
+    .pill strong{font-weight:900;}
+
+    .tag{
+      display:inline-block;
+      padding:3px 10px;
+      border-radius:999px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .tag.ok{border-color:#86efac;background:#ecfdf5;color:#065f46;}
+    .tag.bad{border-color:#fca5a5;background:#fef2f2;color:#991b1b;}
+    .tag.neutral{border-color:#d1d5db;background:#f9fafb;color:#111827;}
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:12px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap:12px;
+    }
+    .kv{
+      display:grid;
+      grid-template-columns: 140px 1fr;
+      gap:8px 10px;
+      font-size:13px;
+      align-items:start;
+    }
+    .kv .k{color:#6b7280;font-size:12px;}
+    .kv .v{color:#111827;}
+    .kv .v a{word-break:break-all;}
+
+    .list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:10px;
+    }
+    .item{
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      padding:10px;
+    }
+    .itemTop{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:flex-start;
+      flex-wrap:wrap;
+    }
+    .itemBody{
+      margin-top:8px;
+      font-size:13px;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+
+    .toast{
+      position:fixed; right:16px; bottom:16px;
+      background:#111827; color:#fff;
+      padding:10px 12px; border-radius:12px;
+      opacity:0; transform: translateY(8px);
+      transition: all .18s ease;
+      z-index:9999;
+      max-width: min(520px, calc(100vw - 32px));
+      white-space: pre-wrap;
+    }
+    .toast.show{opacity:1; transform: translateY(0);}
+
+    @media (max-width: 980px){
+      body{background-attachment:scroll;}
+      header{flex-direction:column; align-items:stretch;}
+      header .row{width:100%;}
+      header button{width:100%;}
+      .grid2,.grid3{grid-template-columns:1fr;}
+      .kv{grid-template-columns: 120px 1fr;}
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">
+      <img src="./ifwl_logo.png" alt="IFWL logo">
+      <div class="brandText">
+        <div style="font-weight:900; font-size:18px;">IFWL — Ticket View</div>
+        <div class="welcomeLine" id="welcomeLine">Loading your profile…</div>
+        <div class="small" id="who">Loading…</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="backHeadBtn" style="display:none;">Back to Head Stewards Dashboard</button>
+      <button id="backSimgridBtn" style="display:none;">Back to SimGrid Overview</button>
+      <button id="backClassifierBtn">Back to Classifier</button>
+      <button id="logoutBtn">Sign out</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div class="title">Ticket <span class="mono" id="ticketIdLabel">—</span></div>
+          <div class="muted" id="ticketMetaLine">Loading ticket…</div>
+        </div>
+        <div class="row">
+          <span class="pill" id="permPill">Permissions: …</span>
+          <button id="refreshAllBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid2">
+        <div>
+          <div class="title" style="font-size:14px;">Ticket Summary</div>
+          <div class="muted" style="margin-top:6px;">Core details pulled from <span class="mono">/tickets/&lt;id&gt;</span></div>
+
+          <div class="hr"></div>
+
+          <div class="kv" id="summaryKv">
+            <div class="k">Accused</div><div class="v">—</div>
+            <div class="k">Reporter</div><div class="v">—</div>
+            <div class="k">Competition</div><div class="v">—</div>
+            <div class="k">Event</div><div class="v">—</div>
+            <div class="k">Track</div><div class="v">—</div>
+            <div class="k">Status</div><div class="v">—</div>
+            <div class="k">Rule Breach</div><div class="v">—</div>
+            <div class="k">Post-race Code</div><div class="v">—</div>
+            <div class="k">Decision</div><div class="v">—</div>
+            <div class="k">Proof</div><div class="v">—</div>
+            <div class="k">Created</div><div class="v">—</div>
+          </div>
+
+          <div class="hr"></div>
+
+          <div class="title" style="font-size:14px;">Incident</div>
+          <div class="muted" style="margin-top:6px;">Whatever was submitted in the ticket body (field names vary).</div>
+          <div class="item" style="margin-top:10px;">
+            <div class="itemBody" id="incidentBody">—</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="title" style="font-size:14px;">Aggregate CAUSE</div>
+          <div class="muted" style="margin-top:6px;">Calculated from <span class="mono">/tickets/&lt;id&gt;/reviews</span> (if present)</div>
+
+          <div class="hr"></div>
+
+          <div class="grid3">
+            <div class="item">
+              <div class="muted">Avg C</div>
+              <div style="font-weight:900;font-size:18px;" id="avgC">—</div>
+            </div>
+            <div class="item">
+              <div class="muted">Avg A</div>
+              <div style="font-weight:900;font-size:18px;" id="avgA">—</div>
+            </div>
+            <div class="item">
+              <div class="muted">Avg U</div>
+              <div style="font-weight:900;font-size:18px;" id="avgU">—</div>
+            </div>
+            <div class="item">
+              <div class="muted">Avg S</div>
+              <div style="font-weight:900;font-size:18px;" id="avgS">—</div>
+            </div>
+            <div class="item">
+              <div class="muted">Avg E</div>
+              <div style="font-weight:900;font-size:18px;" id="avgE">—</div>
+            </div>
+            <div class="item">
+              <div class="muted">Reviews</div>
+              <div style="font-weight:900;font-size:18px;" id="reviewCount">—</div>
+            </div>
+          </div>
+
+          <div class="hr"></div>
+
+          <div class="title" style="font-size:14px;">Penalty Code Votes</div>
+          <div class="muted" style="margin-top:6px;">A simple count of penaltyCode values in reviews.</div>
+          <div class="list" id="penaltyVotesList" style="margin-top:10px;">
+            <div class="item"><div class="muted">No review data yet.</div></div>
+          </div>
+
+          <div class="hr"></div>
+
+          <div class="title" style="font-size:14px;">Stewards Discussion</div>
+          <div class="muted" style="margin-top:6px;">
+            Reads from <span class="mono">/tickets/&lt;id&gt;/steward_comments</span>.
+          </div>
+
+          <div class="row" style="margin-top:10px; justify-content:space-between;">
+            <button id="refreshCommentsBtn">Refresh</button>
+            <span class="pill" id="commentCountPill">Comments: <strong>0</strong></span>
+          </div>
+
+          <div class="list" id="commentsList">
+            <div class="item"><div class="muted">Loading…</div></div>
+          </div>
+
+          <div class="hr"></div>
+
+          <div class="title" style="font-size:14px;">Add a Comment</div>
+          <div class="muted" style="margin-top:6px;">
+            (Optional) Writes to <span class="mono">/tickets/&lt;id&gt;/steward_comments</span>.
+          </div>
+
+          <div style="margin-top:10px;">
+            <textarea id="newComment" placeholder="Write a comment…"></textarea>
+            <div class="row" style="margin-top:10px; justify-content:flex-end;">
+              <button id="postCommentBtn" class="primary">Post Comment</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid2">
+        <div class="card" style="background:rgba(255,255,255,0.86);">
+          <div class="row" style="justify-content:space-between;">
+            <div class="title" style="font-size:14px;">Player Statements</div>
+            <button id="refreshStatementsBtn">Refresh</button>
+          </div>
+          <div class="muted" style="margin-top:6px;">
+            Attempts to read <span class="mono">/tickets/&lt;id&gt;/statements</span> (and falls back to any statement fields on the ticket).
+          </div>
+          <div class="list" id="statementsList">
+            <div class="item"><div class="muted">Loading…</div></div>
+          </div>
+        </div>
+
+        <div class="card" style="background:rgba(255,255,255,0.86);">
+          <div class="row" style="justify-content:space-between;">
+            <div class="title" style="font-size:14px;">Reviews</div>
+            <button id="refreshReviewsBtn">Refresh</button>
+          </div>
+          <div class="muted" style="margin-top:6px;">
+            Reads from <span class="mono">/tickets/&lt;id&gt;/reviews</span>. If your system uses different field names, this will still show raw values where possible.
+          </div>
+          <div class="list" id="reviewsList">
+            <div class="item"><div class="muted">Loading…</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Saved</div>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="./firebase-init.js"></script>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const toastEl = $("toast");
+    function toast(msg){
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 2200);
+    }
+
+    function escapeHtml(s){
+      return (s ?? "")
+        .toString()
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;");
+    }
+
+    function safeEmailKey(email){
+      return (email || "").toLowerCase().trim()
+        .replaceAll("/", "_")
+        .replaceAll("\\", "_")
+        .replaceAll(".", "_");
+    }
+
+    function getParam(name){
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+
+    function formatTimestamp(v){
+      try{
+        if (!v) return "—";
+        if (v.toDate) return v.toDate().toLocaleString();
+        const d = new Date(v);
+        if (!isNaN(d.getTime())) return d.toLocaleString();
+      }catch{}
+      return "—";
+    }
+
+    function asNum(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function linkOrDash(url){
+      const u = (url || "").toString().trim();
+      if (!u) return "—";
+      return `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open</a>`;
+    }
+
+    // ---------------------------
+    // Ticket id + nav
+    // ---------------------------
+    const ticketId = (getParam("id") || getParam("ticketId") || "").trim();
+    $("ticketIdLabel").textContent = ticketId ? ticketId : "—";
+
+    $("backClassifierBtn").onclick = () => window.location.href = "index.html";
+    $("backHeadBtn").onclick = () => window.location.href = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
+    $("backSimgridBtn").onclick = () => window.location.href = "simgrid_finalised.html"; // change if your file name differs
+    $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
+
+    // ---------------------------
+    // Auth / role gating (matches your other pages)
+    // ---------------------------
+    let currentEmail = "";
+    let roleText = "";
+    let isHeadSteward = false;
+    let isSimgrid = false;
+    let isSimgridOnly = false;
+
+    function setPermPill(){
+      const permLabel =
+        isHeadSteward ? "Head Steward" :
+        isSimgridOnly ? "SimGrid" :
+        "Read-only";
+      $("permPill").textContent = `Permissions: ${permLabel}`;
+    }
+
+    function setTopButtons(){
+      $("backHeadBtn").style.display = isHeadSteward ? "inline-block" : "none";
+      $("backSimgridBtn").style.display = (isSimgrid || isHeadSteward) ? "inline-block" : "none";
+    }
+
+    // ---------------------------
+    // Loaders
+    // ---------------------------
+    let ticketDocData = null;
+
+    async function loadTicket(){
+      if (!ticketId){
+        $("ticketMetaLine").textContent = "Missing ticket id in URL. Use ?id=<ticketId>";
+        toast("Missing ticket id.\nExample: ticket.html?id=YOUR_TICKET_ID");
+        return;
+      }
+
+      $("ticketMetaLine").textContent = "Loading ticket…";
+
+      const ref = db.collection("tickets").doc(ticketId);
+      const snap = await ref.get();
+
+      if (!snap.exists){
+        $("ticketMetaLine").textContent = "Ticket not found.";
+        toast("Ticket not found.");
+        ticketDocData = null;
+        return;
+      }
+
+      const x = snap.data() || {};
+      ticketDocData = x;
+
+      const status = (x.status || "—").toString();
+      const created = formatTimestamp(x.timestamp || x.createdAt || x.created || null);
+      $("ticketMetaLine").innerHTML = `
+        <span class="tag neutral">${escapeHtml(status)}</span>
+        <span class="muted" style="margin-left:10px;">Created: ${escapeHtml(created)}</span>
+      `;
+
+      // Try multiple common incident fields (your schema may vary)
+      const incident =
+        x.incident ||
+        x.incidentDetails ||
+        x.incidentDescription ||
+        x.description ||
+        x.details ||
+        x.statement ||
+        "";
+
+      $("incidentBody").textContent = incident ? incident.toString() : "—";
+
+      // Summary KV
+      const summary = [
+        ["Accused", x.accused],
+        ["Reporter", x.reporter],
+        ["Competition", x.competition],
+        ["Event", x.event],
+        ["Track", x.track],
+        ["Status", status],
+        ["Rule Breach", x.ruleBreach],
+        ["Post-race Code", x.postRaceCode],
+        ["Decision", x.stewardDecision],
+        ["Proof", linkOrDash(x.proofUrl)],
+        ["Created", created]
+      ];
+
+      $("summaryKv").innerHTML = summary.map(([k,v]) => {
+        const isHtml = (k === "Proof");
+        return `
+          <div class="k">${escapeHtml(k)}</div>
+          <div class="v">${isHtml ? v : escapeHtml(v ?? "—")}</div>
+        `;
+      }).join("");
+    }
+
+    async function loadComments(){
+      if (!ticketId) return;
+      const list = $("commentsList");
+      list.innerHTML = `<div class="item"><div class="muted">Loading…</div></div>`;
+
+      const ref = db.collection("tickets").doc(ticketId).collection("steward_comments");
+      const snap = await ref.orderBy("createdAt","desc").limit(200).get();
+
+      const items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
+      $("commentCountPill").innerHTML = `Comments: <strong>${items.length}</strong>`;
+
+      if (!items.length){
+        list.innerHTML = `<div class="item"><div class="muted">No steward comments yet.</div></div>`;
+        return;
+      }
+
+      list.innerHTML = items.map(c => {
+        const author = c.authorEmail || c.email || c.author || "—";
+        const when = formatTimestamp(c.createdAt || c.timestamp || c.at || null);
+        const body = c.text || c.comment || c.message || "";
+        return `
+          <div class="item">
+            <div class="itemTop">
+              <div>
+                <div style="font-weight:900;font-size:13px;">${escapeHtml(author)}</div>
+                <div class="muted">${escapeHtml(when)}</div>
+              </div>
+              <span class="tag neutral">${escapeHtml(c.type || "Comment")}</span>
+            </div>
+            <div class="itemBody">${escapeHtml(body || "—")}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function postComment(){
+      if (!ticketId) return;
+      const txt = ($("newComment").value || "").trim();
+      if (!txt) return toast("Write a comment first.");
+
+      // Allow Head Steward + SimGrid to comment (adjust if you want stricter)
+      if (!isHeadSteward && !isSimgrid){
+        return toast("Read-only account.");
+      }
+
+      $("postCommentBtn").disabled = true;
+      try{
+        const ref = db.collection("tickets").doc(ticketId).collection("steward_comments");
+        await ref.add({
+          text: txt,
+          authorEmail: currentEmail,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        $("newComment").value = "";
+        toast("Comment posted ✅");
+        await loadComments();
+      }catch(e){
+        console.error(e);
+        toast("Failed to post comment:\n" + (e?.message || e));
+      } finally {
+        $("postCommentBtn").disabled = false;
+      }
+    }
+
+    async function loadStatements(){
+      if (!ticketId) return;
+      const list = $("statementsList");
+      list.innerHTML = `<div class="item"><div class="muted">Loading…</div></div>`;
+
+      // 1) Prefer subcollection: /tickets/<id>/statements
+      try{
+        const ref = db.collection("tickets").doc(ticketId).collection("statements");
+        const snap = await ref.orderBy("createdAt","asc").limit(200).get();
+
+        const items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
+        if (items.length){
+          list.innerHTML = items.map(s => {
+            const who = s.authorEmail || s.email || s.role || s.player || "—";
+            const when = formatTimestamp(s.createdAt || s.timestamp || null);
+            const body = s.text || s.statement || s.message || "";
+            return `
+              <div class="item">
+                <div class="itemTop">
+                  <div>
+                    <div style="font-weight:900;font-size:13px;">${escapeHtml(who)}</div>
+                    <div class="muted">${escapeHtml(when)}</div>
+                  </div>
+                  <span class="tag neutral">${escapeHtml(s.kind || "Statement")}</span>
+                </div>
+                <div class="itemBody">${escapeHtml(body || "—")}</div>
+              </div>
+            `;
+          }).join("");
+          return;
+        }
+      }catch(err){
+        // ignore and fall back
+      }
+
+      // 2) Fallback to fields on the ticket doc (common patterns)
+      const x = ticketDocData || {};
+      const accusedStatement = x.accusedStatement || x.accused_statement || x.accusedText || "";
+      const reporterStatement = x.reporterStatement || x.reporter_statement || x.reporterText || "";
+      const extra = x.playerStatements || x.statements || "";
+
+      const blocks = [];
+      if (reporterStatement) blocks.push({ who:"Reporter", body: reporterStatement });
+      if (accusedStatement) blocks.push({ who:"Accused", body: accusedStatement });
+      if (extra && typeof extra === "string") blocks.push({ who:"Statements", body: extra });
+
+      if (!blocks.length){
+        list.innerHTML = `<div class="item"><div class="muted">No statement data found.</div></div>`;
+        return;
+      }
+
+      list.innerHTML = blocks.map(b => `
+        <div class="item">
+          <div class="itemTop">
+            <div style="font-weight:900;font-size:13px;">${escapeHtml(b.who)}</div>
+            <span class="tag neutral">Statement</span>
+          </div>
+          <div class="itemBody">${escapeHtml(b.body)}</div>
+        </div>
+      `).join("");
+    }
+
+    async function loadReviews(){
+      if (!ticketId) return;
+
+      const list = $("reviewsList");
+      list.innerHTML = `<div class="item"><div class="muted">Loading…</div></div>`;
+
+      let items = [];
+      try{
+        const ref = db.collection("tickets").doc(ticketId).collection("reviews");
+        const snap = await ref.get(); // review docs are often keyed, so no orderBy assumptions
+        items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
+      }catch(e){
+        items = [];
+      }
+
+      // Compute aggregate CAUSE + penalty votes
+      const scores = { c:[], a:[], u:[], s:[], e:[] };
+      const penaltyVotes = new Map();
+
+      for (const r of items){
+        // accept multiple field name possibilities
+        const C = asNum(r.c ?? r.C ?? r.control ?? r.controlScore);
+        const A = asNum(r.a ?? r.A ?? r.awareness ?? r.awarenessScore);
+        const U = asNum(r.u ?? r.U ?? r.userInput ?? r.userInputScore);
+        const S = asNum(r.s ?? r.S ?? r.severity ?? r.severityScore);
+        const E = asNum(r.e ?? r.E ?? r.environment ?? r.environmentScore);
+
+        if (C!=null) scores.c.push(C);
+        if (A!=null) scores.a.push(A);
+        if (U!=null) scores.u.push(U);
+        if (S!=null) scores.s.push(S);
+        if (E!=null) scores.e.push(E);
+
+        const p = (r.penaltyCode || r.penalty || r.code || "").toString().trim();
+        if (p){
+          penaltyVotes.set(p, (penaltyVotes.get(p) || 0) + 1);
+        }
+      }
+
+      function avg(arr){
+        if (!arr.length) return null;
+        return Math.round((arr.reduce((a,b)=>a+b,0) / arr.length) * 10) / 10;
+      }
+
+      const avgC = avg(scores.c);
+      const avgA = avg(scores.a);
+      const avgU = avg(scores.u);
+      const avgS = avg(scores.s);
+      const avgE = avg(scores.e);
+
+      $("avgC").textContent = avgC==null ? "—" : String(avgC);
+      $("avgA").textContent = avgA==null ? "—" : String(avgA);
+      $("avgU").textContent = avgU==null ? "—" : String(avgU);
+      $("avgS").textContent = avgS==null ? "—" : String(avgS);
+      $("avgE").textContent = avgE==null ? "—" : String(avgE);
+      $("reviewCount").textContent = String(items.length);
+
+      // Penalty votes list
+      const pv = Array.from(penaltyVotes.entries()).sort((a,b)=>b[1]-a[1]);
+      const pvList = $("penaltyVotesList");
+      if (!pv.length){
+        pvList.innerHTML = `<div class="item"><div class="muted">No penaltyCode votes yet.</div></div>`;
+      } else {
+        pvList.innerHTML = pv.map(([code,count]) => `
+          <div class="item">
+            <div class="itemTop">
+              <div style="font-weight:900;font-size:14px;">${escapeHtml(code)}</div>
+              <span class="tag ok">${count} vote${count===1?"":"s"}</span>
+            </div>
+          </div>
+        `).join("");
+      }
+
+      // Render reviews
+      if (!items.length){
+        list.innerHTML = `<div class="item"><div class="muted">No reviews found.</div></div>`;
+        return;
+      }
+
+      // sort by updated/created if present
+      items.sort((a,b)=>{
+        const am = (a.updatedAt?.toMillis?.() ?? a.updatedAt?.seconds*1000 ?? a.createdAt?.toMillis?.() ?? a.createdAt?.seconds*1000 ?? 0) || 0;
+        const bm = (b.updatedAt?.toMillis?.() ?? b.updatedAt?.seconds*1000 ?? b.createdAt?.toMillis?.() ?? b.createdAt?.seconds*1000 ?? 0) || 0;
+        return bm - am;
+      });
+
+      list.innerHTML = items.map(r => {
+        const author = r.authorEmail || r.email || r.author || r.user || r.id || "—";
+        const when = formatTimestamp(r.updatedAt || r.createdAt || r.timestamp || null);
+        const p = (r.penaltyCode || r.penalty || r.code || "—").toString();
+        const opinion = (r.privateOpinion || r.opinion || r.notes || "").toString();
+
+        const C = (r.c ?? r.C ?? r.control ?? "—");
+        const A = (r.a ?? r.A ?? r.awareness ?? "—");
+        const U = (r.u ?? r.U ?? r.userInput ?? "—");
+        const S = (r.s ?? r.S ?? r.severity ?? "—");
+        const E = (r.e ?? r.E ?? r.environment ?? "—");
+
+        return `
+          <div class="item">
+            <div class="itemTop">
+              <div>
+                <div style="font-weight:900;font-size:13px;">${escapeHtml(author)}</div>
+                <div class="muted">${escapeHtml(when)}</div>
+              </div>
+              <span class="tag neutral">${escapeHtml(p)}</span>
+            </div>
+            <div class="hr"></div>
+            <div class="kv">
+              <div class="k">C</div><div class="v"><b>${escapeHtml(C)}</b></div>
+              <div class="k">A</div><div class="v"><b>${escapeHtml(A)}</b></div>
+              <div class="k">U</div><div class="v"><b>${escapeHtml(U)}</b></div>
+              <div class="k">S</div><div class="v"><b>${escapeHtml(S)}</b></div>
+              <div class="k">E</div><div class="v"><b>${escapeHtml(E)}</b></div>
+              <div class="k">Opinion</div><div class="v">${escapeHtml(opinion || "—")}</div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function refreshAll(){
+      if (!ticketId) return;
+      try{
+        await loadTicket();
+        await Promise.allSettled([
+          loadComments(),
+          loadStatements(),
+          loadReviews()
+        ]);
+        toast("Refreshed ✅");
+      }catch(e){
+        console.error(e);
+        toast("Refresh failed:\n" + (e?.message || e));
+      }
+    }
+
+    // ---------------------------
+    // Wire up UI
+    // ---------------------------
+    $("refreshAllBtn").onclick = refreshAll;
+    $("refreshCommentsBtn").onclick = loadComments;
+    $("refreshStatementsBtn").onclick = loadStatements;
+    $("refreshReviewsBtn").onclick = loadReviews;
+    $("postCommentBtn").onclick = postComment;
+
+    // ---------------------------
+    // Firebase readiness
+    // ---------------------------
+    async function waitForFirebaseReady(maxMs = 8000){
+      const start = Date.now();
+      while (Date.now() - start < maxMs){
+        if (typeof auth !== "undefined" && typeof db !== "undefined" && auth && db) return true;
+        await new Promise(r => setTimeout(r, 80));
+      }
+      return false;
+    }
+
+    (async () => {
+      const ok = await waitForFirebaseReady();
+      if (!ok){
+        toast("Firebase not ready.\nCheck firebase-init.js path + console.");
+        return;
+      }
+
+      auth.onAuthStateChanged(async (user) => {
+        try{
+          if (!user){ window.location.href = "admin.html"; return; }
+          currentEmail = (user.email || "").toLowerCase().trim();
+
+          const adminSnap = await db.collection("admins").doc(currentEmail).get();
+          if (!adminSnap.exists){ await auth.signOut(); window.location.href = "admin.html"; return; }
+
+          const data = adminSnap.data() || {};
+          roleText = String(data.role || "").toLowerCase();
+
+          isSimgrid = roleText.includes("simgrid");
+          isHeadSteward = roleText.includes("head") || data.headsteward === true || data.owner === true;
+          isSimgridOnly = isSimgrid && !isHeadSteward;
+
+          // Allow: Head Steward OR SimGrid (matches your finalised tickets access pattern)
+          if (!isSimgrid && !isHeadSteward){
+            toast("Access denied.");
+            await auth.signOut();
+            window.location.href = "admin.html";
+            return;
+          }
+
+          setPermPill();
+          setTopButtons();
+
+          const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+          const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Admin";
+
+          if (!ticketId){
+            $("welcomeLine").textContent = `Welcome, ${niceName}. Missing ticket id in the URL.`;
+          } else {
+            $("welcomeLine").textContent = `Welcome, ${niceName}. Viewing ticket ${ticketId}.`;
+          }
+
+          $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
+
+          await refreshAll();
+        }catch(e){
+          console.error(e);
+          toast("Auth/load error:\n" + (e?.message || e));
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
