@@ -391,21 +391,22 @@
     }
 
     function gdprStewardLabel(raw){
-      const s = (raw || "").toString().trim();
-      if (!s) return "—";
+  const s = (raw || "").toString().trim();
+  if (!s) return "—";
 
-      const lower = s.toLowerCase();
-      const idx = lower.indexOf("@hidden");
-      if (idx !== -1){
-        let tail = s.slice(idx + "@hidden".length);
-        // clean common separators after "@hidden"
-        tail = tail.replace(/^[:._\- ]+/, "").trim();
-        return tail ? tail : "hidden";
-      }
+  // If it already contains @hidden, keep it as-is (or tidy it)
+  if (s.toLowerCase().includes("@hidden")) return s;
 
-      // fallback: never show email, show stable anon label
-      return "steward-" + stableHash(lower).slice(0, 8);
-    }
+  // If it's a normal email, keep only local-part + "@hidden"
+  const at = s.indexOf("@");
+  if (at > 0){
+    const local = s.slice(0, at).trim();
+    return local ? `${local}@hidden` : "hidden@hidden";
+  }
+
+  // Fallback for non-email strings
+  return `${s}@hidden`;
+}}
 
     function getParam(name){
       const url = new URL(window.location.href);
@@ -551,12 +552,12 @@
       }
 
       list.innerHTML = items.map(c => {
-        const rawAuthor =
-          c.authorLabel ||               // optional safe label if you store it
-          c.authorEmail || c.email ||
-          c.author || "";
+        cconst rawAuthor =
+  c.authorLabel ||
+  c.authorEmail || c.email ||
+  c.author || "";
 
-        const author = gdprStewardLabel(rawAuthor); // ✅ GDPR-safe
+const author = gdprStewardLabel(rawAuthor);
         const when = formatTimestamp(c.createdAt || c.timestamp || c.at || null);
         const body = c.text || c.comment || c.message || "";
 
