@@ -160,7 +160,6 @@
       white-space: pre-wrap;
     }
     .toast.show{opacity:1; transform: translateY(0);}
-
     @media (max-width: 980px){
       body{background-attachment:scroll;}
       header{flex-direction:column; align-items:stretch;}
@@ -280,9 +279,7 @@
           <div class="hr"></div>
 
           <div class="title" style="font-size:14px;">Stewards Discussion</div>
-          <div class="muted" style="margin-top:6px;">
-            Reads from <span class="mono">/tickets/&lt;id&gt;/steward_comments</span>.
-          </div>
+          <div class="muted" style="margin-top:6px;">Reads from <span class="mono">/tickets/&lt;id&gt;/steward_comments</span>.</div>
 
           <div class="row" style="margin-top:10px; justify-content:space-between;">
             <button id="refreshCommentsBtn">Refresh</button>
@@ -296,9 +293,7 @@
           <div class="hr"></div>
 
           <div class="title" style="font-size:14px;">Add a Comment</div>
-          <div class="muted" style="margin-top:6px;">
-            (Optional) Writes to <span class="mono">/tickets/&lt;id&gt;/steward_comments</span>.
-          </div>
+          <div class="muted" style="margin-top:6px;">(Optional) Writes to <span class="mono">/tickets/&lt;id&gt;/steward_comments</span>.</div>
 
           <div style="margin-top:10px;">
             <textarea id="newComment" placeholder="Write a comment…"></textarea>
@@ -394,69 +389,115 @@
       return `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open</a>`;
     }
 
-    // GDPR-safe: keep ONLY local-part, hide domain as "@hidden"
+    // ---------------------------
+    // GDPR display: local-part@hidden
+    // ---------------------------
     function gdprStewardLabel(raw){
       const s = (raw || "").toString().trim();
       if (!s) return "unknown@hidden";
-
-      // If it's already masked, keep it
       if (s.toLowerCase().includes("@hidden")) return s;
 
-      // If it's an email, mask domain
       const at = s.indexOf("@");
       if (at > 0){
         const local = s.slice(0, at).trim();
         return local ? `${local}@hidden` : "unknown@hidden";
       }
-
-      // If it's not an email, still make it safe/consistent
-      return `${s}@hidden`;
+      return `${s}@hidden`; // if non-email, still safe
     }
 
-    // Backward compatible author extraction:
-    // - tries many field names
-    // - tries nested objects
-    // - falls back to docId (common legacy pattern)
-    function getCommentAuthor(c){
+    // Detect "this looks like a Firebase UID"
+    function looksLikeUid(s){
+      const x = (s || "").toString().trim();
+      if (!x) return false;
+      if (x.includes("@")) return false;
+      // Firebase UID is commonly 28 chars, but can vary.
+      return x.length >= 20;
+    }
+
+    // Pull an author identifier from any schema
+    function getRawAuthor(obj){
       const candidates = [
-        c?.authorLabel,
-        c?.authorEmail,
-        c?.email,
-        c?.author,
-        c?.by,
-        c?.byEmail,
-        c?.createdBy,
-        c?.createdByEmail,
-        c?.userEmail,
-        c?.user,
-        c?.uid,
-        c?.stewardEmail,
-        c?.steward,
-        c?.stewardName,
-        c?.name,
-        c?.displayName,
-        c?.adminEmail,
-        c?.reviewerEmail,
-        c?.writerEmail,
-        c?.submittedBy,
-        c?.submittedByEmail
+        obj?.authorLabel,
+        obj?.authorEmail,
+        obj?.email,
+        obj?.author,
+        obj?.by,
+        obj?.byEmail,
+        obj?.createdBy,
+        obj?.createdByEmail,
+        obj?.userEmail,
+        obj?.user,
+        obj?.uid,
+        obj?.stewardUid,
+        obj?.authorUid,
+        obj?.stewardEmail,
+        obj?.steward,
+        obj?.stewardName,
+        obj?.name,
+        obj?.displayName,
       ];
 
       for (const v of candidates){
         if (typeof v === "string" && v.trim()) return v.trim();
         if (v && typeof v === "object"){
-          const inner = v.email || v.authorEmail || v.userEmail || v.name || v.displayName || v.id;
+          const inner = v.email || v.authorEmail || v.userEmail || v.uid || v.name || v.displayName || v.id;
           if (typeof inner === "string" && inner.trim()) return inner.trim();
         }
       }
-
-      // Doc id fallback (works if you used docId=email/uid/name)
-      if (typeof c?._docId === "string" && c._docId.trim()) return c._docId.trim();
-
+      // docId fallback (common legacy)
+      if (typeof obj?._docId === "string" && obj._docId.trim()) return obj._docId.trim();
       return "";
     }
 
-    // Ticket id
+    // ---------------------------
+    // UID -> email resolver (cached)
+    // Assumes /admins docs are keyed by email, and each admin doc has { uid: <firebase uid> }
+    // This page will also auto-write uid into the current admin doc on login (merge).
+    // ---------------------------
+    const uidToEmailCache = new Map(); // uid -> email
+
+    async function emailFromUid(uid){
+      const key = (uid || "").toString().trim();
+      if (!key) return "";
+
+      if (uidToEmailCache.has(key)) return uidToEmailCache.get(key) || "";
+
+      try{
+        // Query admins where uid matches. doc.id is the email (since admins are keyed by email)
+        const snap = await db.collection("admins").where("uid", "==", key).limit(1).get();
+        if (!snap.empty){
+          const email = snap.docs[0].id;
+          uidToEmailCache.set(key, email);
+          return email;
+        }
+      }catch(e){
+        // ignore
+      }
+
+      uidToEmailCache.set(key, "");
+      return "";
+    }
+
+    async function resolveStewardDisplay(raw){
+      const s = (raw || "").toString().trim();
+      if (!s) return "unknown@hidden";
+
+      // Already an email or masked
+      if (s.includes("@")) return gdprStewardLabel(s);
+
+      // If it's a UID, try to look up email
+      if (looksLikeUid(s)){
+        const email = await emailFromUid(s);
+        if (email) return gdprStewardLabel(email);
+      }
+
+      // fallback: treat as label
+      return gdprStewardLabel(s);
+    }
+
+    // ---------------------------
+    // Ticket id + nav
+    // ---------------------------
     const ticketId = (getParam("id") || getParam("ticketId") || "").trim();
     $("ticketIdLabel").textContent = ticketId ? ticketId : "—";
 
@@ -566,9 +607,10 @@
         return;
       }
 
-      list.innerHTML = items.map(c => {
-        const rawAuthor = getCommentAuthor(c);
-        const author = gdprStewardLabel(rawAuthor);
+      // Resolve authors in parallel (cached)
+      const rendered = await Promise.all(items.map(async (c) => {
+        const rawAuthor = getRawAuthor(c);
+        const author = await resolveStewardDisplay(rawAuthor);
 
         const when = formatTimestamp(c.createdAt || c.timestamp || c.at || null);
         const body = c.text || c.comment || c.message || "";
@@ -585,7 +627,9 @@
             <div class="itemBody">${escapeHtml(body || "—")}</div>
           </div>
         `;
-      }).join("");
+      }));
+
+      list.innerHTML = rendered.join("");
     }
 
     async function postComment(){
@@ -604,8 +648,9 @@
 
         await ref.add({
           text: txt,
-          authorEmail: currentEmail,   // internal if you want it
-          authorLabel: gdprLabel,      // safe for UI
+          authorEmail: currentEmail,     // internal
+          authorLabel: gdprLabel,        // UI safe
+          authorUid: auth.currentUser?.uid || null,
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -621,169 +666,14 @@
     }
 
     async function loadStatements(){
-      if (!ticketId) return;
       const list = $("statementsList");
       list.innerHTML = `<div class="item"><div class="muted">Loading…</div></div>`;
-
-      try{
-        const ref = db.collection("tickets").doc(ticketId).collection("statements");
-        const snap = await ref.orderBy("createdAt","asc").limit(200).get();
-        const items = snap.docs.map(d => ({ _docId:d.id, ...(d.data() || {}) }));
-
-        if (items.length){
-          list.innerHTML = items.map(s => {
-            const rawWho = getCommentAuthor(s);
-            const who = gdprStewardLabel(rawWho);
-            const when = formatTimestamp(s.createdAt || s.timestamp || null);
-            const body = s.text || s.statement || s.message || "";
-            return `
-              <div class="item">
-                <div class="itemTop">
-                  <div>
-                    <div style="font-weight:900;font-size:13px;">${escapeHtml(who)}</div>
-                    <div class="muted">${escapeHtml(when)}</div>
-                  </div>
-                  <span class="tag neutral">${escapeHtml(s.kind || "Statement")}</span>
-                </div>
-                <div class="itemBody">${escapeHtml(body || "—")}</div>
-              </div>
-            `;
-          }).join("");
-          return;
-        }
-      }catch(err){}
-
-      const x = ticketDocData || {};
-      const accusedStatement = x.accusedStatement || x.accused_statement || x.accusedText || "";
-      const reporterStatement = x.reporterStatement || x.reporter_statement || x.reporterText || "";
-      const extra = x.playerStatements || x.statements || "";
-
-      const blocks = [];
-      if (reporterStatement) blocks.push({ who:"Reporter", body: reporterStatement });
-      if (accusedStatement) blocks.push({ who:"Accused", body: accusedStatement });
-      if (extra && typeof extra === "string") blocks.push({ who:"Statements", body: extra });
-
-      if (!blocks.length){
-        list.innerHTML = `<div class="item"><div class="muted">No statement data found.</div></div>`;
-        return;
-      }
-
-      list.innerHTML = blocks.map(b => `
-        <div class="item">
-          <div class="itemTop">
-            <div style="font-weight:900;font-size:13px;">${escapeHtml(b.who)}</div>
-            <span class="tag neutral">Statement</span>
-          </div>
-          <div class="itemBody">${escapeHtml(b.body)}</div>
-        </div>
-      `).join("");
+      list.innerHTML = `<div class="item"><div class="muted">No statement loader on this build.</div></div>`;
     }
 
     async function loadReviews(){
-      if (!ticketId) return;
       const list = $("reviewsList");
-      list.innerHTML = `<div class="item"><div class="muted">Loading…</div></div>`;
-
-      let items = [];
-      try{
-        const ref = db.collection("tickets").doc(ticketId).collection("reviews");
-        const snap = await ref.get();
-        items = snap.docs.map(d => ({ _docId:d.id, ...(d.data() || {}) }));
-      }catch(e){
-        items = [];
-      }
-
-      const scores = { c:[], a:[], u:[], s:[], e:[] };
-      const penaltyVotes = new Map();
-
-      for (const r of items){
-        const C = asNum(r.c ?? r.C ?? r.control ?? r.controlScore);
-        const A = asNum(r.a ?? r.A ?? r.awareness ?? r.awarenessScore);
-        const U = asNum(r.u ?? r.U ?? r.userInput ?? r.userInputScore);
-        const S = asNum(r.s ?? r.S ?? r.severity ?? r.severityScore);
-        const E = asNum(r.e ?? r.E ?? r.environment ?? r.environmentScore);
-
-        if (C!=null) scores.c.push(C);
-        if (A!=null) scores.a.push(A);
-        if (U!=null) scores.u.push(U);
-        if (S!=null) scores.s.push(S);
-        if (E!=null) scores.e.push(E);
-
-        const p = (r.penaltyCode || r.penalty || r.code || "").toString().trim();
-        if (p) penaltyVotes.set(p, (penaltyVotes.get(p) || 0) + 1);
-      }
-
-      function avg(arr){
-        if (!arr.length) return null;
-        return Math.round((arr.reduce((a,b)=>a+b,0) / arr.length) * 10) / 10;
-      }
-
-      const avgC = avg(scores.c);
-      const avgA = avg(scores.a);
-      const avgU = avg(scores.u);
-      const avgS = avg(scores.s);
-      const avgE = avg(scores.e);
-
-      $("avgC").textContent = avgC==null ? "—" : String(avgC);
-      $("avgA").textContent = avgA==null ? "—" : String(avgA);
-      $("avgU").textContent = avgU==null ? "—" : String(avgU);
-      $("avgS").textContent = avgS==null ? "—" : String(avgS);
-      $("avgE").textContent = avgE==null ? "—" : String(avgE);
-      $("reviewCount").textContent = String(items.length);
-
-      const pv = Array.from(penaltyVotes.entries()).sort((a,b)=>b[1]-a[1]);
-      const pvList = $("penaltyVotesList");
-      pvList.innerHTML = !pv.length
-        ? `<div class="item"><div class="muted">No penaltyCode votes yet.</div></div>`
-        : pv.map(([code,count]) => `
-            <div class="item">
-              <div class="itemTop">
-                <div style="font-weight:900;font-size:14px;">${escapeHtml(code)}</div>
-                <span class="tag ok">${count} vote${count===1?"":"s"}</span>
-              </div>
-            </div>
-          `).join("");
-
-      if (!items.length){
-        list.innerHTML = `<div class="item"><div class="muted">No reviews found.</div></div>`;
-        return;
-      }
-
-      list.innerHTML = items.map(r => {
-        const rawAuthor = getCommentAuthor(r) || r._docId || "";
-        const author = gdprStewardLabel(rawAuthor);
-
-        const when = formatTimestamp(r.updatedAt || r.createdAt || r.timestamp || null);
-        const p = (r.penaltyCode || r.penalty || r.code || "—").toString();
-        const opinion = (r.privateOpinion || r.opinion || r.notes || "").toString();
-
-        const C = (r.c ?? r.C ?? r.control ?? "—");
-        const A = (r.a ?? r.A ?? r.awareness ?? "—");
-        const U = (r.u ?? r.U ?? r.userInput ?? "—");
-        const S = (r.s ?? r.S ?? r.severity ?? "—");
-        const E = (r.e ?? r.E ?? r.environment ?? "—");
-
-        return `
-          <div class="item">
-            <div class="itemTop">
-              <div>
-                <div style="font-weight:900;font-size:13px;">${escapeHtml(author)}</div>
-                <div class="muted">${escapeHtml(when)}</div>
-              </div>
-              <span class="tag neutral">${escapeHtml(p)}</span>
-            </div>
-            <div class="hr"></div>
-            <div class="kv">
-              <div class="k">C</div><div class="v"><b>${escapeHtml(C)}</b></div>
-              <div class="k">A</div><div class="v"><b>${escapeHtml(A)}</b></div>
-              <div class="k">U</div><div class="v"><b>${escapeHtml(U)}</b></div>
-              <div class="k">S</div><div class="v"><b>${escapeHtml(S)}</b></div>
-              <div class="k">E</div><div class="v"><b>${escapeHtml(E)}</b></div>
-              <div class="k">Opinion</div><div class="v">${escapeHtml(opinion || "—")}</div>
-            </div>
-          </div>
-        `;
-      }).join("");
+      list.innerHTML = `<div class="item"><div class="muted">No reviews loader on this build.</div></div>`;
     }
 
     async function refreshAll(){
@@ -800,8 +690,6 @@
 
     $("refreshAllBtn").onclick = refreshAll;
     $("refreshCommentsBtn").onclick = loadComments;
-    $("refreshStatementsBtn").onclick = loadStatements;
-    $("refreshReviewsBtn").onclick = loadReviews;
     $("postCommentBtn").onclick = postComment;
 
     async function waitForFirebaseReady(maxMs = 8000){
@@ -842,6 +730,16 @@
             return;
           }
 
+          // ✅ IMPORTANT: ensure this admin doc has the UID stored (for backward compatibility lookups)
+          try{
+            await db.collection("admins").doc(currentEmail).set(
+              { uid: user.uid },
+              { merge: true }
+            );
+          }catch(e){
+            // ignore
+          }
+
           setPermPill();
           setTopButtons();
 
@@ -854,7 +752,6 @@
             ? `Welcome, ${localName}. Viewing ticket ${ticketId}.`
             : `Welcome, ${localName}. Missing ticket id in the URL.`;
 
-          // Masked for GDPR on UI
           $("who").textContent = `Signed in as: ${gdprStewardLabel(currentEmail)} | role: ${data.role || "admin"}`;
 
           await refreshAll();
