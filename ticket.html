@@ -375,38 +375,25 @@
         .replaceAll(".", "_");
     }
 
-    // ✅ GDPR-safe display label:
-    // - If stored as something like "whatever@hiddenABC123" → show "ABC123"
-    // - Else → show a stable anonymised label "steward-<hash>"
-    function stableHash(str){
-      // tiny non-crypto hash (enough for stable labels; not reversible in any meaningful way here)
-      let h = 2166136261;
-      const s = (str || "").toString();
-      for (let i=0;i<s.length;i++){
-        h ^= s.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-      }
-      // unsigned + base36
-      return (h >>> 0).toString(36);
-    }
-
+    // ✅ GDPR-safe email display:
+    // shows "local-part@hidden" (never shows domain like gmail/hotmail etc.)
     function gdprStewardLabel(raw){
-  const s = (raw || "").toString().trim();
-  if (!s) return "—";
+      const s = (raw || "").toString().trim();
+      if (!s) return "—";
 
-  // If it already contains @hidden, keep it as-is (or tidy it)
-  if (s.toLowerCase().includes("@hidden")) return s;
+      // If it already contains @hidden, keep it
+      if (s.toLowerCase().includes("@hidden")) return s;
 
-  // If it's a normal email, keep only local-part + "@hidden"
-  const at = s.indexOf("@");
-  if (at > 0){
-    const local = s.slice(0, at).trim();
-    return local ? `${local}@hidden` : "hidden@hidden";
-  }
+      // Normal email -> local part + @hidden
+      const at = s.indexOf("@");
+      if (at > 0){
+        const local = s.slice(0, at).trim();
+        return local ? `${local}@hidden` : "hidden@hidden";
+      }
 
-  // Fallback for non-email strings
-  return `${s}@hidden`;
-}}
+      // Fallback for non-email strings
+      return `${s}@hidden`;
+    }
 
     function getParam(name){
       const url = new URL(window.location.href);
@@ -552,12 +539,12 @@
       }
 
       list.innerHTML = items.map(c => {
-        cconst rawAuthor =
-  c.authorLabel ||
-  c.authorEmail || c.email ||
-  c.author || "";
+        const rawAuthor =
+          c.authorLabel ||
+          c.authorEmail || c.email ||
+          c.author || "";
 
-const author = gdprStewardLabel(rawAuthor);
+        const author = gdprStewardLabel(rawAuthor);
         const when = formatTimestamp(c.createdAt || c.timestamp || c.at || null);
         const body = c.text || c.comment || c.message || "";
 
@@ -589,13 +576,12 @@ const author = gdprStewardLabel(rawAuthor);
       try{
         const ref = db.collection("tickets").doc(ticketId).collection("steward_comments");
 
-        // Optional: store a GDPR-safe label alongside the email
         const gdprLabel = gdprStewardLabel(currentEmail);
 
         await ref.add({
           text: txt,
-          authorEmail: currentEmail,      // keep if you still need it internally
-          authorLabel: gdprLabel,         // ✅ safe for UI
+          authorEmail: currentEmail,
+          authorLabel: gdprLabel,
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -615,7 +601,6 @@ const author = gdprStewardLabel(rawAuthor);
       const list = $("statementsList");
       list.innerHTML = `<div class="item"><div class="muted">Loading…</div></div>`;
 
-      // 1) Prefer subcollection: /tickets/<id>/statements
       try{
         const ref = db.collection("tickets").doc(ticketId).collection("statements");
         const snap = await ref.orderBy("createdAt","asc").limit(200).get();
@@ -624,7 +609,7 @@ const author = gdprStewardLabel(rawAuthor);
         if (items.length){
           list.innerHTML = items.map(s => {
             const rawWho = s.authorLabel || s.authorEmail || s.email || s.role || s.player || "—";
-            const who = gdprStewardLabel(rawWho); // ✅
+            const who = gdprStewardLabel(rawWho);
             const when = formatTimestamp(s.createdAt || s.timestamp || null);
             const body = s.text || s.statement || s.message || "";
             return `
@@ -642,11 +627,8 @@ const author = gdprStewardLabel(rawAuthor);
           }).join("");
           return;
         }
-      }catch(err){
-        // ignore and fall back
-      }
+      }catch(err){}
 
-      // 2) Fallback to fields on the ticket doc
       const x = ticketDocData || {};
       const accusedStatement = x.accusedStatement || x.accused_statement || x.accusedText || "";
       const reporterStatement = x.reporterStatement || x.reporter_statement || x.reporterText || "";
@@ -759,7 +741,7 @@ const author = gdprStewardLabel(rawAuthor);
           r.authorLabel ||
           r.authorEmail || r.email || r.author || r.user || r.id || "";
 
-        const author = gdprStewardLabel(rawAuthor); // ✅
+        const author = gdprStewardLabel(rawAuthor);
         const when = formatTimestamp(r.updatedAt || r.createdAt || r.timestamp || null);
         const p = (r.penaltyCode || r.penalty || r.code || "—").toString();
         const opinion = (r.privateOpinion || r.opinion || r.notes || "").toString();
@@ -865,9 +847,8 @@ const author = gdprStewardLabel(rawAuthor);
             $("welcomeLine").textContent = `Welcome, ${niceName}. Viewing ticket ${ticketId}.`;
           }
 
-          // Keep the sign-in line internal-ish (still shows real email on this page).
-          // If you also want THIS GDPR-masked, tell me and I’ll swap it too.
-          $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
+          // GDPR-safe display on header too
+          $("who").textContent = `Signed in as: ${gdprStewardLabel(currentEmail)} | role: ${data.role || "admin"}`;
 
           await refreshAll();
         }catch(e){
