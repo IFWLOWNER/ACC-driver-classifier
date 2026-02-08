@@ -375,6 +375,38 @@
         .replaceAll(".", "_");
     }
 
+    // ✅ GDPR-safe display label:
+    // - If stored as something like "whatever@hiddenABC123" → show "ABC123"
+    // - Else → show a stable anonymised label "steward-<hash>"
+    function stableHash(str){
+      // tiny non-crypto hash (enough for stable labels; not reversible in any meaningful way here)
+      let h = 2166136261;
+      const s = (str || "").toString();
+      for (let i=0;i<s.length;i++){
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      // unsigned + base36
+      return (h >>> 0).toString(36);
+    }
+
+    function gdprStewardLabel(raw){
+      const s = (raw || "").toString().trim();
+      if (!s) return "—";
+
+      const lower = s.toLowerCase();
+      const idx = lower.indexOf("@hidden");
+      if (idx !== -1){
+        let tail = s.slice(idx + "@hidden".length);
+        // clean common separators after "@hidden"
+        tail = tail.replace(/^[:._\- ]+/, "").trim();
+        return tail ? tail : "hidden";
+      }
+
+      // fallback: never show email, show stable anon label
+      return "steward-" + stableHash(lower).slice(0, 8);
+    }
+
     function getParam(name){
       const url = new URL(window.location.href);
       return url.searchParams.get(name);
@@ -409,11 +441,11 @@
 
     $("backClassifierBtn").onclick = () => window.location.href = "index.html";
     $("backHeadBtn").onclick = () => window.location.href = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
-    $("backSimgridBtn").onclick = () => window.location.href = "overview.html"; // change if your file name differs
+    $("backSimgridBtn").onclick = () => window.location.href = "overview.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
 
     // ---------------------------
-    // Auth / role gating (matches your other pages)
+    // Auth / role gating
     // ---------------------------
     let currentEmail = "";
     let roleText = "";
@@ -468,7 +500,6 @@
         <span class="muted" style="margin-left:10px;">Created: ${escapeHtml(created)}</span>
       `;
 
-      // Try multiple common incident fields (your schema may vary)
       const incident =
         x.incident ||
         x.incidentDetails ||
@@ -480,7 +511,6 @@
 
       $("incidentBody").textContent = incident ? incident.toString() : "—";
 
-      // Summary KV
       const summary = [
         ["Accused", x.accused],
         ["Reporter", x.reporter],
@@ -521,9 +551,15 @@
       }
 
       list.innerHTML = items.map(c => {
-        const author = c.authorEmail || c.email || c.author || "—";
+        const rawAuthor =
+          c.authorLabel ||               // optional safe label if you store it
+          c.authorEmail || c.email ||
+          c.author || "";
+
+        const author = gdprStewardLabel(rawAuthor); // ✅ GDPR-safe
         const when = formatTimestamp(c.createdAt || c.timestamp || c.at || null);
         const body = c.text || c.comment || c.message || "";
+
         return `
           <div class="item">
             <div class="itemTop">
@@ -544,7 +580,6 @@
       const txt = ($("newComment").value || "").trim();
       if (!txt) return toast("Write a comment first.");
 
-      // Allow Head Steward + SimGrid to comment (adjust if you want stricter)
       if (!isHeadSteward && !isSimgrid){
         return toast("Read-only account.");
       }
@@ -552,11 +587,17 @@
       $("postCommentBtn").disabled = true;
       try{
         const ref = db.collection("tickets").doc(ticketId).collection("steward_comments");
+
+        // Optional: store a GDPR-safe label alongside the email
+        const gdprLabel = gdprStewardLabel(currentEmail);
+
         await ref.add({
           text: txt,
-          authorEmail: currentEmail,
+          authorEmail: currentEmail,      // keep if you still need it internally
+          authorLabel: gdprLabel,         // ✅ safe for UI
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
+
         $("newComment").value = "";
         toast("Comment posted ✅");
         await loadComments();
@@ -581,7 +622,8 @@
         const items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
         if (items.length){
           list.innerHTML = items.map(s => {
-            const who = s.authorEmail || s.email || s.role || s.player || "—";
+            const rawWho = s.authorLabel || s.authorEmail || s.email || s.role || s.player || "—";
+            const who = gdprStewardLabel(rawWho); // ✅
             const when = formatTimestamp(s.createdAt || s.timestamp || null);
             const body = s.text || s.statement || s.message || "";
             return `
@@ -603,7 +645,7 @@
         // ignore and fall back
       }
 
-      // 2) Fallback to fields on the ticket doc (common patterns)
+      // 2) Fallback to fields on the ticket doc
       const x = ticketDocData || {};
       const accusedStatement = x.accusedStatement || x.accused_statement || x.accusedText || "";
       const reporterStatement = x.reporterStatement || x.reporter_statement || x.reporterText || "";
@@ -639,18 +681,16 @@
       let items = [];
       try{
         const ref = db.collection("tickets").doc(ticketId).collection("reviews");
-        const snap = await ref.get(); // review docs are often keyed, so no orderBy assumptions
+        const snap = await ref.get();
         items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
       }catch(e){
         items = [];
       }
 
-      // Compute aggregate CAUSE + penalty votes
       const scores = { c:[], a:[], u:[], s:[], e:[] };
       const penaltyVotes = new Map();
 
       for (const r of items){
-        // accept multiple field name possibilities
         const C = asNum(r.c ?? r.C ?? r.control ?? r.controlScore);
         const A = asNum(r.a ?? r.A ?? r.awareness ?? r.awarenessScore);
         const U = asNum(r.u ?? r.U ?? r.userInput ?? r.userInputScore);
@@ -687,7 +727,6 @@
       $("avgE").textContent = avgE==null ? "—" : String(avgE);
       $("reviewCount").textContent = String(items.length);
 
-      // Penalty votes list
       const pv = Array.from(penaltyVotes.entries()).sort((a,b)=>b[1]-a[1]);
       const pvList = $("penaltyVotesList");
       if (!pv.length){
@@ -703,13 +742,11 @@
         `).join("");
       }
 
-      // Render reviews
       if (!items.length){
         list.innerHTML = `<div class="item"><div class="muted">No reviews found.</div></div>`;
         return;
       }
 
-      // sort by updated/created if present
       items.sort((a,b)=>{
         const am = (a.updatedAt?.toMillis?.() ?? a.updatedAt?.seconds*1000 ?? a.createdAt?.toMillis?.() ?? a.createdAt?.seconds*1000 ?? 0) || 0;
         const bm = (b.updatedAt?.toMillis?.() ?? b.updatedAt?.seconds*1000 ?? b.createdAt?.toMillis?.() ?? b.createdAt?.seconds*1000 ?? 0) || 0;
@@ -717,7 +754,11 @@
       });
 
       list.innerHTML = items.map(r => {
-        const author = r.authorEmail || r.email || r.author || r.user || r.id || "—";
+        const rawAuthor =
+          r.authorLabel ||
+          r.authorEmail || r.email || r.author || r.user || r.id || "";
+
+        const author = gdprStewardLabel(rawAuthor); // ✅
         const when = formatTimestamp(r.updatedAt || r.createdAt || r.timestamp || null);
         const p = (r.penaltyCode || r.penalty || r.code || "—").toString();
         const opinion = (r.privateOpinion || r.opinion || r.notes || "").toString();
@@ -767,18 +808,12 @@
       }
     }
 
-    // ---------------------------
-    // Wire up UI
-    // ---------------------------
     $("refreshAllBtn").onclick = refreshAll;
     $("refreshCommentsBtn").onclick = loadComments;
     $("refreshStatementsBtn").onclick = loadStatements;
     $("refreshReviewsBtn").onclick = loadReviews;
     $("postCommentBtn").onclick = postComment;
 
-    // ---------------------------
-    // Firebase readiness
-    // ---------------------------
     async function waitForFirebaseReady(maxMs = 8000){
       const start = Date.now();
       while (Date.now() - start < maxMs){
@@ -810,7 +845,6 @@
           isHeadSteward = roleText.includes("head") || data.headsteward === true || data.owner === true;
           isSimgridOnly = isSimgrid && !isHeadSteward;
 
-          // Allow: Head Steward OR SimGrid (matches your finalised tickets access pattern)
           if (!isSimgrid && !isHeadSteward){
             toast("Access denied.");
             await auth.signOut();
@@ -830,6 +864,8 @@
             $("welcomeLine").textContent = `Welcome, ${niceName}. Viewing ticket ${ticketId}.`;
           }
 
+          // Keep the sign-in line internal-ish (still shows real email on this page).
+          // If you also want THIS GDPR-masked, tell me and I’ll swap it too.
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
 
           await refreshAll();
