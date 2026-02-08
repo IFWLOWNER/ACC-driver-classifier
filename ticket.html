@@ -368,33 +368,6 @@
         .replaceAll(">","&gt;");
     }
 
-    function safeEmailKey(email){
-      return (email || "").toLowerCase().trim()
-        .replaceAll("/", "_")
-        .replaceAll("\\", "_")
-        .replaceAll(".", "_");
-    }
-
-    // ✅ GDPR-safe email display:
-    // shows "local-part@hidden" (never shows domain like gmail/hotmail etc.)
-    function gdprStewardLabel(raw){
-      const s = (raw || "").toString().trim();
-      if (!s) return "—";
-
-      // If it already contains @hidden, keep it
-      if (s.toLowerCase().includes("@hidden")) return s;
-
-      // Normal email -> local part + @hidden
-      const at = s.indexOf("@");
-      if (at > 0){
-        const local = s.slice(0, at).trim();
-        return local ? `${local}@hidden` : "hidden@hidden";
-      }
-
-      // Fallback for non-email strings
-      return `${s}@hidden`;
-    }
-
     function getParam(name){
       const url = new URL(window.location.href);
       return url.searchParams.get(name);
@@ -420,6 +393,60 @@
       if (!u) return "—";
       return `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open</a>`;
     }
+
+    // ---------------------------
+    // GDPR-safe email display
+    // shows "local-part@hidden" (never shows domain like gmail/hotmail etc.)
+    // ---------------------------
+    function gdprStewardLabel(raw){
+      const s = (raw || "").toString().trim();
+      if (!s) return "unknown@hidden";
+
+      if (s.toLowerCase().includes("@hidden")) return s;
+
+      const at = s.indexOf("@");
+      if (at > 0){
+        const local = s.slice(0, at).trim();
+        return local ? `${local}@hidden` : "unknown@hidden";
+      }
+
+      return `${s}@hidden`;
+    }
+
+    // ---------------------------
+    // Robust author picker (matches different schemas)
+    // ---------------------------
+    function pickFirstAuthor(obj){
+      const candidates = [
+        obj?.authorLabel,
+        obj?.authorEmail,
+        obj?.email,
+        obj?.author,
+        obj?.createdBy,
+        obj?.createdByEmail,
+        obj?.userEmail,
+        obj?.user,
+        obj?.stewardEmail,
+        obj?.steward,
+        obj?.by,
+        obj?.ownerEmail,
+        obj?.submittedBy,
+        obj?.submittedByEmail,
+      ];
+
+      for (const v of candidates){
+        if (typeof v === "string" && v.trim()) return v.trim();
+        if (v && typeof v === "object"){
+          const inner = v.email || v.authorEmail || v.userEmail || v.name;
+          if (typeof inner === "string" && inner.trim()) return inner.trim();
+        }
+      }
+
+      return "";
+    }
+
+    // debug: add ?debug=1 to URL to show raw author + keys
+    const DEBUG = (getParam("debug") || "").toString() === "1";
 
     // ---------------------------
     // Ticket id + nav
@@ -530,7 +557,7 @@
       const ref = db.collection("tickets").doc(ticketId).collection("steward_comments");
       const snap = await ref.orderBy("createdAt","desc").limit(200).get();
 
-      const items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
+      const items = snap.docs.map(d => ({ _docId: d.id, ...(d.data() || {}) }));
       $("commentCountPill").innerHTML = `Comments: <strong>${items.length}</strong>`;
 
       if (!items.length){
@@ -539,14 +566,16 @@
       }
 
       list.innerHTML = items.map(c => {
-        const rawAuthor =
-          c.authorLabel ||
-          c.authorEmail || c.email ||
-          c.author || "";
-
+        const rawAuthor = pickFirstAuthor(c) || "";
         const author = gdprStewardLabel(rawAuthor);
+
         const when = formatTimestamp(c.createdAt || c.timestamp || c.at || null);
         const body = c.text || c.comment || c.message || "";
+
+        // Optional debug line so you can see what fields exist on your live docs:
+        const debugLine = DEBUG
+          ? `<div class="muted mono" style="margin-top:6px;">rawAuthor="${escapeHtml(rawAuthor)}" | keys=${escapeHtml(Object.keys(c).join(","))}</div>`
+          : "";
 
         return `
           <div class="item">
@@ -554,6 +583,7 @@
               <div>
                 <div style="font-weight:900;font-size:13px;">${escapeHtml(author)}</div>
                 <div class="muted">${escapeHtml(when)}</div>
+                ${debugLine}
               </div>
               <span class="tag neutral">${escapeHtml(c.type || "Comment")}</span>
             </div>
@@ -575,13 +605,12 @@
       $("postCommentBtn").disabled = true;
       try{
         const ref = db.collection("tickets").doc(ticketId).collection("steward_comments");
-
         const gdprLabel = gdprStewardLabel(currentEmail);
 
         await ref.add({
           text: txt,
-          authorEmail: currentEmail,
-          authorLabel: gdprLabel,
+          authorEmail: currentEmail,  // internal (if you want it)
+          authorLabel: gdprLabel,     // safe for UI
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -604,11 +633,11 @@
       try{
         const ref = db.collection("tickets").doc(ticketId).collection("statements");
         const snap = await ref.orderBy("createdAt","asc").limit(200).get();
+        const items = snap.docs.map(d => ({ _docId:d.id, ...(d.data() || {}) }));
 
-        const items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
         if (items.length){
           list.innerHTML = items.map(s => {
-            const rawWho = s.authorLabel || s.authorEmail || s.email || s.role || s.player || "—";
+            const rawWho = pickFirstAuthor(s) || "";
             const who = gdprStewardLabel(rawWho);
             const when = formatTimestamp(s.createdAt || s.timestamp || null);
             const body = s.text || s.statement || s.message || "";
@@ -665,7 +694,7 @@
       try{
         const ref = db.collection("tickets").doc(ticketId).collection("reviews");
         const snap = await ref.get();
-        items = snap.docs.map(d => ({ id: d.id, ... (d.data() || {}) }));
+        items = snap.docs.map(d => ({ _docId:d.id, ...(d.data() || {}) }));
       }catch(e){
         items = [];
       }
@@ -697,50 +726,33 @@
         return Math.round((arr.reduce((a,b)=>a+b,0) / arr.length) * 10) / 10;
       }
 
-      const avgC = avg(scores.c);
-      const avgA = avg(scores.a);
-      const avgU = avg(scores.u);
-      const avgS = avg(scores.s);
-      const avgE = avg(scores.e);
-
-      $("avgC").textContent = avgC==null ? "—" : String(avgC);
-      $("avgA").textContent = avgA==null ? "—" : String(avgA);
-      $("avgU").textContent = avgU==null ? "—" : String(avgU);
-      $("avgS").textContent = avgS==null ? "—" : String(avgS);
-      $("avgE").textContent = avgE==null ? "—" : String(avgE);
+      $("avgC").textContent = avg(scores.c)==null ? "—" : String(avg(scores.c));
+      $("avgA").textContent = avg(scores.a)==null ? "—" : String(avg(scores.a));
+      $("avgU").textContent = avg(scores.u)==null ? "—" : String(avg(scores.u));
+      $("avgS").textContent = avg(scores.s)==null ? "—" : String(avg(scores.s));
+      $("avgE").textContent = avg(scores.e)==null ? "—" : String(avg(scores.e));
       $("reviewCount").textContent = String(items.length);
 
       const pv = Array.from(penaltyVotes.entries()).sort((a,b)=>b[1]-a[1]);
       const pvList = $("penaltyVotesList");
-      if (!pv.length){
-        pvList.innerHTML = `<div class="item"><div class="muted">No penaltyCode votes yet.</div></div>`;
-      } else {
-        pvList.innerHTML = pv.map(([code,count]) => `
-          <div class="item">
-            <div class="itemTop">
-              <div style="font-weight:900;font-size:14px;">${escapeHtml(code)}</div>
-              <span class="tag ok">${count} vote${count===1?"":"s"}</span>
+      pvList.innerHTML = !pv.length
+        ? `<div class="item"><div class="muted">No penaltyCode votes yet.</div></div>`
+        : pv.map(([code,count]) => `
+            <div class="item">
+              <div class="itemTop">
+                <div style="font-weight:900;font-size:14px;">${escapeHtml(code)}</div>
+                <span class="tag ok">${count} vote${count===1?"":"s"}</span>
+              </div>
             </div>
-          </div>
-        `).join("");
-      }
+          `).join("");
 
       if (!items.length){
         list.innerHTML = `<div class="item"><div class="muted">No reviews found.</div></div>`;
         return;
       }
 
-      items.sort((a,b)=>{
-        const am = (a.updatedAt?.toMillis?.() ?? a.updatedAt?.seconds*1000 ?? a.createdAt?.toMillis?.() ?? a.createdAt?.seconds*1000 ?? 0) || 0;
-        const bm = (b.updatedAt?.toMillis?.() ?? b.updatedAt?.seconds*1000 ?? b.createdAt?.toMillis?.() ?? b.createdAt?.seconds*1000 ?? 0) || 0;
-        return bm - am;
-      });
-
       list.innerHTML = items.map(r => {
-        const rawAuthor =
-          r.authorLabel ||
-          r.authorEmail || r.email || r.author || r.user || r.id || "";
-
+        const rawAuthor = pickFirstAuthor(r) || r._docId || "";
         const author = gdprStewardLabel(rawAuthor);
         const when = formatTimestamp(r.updatedAt || r.createdAt || r.timestamp || null);
         const p = (r.penaltyCode || r.penalty || r.code || "—").toString();
@@ -779,11 +791,7 @@
       if (!ticketId) return;
       try{
         await loadTicket();
-        await Promise.allSettled([
-          loadComments(),
-          loadStatements(),
-          loadReviews()
-        ]);
+        await Promise.allSettled([ loadComments(), loadStatements(), loadReviews() ]);
         toast("Refreshed ✅");
       }catch(e){
         console.error(e);
@@ -791,6 +799,7 @@
       }
     }
 
+    // UI
     $("refreshAllBtn").onclick = refreshAll;
     $("refreshCommentsBtn").onclick = loadComments;
     $("refreshStatementsBtn").onclick = loadStatements;
@@ -841,13 +850,10 @@
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Admin";
 
-          if (!ticketId){
-            $("welcomeLine").textContent = `Welcome, ${niceName}. Missing ticket id in the URL.`;
-          } else {
-            $("welcomeLine").textContent = `Welcome, ${niceName}. Viewing ticket ${ticketId}.`;
-          }
+          $("welcomeLine").textContent = ticketId
+            ? `Welcome, ${niceName}. Viewing ticket ${ticketId}.`
+            : `Welcome, ${niceName}. Missing ticket id in the URL.`;
 
-          // GDPR-safe display on header too
           $("who").textContent = `Signed in as: ${gdprStewardLabel(currentEmail)} | role: ${data.role || "admin"}`;
 
           await refreshAll();
