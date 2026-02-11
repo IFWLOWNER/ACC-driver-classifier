@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IFWL RT Role Gate</title>
+  <style>
+    body { font-family: system-ui, Arial; background:#0b0f17; color:#e6eefc; margin:0; padding:40px; }
+    .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:22px; }
+    button { background:#5865F2; color:white; border:0; padding:12px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
+    button:hover { filter:brightness(1.05); }
+    .muted { opacity:.8; font-size:14px; }
+    .status { margin-top:14px; padding:12px; border-radius:10px; }
+    .ok { background:#0f2a1b; border:1px solid #1f6b3b; }
+    .bad { background:#2a1414; border:1px solid #7a2a2a; }
+    code { background:#0b1220; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>IFWL Race Team Gate (Test)</h1>
+    <p class="muted">
+      Login with Discord. If you have <b>IFWL Race team Assessor</b> or <b>IFWL RACE TEAM ACC</b>, you’ll get access.
+    </p>
+
+    <button id="loginBtn">Login with Discord</button>
+    <button id="logoutBtn" style="display:none;background:#334155;margin-left:8px;">Logout</button>
+
+    <div id="result" class="status" style="display:none;"></div>
+
+    <p class="muted" style="margin-top:16px;">
+      Tip: This page expects a backend endpoint at:<br/>
+      <code id="endpointHint"></code>
+    </p>
+  </div>
+
+  <script>
+    // 1) Put your deployed Cloud Function URL here (see Part B)
+    const BACKEND_BASE = "https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net";
+    const ENDPOINT = `${BACKEND_BASE}/discordGate`; // GET ?code=... or GET /discordGate/start
+
+    document.getElementById("endpointHint").textContent = ENDPOINT;
+
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const resultBox = document.getElementById("result");
+
+    function show(status, ok) {
+      resultBox.style.display = "block";
+      resultBox.className = "status " + (ok ? "ok" : "bad");
+      resultBox.innerHTML = status;
+    }
+
+    function setLoggedInUI(isLoggedIn) {
+      loginBtn.style.display = isLoggedIn ? "none" : "inline-block";
+      logoutBtn.style.display = isLoggedIn ? "inline-block" : "none";
+    }
+
+    // If we came back from Discord with ?code=...
+    async function handleCallback() {
+      const params = new URLSearchParams(location.search);
+      const code = params.get("code");
+      const error = params.get("error");
+      if (error) {
+        show(`❌ Discord login error: <b>${error}</b>`, false);
+        return;
+      }
+      if (!code) return;
+
+      show("Checking your roles…", true);
+
+      try {
+        const res = await fetch(`${ENDPOINT}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(params.get("state")||"")}`, {
+          method: "GET",
+          credentials: "include"
+        });
+
+        const data = await res.json();
+
+        // clear the code from URL (clean UX)
+        history.replaceState({}, document.title, location.pathname);
+
+        if (data.accessGranted) {
+          setLoggedInUI(true);
+          show(`✅ <b>Access Granted</b><br/>Discord: ${escapeHtml(data.username)}<br/><span class="muted">Matched role: ${escapeHtml(data.matchedRoleName || "role")}</span>`, true);
+          // This is where you'd reveal the protected content.
+        } else {
+          setLoggedInUI(true);
+          show(`⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username)}<br/><span class="muted">You don’t have the required role(s).</span>`, false);
+        }
+      } catch (e) {
+        show(`❌ Backend error: ${escapeHtml(String(e))}`, false);
+      }
+    }
+
+    loginBtn.addEventListener("click", () => {
+      // Backend creates the Discord authorization URL safely
+      window.location.href = `${ENDPOINT}/start?returnTo=${encodeURIComponent(location.href)}`;
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch(`${ENDPOINT}/logout`, { method: "POST", credentials: "include" });
+      } catch {}
+      setLoggedInUI(false);
+      show("Logged out.", true);
+    });
+
+    // tiny sanitizer for display
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    handleCallback();
+  </script>
+</body>
+</html>
