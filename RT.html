@@ -35,83 +35,80 @@
   </div>
 
   <script>
-    // 1) Put your deployed Cloud Function URL here (see Part B)
-    const BACKEND_BASE = "https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net";
-    const ENDPOINT = `${BACKEND_BASE}/discordGate`; // GET ?code=... or GET /discordGate/start
+  const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
+  const REDIRECT_URI = window.location.origin + window.location.pathname;
 
-    document.getElementById("endpointHint").textContent = ENDPOINT;
+  document.getElementById("endpointHint").textContent = FUNCTION;
 
-    const loginBtn = document.getElementById("loginBtn");
-    const logoutBtn = document.getElementById("logoutBtn");
-    const resultBox = document.getElementById("result");
+  const loginBtn = document.getElementById("loginBtn");
+  const logoutBtn = document.getElementById("logoutBtn");
+  const resultBox = document.getElementById("result");
 
-    function show(status, ok) {
-      resultBox.style.display = "block";
-      resultBox.className = "status " + (ok ? "ok" : "bad");
-      resultBox.innerHTML = status;
+  function show(status, ok) {
+    resultBox.style.display = "block";
+    resultBox.className = "status " + (ok ? "ok" : "bad");
+    resultBox.innerHTML = status;
+  }
+
+  function setLoggedInUI(isLoggedIn) {
+    loginBtn.style.display = isLoggedIn ? "none" : "inline-block";
+    logoutBtn.style.display = isLoggedIn ? "inline-block" : "none";
+  }
+
+  function escapeHtml(s) {
+    return String(s || "").replace(/[&<>"']/g, c =>
+      ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])
+    );
+  }
+
+  async function startLogin() {
+    const startUrl = FUNCTION + `?start=1&redirect=${encodeURIComponent(REDIRECT_URI)}`;
+    const r = await fetch(startUrl);
+    const data = await r.json();
+    if (!data.url) throw new Error(data.error || "No login url returned");
+    window.location.href = data.url;
+  }
+
+  async function handleCallback() {
+    const params = new URLSearchParams(location.search);
+    const code = params.get("code");
+    const error = params.get("error");
+
+    if (error) {
+      show(`❌ Discord login error: <b>${escapeHtml(error)}</b>`, false);
+      return;
     }
+    if (!code) return;
 
-    function setLoggedInUI(isLoggedIn) {
-      loginBtn.style.display = isLoggedIn ? "none" : "inline-block";
-      logoutBtn.style.display = isLoggedIn ? "inline-block" : "none";
+    show("Checking your roles…", true);
+
+    const checkUrl = FUNCTION + `?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(REDIRECT_URI)}`;
+    const r = await fetch(checkUrl);
+    const data = await r.json();
+
+    // clean URL
+    history.replaceState({}, document.title, REDIRECT_URI);
+
+    setLoggedInUI(true);
+
+    if (data.accessGranted) {
+      show(`✅ <b>Access Granted</b><br/>Discord: ${escapeHtml(data.username || "user")}`, true);
+    } else {
+      show(`⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username || "user")}`, false);
     }
+  }
 
-    // If we came back from Discord with ?code=...
-    async function handleCallback() {
-      const params = new URLSearchParams(location.search);
-      const code = params.get("code");
-      const error = params.get("error");
-      if (error) {
-        show(`❌ Discord login error: <b>${error}</b>`, false);
-        return;
-      }
-      if (!code) return;
+  loginBtn.addEventListener("click", () => {
+    startLogin().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
+  });
 
-      show("Checking your roles…", true);
+  // For now, “logout” is just UI reset (we’re not storing a session)
+  logoutBtn.addEventListener("click", () => {
+    setLoggedInUI(false);
+    show("Logged out.", true);
+  });
 
-      try {
-        const res = await fetch(`${ENDPOINT}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(params.get("state")||"")}`, {
-          method: "GET",
-          credentials: "include"
-        });
-
-        const data = await res.json();
-
-        // clear the code from URL (clean UX)
-        history.replaceState({}, document.title, location.pathname);
-
-        if (data.accessGranted) {
-          setLoggedInUI(true);
-          show(`✅ <b>Access Granted</b><br/>Discord: ${escapeHtml(data.username)}<br/><span class="muted">Matched role: ${escapeHtml(data.matchedRoleName || "role")}</span>`, true);
-          // This is where you'd reveal the protected content.
-        } else {
-          setLoggedInUI(true);
-          show(`⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username)}<br/><span class="muted">You don’t have the required role(s).</span>`, false);
-        }
-      } catch (e) {
-        show(`❌ Backend error: ${escapeHtml(String(e))}`, false);
-      }
-    }
-
-    loginBtn.addEventListener("click", () => {
-      // Backend creates the Discord authorization URL safely
-      window.location.href = `${ENDPOINT}/start?returnTo=${encodeURIComponent(location.href)}`;
-    });
-
-    logoutBtn.addEventListener("click", async () => {
-      try {
-        await fetch(`${ENDPOINT}/logout`, { method: "POST", credentials: "include" });
-      } catch {}
-      setLoggedInUI(false);
-      show("Logged out.", true);
-    });
-
-    // tiny sanitizer for display
-    function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
-
-    handleCallback();
-  </script>
+  handleCallback().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
+</script>
 </body>
 </html>
