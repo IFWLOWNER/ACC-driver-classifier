@@ -1,0 +1,1210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IFWL Race Team Hub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body { background:#070b12; }
+    .glass {
+      background: rgba(17, 25, 40, 0.55);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 18px 60px rgba(0,0,0,0.5);
+      backdrop-filter: blur(12px);
+    }
+    .soft { border: 1px solid rgba(255,255,255,.08); }
+    .muted { opacity: .85; }
+    .chip { border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
+    .btn {
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(88,101,242,.92);
+    }
+    .btn:hover { filter: brightness(1.05); }
+    .btn2 {
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.06);
+    }
+    .btn2:hover { background: rgba(255,255,255,.10); }
+    .danger {
+      background: rgba(239,68,68,.18);
+      border: 1px solid rgba(239,68,68,.35);
+    }
+    .ok {
+      background: rgba(34,197,94,.15);
+      border: 1px solid rgba(34,197,94,.35);
+    }
+    .warn {
+      background: rgba(245,158,11,.16);
+      border: 1px solid rgba(245,158,11,.35);
+    }
+    .tab { cursor:pointer; }
+    .tabActive { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+
+<body class="text-slate-100">
+  <div class="min-h-screen px-4 py-8 md:py-10">
+    <div class="max-w-6xl mx-auto">
+
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        <div>
+          <div class="text-sm text-slate-300 muted">IFWL • Race Team Hub</div>
+          <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight">Stints • Availability • Setups • Strategy</h1>
+          <div class="text-slate-300 muted mt-2">
+            Clean team planning — no more spreadsheet chaos.
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <a href="RT.html" class="px-3 py-2 rounded-xl btn2 text-sm">Back to RT Gate</a>
+          <button id="logoutBtn" class="px-3 py-2 rounded-xl btn2 text-sm hidden">Logout</button>
+          <button id="loginBtn" class="px-4 py-2 rounded-xl btn font-bold hidden">Login with Discord</button>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div id="statusBox" class="glass rounded-2xl p-4 mb-6 hidden"></div>
+
+      <!-- Gate Card -->
+      <div id="gateCard" class="glass rounded-2xl p-6 mb-6 hidden">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <div class="text-lg font-bold">Login required</div>
+            <div class="text-slate-300 muted mt-1">
+              You must be <b>Assessor</b> or <b>Race Team ACC</b> to use this hub.
+            </div>
+            <div class="text-xs text-slate-300 muted mt-3">
+              Backend: <span class="mono" id="backendHint"></span>
+            </div>
+          </div>
+          <div>
+            <button id="loginBtn2" class="px-5 py-3 rounded-xl btn font-extrabold">Login with Discord</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- App -->
+      <div id="app" class="hidden">
+        <!-- Top summary -->
+        <div class="grid md:grid-cols-3 gap-4 mb-6">
+          <div class="glass rounded-2xl p-5">
+            <div class="text-sm text-slate-300 muted">Signed in as</div>
+            <div class="text-xl font-extrabold mt-1" id="whoami">—</div>
+            <div class="mt-3 flex items-center gap-2">
+              <span id="roleChip" class="chip px-3 py-1 rounded-full text-xs">Role: —</span>
+              <span id="sessionChip" class="chip px-3 py-1 rounded-full text-xs">Session: —</span>
+            </div>
+          </div>
+
+          <div class="glass rounded-2xl p-5">
+            <div class="text-sm text-slate-300 muted">Current Event</div>
+            <div class="text-xl font-extrabold mt-1" id="eventTitleMini">—</div>
+            <div class="text-slate-300 muted mt-2 text-sm" id="eventMetaMini">—</div>
+            <div class="mt-3 flex gap-2">
+              <a id="simgridBtnMini" href="#" target="_blank" class="px-3 py-2 rounded-xl btn2 text-sm inline-block">Open SimGrid</a>
+              <button id="refreshBtn" class="px-3 py-2 rounded-xl btn2 text-sm">Refresh</button>
+            </div>
+          </div>
+
+          <div class="glass rounded-2xl p-5">
+            <div class="text-sm text-slate-300 muted">Quick Actions</div>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <button id="myAvailBtn" class="px-3 py-2 rounded-xl btn2 text-sm text-left">Update availability</button>
+              <button id="myStintBtn" class="px-3 py-2 rounded-xl btn2 text-sm text-left">Claim a stint</button>
+              <button id="copyHubLinkBtn" class="px-3 py-2 rounded-xl btn2 text-sm text-left">Copy hub link</button>
+              <button id="copyEventBtn" class="px-3 py-2 rounded-xl btn2 text-sm text-left">Copy event summary</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="glass rounded-2xl p-2 mb-4 flex flex-wrap gap-2">
+          <div class="tab tabActive px-4 py-2 rounded-xl text-sm font-bold" data-tab="overview">Overview</div>
+          <div class="tab px-4 py-2 rounded-xl text-sm font-bold" data-tab="availability">Availability</div>
+          <div class="tab px-4 py-2 rounded-xl text-sm font-bold" data-tab="stints">Stints</div>
+          <div class="tab px-4 py-2 rounded-xl text-sm font-bold" data-tab="setups">Setups</div>
+          <div class="tab px-4 py-2 rounded-xl text-sm font-bold" data-tab="laptimes">Lap Times</div>
+          <div class="tab px-4 py-2 rounded-xl text-sm font-bold" data-tab="fuel">Fuel Calculator</div>
+          <div class="tab px-4 py-2 rounded-xl text-sm font-bold" data-tab="assessor" id="assessorTab" style="display:none;">Assessor Tools</div>
+        </div>
+
+        <!-- Panels -->
+        <div id="panel-overview" class="grid lg:grid-cols-3 gap-4">
+          <div class="glass rounded-2xl p-6 lg:col-span-2">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="text-sm text-slate-300 muted">Event Brief</div>
+                <div class="text-2xl font-extrabold mt-1" id="eventTitle">—</div>
+                <div class="text-slate-300 muted mt-2" id="eventMeta">—</div>
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <a id="simgridBtn" href="#" target="_blank" class="px-4 py-2 rounded-xl btn font-bold inline-block">Open SimGrid</a>
+                  <a id="carImgBtn" href="#" target="_blank" class="px-4 py-2 rounded-xl btn2 text-sm inline-block">Car Image</a>
+                </div>
+              </div>
+              <div class="hidden md:block">
+                <img id="carImg" src="" alt="" class="w-44 h-28 object-cover rounded-2xl soft hidden" />
+              </div>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-3 mt-6">
+              <div class="chip rounded-2xl p-4">
+                <div class="text-xs text-slate-300 muted">Track</div>
+                <div class="font-extrabold mt-1" id="trackTxt">—</div>
+              </div>
+              <div class="chip rounded-2xl p-4">
+                <div class="text-xs text-slate-300 muted">Start</div>
+                <div class="font-extrabold mt-1" id="startTxt">—</div>
+              </div>
+              <div class="chip rounded-2xl p-4">
+                <div class="text-xs text-slate-300 muted">Pit Strategy</div>
+                <div class="font-extrabold mt-1" id="pitTxt">—</div>
+              </div>
+            </div>
+
+            <div class="mt-6 grid md:grid-cols-2 gap-4">
+              <div class="chip rounded-2xl p-4">
+                <div class="text-sm font-extrabold">Weather</div>
+                <div class="text-slate-300 muted text-sm mt-2" id="weatherTxt">—</div>
+              </div>
+              <div class="chip rounded-2xl p-4">
+                <div class="text-sm font-extrabold">What the team asked for</div>
+                <ul class="text-slate-300 muted text-sm mt-2 list-disc pl-5">
+                  <li>Availability for practice & events</li>
+                  <li>Stint planning + final stint list</li>
+                  <li>Lap times and driver notes</li>
+                  <li>Weather for the event</li>
+                  <li>Car setups per event (multiple options)</li>
+                  <li>Pit strategies / plans</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass rounded-2xl p-6">
+            <div class="text-sm text-slate-300 muted">Live Snapshot</div>
+            <div class="text-lg font-extrabold mt-1">Who’s in?</div>
+
+            <div class="mt-4">
+              <div class="text-xs text-slate-300 muted mb-2">Availability (Practice / Event)</div>
+              <div id="availMini" class="space-y-2 text-sm"></div>
+            </div>
+
+            <div class="mt-5">
+              <div class="text-xs text-slate-300 muted mb-2">Stints claimed</div>
+              <div id="stintsMini" class="space-y-2 text-sm"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Availability Panel -->
+        <div id="panel-availability" class="hidden">
+          <div class="grid lg:grid-cols-3 gap-4">
+            <div class="glass rounded-2xl p-6">
+              <div class="text-xl font-extrabold">Your Availability</div>
+              <div class="text-slate-300 muted text-sm mt-2">
+                Tick what you can do. Add notes like timeslots, “can qualify”, “can start”, etc.
+              </div>
+
+              <div class="mt-5 space-y-3">
+                <label class="flex items-center gap-3 chip rounded-xl p-3">
+                  <input id="myPractice" type="checkbox" class="h-5 w-5" />
+                  <span class="font-bold">Available for practice</span>
+                </label>
+                <label class="flex items-center gap-3 chip rounded-xl p-3">
+                  <input id="myEvent" type="checkbox" class="h-5 w-5" />
+                  <span class="font-bold">Available for event</span>
+                </label>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Notes (times / roles / anything)</div>
+                  <textarea id="myAvailNotes" class="w-full bg-transparent outline-none text-sm min-h-[90px]" placeholder="e.g. Can do Q + start. Free from 12:30 onward."></textarea>
+                </div>
+
+                <button id="saveAvailBtn" class="w-full px-4 py-3 rounded-xl btn font-extrabold">Save my availability</button>
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-6 lg:col-span-2">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-xl font-extrabold">Team Availability</div>
+                  <div class="text-slate-300 muted text-sm mt-1">
+                    Instant view of who’s available — like the spreadsheet, but cleaner.
+                  </div>
+                </div>
+                <button id="refreshAvailBtn" class="px-4 py-2 rounded-xl btn2 text-sm">Refresh</button>
+              </div>
+
+              <div class="mt-5 overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead class="text-slate-300 muted">
+                    <tr>
+                      <th class="text-left py-2">Driver</th>
+                      <th class="text-left py-2">Practice</th>
+                      <th class="text-left py-2">Event</th>
+                      <th class="text-left py-2">Notes</th>
+                      <th class="text-left py-2">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody id="availTable" class="align-top"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stints Panel -->
+        <div id="panel-stints" class="hidden">
+          <div class="grid lg:grid-cols-3 gap-4">
+            <div class="glass rounded-2xl p-6">
+              <div class="text-xl font-extrabold">Claim a Stint</div>
+              <div class="text-slate-300 muted text-sm mt-2">
+                Click a stint number to assign yourself. Add notes (times, start stint, etc).
+                If a stint is already claimed, only assessors can override.
+              </div>
+
+              <div class="mt-4 chip rounded-xl p-3">
+                <div class="text-xs text-slate-300 muted mb-2">Stint #</div>
+                <input id="stintIdInput" class="w-full bg-transparent outline-none text-sm" placeholder="1" />
+              </div>
+
+              <div class="mt-3 chip rounded-xl p-3">
+                <div class="text-xs text-slate-300 muted mb-2">Notes</div>
+                <textarea id="stintNotesInput" class="w-full bg-transparent outline-none text-sm min-h-[90px]" placeholder="e.g. Can do stint 1 + 2. Prefer night stint."></textarea>
+              </div>
+
+              <button id="claimStintBtn" class="w-full mt-3 px-4 py-3 rounded-xl btn font-extrabold">Claim / Update stint</button>
+
+              <div class="mt-4 text-xs text-slate-300 muted">
+                Tip: assessors can use “Clear all stints” in Assessor Tools before a new event.
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-6 lg:col-span-2">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-xl font-extrabold">Stint Board</div>
+                  <div class="text-slate-300 muted text-sm mt-1">
+                    This becomes your “final stint times list”.
+                  </div>
+                </div>
+                <button id="refreshStintsBtn" class="px-4 py-2 rounded-xl btn2 text-sm">Refresh</button>
+              </div>
+
+              <div class="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3" id="stintCards"></div>
+
+              <div class="mt-6 chip rounded-2xl p-4">
+                <div class="font-extrabold">Final Stint Plan Notes</div>
+                <div class="text-slate-300 muted text-sm mt-2">
+                  Use stint notes to capture the plan: “Jambo Q + start”, “backup driver”, “if crash then…”.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Setups Panel -->
+        <div id="panel-setups" class="hidden">
+          <div class="grid lg:grid-cols-3 gap-4">
+            <div class="glass rounded-2xl p-6">
+              <div class="text-xl font-extrabold">Setups</div>
+              <div class="text-slate-300 muted text-sm mt-2">
+                Assessors upload the “approved” setup links here (multiple options).
+                Team members can access instantly.
+              </div>
+              <div class="mt-4 chip rounded-xl p-4">
+                <div class="text-sm font-extrabold">How to use</div>
+                <ul class="text-slate-300 muted text-sm mt-2 list-disc pl-5">
+                  <li>Assessor adds setup links per event</li>
+                  <li>Members download + test</li>
+                  <li>New setups can be suggested (we can add a submit endpoint next)</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-6 lg:col-span-2">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-xl font-extrabold">Setup Library (Current Event)</div>
+                  <div class="text-slate-300 muted text-sm mt-1">Links below are pulled from the event details.</div>
+                </div>
+                <button id="refreshSetupsBtn" class="px-4 py-2 rounded-xl btn2 text-sm">Refresh</button>
+              </div>
+
+              <div id="setupsList" class="mt-5 grid md:grid-cols-2 gap-3"></div>
+
+              <div class="mt-4 warn rounded-2xl p-4 text-sm hidden" id="noSetupsBox">
+                No setups added yet. Assessor can add them in <b>Assessor Tools</b>.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lap Times Panel -->
+        <div id="panel-laptimes" class="hidden">
+          <div class="grid lg:grid-cols-3 gap-4">
+            <div class="glass rounded-2xl p-6">
+              <div class="text-xl font-extrabold">Your Lap Time Notes</div>
+              <div class="text-slate-300 muted text-sm mt-2">
+                This is stored on your device for now (fast + safe).
+                Next step: I’ll add a Firebase endpoint so assessors see everyone’s lap times centrally.
+              </div>
+
+              <div class="mt-4 chip rounded-xl p-3">
+                <div class="text-xs text-slate-300 muted mb-2">Best lap (optional)</div>
+                <input id="myBestLap" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. 1:47.923" />
+              </div>
+
+              <div class="mt-3 chip rounded-xl p-3">
+                <div class="text-xs text-slate-300 muted mb-2">Notes</div>
+                <textarea id="myLapNotes" class="w-full bg-transparent outline-none text-sm min-h-[90px]" placeholder="e.g. Consistent 1:49s, can do night stints, strong in traffic."></textarea>
+              </div>
+
+              <button id="saveLapBtn" class="w-full mt-3 px-4 py-3 rounded-xl btn font-extrabold">Save locally</button>
+              <div class="text-xs text-slate-300 muted mt-3">
+                This helps assessors decide stints and who qualifies/starts.
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-6 lg:col-span-2">
+              <div class="text-xl font-extrabold">Team Lap Times</div>
+              <div class="text-slate-300 muted text-sm mt-1">
+                Central team lap times will appear here once we add the Firebase endpoint (next upgrade).
+              </div>
+
+              <div class="mt-4 chip rounded-2xl p-4">
+                <div class="font-extrabold">Planned upgrade</div>
+                <div class="text-slate-300 muted text-sm mt-2">
+                  I’ll add:
+                  <ul class="list-disc pl-5 mt-2">
+                    <li><span class="mono">rtLapUpsert</span> (member submits lap time)</li>
+                    <li><span class="mono">rtLapList</span> (assessor/team view)</li>
+                    <li>Optional “track-specific” lap times per event</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fuel Panel -->
+        <div id="panel-fuel" class="hidden">
+          <div class="grid lg:grid-cols-3 gap-4">
+            <div class="glass rounded-2xl p-6">
+              <div class="text-xl font-extrabold">ACC Fuel Calculator</div>
+              <div class="text-slate-300 muted text-sm mt-2">
+                Quick fuel + margin planning for long stints/events.
+              </div>
+
+              <div class="mt-5 space-y-3">
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Fuel per lap</div>
+                  <input id="fuelPerLap" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. 2.75" />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Race laps (or stint laps)</div>
+                  <input id="lapsCount" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. 30" />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Extra laps (formation / safety)</div>
+                  <input id="extraLaps" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. 2" />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Margin %</div>
+                  <input id="marginPct" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. 3" />
+                </div>
+
+                <button id="calcFuelBtn" class="w-full px-4 py-3 rounded-xl btn font-extrabold">Calculate</button>
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-6 lg:col-span-2">
+              <div class="text-xl font-extrabold">Result</div>
+              <div id="fuelResult" class="mt-4 chip rounded-2xl p-5 text-sm text-slate-200">
+                Enter values and click calculate.
+              </div>
+
+              <div class="mt-4 chip rounded-2xl p-4 text-sm text-slate-300 muted">
+                Pro tip: start with a conservative margin for endurance or wet conditions.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Assessor Panel -->
+        <div id="panel-assessor" class="hidden">
+          <div class="grid lg:grid-cols-3 gap-4">
+            <div class="glass rounded-2xl p-6 lg:col-span-2">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-xl font-extrabold">Assessor Tools</div>
+                  <div class="text-slate-300 muted text-sm mt-1">
+                    Set the event, weather, pit strategy, and setup links in one place.
+                  </div>
+                </div>
+                <button id="loadEventToFormBtn" class="px-4 py-2 rounded-xl btn2 text-sm">Load current event</button>
+              </div>
+
+              <div class="mt-5 grid md:grid-cols-2 gap-3">
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Event Title</div>
+                  <input id="evTitle" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. 12 Hours of Misano" />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Track</div>
+                  <input id="evTrack" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. Misano" />
+                </div>
+
+                <div class="chip rounded-xl p-3 md:col-span-2">
+                  <div class="text-xs text-slate-300 muted mb-2">SimGrid URL</div>
+                  <input id="evSimgrid" class="w-full bg-transparent outline-none text-sm" placeholder="https://..." />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Car Name</div>
+                  <input id="evCarName" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. Ferrari 296 GT3" />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Car Image URL</div>
+                  <input id="evCarImg" class="w-full bg-transparent outline-none text-sm" placeholder="https://..." />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Start Time (ISO)</div>
+                  <input id="evStartIso" class="w-full bg-transparent outline-none text-sm" placeholder="2026-02-21T10:00:00Z" />
+                </div>
+
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Pit Strategy</div>
+                  <input id="evPit" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. 65L, double-stint tyres..." />
+                </div>
+              </div>
+
+              <div class="mt-5 grid md:grid-cols-3 gap-3">
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Weather conditions</div>
+                  <input id="wCond" class="w-full bg-transparent outline-none text-sm" placeholder="Dry / Wet / Mixed" />
+                </div>
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Ambient °C</div>
+                  <input id="wAmb" class="w-full bg-transparent outline-none text-sm" placeholder="18" />
+                </div>
+                <div class="chip rounded-xl p-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Track °C</div>
+                  <input id="wTrack" class="w-full bg-transparent outline-none text-sm" placeholder="26" />
+                </div>
+                <div class="chip rounded-xl p-3 md:col-span-3">
+                  <div class="text-xs text-slate-300 muted mb-2">Weather notes</div>
+                  <input id="wNotes" class="w-full bg-transparent outline-none text-sm" placeholder="e.g. rain expected mid-race, watch pressures" />
+                </div>
+              </div>
+
+              <div class="mt-5 chip rounded-2xl p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="font-extrabold">Setup links</div>
+                  <button id="addSetupBtn" class="px-3 py-2 rounded-xl btn2 text-sm">+ Add setup</button>
+                </div>
+                <div id="setupFormList" class="mt-4 space-y-3"></div>
+              </div>
+
+              <div class="mt-5 flex flex-col sm:flex-row gap-2">
+                <button id="saveEventBtn" class="px-5 py-3 rounded-xl btn font-extrabold">Save event details</button>
+                <button id="assessorRefreshBtn" class="px-5 py-3 rounded-xl btn2 text-sm">Refresh hub</button>
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-6">
+              <div class="text-xl font-extrabold">Admin Actions</div>
+              <div class="text-slate-300 muted text-sm mt-2">
+                Use these at the start of a new event.
+              </div>
+
+              <button id="clearStintsBtn" class="w-full mt-4 px-4 py-3 rounded-xl danger font-extrabold">
+                Clear all stints
+              </button>
+
+              <div class="mt-4 chip rounded-2xl p-4 text-sm text-slate-300 muted">
+                This only clears the <b>stint assignments</b>, not availability.
+              </div>
+
+              <div class="mt-5 chip rounded-2xl p-4 text-xs text-slate-300 muted">
+                Note: this hub does not delete any of your steward/ticket systems.
+                It only writes to:
+                <div class="mono mt-2">
+                  rt/currentEvent<br/>
+                  rt_availability/*<br/>
+                  rt_stints/*
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /app -->
+
+      <!-- Footer -->
+      <div class="text-center text-xs text-slate-400 muted mt-8">
+        IFWL Race Team Hub • Built for fast planning and cleaner comms
+      </div>
+    </div>
+  </div>
+
+<script>
+/** ===========================
+ * CONFIG — your deployed endpoints
+ * =========================== */
+const FUNCTIONS_BASE = "https://europe-west2-ifwl-591d8.cloudfunctions.net";
+const RT_GATE = `${FUNCTIONS_BASE}/rtGate`;
+
+const API = {
+  eventGet: `${FUNCTIONS_BASE}/rtEventGet`,
+  eventSet: `${FUNCTIONS_BASE}/rtEventSet`,
+  availUpsert: `${FUNCTIONS_BASE}/rtAvailabilityUpsert`,
+  availList: `${FUNCTIONS_BASE}/rtAvailabilityList`,
+  stintUpsert: `${FUNCTIONS_BASE}/rtStintUpsert`,
+  stintList: `${FUNCTIONS_BASE}/rtStintList`,
+  stintClear: `${FUNCTIONS_BASE}/rtStintClear`,
+};
+
+// must match your Discord redirect allowlist
+const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+// storage keys
+const K = {
+  session: "IFWL_RT_SESSION",
+  user: "IFWL_RT_USER",
+  lapLocal: "IFWL_RT_LAP_LOCAL",
+};
+
+const els = (id) => document.getElementById(id);
+
+function showStatus(html, type="ok") {
+  const box = els("statusBox");
+  box.className = `glass rounded-2xl p-4 mb-6 ${type === "ok" ? "ok" : type === "warn" ? "warn" : "danger"}`;
+  box.innerHTML = html;
+  box.style.display = "block";
+}
+
+function hideStatus() {
+  els("statusBox").style.display = "none";
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function setTab(name) {
+  document.querySelectorAll(".tab").forEach(t => {
+    const active = t.dataset.tab === name;
+    t.classList.toggle("tabActive", active);
+  });
+  const panels = ["overview","availability","stints","setups","laptimes","fuel","assessor"];
+  panels.forEach(p => {
+    const el = document.getElementById(`panel-${p}`);
+    if (!el) return;
+    el.classList.toggle("hidden", p !== name);
+  });
+  // scroll back to top of content
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => setTab(t.dataset.tab));
+});
+
+/** ===========================
+ * Auth / Session
+ * =========================== */
+function getSession() {
+  return localStorage.getItem(K.session) || "";
+}
+
+function setSession(token) {
+  localStorage.setItem(K.session, token);
+  els("sessionChip").textContent = token ? "Session: Active" : "Session: None";
+}
+
+function setUser(user) {
+  localStorage.setItem(K.user, JSON.stringify(user || {}));
+  els("whoami").textContent = user?.username ? user.username : "—";
+  els("roleChip").textContent = user?.isAssessor ? "Role: Assessor" : "Role: Member";
+  els("assessorTab").style.display = user?.isAssessor ? "block" : "none";
+}
+
+function clearAuth() {
+  localStorage.removeItem(K.session);
+  localStorage.removeItem(K.user);
+}
+
+async function apiFetch(url, opts = {}) {
+  const token = getSession();
+  const headers = Object.assign({}, opts.headers || {});
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return fetch(url, { ...opts, headers });
+}
+
+async function startLogin() {
+  const startUrl = `${RT_GATE}?start=1&redirect=${encodeURIComponent(REDIRECT_URI)}`;
+  const r = await fetch(startUrl);
+  const data = await r.json();
+  if (!data?.url) throw new Error(data?.error || "No login URL returned");
+  window.location.href = data.url;
+}
+
+async function handleCallback() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("code");
+  const error = params.get("error");
+  if (error) {
+    showStatus(`❌ Discord login error: <b>${esc(error)}</b>`, "bad");
+    return;
+  }
+  if (!code) return;
+
+  // request session token
+  const checkUrl = `${RT_GATE}?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(REDIRECT_URI)}&issue=1`;
+  const r = await fetch(checkUrl);
+  const data = await r.json();
+
+  // clean URL
+  history.replaceState({}, document.title, REDIRECT_URI);
+
+  if (!data?.accessGranted) {
+    showStatus(`⛔ <b>Access Denied</b><br/>Discord: ${esc(data?.username || "user")}`, "bad");
+    clearAuth();
+    showGate();
+    return;
+  }
+
+  if (!data?.sessionToken) {
+    showStatus(`⚠️ Logged in, but no sessionToken returned. (Backend issue=1?)`, "warn");
+    clearAuth();
+    showGate();
+    return;
+  }
+
+  setSession(data.sessionToken);
+  setUser({ username: data.username, userId: data.userId, isAssessor: !!data.isAssessor });
+  showStatus(`✅ <b>Access Granted</b><br/>Welcome ${esc(data.username)}.`, "ok");
+
+  showApp();
+  await refreshAll();
+}
+
+/** ===========================
+ * UI state
+ * =========================== */
+function showGate() {
+  els("app").classList.add("hidden");
+  els("gateCard").classList.remove("hidden");
+
+  els("loginBtn").classList.remove("hidden");
+  els("loginBtn2").classList.remove("hidden");
+  els("logoutBtn").classList.add("hidden");
+
+  els("backendHint").textContent = RT_GATE;
+}
+
+function showApp() {
+  els("gateCard").classList.add("hidden");
+  els("app").classList.remove("hidden");
+
+  els("loginBtn").classList.add("hidden");
+  els("loginBtn2").classList.add("hidden");
+  els("logoutBtn").classList.remove("hidden");
+}
+
+/** ===========================
+ * Data + Rendering
+ * =========================== */
+let currentEvent = null;
+let availabilityRows = [];
+let stintRows = [];
+
+function fmtIso(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+}
+
+function renderEvent() {
+  const ev = currentEvent || {};
+  const title = ev.title || "—";
+  const track = ev.track || "—";
+  const start = fmtIso(ev.startsAtIso);
+  const carName = ev.carName || "";
+  const sim = ev.simgridUrl || "#";
+  const carImg = ev.carImageUrl || "";
+
+  els("eventTitle").textContent = title;
+  els("eventMeta").textContent = `${carName ? carName + " • " : ""}${track} • ${start}`;
+  els("trackTxt").textContent = track;
+  els("startTxt").textContent = start;
+  els("pitTxt").textContent = ev.pitStrategy ? ev.pitStrategy : "—";
+
+  els("eventTitleMini").textContent = title;
+  els("eventMetaMini").textContent = `${track} • ${start}`;
+
+  els("simgridBtn").href = sim || "#";
+  els("simgridBtnMini").href = sim || "#";
+
+  els("carImgBtn").href = carImg || "#";
+  const carImgEl = els("carImg");
+  if (carImg) {
+    carImgEl.src = carImg;
+    carImgEl.classList.remove("hidden");
+  } else {
+    carImgEl.classList.add("hidden");
+  }
+
+  const w = ev.weather || {};
+  const weatherLine = [
+    w.conditions ? `<b>${esc(w.conditions)}</b>` : "—",
+    (w.ambientC || w.ambientC === 0) ? `Ambient: <b>${esc(w.ambientC)}</b>°C` : "",
+    (w.trackC || w.trackC === 0) ? `Track: <b>${esc(w.trackC)}</b>°C` : "",
+    w.notes ? `<span class="text-slate-300 muted">(${esc(w.notes)})</span>` : ""
+  ].filter(Boolean).join(" • ");
+  els("weatherTxt").innerHTML = weatherLine || "—";
+
+  renderSetups();
+}
+
+function renderSetups() {
+  const list = els("setupsList");
+  const noBox = els("noSetupsBox");
+  list.innerHTML = "";
+
+  const setups = Array.isArray(currentEvent?.setups) ? currentEvent.setups : [];
+  if (!setups.length) {
+    noBox.classList.remove("hidden");
+    return;
+  }
+  noBox.classList.add("hidden");
+
+  setups.forEach(s => {
+    const card = document.createElement("div");
+    card.className = "chip rounded-2xl p-4";
+    const url = s.url || "#";
+    card.innerHTML = `
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <div class="font-extrabold">${esc(s.label || "Setup")}</div>
+          <div class="text-slate-300 muted text-sm mt-1">${esc(s.notes || "")}</div>
+        </div>
+        <a href="${esc(url)}" target="_blank" class="px-3 py-2 rounded-xl btn2 text-sm whitespace-nowrap">Open</a>
+      </div>
+      <div class="mt-3 text-xs text-slate-300 muted mono break-all">${esc(url)}</div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function renderAvailTable() {
+  const tb = els("availTable");
+  tb.innerHTML = "";
+
+  const rows = [...availabilityRows].sort((a,b) => (a.username||"").localeCompare(b.username||""));
+  rows.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.className = "border-t border-white/5";
+    tr.innerHTML = `
+      <td class="py-3 font-bold">${esc(r.username || "—")}</td>
+      <td class="py-3">${r.practice ? "✅" : "—"}</td>
+      <td class="py-3">${r.event ? "✅" : "—"}</td>
+      <td class="py-3 text-slate-300 muted">${esc(r.notes || "")}</td>
+      <td class="py-3 text-slate-400 muted text-xs">${r.updatedAt?.toDate ? r.updatedAt.toDate().toLocaleString() : ""}</td>
+    `;
+    tb.appendChild(tr);
+  });
+
+  // mini overview
+  const mini = els("availMini");
+  mini.innerHTML = "";
+  rows.slice(0, 8).forEach(r => {
+    const line = document.createElement("div");
+    line.className = "chip rounded-xl px-3 py-2 flex items-center justify-between";
+    line.innerHTML = `
+      <div class="font-bold">${esc(r.username || "—")}</div>
+      <div class="text-xs text-slate-300 muted">${r.practice ? "Practice ✅" : "Practice —"} • ${r.event ? "Event ✅" : "Event —"}</div>
+    `;
+    mini.appendChild(line);
+  });
+  if (rows.length > 8) {
+    const more = document.createElement("div");
+    more.className = "text-xs text-slate-300 muted mt-2";
+    more.textContent = `+ ${rows.length - 8} more...`;
+    mini.appendChild(more);
+  }
+}
+
+function renderStints() {
+  const cards = els("stintCards");
+  cards.innerHTML = "";
+
+  const map = new Map();
+  stintRows.forEach(s => map.set(String(s.stintId), s));
+
+  // default show 12 stints like the typical endurance sheet vibe
+  const MAX = 12;
+  for (let i=1; i<=MAX; i++) {
+    const key = String(i);
+    const s = map.get(key);
+    const claimed = !!s?.userId;
+    const card = document.createElement("div");
+    card.className = `chip rounded-2xl p-4 ${claimed ? "" : "border-dashed"}`;
+    card.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <div class="font-extrabold text-lg">Stint ${i}</div>
+        <button class="px-3 py-2 rounded-xl btn2 text-sm claimBtn" data-stint="${i}">${claimed ? "Update" : "Claim"}</button>
+      </div>
+      <div class="mt-2 text-sm">
+        <div class="${claimed ? "text-slate-100" : "text-slate-300 muted"}">
+          ${claimed ? `<b>${esc(s.username)}</b>` : "Unclaimed"}
+        </div>
+        <div class="text-slate-300 muted text-xs mt-1">${esc(s?.notes || "")}</div>
+      </div>
+    `;
+    cards.appendChild(card);
+  }
+
+  // claim button wiring
+  document.querySelectorAll(".claimBtn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      setTab("stints");
+      els("stintIdInput").value = btn.dataset.stint;
+      els("stintNotesInput").focus();
+    });
+  });
+
+  // mini
+  const mini = els("stintsMini");
+  mini.innerHTML = "";
+  const claimedRows = [...stintRows].sort((a,b)=>Number(a.stintId)-Number(b.stintId)).slice(0, 8);
+  claimedRows.forEach(s => {
+    const line = document.createElement("div");
+    line.className = "chip rounded-xl px-3 py-2 flex items-center justify-between";
+    line.innerHTML = `
+      <div class="font-bold">#${esc(s.stintId)}</div>
+      <div class="text-xs text-slate-300 muted">${esc(s.username || "—")}</div>
+    `;
+    mini.appendChild(line);
+  });
+  if (!stintRows.length) {
+    const none = document.createElement("div");
+    none.className = "text-xs text-slate-300 muted";
+    none.textContent = "No stints claimed yet.";
+    mini.appendChild(none);
+  }
+}
+
+/** ===========================
+ * API calls
+ * =========================== */
+async function loadEvent() {
+  const r = await apiFetch(API.eventGet);
+  const data = await r.json();
+  if (!data?.ok) throw new Error(data?.error || "Event fetch failed");
+  currentEvent = data.event || null;
+  renderEvent();
+}
+
+async function loadAvailability() {
+  const r = await apiFetch(API.availList);
+  const data = await r.json();
+  if (!data?.ok) throw new Error(data?.error || "Availability fetch failed");
+  availabilityRows = Array.isArray(data.rows) ? data.rows : [];
+  renderAvailTable();
+}
+
+async function loadStints() {
+  const r = await apiFetch(API.stintList);
+  const data = await r.json();
+  if (!data?.ok) throw new Error(data?.error || "Stints fetch failed");
+  stintRows = Array.isArray(data.rows) ? data.rows : [];
+  renderStints();
+}
+
+async function refreshAll() {
+  hideStatus();
+  await Promise.allSettled([loadEvent(), loadAvailability(), loadStints()]);
+}
+
+/** ===========================
+ * Actions
+ * =========================== */
+els("loginBtn").addEventListener("click", () => startLogin().catch(e => showStatus(`❌ ${esc(e.message || e)}`,"bad")));
+els("loginBtn2").addEventListener("click", () => startLogin().catch(e => showStatus(`❌ ${esc(e.message || e)}`,"bad")));
+
+els("logoutBtn").addEventListener("click", () => {
+  clearAuth();
+  showStatus("Logged out.", "ok");
+  showGate();
+});
+
+els("refreshBtn").addEventListener("click", () => refreshAll().catch(e => showStatus(`❌ ${esc(e.message || e)}`,"bad")));
+
+els("myAvailBtn").addEventListener("click", () => setTab("availability"));
+els("myStintBtn").addEventListener("click", () => setTab("stints"));
+
+els("copyHubLinkBtn").addEventListener("click", async () => {
+  const url = window.location.href;
+  try { await navigator.clipboard.writeText(url); } catch {}
+  showStatus(`✅ Hub link copied.`, "ok");
+});
+
+els("copyEventBtn").addEventListener("click", async () => {
+  const ev = currentEvent || {};
+  const msg = [
+    `IFWL Event: ${ev.title || "—"}`,
+    `Track: ${ev.track || "—"}`,
+    `Start: ${ev.startsAtIso || "—"}`,
+    `SimGrid: ${ev.simgridUrl || "—"}`,
+    `Car: ${ev.carName || "—"}`
+  ].join("\n");
+  try { await navigator.clipboard.writeText(msg); } catch {}
+  showStatus(`✅ Event summary copied.`, "ok");
+});
+
+// Availability save
+els("saveAvailBtn").addEventListener("click", async () => {
+  try {
+    const body = {
+      practice: !!els("myPractice").checked,
+      event: !!els("myEvent").checked,
+      notes: String(els("myAvailNotes").value || ""),
+    };
+    const r = await apiFetch(API.availUpsert, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    if (!data?.ok) throw new Error(data?.error || "Save failed");
+    showStatus(`✅ Availability saved.`, "ok");
+    await loadAvailability();
+    setTab("availability");
+  } catch (e) {
+    showStatus(`❌ ${esc(e.message || e)}`, "bad");
+  }
+});
+
+els("refreshAvailBtn").addEventListener("click", () => loadAvailability().catch(e => showStatus(`❌ ${esc(e.message||e)}`,"bad")));
+
+// Stint claim
+els("claimStintBtn").addEventListener("click", async () => {
+  try {
+    const stintId = String(els("stintIdInput").value || "").trim();
+    const notes = String(els("stintNotesInput").value || "");
+    const r = await apiFetch(API.stintUpsert, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stintId, notes })
+    });
+    const data = await r.json();
+    if (!data?.ok) throw new Error(data?.error || "Stint update failed");
+    showStatus(`✅ Stint ${esc(stintId)} saved.`, "ok");
+    await loadStints();
+    setTab("stints");
+  } catch (e) {
+    showStatus(`❌ ${esc(e.message || e)}`, "bad");
+  }
+});
+
+els("refreshStintsBtn").addEventListener("click", () => loadStints().catch(e => showStatus(`❌ ${esc(e.message||e)}`,"bad")));
+
+// Setups refresh
+els("refreshSetupsBtn").addEventListener("click", () => loadEvent().catch(e => showStatus(`❌ ${esc(e.message||e)}`,"bad")));
+
+// Lap times local save
+function loadLapLocal() {
+  try { return JSON.parse(localStorage.getItem(K.lapLocal) || "{}"); } catch { return {}; }
+}
+function saveLapLocal(obj) {
+  localStorage.setItem(K.lapLocal, JSON.stringify(obj || {}));
+}
+
+els("saveLapBtn").addEventListener("click", () => {
+  const best = String(els("myBestLap").value || "");
+  const notes = String(els("myLapNotes").value || "");
+  const obj = loadLapLocal();
+  obj.bestLap = best;
+  obj.notes = notes;
+  obj.updatedAt = new Date().toISOString();
+  saveLapLocal(obj);
+  showStatus("✅ Lap time notes saved locally.", "ok");
+});
+
+// Fuel calculator
+els("calcFuelBtn").addEventListener("click", () => {
+  const fpl = parseFloat(els("fuelPerLap").value || "0");
+  const laps = parseInt(els("lapsCount").value || "0", 10);
+  const extra = parseInt(els("extraLaps").value || "0", 10);
+  const margin = parseFloat(els("marginPct").value || "0");
+
+  if (!fpl || !laps) {
+    els("fuelResult").innerHTML = "Enter at least fuel per lap and laps.";
+    return;
+  }
+
+  const base = fpl * (laps + (isNaN(extra) ? 0 : extra));
+  const withMargin = base * (1 + ((isNaN(margin) ? 0 : margin) / 100));
+  const rounded = Math.ceil(withMargin * 10) / 10;
+
+  els("fuelResult").innerHTML = `
+    <div class="text-lg font-extrabold">Recommended Fuel</div>
+    <div class="mt-2">
+      Base: <b>${base.toFixed(2)} L</b><br/>
+      With margin (${(isNaN(margin)?0:margin).toFixed(1)}%): <b>${withMargin.toFixed(2)} L</b><br/>
+      Rounded up: <b class="text-emerald-200">${rounded.toFixed(1)} L</b>
+    </div>
+    <div class="text-slate-300 muted text-xs mt-3">
+      (This is a planning tool — always validate in-game.)
+    </div>
+  `;
+});
+
+// Assessor form
+function addSetupRow(val={label:"",url:"",notes:""}) {
+  const wrap = document.createElement("div");
+  wrap.className = "chip rounded-xl p-3";
+  wrap.innerHTML = `
+    <div class="grid md:grid-cols-3 gap-2">
+      <input class="bg-transparent outline-none text-sm md:col-span-1 setupLabel" placeholder="Label (e.g. Safe)" value="${esc(val.label||"")}" />
+      <input class="bg-transparent outline-none text-sm md:col-span-2 setupUrl" placeholder="URL" value="${esc(val.url||"")}" />
+      <input class="bg-transparent outline-none text-sm md:col-span-3 setupNotes" placeholder="Notes (optional)" value="${esc(val.notes||"")}" />
+    </div>
+    <div class="mt-2 flex justify-end">
+      <button class="px-3 py-2 rounded-xl btn2 text-xs removeSetupBtn">Remove</button>
+    </div>
+  `;
+  wrap.querySelector(".removeSetupBtn").addEventListener("click", () => wrap.remove());
+  els("setupFormList").appendChild(wrap);
+}
+
+els("addSetupBtn").addEventListener("click", () => addSetupRow());
+
+els("loadEventToFormBtn").addEventListener("click", () => {
+  const ev = currentEvent || {};
+  els("evTitle").value = ev.title || "";
+  els("evTrack").value = ev.track || "";
+  els("evSimgrid").value = ev.simgridUrl || "";
+  els("evCarName").value = ev.carName || "";
+  els("evCarImg").value = ev.carImageUrl || "";
+  els("evStartIso").value = ev.startsAtIso || "";
+  els("evPit").value = ev.pitStrategy || "";
+
+  const w = ev.weather || {};
+  els("wCond").value = w.conditions || "";
+  els("wAmb").value = (w.ambientC ?? "") === null ? "" : (w.ambientC ?? "");
+  els("wTrack").value = (w.trackC ?? "") === null ? "" : (w.trackC ?? "");
+  els("wNotes").value = w.notes || "";
+
+  els("setupFormList").innerHTML = "";
+  (Array.isArray(ev.setups) ? ev.setups : []).forEach(s => addSetupRow(s));
+  if (!(Array.isArray(ev.setups) && ev.setups.length)) addSetupRow();
+
+  showStatus("✅ Loaded current event into the form.", "ok");
+});
+
+els("saveEventBtn").addEventListener("click", async () => {
+  try {
+    const setups = [];
+    document.querySelectorAll("#setupFormList > div").forEach(row => {
+      const label = row.querySelector(".setupLabel")?.value || "";
+      const url = row.querySelector(".setupUrl")?.value || "";
+      const notes = row.querySelector(".setupNotes")?.value || "";
+      if (label.trim() || url.trim() || notes.trim()) setups.push({ label, url, notes });
+    });
+
+    const body = {
+      title: els("evTitle").value,
+      track: els("evTrack").value,
+      simgridUrl: els("evSimgrid").value,
+      carName: els("evCarName").value,
+      carImageUrl: els("evCarImg").value,
+      startsAtIso: els("evStartIso").value,
+      pitStrategy: els("evPit").value,
+      weather: {
+        conditions: els("wCond").value,
+        ambientC: els("wAmb").value,
+        trackC: els("wTrack").value,
+        notes: els("wNotes").value
+      },
+      setups
+    };
+
+    const r = await apiFetch(API.eventSet, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    if (!data?.ok) throw new Error(data?.error || "Save failed (assessor only?)");
+
+    showStatus("✅ Event saved.", "ok");
+    await loadEvent();
+    setTab("overview");
+  } catch (e) {
+    showStatus(`❌ ${esc(e.message || e)}`, "bad");
+  }
+});
+
+els("assessorRefreshBtn").addEventListener("click", () => refreshAll().catch(e => showStatus(`❌ ${esc(e.message||e)}`,"bad")));
+
+// Clear stints (assessor)
+els("clearStintsBtn").addEventListener("click", async () => {
+  try {
+    const ok = confirm("Clear ALL stints? (This does not delete availability)");
+    if (!ok) return;
+    const r = await apiFetch(API.stintClear, { method: "POST" });
+    const data = await r.json();
+    if (!data?.ok) throw new Error(data?.error || "Clear failed");
+    showStatus("✅ Stints cleared.", "ok");
+    await loadStints();
+    setTab("stints");
+  } catch (e) {
+    showStatus(`❌ ${esc(e.message || e)}`, "bad");
+  }
+});
+
+// initial
+(async function init() {
+  els("backendHint").textContent = RT_GATE;
+
+  // load local lap
+  const lap = loadLapLocal();
+  els("myBestLap").value = lap.bestLap || "";
+  els("myLapNotes").value = lap.notes || "";
+
+  // if already logged in
+  const token = getSession();
+  if (token) {
+    els("sessionChip").textContent = "Session: Active";
+    try {
+      const u = JSON.parse(localStorage.getItem(K.user) || "{}");
+      setUser(u);
+      showApp();
+      await refreshAll();
+    } catch {
+      clearAuth();
+      showGate();
+    }
+  } else {
+    els("sessionChip").textContent = "Session: None";
+    showGate();
+  }
+
+  await handleCallback();
+})();
+</script>
+</body>
+</html>
