@@ -18,7 +18,7 @@
 </head>
 <body>
   <div class="card">
-    <h1>IFWL Race Team Gate (Test v3)</h1>
+    <h1>IFWL Race Team Gate (Test v4)</h1>
     <p class="muted">
       Login with Discord. If you have <b>IFWL Race team Assessor</b> or <b>IFWL RACE TEAM ACC</b>, you’ll get access.
     </p>
@@ -35,75 +35,100 @@
   </div>
 
   <script>
-  const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
-  const REDIRECT_URI = window.location.origin + window.location.pathname;
+    const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
+    const REDIRECT_URI = window.location.origin + window.location.pathname;
 
-  document.getElementById("endpointHint").textContent = FUNCTION;
+    document.getElementById("endpointHint").textContent = FUNCTION;
 
-  const loginBtn = document.getElementById("loginBtn");
-  const logoutBtn = document.getElementById("logoutBtn");
-  const resultBox = document.getElementById("result");
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const resultBox = document.getElementById("result");
 
-  function show(status, ok) {
-    resultBox.style.display = "block";
-    resultBox.className = "status " + (ok ? "ok" : "bad");
-    resultBox.innerHTML = status;
-  }
-
-  function setLoggedInUI(isLoggedIn) {
-    loginBtn.style.display = isLoggedIn ? "none" : "inline-block";
-    logoutBtn.style.display = isLoggedIn ? "inline-block" : "none";
-  }
-
-  function escapeHtml(s) {
-    return String(s || "").replace(/[&<>"']/g, c =>
-      ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])
-    );
-  }
-
-  async function startLogin() {
-    const startUrl = FUNCTION + `?start=1&redirect=${encodeURIComponent(REDIRECT_URI)}`;
-    const r = await fetch(startUrl);
-    const data = await r.json();
-    if (!data.url) throw new Error(data.error || "No login url returned");
-    window.location.href = data.url;
-  }
-
-  async function handleCallback() {
-    const params = new URLSearchParams(location.search);
-    const code = params.get("code");
-    const error = params.get("error");
-
-    if (error) {
-      show(`❌ Discord login error: <b>${escapeHtml(error)}</b>`, false);
-      return;
+    function show(status, ok) {
+      resultBox.style.display = "block";
+      resultBox.className = "status " + (ok ? "ok" : "bad");
+      resultBox.innerHTML = status;
     }
-    if (!code) return;
 
-    show("Checking your roles…", true);
+    function setLoggedInUI(isLoggedIn) {
+      loginBtn.style.display = isLoggedIn ? "none" : "inline-block";
+      logoutBtn.style.display = isLoggedIn ? "inline-block" : "none";
+    }
 
-    const checkUrl = FUNCTION + `?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(REDIRECT_URI)}&issue=1`;
-    const r = await fetch(checkUrl);
-    const data = await r.json();
+    function escapeHtml(s) {
+      return String(s || "").replace(/[&<>"']/g, c =>
+        ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])
+      );
+    }
 
-    // clean URL
-    history.replaceState({}, document.title, REDIRECT_URI);
+    async function startLogin() {
+      const startUrl = FUNCTION + `?start=1&redirect=${encodeURIComponent(REDIRECT_URI)}`;
+      const r = await fetch(startUrl);
+      const data = await r.json();
+      if (!data.url) throw new Error(data.error || "No login url returned");
+      window.location.href = data.url;
+    }
 
-    setLoggedInUI(true);
+    async function handleCallback() {
+      const params = new URLSearchParams(location.search);
+      const code = params.get("code");
+      const error = params.get("error");
 
-    
+      if (error) {
+        show(`❌ Discord login error: <b>${escapeHtml(error)}</b>`, false);
+        return;
+      }
+      if (!code) return;
 
-  loginBtn.addEventListener("click", () => {
-    startLogin().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
-  });
+      show("Checking your roles…", true);
 
-  // For now, “logout” is just UI reset (we’re not storing a session)
-  logoutBtn.addEventListener("click", () => {
-    setLoggedInUI(false);
-    show("Logged out.", true);
-  });
+      const checkUrl =
+        FUNCTION +
+        `?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(REDIRECT_URI)}&issue=1`;
 
-  handleCallback().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
-</script>
+      const r = await fetch(checkUrl);
+      const data = await r.json();
+
+      // clean URL
+      history.replaceState({}, document.title, REDIRECT_URI);
+
+      setLoggedInUI(true);
+
+      if (data.accessGranted) {
+        // store session for the hub (if backend sent one)
+        if (data.sessionToken) {
+          localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
+          localStorage.setItem("IFWL_RT_USER", JSON.stringify({
+            username: data.username,
+            userId: data.userId,
+            isAssessor: !!data.isAssessor
+          }));
+        }
+
+        // go to the hub
+        window.location.href = "RT-HUB.html";
+        return;
+      } else {
+        show(`⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username || "user")}`, false);
+        return;
+      }
+    }
+
+    // Button wiring MUST be outside handleCallback()
+    loginBtn.addEventListener("click", () => {
+      startLogin().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
+    });
+
+    // For now, “logout” is just UI reset (we’re not storing a session here)
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("IFWL_RT_SESSION");
+      localStorage.removeItem("IFWL_RT_USER");
+      setLoggedInUI(false);
+      show("Logged out.", true);
+    });
+
+    // run callback handler on load
+    handleCallback().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
+  </script>
 </body>
 </html>
