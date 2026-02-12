@@ -311,7 +311,8 @@
     <pre id="dppExample"></pre>
   </div>
 
-  <div class="row" style="justify-content:flex-end; margin-top:10px;">
+   <div class="row" style="justify-content:flex-end; margin-top:10px;">
+    <button id="recuseBtn">Recuse yourself from ticket</button>
     <button class="primary" id="postPenaltyOpinionBtn">Submit Penalty Opinion to Chat</button>
   </div>
 
@@ -955,6 +956,8 @@ async function loadPenaltyCodes() {
     if (postDiscussionBtn) postDiscussionBtn.onclick = () => postDiscussion();
 const postPenaltyOpinionBtn = $("postPenaltyOpinionBtn");
 if (postPenaltyOpinionBtn) postPenaltyOpinionBtn.onclick = () => postPenaltyOpinion();
+    const recuseBtn = $("recuseBtn");
+if (recuseBtn) recuseBtn.onclick = () => recuseYourself();
 
     // ---------- gating ----------
     auth.onAuthStateChanged(async (user) => {
@@ -1309,6 +1312,60 @@ await loadMyAccountability();
         postDiscussionBtn.disabled = false;
       }
     }
+
+async function postDiscussion() {
+  ...
+}   // <-- postDiscussion ends here
+
+// PASTE recuseYourself() RIGHT HERE
+async function recuseYourself() {
+  if (!selectedTicketId) { toast("Select a ticket first"); return; }
+
+  const ok = confirm(
+    "Recuse yourself from this ticket?\n\nThis will post a steward comment stating you are involved and have recused yourself from deliberation."
+  );
+  if (!ok) return;
+
+  const authorKey = safeKey(currentEmail);
+  const stewardName = maskEmail(currentEmail) || "This steward";
+
+  const msg =
+`🚫 STEWARD RECUSED
+Steward: ${stewardName}
+
+This steward has declared they are involved in this incident and has recused themselves from any and all deliberation regarding this ticket.`;
+
+  const input = $("discussionInput");
+  if (input) input.value = msg;
+
+  const btn = $("recuseBtn");
+  const original = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Posting…"; }
+
+  try {
+    const col = db.collection("tickets").doc(selectedTicketId).collection("steward_comments");
+    await col.add({
+      text: msg,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      authorKey,
+      kind: "recusal"
+    });
+
+    if (input) input.value = "";
+    toast("Recusal posted ✅");
+    await loadDiscussion();
+  } catch (e) {
+    toast("Post failed: " + (e?.message || e));
+  } finally {
+    if (btn) { btn.textContent = original || "Recuse yourself from ticket"; btn.disabled = false; }
+  }
+}
+
+// then your next function already in your file continues below:
+async function postPenaltyOpinion() {
+  ...
+}
+
     
 async function postPenaltyOpinion() {
   if (!selectedTicketId) { toast("Select a ticket first"); return; }
