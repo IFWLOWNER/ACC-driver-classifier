@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IFWL Split Manager (Admin)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="min-h-screen bg-slate-100 text-slate-900">
+  <div class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight">IFWL Split Manager (ADMIN)</h1>
+        <p class="text-slate-600 text-sm mt-1">Upload SimGrid entrylist → generate splits → add event info → publish to Sheet + Public page</p>
+      </div>
+      <div class="text-xs text-slate-500">Version: <span class="font-mono">admin-1.0.0</span></div>
+    </header>
+
+    <!-- Admin event info -->
+    <section class="bg-white border border-slate-200 rounded-2xl p-4 md:p-6 shadow-sm space-y-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="space-y-2">
+          <label class="text-sm font-semibold text-slate-700">Event Name (SimGrid Event Name)</label>
+          <input id="eventName" type="text" placeholder="e.g. IFWL Beginners Round 3 - Monza"
+                 class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm"/>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-semibold text-slate-700">SimGrid Event Link</label>
+          <input id="simgridUrl" type="url" placeholder="https://www.thesimgrid.com/..."
+                 class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm"/>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-semibold text-slate-700">Admin Publish Token</label>
+          <input id="adminToken" type="password" placeholder="Token set in Apps Script properties"
+                 class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm"/>
+          <p class="text-xs text-slate-500">This is validated by Apps Script. Don’t hardcode it into GitHub.</p>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-sm font-semibold text-slate-700">Custom Notes (public text)</label>
+        <textarea id="notes" rows="4" placeholder="Write whatever you want shown publicly (schedule, server name, rules, etc.)"
+                  class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm"></textarea>
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <section class="bg-white border border-slate-200 rounded-2xl p-4 md:p-6 shadow-sm space-y-4">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div class="space-y-2">
+          <label class="text-sm font-semibold text-slate-700">Upload SimGrid JSON</label>
+          <input id="fileInput" type="file" accept=".json,application/json"
+                 class="block w-full text-sm bg-white border border-slate-300 rounded-xl p-2
+                        file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0
+                        file:bg-slate-200 file:text-slate-900 hover:file:bg-slate-300"/>
+          <div class="flex gap-2 flex-wrap">
+            <button id="btnClear" class="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-sm font-semibold">Clear</button>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-semibold text-slate-700">Split size</label>
+          <input id="splitSize" type="number" min="2" max="100" value="30"
+                 class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm"/>
+          <p class="text-xs text-slate-500">ACC grids often 25–35.</p>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-semibold text-slate-700">Seed / sort by</label>
+          <select id="seedField" class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm">
+            <option value="auto">Auto-detect</option>
+            <option value="name">Name (A→Z)</option>
+            <option value="raceNumber">Race number</option>
+            <option value="playerID">Player ID</option>
+          </select>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-semibold text-slate-700">Split method</label>
+          <select id="splitMethod" class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm">
+            <option value="topdown">Top-down</option>
+            <option value="snake">Snake</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="btnParse" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold">Parse JSON</button>
+        <button id="btnMakeSplits" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">Generate Splits</button>
+        <button id="btnCopyDiscord" class="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-sm font-bold">Copy Discord text</button>
+        <button id="btnPublish" class="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-sm font-bold">Publish (Sheet + Public)</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+          <div class="text-xs font-semibold text-slate-600 mb-2">Status</div>
+          <pre id="status" class="text-xs text-slate-800 whitespace-pre-wrap"></pre>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+          <div class="text-xs font-semibold text-slate-600 mb-2">Detected Structure</div>
+          <pre id="structure" class="text-xs text-slate-800 whitespace-pre-wrap"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Drivers -->
+    <section class="bg-white border border-slate-200 rounded-2xl p-4 md:p-6 shadow-sm">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-extrabold">Drivers</h2>
+        <div class="text-sm text-slate-600">Count: <span id="driverCount" class="font-bold">0</span></div>
+      </div>
+
+      <div class="overflow-x-auto mt-4">
+        <table class="w-full text-sm">
+          <thead class="text-slate-600">
+            <tr class="border-b border-slate-200">
+              <th class="text-left py-2 pr-3">#</th>
+              <th class="text-left py-2 pr-3">Name</th>
+              <th class="text-left py-2 pr-3">Race #</th>
+              <th class="text-left py-2 pr-3">Car</th>
+              <th class="text-left py-2 pr-3">Player ID</th>
+              <th class="text-left py-2 pr-3">Notes</th>
+            </tr>
+          </thead>
+          <tbody id="driversTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Splits -->
+    <section class="bg-white border border-slate-200 rounded-2xl p-4 md:p-6 shadow-sm">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-extrabold">Splits</h2>
+        <div class="text-sm text-slate-600">Splits: <span id="splitCount" class="font-bold">0</span></div>
+      </div>
+      <div id="splitsWrap" class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+    </section>
+
+    <footer class="text-xs text-slate-500 pb-6">
+      Public page reads the latest publish from Apps Script (so GitHub stays static).
+    </footer>
+
+  </div>
+
+<script>
+  // ==== CONFIG: put your Apps Script Web App /exec URL here ====
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1EZhYUpQ0_eS-E8sbj3i7bsVLyLAKmn8UX_ydQBXY1N5GlFYwgEjiQIXGyrJriUY86g/exec";
+
+
+  // ==== State ====
+  let rawJson = null;
+  let drivers = [];
+  let splits = [];
+  let seedUsed = "";
+
+  const el = (id) => document.getElementById(id);
+  const setStatus = (m) => el("status").textContent = m;
+  const setStructure = (m) => el("structure").textContent = m;
+
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  // ACC car IDs (your confirmed SimGrid entrylist mapping)
+  const CAR_MODELS = {
+    25: "Mercedes-AMG GT3 2020",
+    26: "BMW M4 GT3",
+    31: "Audi R8 LMS Evo II",
+    32: "Ferrari 296 GT3",
+    34: "Porsche 992 GT3 R",
+    35: "McLaren 720S GT3 Evo",
+    36: "Ford Mustang GT3",
+    21: "Honda NSX GT3 Evo",
+    8: "Bentley Continental GT3 (2018)",
+    16: "Lexus RC F GT3"
+  };
+
+  function findEntriesArray(obj) {
+    if (!obj) return null;
+    if (Array.isArray(obj)) return obj;
+    if (Array.isArray(obj.entries)) return obj.entries;
+    for (const [k, v] of Object.entries(obj)) {
+      if (Array.isArray(v) && v.length && typeof v[0] === "object") return v;
+    }
+    return null;
+  }
+
+  function normalizeDriver(entry) {
+    const d0 = Array.isArray(entry.drivers) ? entry.drivers[0] : null;
+    const first = d0?.firstName ? String(d0.firstName).trim() : "";
+    const last  = d0?.lastName ? String(d0.lastName).trim() : "";
+    const playerID = d0?.playerID || entry.playerID || "";
+
+    const nameFromParts = [first, last].filter(Boolean).join(" ").trim();
+    const name = nameFromParts || (playerID ? `Unknown (${playerID})` : "Unknown");
+
+    const raceNumber = (entry.raceNumber !== undefined && entry.raceNumber !== null) ? String(entry.raceNumber) : "";
+    const carModelId = (entry.forcedCarModel !== undefined && entry.forcedCarModel !== null) ? Number(entry.forcedCarModel) : null;
+    const carName = (carModelId !== null && CAR_MODELS[carModelId]) ? CAR_MODELS[carModelId] : (carModelId !== null ? `CarModel ${carModelId}` : "");
+
+    const notes = [];
+    if (entry.restrictor !== undefined) notes.push("restrictor: " + entry.restrictor);
+    if (entry.ballast !== undefined) notes.push("ballast: " + entry.ballast);
+    if (d0?.shortName) notes.push("tag: " + d0.shortName);
+    if (entry.isServerAdmin) notes.push("server admin");
+
+    return {
+      raw: entry,
+      name,
+      raceNumber,
+      carModelId,
+      carName,
+      playerID: String(playerID || ""),
+      isServerAdmin: !!entry.isServerAdmin,
+      notes: notes.join(" • ")
+    };
+  }
+
+  function sortDrivers(list, seedChoice) {
+    if (seedChoice === "name") {
+      return { sorted: [...list].sort((a,b) => a.name.localeCompare(b.name)), used: "name" };
+    }
+    if (seedChoice === "playerID") {
+      return { sorted: [...list].sort((a,b) => a.playerID.localeCompare(b.playerID)), used: "playerID" };
+    }
+    if (seedChoice === "raceNumber") {
+      return { sorted: [...list].sort((a,b) => Number(a.raceNumber||999999) - Number(b.raceNumber||999999)), used: "raceNumber" };
+    }
+    // auto: default to raceNumber if no rating exists
+    return { sorted: [...list].sort((a,b) => Number(a.raceNumber||999999) - Number(b.raceNumber||999999)), used: "auto:raceNumber" };
+  }
+
+  function makeSplitsTopDown(sorted, size) {
+    const out = [];
+    for (let i = 0; i < sorted.length; i += size) out.push(sorted.slice(i, i + size));
+    return out;
+  }
+
+  function makeSplitsSnake(sorted, size) {
+    const splitCount = Math.ceil(sorted.length / size);
+    const buckets = Array.from({ length: splitCount }, () => []);
+    let dir = 1, idx = 0;
+    for (const d of sorted) {
+      buckets[idx].push(d);
+      if (dir === 1) { if (idx === splitCount - 1) dir = -1; else idx++; }
+      else { if (idx === 0) dir = 1; else idx--; }
+    }
+    return buckets.filter(b => b.length);
+  }
+
+  function renderDrivers(list) {
+    el("driverCount").textContent = list.length;
+    const tbody = el("driversTbody");
+    tbody.innerHTML = "";
+    list.forEach((d,i) => {
+      const tr = document.createElement("tr");
+      tr.className = "border-b border-slate-200/70";
+      tr.innerHTML = `
+        <td class="py-2 pr-3 text-slate-500">${i+1}</td>
+        <td class="py-2 pr-3 font-semibold">${escapeHtml(d.name)}</td>
+        <td class="py-2 pr-3">${escapeHtml(d.raceNumber)}</td>
+        <td class="py-2 pr-3">${escapeHtml(d.carName)}</td>
+        <td class="py-2 pr-3 font-mono text-xs text-slate-700">${escapeHtml(d.playerID)}</td>
+        <td class="py-2 pr-3 text-slate-600">${escapeHtml(d.notes)}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderSplits(splitsArr) {
+    el("splitCount").textContent = splitsArr.length;
+    const wrap = el("splitsWrap");
+    wrap.innerHTML = "";
+    splitsArr.forEach((bucket, idx) => {
+      const card = document.createElement("div");
+      card.className = "bg-slate-50 border border-slate-200 rounded-2xl p-4";
+      const rows = bucket.map((d,i) => `
+        <div class="flex justify-between gap-3 py-1 border-b border-slate-200/70 last:border-0">
+          <div class="text-slate-500 w-8">${i+1}.</div>
+          <div class="flex-1">
+            <div class="font-semibold">${escapeHtml(d.name)}</div>
+            <div class="text-xs text-slate-600">${escapeHtml(d.carName)}</div>
+          </div>
+          <div class="text-slate-600 text-xs font-mono text-right">${escapeHtml(d.raceNumber ? "#" + d.raceNumber : "")}</div>
+        </div>
+      `).join("");
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <div class="font-extrabold text-lg">Split ${idx+1}</div>
+          <div class="text-xs text-slate-600">Drivers: ${bucket.length}</div>
+        </div>
+        <div class="text-sm">${rows}</div>`;
+      wrap.appendChild(card);
+    });
+  }
+
+  function formatDiscord(splitsArr) {
+    const lines = [];
+    const eventName = el("eventName").value.trim();
+    const simgridUrl = el("simgridUrl").value.trim();
+    if (eventName) lines.push(`**${eventName}**`);
+    if (simgridUrl) lines.push(simgridUrl);
+    lines.push("");
+    lines.push("**IFWL SPLITS**");
+
+    splitsArr.forEach((bucket, idx) => {
+      lines.push(`\n__Split ${idx+1}__`);
+      bucket.forEach((d,i) => {
+        const rn = d.raceNumber ? ` (#${d.raceNumber})` : "";
+        const car = d.carName ? ` — ${d.carName}` : "";
+        lines.push(`${String(i+1).padStart(2," ")}. ${d.name}${rn}${car}`);
+      });
+    });
+    return lines.join("\n");
+  }
+
+  async function publishToSheetAndPublic() {
+    if (!splits.length) { setStatus("❌ Generate splits first."); return; }
+    if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("PASTE_YOUR")) { setStatus("❌ Set APPS_SCRIPT_URL in the admin HTML."); return; }
+
+    const eventName = el("eventName").value.trim();
+    const simgridUrl = el("simgridUrl").value.trim();
+    const notes = el("notes").value.trim();
+    const adminToken = el("adminToken").value.trim();
+
+    if (!eventName) { setStatus("❌ Please enter Event Name."); return; }
+    if (!adminToken) { setStatus("❌ Please enter Admin Publish Token."); return; }
+
+    const payload = {
+      eventName,
+      simgridUrl,
+      notes,
+      splitSize: Number(el("splitSize").value || 30),
+      splitMethod: el("splitMethod").value,
+      seedUsed,
+      drivers: drivers.map(d => ({
+        name: d.name,
+        raceNumber: d.raceNumber,
+        carModelId: d.carModelId,
+        carName: d.carName,
+        playerID: d.playerID
+      })),
+      splits: splits.map((bucket, idx) => ({
+        split: idx + 1,
+        drivers: bucket.map(d => ({
+          name: d.name,
+          raceNumber: d.raceNumber,
+          carModelId: d.carModelId,
+          carName: d.carName,
+          playerID: d.playerID
+        }))
+      }))
+    };
+
+    setStatus("Publishing to Google Sheet + Public endpoint...");
+
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "IFWL_SPLITS_PUBLISH", adminToken, payload })
+    });
+
+    const text = await res.text();
+    setStatus("Publish response:\n" + text.slice(0, 1500));
+  }
+
+  // Actions
+  async function handleFileUpload(file) {
+    const text = await file.text();
+    try {
+      rawJson = JSON.parse(text);
+      setStatus("Loaded JSON: " + file.name + "\nClick: Parse JSON");
+    } catch (e) {
+      rawJson = null;
+      setStatus("❌ JSON parse failed: " + e.message);
+    }
+  }
+
+  function parseJsonToDrivers() {
+    if (!rawJson) { setStatus("❌ Upload a JSON file first."); return; }
+    const arr = findEntriesArray(rawJson);
+    if (!arr || !arr.length) { setStatus("❌ No entries array found."); return; }
+
+    const normalized = arr.map(normalizeDriver);
+    // Remove ghost/admin/unknown
+    drivers = normalized
+      .filter(d => !d.isServerAdmin)
+      .filter(d => !d.name.startsWith("Unknown"));
+
+    const first = arr[0] || {};
+    setStructure(
+      "Entries: " + arr.length + "\n" +
+      "After filtering: " + drivers.length + "\n\n" +
+      "Keys (first entry):\n" + Object.keys(first).slice(0, 120).join(", ")
+    );
+
+    const sortedInfo = sortDrivers(drivers, el("seedField").value);
+    drivers = sortedInfo.sorted;
+    seedUsed = sortedInfo.used;
+
+    renderDrivers(drivers);
+    setStatus("✅ Parsed " + drivers.length + " drivers\nSeed used: " + seedUsed);
+  }
+
+  function generateSplits() {
+    if (!drivers.length) { setStatus("❌ Parse JSON first."); return; }
+    const size = Math.max(2, Math.min(100, Number(el("splitSize").value || 30)));
+    const method = el("splitMethod").value;
+
+    // Ensure current sort
+    const sortedInfo = sortDrivers(drivers, el("seedField").value);
+    drivers = sortedInfo.sorted;
+    seedUsed = sortedInfo.used;
+
+    splits = (method === "snake") ? makeSplitsSnake(drivers, size) : makeSplitsTopDown(drivers, size);
+
+    renderDrivers(drivers);
+    renderSplits(splits);
+    setStatus("✅ Splits generated: " + splits.length + "\nSplit size: " + size + "\nMethod: " + method + "\nSeed: " + seedUsed);
+  }
+
+  async function copyDiscord() {
+    if (!splits.length) { setStatus("❌ Generate splits first."); return; }
+    const text = formatDiscord(splits);
+    await navigator.clipboard.writeText(text);
+    setStatus("✅ Copied Discord text to clipboard.");
+  }
+
+  function clearAll() {
+    rawJson = null; drivers = []; splits = []; seedUsed = "";
+    el("driversTbody").innerHTML = "";
+    el("splitsWrap").innerHTML = "";
+    el("driverCount").textContent = "0";
+    el("splitCount").textContent = "0";
+    el("fileInput").value = "";
+    setStructure("");
+    setStatus("Cleared.");
+  }
+
+  // Wire up
+  el("fileInput").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    await handleFileUpload(file);
+  });
+  el("btnParse").addEventListener("click", parseJsonToDrivers);
+  el("btnMakeSplits").addEventListener("click", generateSplits);
+  el("btnCopyDiscord").addEventListener("click", copyDiscord);
+  el("btnPublish").addEventListener("click", publishToSheetAndPublic);
+  el("btnClear").addEventListener("click", clearAll);
+
+  setStatus("Ready.\nUpload a JSON file.");
+</script>
+</body>
+</html>
