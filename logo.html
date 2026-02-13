@@ -127,7 +127,9 @@
       box-shadow:0 8px 18px rgba(0,0,0,0.08);
     }
     .chartTitle{font-weight:900; font-size:13px;}
-    canvas{width:100% !important; height:280px !important;}
+
+    /* HQ canvas: keep CSS size, but Chart.js will render internally at higher DPR */
+    canvas{width:100% !important; height:300px !important;}
 
     .tableWrap{
       overflow:auto;
@@ -190,7 +192,7 @@
     }
     .toast.show{opacity:1; transform: translateY(0);}
 
-    /* ───────── NEW: Steward Input audit (Owner) ───────── */
+    /* ───────── Steward Input audit (Owner) ───────── */
     .auditBox{
       border:1px solid #e5e7eb;
       border-radius:14px;
@@ -248,7 +250,6 @@
     }
     .auditTable tr:last-child td{border-bottom:0;}
 
-    /* row highlight for "done none of that" */
     .auditTable tr.inactive td{
       background:#fef2f2;
       color:#991b1b;
@@ -271,7 +272,7 @@
       header button{width:100%;}
       .kpiGrid{grid-template-columns: repeat(2, minmax(0, 1fr));}
       .gridCharts{grid-template-columns:1fr;}
-      canvas{height:260px !important;}
+      canvas{height:280px !important;}
       table{min-width:860px;}
       table.auditTable{min-width:860px;}
     }
@@ -316,25 +317,23 @@
         </div>
       </div>
 
-      <!-- NEW: Steward Input (Last 7 Days) + roster inactive highlights -->
       <div class="auditBox" aria-label="Steward input audit">
-  <div class="auditTop">
-    <div>
-      <div class="auditTitle">Steward Activity (Last 7 Days) — Accountability Overview</div>
-      <div class="muted" style="margin-top:4px;">
-        Note: Dave is exempt unless explicitly requested to review deadlock cases.
-      </div>
-    </div>
+        <div class="auditTop">
+          <div>
+            <div class="auditTitle">Steward Activity (Last 7 Days) — Accountability Overview</div>
+            <div class="muted" style="margin-top:4px;">
+              Note: Dave is exempt unless explicitly requested to review deadlock cases.
+            </div>
+          </div>
 
-    <div class="row">
-      <label class="muted" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="showOnlyInactive">
-        Show only inactive
-      </label>
-      <button id="refreshAuditBtn">Refresh</button>
-    </div>
-  </div>
-
+          <div class="row">
+            <label class="muted" style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="showOnlyInactive">
+              Show only inactive
+            </label>
+            <button id="refreshAuditBtn">Refresh</button>
+          </div>
+        </div>
 
         <div class="auditMeta" id="auditMeta">Loading…</div>
 
@@ -425,11 +424,17 @@
         <div class="chartCard">
           <div class="rowBetween">
             <div>
-              <div class="chartTitle">Oldest pending green light</div>
-              <div class="muted">Tickets waiting for Head Steward confirmation</div>
+              <div class="chartTitle">Green light queues</div>
+              <div class="muted">Pending = flagged pending • Awaiting = ready/awaiting head steward action</div>
             </div>
           </div>
-          <div class="tableWrap">
+
+          <!-- Pending -->
+          <div class="tableWrap" style="margin-top:10px;">
+            <div class="rowBetween" style="padding:10px 10px 0 10px;">
+              <div class="chartTitle">Oldest pending green light</div>
+              <div class="muted" id="pendingTableHint">—</div>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -443,6 +448,31 @@
               </thead>
               <tbody id="tbodyPending"></tbody>
             </table>
+          </div>
+
+          <!-- Awaiting -->
+          <div class="tableWrap" style="margin-top:12px;">
+            <div class="rowBetween" style="padding:10px 10px 0 10px;">
+              <div class="chartTitle">Oldest awaiting green light</div>
+              <div class="muted" id="awaitingTableHint">—</div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Awaiting since</th>
+                  <th>Awaiting age</th>
+                  <th>Event</th>
+                  <th>Accused</th>
+                  <th>Open</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyAwaiting"></tbody>
+            </table>
+          </div>
+
+          <div class="muted" style="margin-top:10px;" id="greenQueueNotes">
+            Detection notes: Awaiting tries common fields like <span class="mono">awaitingGreenLight</span>/<span class="mono">readyForGreenlight</span> and status text containing “await” + “green”.
           </div>
         </div>
       </div>
@@ -476,7 +506,6 @@
       setTimeout(() => toastEl.classList.remove("show"), 2200);
     }
 
-    // Show JS errors as toast so breakages are obvious
     window.addEventListener("error", (e) => {
       const msg = (e?.message || "Unknown JS error") + (e?.filename ? `\n${e.filename}:${e.lineno || 0}` : "");
       console.error("JS error:", e);
@@ -535,14 +564,12 @@
       return `${sec}s`;
     }
 
-    // Best-effort "created" timestamp:
     function getCreatedMs(x){
       return pickFirstMs(x, [
         "timestamp","createdAt","created","submittedAt","openedAt","openAt"
       ]);
     }
 
-    // Best-effort "finalised" timestamp:
     function getFinalisedMs(x){
       const direct = pickFirstMs(x, [
         "finalisedAt","finalizedAt","closedAt","resolvedAt","finalisedTimestamp",
@@ -567,11 +594,34 @@
       ]);
     }
 
+    // NEW: "Awaiting green light" detection + timestamp
+    function boolish(v){ return v === true || String(v||"").toLowerCase() === "true"; }
+    function isAwaitingGreenLight(t){
+      const status = String(t?.status || "").toLowerCase();
+      const statusMatch = status.includes("await") && status.includes("green");
+      const fieldMatch = (
+        boolish(t?.awaitingGreenLight) ||
+        boolish(t?.awaitingGreenlit) ||
+        boolish(t?.readyForGreenlight) ||
+        boolish(t?.readyForGreenlit) ||
+        boolish(t?.awaitingHeadSteward) ||
+        boolish(t?.headStewardAwaiting) ||
+        boolish(t?.awaitingApproval)
+      );
+      return statusMatch || fieldMatch;
+    }
+    function getAwaitingMs(t){
+      const direct = pickFirstMs(t, [
+        "awaitingGreenlitAt","awaitingGreenLightAt","readyForGreenlightAt","readyForGreenlitAt",
+        "awaitingAt","awaitingSince","headStewardAwaitingAt","awaitingApprovalAt"
+      ]);
+      if (direct) return direct;
+      // fallback: if it’s marked awaiting but no timestamp, use updatedAt-ish
+      return pickFirstMs(t, ["statusUpdatedAt","updatedAt","lastUpdatedAt","createdAt","timestamp"]);
+    }
+
     function ticketUrl(id){ return `ticket.html?id=${encodeURIComponent(id || "")}`; }
 
-    // ---------------------------
-    // Auth / role gating
-    // ---------------------------
     $("backHeadBtn").onclick = () => window.location.href = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
     $("backClassifierBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
@@ -579,7 +629,6 @@
     $("refreshBtn").onclick = () => loadDashboard();
     $("rangeDays").onchange = () => loadDashboard();
 
-    // NEW: audit refresh
     $("refreshAuditBtn").onclick = () => loadStewardAudit7d();
     $("showOnlyInactive").onchange = () => renderAuditTableFromCache();
 
@@ -596,6 +645,55 @@
         if (ch && typeof ch.destroy === "function") ch.destroy();
       }
       chartDaily = chartPipeline = chartTAT = chartPendingSubmit = null;
+    }
+
+    // HQ chart defaults
+    function applyChartDefaults(){
+      if (typeof Chart === "undefined") return;
+
+      // Render crisp on retina/HiDPI
+      const dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+      Chart.defaults.devicePixelRatio = dpr;
+
+      Chart.defaults.responsive = true;
+      Chart.defaults.maintainAspectRatio = false;
+
+      Chart.defaults.font.family = "Arial, sans-serif";
+      Chart.defaults.font.size = 12;
+
+      // A touch thicker lines so they don’t look fuzzy
+      Chart.defaults.elements.line.borderWidth = 2;
+      Chart.defaults.elements.point.radius = 2;
+      Chart.defaults.elements.point.hoverRadius = 4;
+
+      Chart.defaults.plugins.legend.labels.boxWidth = 14;
+      Chart.defaults.plugins.legend.labels.boxHeight = 14;
+
+      // Less “blurry” labels on some screens
+      Chart.defaults.scale.ticks.maxTicksLimit = 8;
+    }
+
+    function baseChartOptions(){
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        devicePixelRatio: Math.min(3, Math.max(2, window.devicePixelRatio || 1)),
+        animation: { duration: 250 },
+        plugins: {
+          legend: {
+            display: true,
+            labels: { font: { size: 12, weight: "700" } }
+          },
+          tooltip: {
+            titleFont: { size: 12, weight: "800" },
+            bodyFont: { size: 12 }
+          }
+        },
+        scales: {
+          x: { ticks: { font: { size: 11 } } },
+          y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } }
+        }
+      };
     }
 
     // ---------------------------
@@ -694,23 +792,43 @@
       }
     }
 
+    // NEW: Awaiting green light table render
+    function renderAwaiting(rows){
+      const tbody = $("tbodyAwaiting");
+      tbody.innerHTML = "";
+      if (!rows.length){
+        tbody.innerHTML = `<tr><td colspan="6" class="muted">No awaiting green light tickets.</td></tr>`;
+        return;
+      }
+      for (const r of rows){
+        tbody.insertAdjacentHTML("beforeend", `
+          <tr>
+            <td class="mono">${escapeHtml(r.id)}</td>
+            <td>${escapeHtml(fmtDate(r.awaitingMs))}</td>
+            <td><b>${escapeHtml(r.awaitingAgeLabel)}</b></td>
+            <td>${escapeHtml(r.event || "")}</td>
+            <td>${escapeHtml(r.accused || "")}</td>
+            <td><a href="${ticketUrl(r.id)}" target="_blank" rel="noopener">Open</a></td>
+          </tr>
+        `);
+      }
+    }
+
     // ---------------------------
-    // NEW: Steward audit (Owner) — cached rows for filtering
+    // Steward audit (Owner)
     // ---------------------------
-    let auditRowsCache = []; // {email, comments, reviews, ticketsTouched, lastActiveMs, inactive, statusLabel}
+    let auditRowsCache = [];
     function safeKey(email){ return (email || "").replaceAll("/", "_").replaceAll("\\", "_").trim(); }
 
-// GDPR-safe display: keep local-part, hide domain
-function displayStewardName(raw){
-  const s = String(raw || "").trim();
-  if (!s) return "Unknown";
-  const at = s.indexOf("@");
-  return at > 0 ? s.slice(0, at) : s;
-}
-    
+    function displayStewardName(raw){
+      const s = String(raw || "").trim();
+      if (!s) return "Unknown";
+      const at = s.indexOf("@");
+      return at > 0 ? s.slice(0, at) : s;
+    }
+
     function roleLooksLikeSteward(adminDoc){
       const role = String(adminDoc?.role || "").toLowerCase();
-      // include stewards + head stewards + owners (they’re still part of accountability)
       return (
         role.includes("steward") ||
         role.includes("head") ||
@@ -779,7 +897,6 @@ function displayStewardName(raw){
       const sinceMs = now - (7 * 24 * 60 * 60 * 1000);
       const since = firebase.firestore.Timestamp.fromDate(new Date(sinceMs));
 
-      // Step 1: roster (admins)
       let rosterEmails = [];
       try{
         const adminsSnap = await db.collection("admins").get();
@@ -794,7 +911,6 @@ function displayStewardName(raw){
         return;
       }
 
-      // Stats map: key(email) -> stats
       const m = new Map();
       function getOrCreate(email){
         const k = safeKey(email || "unknown") || "unknown";
@@ -808,7 +924,6 @@ function displayStewardName(raw){
       let reviewDocs = 0;
 
       try{
-        // Comments in last 7 days (collectionGroup)
         const commentsSnap = await db
           .collectionGroup("steward_comments")
           .where("createdAt", ">=", since)
@@ -821,7 +936,6 @@ function displayStewardName(raw){
           const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
           if (!ts) return;
 
-          // Your DB shows authorKey is the email string (good)
           const author = String(d.authorKey || d.stewardEmail || "unknown").trim() || "unknown";
           const s = getOrCreate(author);
           s.comments += 1;
@@ -833,8 +947,6 @@ function displayStewardName(raw){
           if (tms > s.lastActiveMs) s.lastActiveMs = tms;
         });
 
-        // Reviews in last 7 days (collectionGroup)
-        // NOTE: your Head Steward page uses submittedAt. Keep the same.
         const reviewsSnap = await db
           .collectionGroup("reviews")
           .where("submittedAt", ">=", since)
@@ -868,7 +980,6 @@ function displayStewardName(raw){
         return;
       }
 
-      // Step 3: build rows for ALL roster members (including zero activity) and highlight inactive
       const rosterRows = rosterEmails.map(email => {
         const k = safeKey(email) || "unknown";
         const existing = m.get(k);
@@ -880,7 +991,6 @@ function displayStewardName(raw){
         return { email, comments, reviews, ticketsTouched, lastActiveMs, inactive };
       });
 
-      // Sort: inactive first (so failures are obvious), then by total activity desc, then last active desc
       rosterRows.sort((a,b) => {
         if (a.inactive !== b.inactive) return a.inactive ? -1 : 1;
         const at = (a.comments + a.reviews);
@@ -909,13 +1019,15 @@ function displayStewardName(raw){
         $("createdFinalisedHint").textContent = "Loading…";
         $("tatHint").textContent = "Loading…";
         $("pendingToSubmitHint").textContent = "Loading…";
+        $("pendingTableHint").textContent = "Loading…";
+        $("awaitingTableHint").textContent = "Loading…";
 
         renderKPIs([
           {label:"Tickets live (open)", value:"—", sub:"Loading…"},
           {label:"Oldest open ticket", value:"—", sub:"Loading…"},
           {label:"Avg age of open", value:"—", sub:"Loading…"},
           {label:"Pending green light", value:"—", sub:"Loading…"},
-          {label:"Submitted to SimGrid", value:"—", sub:"Loading…"},
+          {label:"Awaiting green light", value:"—", sub:"Loading…"},
           {label:"Avg pending → submit", value:"—", sub:"Loading…"}
         ]);
 
@@ -930,6 +1042,7 @@ function displayStewardName(raw){
         const openTickets = [];
         const finalisedTickets = [];
         const pendingGreen = [];
+        const awaitingGreen = [];
         const submittedSimgrid = [];
 
         const createdCounts = new Map();
@@ -964,9 +1077,16 @@ function displayStewardName(raw){
           const greenlit = t.simgridGreenlit === true;
           const submitted = t.simgridSubmitted === true;
 
+          // Pending green light queue
           if (pendingFlag && !greenlit && !submitted){
             const pendingMs = getPendingMs(t);
             pendingGreen.push({ ...t, pendingMs });
+          }
+
+          // Awaiting green light queue (ready/awaiting but not pending, not greenlit, not submitted)
+          if (!pendingFlag && isAwaitingGreenLight(t) && !greenlit && !submitted){
+            const awaitingMs = getAwaitingMs(t);
+            awaitingGreen.push({ ...t, awaitingMs });
           }
 
           if (submitted){
@@ -1002,9 +1122,9 @@ function displayStewardName(raw){
 
         // Pending stats
         pendingGreen.sort((a,b) => (a.pendingMs||0) - (b.pendingMs||0));
-        const pendingAgesMs = pendingGreen
-          .map(t => t.pendingMs ? (nowMs - t.pendingMs) : null)
-          .filter(x => x != null && x >= 0);
+
+        // Awaiting stats
+        awaitingGreen.sort((a,b) => (a.awaitingMs||0) - (b.awaitingMs||0));
 
         // Submitted in range
         const submittedInRange = submittedSimgrid.filter(t => (t.submittedMs||0) >= rangeStartMs);
@@ -1037,9 +1157,9 @@ function displayStewardName(raw){
             sub: pendingGreen.length ? `Oldest: ${fmtDuration(nowMs - (pendingGreen[0].pendingMs||nowMs))}` : "None pending"
           },
           {
-            label:"Submitted to SimGrid",
-            value:String(submittedInRange.length),
-            sub: `In last ${days} day(s)`
+            label:"Awaiting green light",
+            value:String(awaitingGreen.length),
+            sub: awaitingGreen.length ? `Oldest: ${fmtDuration(nowMs - (awaitingGreen[0].awaitingMs||nowMs))}` : "None awaiting"
           },
           {
             label:"Avg pending → submit",
@@ -1068,6 +1188,18 @@ function displayStewardName(raw){
         }));
         renderPending(pendingRows);
 
+        const awaitingRows = awaitingGreen.slice(0, 12).map(t => ({
+          id: t.id,
+          awaitingMs: t.awaitingMs || 0,
+          awaitingAgeLabel: t.awaitingMs ? fmtDuration(nowMs - t.awaitingMs) : "—",
+          event: t.event || "",
+          accused: t.accused || ""
+        }));
+        renderAwaiting(awaitingRows);
+
+        $("pendingTableHint").textContent = pendingGreen.length ? `Oldest: ${fmtDuration(nowMs - (pendingGreen[0].pendingMs||nowMs))}` : "—";
+        $("awaitingTableHint").textContent = awaitingGreen.length ? `Oldest: ${fmtDuration(nowMs - (awaitingGreen[0].awaitingMs||nowMs))}` : "—";
+
         // Chart 1: created vs finalised
         const dateKeys = makeDateKeysBack(Math.min(days, 30));
         const createdSeries = dateKeys.map(k => createdCounts.get(k) || 0);
@@ -1085,9 +1217,9 @@ function displayStewardName(raw){
             ]
           },
           options: {
-            responsive: true,
-            plugins: { legend: { display: true } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            ...baseChartOptions(),
+            plugins: { ...baseChartOptions().plugins, legend: { display: true } },
+            scales: { ...baseChartOptions().scales, y: { ...baseChartOptions().scales.y, beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } } }
           }
         });
 
@@ -1098,7 +1230,7 @@ function displayStewardName(raw){
         chartPipeline = new Chart($("chartPipeline"), {
           type: "bar",
           data: {
-            labels: ["Open", "Finalised", "Greenlit", "Pending", `Submitted (${days}d)`],
+            labels: ["Open", "Finalised", "Greenlit", "Pending", "Awaiting", `Submitted (${days}d)`],
             datasets: [{
               label: "Tickets",
               data: [
@@ -1106,14 +1238,14 @@ function displayStewardName(raw){
                 finalisedTickets.length,
                 greenlitNotSubmitted.length,
                 pendingGreen.length,
+                awaitingGreen.length,
                 submittedInRange.length
               ]
             }]
           },
           options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            ...baseChartOptions(),
+            plugins: { ...baseChartOptions().plugins, legend: { display: false } }
           }
         });
 
@@ -1139,9 +1271,8 @@ function displayStewardName(raw){
           type: "bar",
           data: { labels: tatLabels, datasets: [{ label: "Tickets", data: tatValues }] },
           options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            ...baseChartOptions(),
+            plugins: { ...baseChartOptions().plugins, legend: { display: false } }
           }
         });
 
@@ -1163,9 +1294,8 @@ function displayStewardName(raw){
           type: "bar",
           data: { labels: p2sLabels, datasets: [{ label: "Tickets", data: p2sValues }] },
           options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            ...baseChartOptions(),
+            plugins: { ...baseChartOptions().plugins, legend: { display: false } }
           }
         });
 
@@ -1191,6 +1321,9 @@ function displayStewardName(raw){
         toast("Firebase not ready.\nCheck firebase-init.js path + console.");
         return;
       }
+
+      // Apply chart HQ defaults once Chart is present
+      try{ applyChartDefaults(); }catch(e){ console.warn("Chart defaults failed:", e); }
 
       auth.onAuthStateChanged(async (user) => {
         try{
@@ -1219,7 +1352,6 @@ function displayStewardName(raw){
           $("welcomeLine").textContent = `Welcome, ${niceName}. This page shows live ops stats + steward accountability.`;
           $("who").textContent = `Signed in as: ${email} | role: ${data.role || "admin"}`;
 
-          // Load both panels
           await loadStewardAudit7d();
           await loadDashboard();
         }catch(e){
