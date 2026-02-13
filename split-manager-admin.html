@@ -15,7 +15,7 @@
         <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight">IFWL Split Manager (ADMIN)</h1>
         <p class="text-slate-600 text-sm mt-1">Upload SimGrid entrylist → generate splits → add event info → publish to Sheet + Public page</p>
       </div>
-      <div class="text-xs text-slate-500">Version: <span class="font-mono">admin-1.0.0</span></div>
+      <div class="text-xs text-slate-500">Version: <span class="font-mono">admin-1.0.1</span></div>
     </header>
 
     <!-- Admin event info -->
@@ -37,7 +37,7 @@
           <label class="text-sm font-semibold text-slate-700">Admin Publish Token</label>
           <input id="adminToken" type="password" placeholder="Token set in Apps Script properties"
                  class="w-full bg-white border border-slate-300 rounded-xl p-2 text-sm"/>
-          <p class="text-xs text-slate-500">This is validated by Apps Script. Don’t hardcode it into GitHub.</p>
+          <p class="text-xs text-slate-500">Validated by Apps Script. Don’t hardcode it into GitHub.</p>
         </div>
       </div>
 
@@ -58,7 +58,10 @@
                         file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0
                         file:bg-slate-200 file:text-slate-900 hover:file:bg-slate-300"/>
           <div class="flex gap-2 flex-wrap">
-            <button id="btnClear" class="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-sm font-semibold">Clear</button>
+            <button id="btnClear"
+              class="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-sm font-semibold">
+              Clear
+            </button>
           </div>
         </div>
 
@@ -89,10 +92,22 @@
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
-        <button id="btnParse" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold">Parse JSON</button>
-        <button id="btnMakeSplits" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">Generate Splits</button>
-        <button id="btnCopyDiscord" class="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-sm font-bold">Copy Discord text</button>
-        <button id="btnPublish" class="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-sm font-bold">Publish (Sheet + Public)</button>
+        <button id="btnParse"
+          class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold">
+          Parse JSON
+        </button>
+        <button id="btnMakeSplits"
+          class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">
+          Generate Splits
+        </button>
+        <button id="btnCopyDiscord"
+          class="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-sm font-bold">
+          Copy Discord text
+        </button>
+        <button id="btnPublish"
+          class="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-sm font-bold">
+          Publish (Sheet + Public)
+        </button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -147,9 +162,8 @@
   </div>
 
 <script>
-  // ==== CONFIG: put your Apps Script Web App /exec URL here ====
+  // ==== CONFIG ====
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1EZhYUpQ0_eS-E8sbj3i7bsVLyLAKmn8UX_ydQBXY1N5GlFYwgEjiQIXGyrJriUY86g/exec";
-
 
   // ==== State ====
   let rawJson = null;
@@ -188,6 +202,8 @@
     if (!obj) return null;
     if (Array.isArray(obj)) return obj;
     if (Array.isArray(obj.entries)) return obj.entries;
+
+    // Shallow scan (last resort)
     for (const [k, v] of Object.entries(obj)) {
       if (Array.isArray(v) && v.length && typeof v[0] === "object") return v;
     }
@@ -198,12 +214,13 @@
     const d0 = Array.isArray(entry.drivers) ? entry.drivers[0] : null;
     const first = d0?.firstName ? String(d0.firstName).trim() : "";
     const last  = d0?.lastName ? String(d0.lastName).trim() : "";
-    const playerID = d0?.playerID || entry.playerID || "";
+    const playerID = d0?.playerID || entry.playerID || entry.steamId || entry.steamID || "";
 
     const nameFromParts = [first, last].filter(Boolean).join(" ").trim();
-    const name = nameFromParts || (playerID ? `Unknown (${playerID})` : "Unknown");
+    const name = nameFromParts || entry.name || entry.driverName || entry.username || entry.displayName || (playerID ? `Unknown (${playerID})` : "Unknown");
 
     const raceNumber = (entry.raceNumber !== undefined && entry.raceNumber !== null) ? String(entry.raceNumber) : "";
+
     const carModelId = (entry.forcedCarModel !== undefined && entry.forcedCarModel !== null) ? Number(entry.forcedCarModel) : null;
     const carName = (carModelId !== null && CAR_MODELS[carModelId]) ? CAR_MODELS[carModelId] : (carModelId !== null ? `CarModel ${carModelId}` : "");
 
@@ -235,7 +252,7 @@
     if (seedChoice === "raceNumber") {
       return { sorted: [...list].sort((a,b) => Number(a.raceNumber||999999) - Number(b.raceNumber||999999)), used: "raceNumber" };
     }
-    // auto: default to raceNumber if no rating exists
+    // auto
     return { sorted: [...list].sort((a,b) => Number(a.raceNumber||999999) - Number(b.raceNumber||999999)), used: "auto:raceNumber" };
   }
 
@@ -279,9 +296,11 @@
     el("splitCount").textContent = splitsArr.length;
     const wrap = el("splitsWrap");
     wrap.innerHTML = "";
+
     splitsArr.forEach((bucket, idx) => {
       const card = document.createElement("div");
       card.className = "bg-slate-50 border border-slate-200 rounded-2xl p-4";
+
       const rows = bucket.map((d,i) => `
         <div class="flex justify-between gap-3 py-1 border-b border-slate-200/70 last:border-0">
           <div class="text-slate-500 w-8">${i+1}.</div>
@@ -292,6 +311,7 @@
           <div class="text-slate-600 text-xs font-mono text-right">${escapeHtml(d.raceNumber ? "#" + d.raceNumber : "")}</div>
         </div>
       `).join("");
+
       card.innerHTML = `
         <div class="flex items-center justify-between mb-3">
           <div class="font-extrabold text-lg">Split ${idx+1}</div>
@@ -306,6 +326,7 @@
     const lines = [];
     const eventName = el("eventName").value.trim();
     const simgridUrl = el("simgridUrl").value.trim();
+
     if (eventName) lines.push(`**${eventName}**`);
     if (simgridUrl) lines.push(simgridUrl);
     lines.push("");
@@ -319,12 +340,12 @@
         lines.push(`${String(i+1).padStart(2," ")}. ${d.name}${rn}${car}`);
       });
     });
+
     return lines.join("\n");
   }
 
   async function publishToSheetAndPublic() {
     if (!splits.length) { setStatus("❌ Generate splits first."); return; }
-    if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("PASTE_YOUR")) { setStatus("❌ Set APPS_SCRIPT_URL in the admin HTML."); return; }
 
     const eventName = el("eventName").value.trim();
     const simgridUrl = el("simgridUrl").value.trim();
@@ -362,17 +383,40 @@
 
     setStatus("Publishing to Google Sheet + Public endpoint...");
 
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "IFWL_SPLITS_PUBLISH", adminToken, payload })
-    });
+    const form = new URLSearchParams();
+    form.set("type", "IFWL_SPLITS_PUBLISH");
+    form.set("adminToken", adminToken);
+    form.set("payloadJson", JSON.stringify(payload));
 
-    const text = await res.text();
-    setStatus("Publish response:\n" + text.slice(0, 1500));
+    let res;
+    let text;
+
+    try {
+      res = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        body: form.toString()
+      });
+      text = await res.text();
+    } catch (err) {
+      setStatus("❌ Publish failed (network/CORS).\n" + String(err));
+      return;
+    }
+
+    // Try to surface backend errors nicely
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed.ok) {
+        setStatus("❌ Publish failed:\n" + (parsed.error || "Unknown error"));
+        return;
+      }
+    } catch (_) {
+      // ignore parse failures
+    }
+
+    setStatus("✅ Publish success:\n" + text.slice(0, 2000));
   }
 
-  // Actions
   async function handleFileUpload(file) {
     const text = await file.text();
     try {
@@ -386,10 +430,12 @@
 
   function parseJsonToDrivers() {
     if (!rawJson) { setStatus("❌ Upload a JSON file first."); return; }
+
     const arr = findEntriesArray(rawJson);
     if (!arr || !arr.length) { setStatus("❌ No entries array found."); return; }
 
     const normalized = arr.map(normalizeDriver);
+
     // Remove ghost/admin/unknown
     drivers = normalized
       .filter(d => !d.isServerAdmin)
@@ -412,10 +458,10 @@
 
   function generateSplits() {
     if (!drivers.length) { setStatus("❌ Parse JSON first."); return; }
+
     const size = Math.max(2, Math.min(100, Number(el("splitSize").value || 30)));
     const method = el("splitMethod").value;
 
-    // Ensure current sort
     const sortedInfo = sortDrivers(drivers, el("seedField").value);
     drivers = sortedInfo.sorted;
     seedUsed = sortedInfo.used;
@@ -424,7 +470,11 @@
 
     renderDrivers(drivers);
     renderSplits(splits);
-    setStatus("✅ Splits generated: " + splits.length + "\nSplit size: " + size + "\nMethod: " + method + "\nSeed: " + seedUsed);
+
+    setStatus("✅ Splits generated: " + splits.length +
+      "\nSplit size: " + size +
+      "\nMethod: " + method +
+      "\nSeed: " + seedUsed);
   }
 
   async function copyDiscord() {
@@ -435,7 +485,10 @@
   }
 
   function clearAll() {
-    rawJson = null; drivers = []; splits = []; seedUsed = "";
+    rawJson = null;
+    drivers = [];
+    splits = [];
+    seedUsed = "";
     el("driversTbody").innerHTML = "";
     el("splitsWrap").innerHTML = "";
     el("driverCount").textContent = "0";
@@ -451,6 +504,7 @@
     if (!file) return;
     await handleFileUpload(file);
   });
+
   el("btnParse").addEventListener("click", parseJsonToDrivers);
   el("btnMakeSplits").addEventListener("click", generateSplits);
   el("btnCopyDiscord").addEventListener("click", copyDiscord);
@@ -459,5 +513,6 @@
 
   setStatus("Ready.\nUpload a JSON file.");
 </script>
+
 </body>
 </html>
