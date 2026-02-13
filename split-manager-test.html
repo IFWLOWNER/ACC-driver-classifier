@@ -19,7 +19,7 @@
         </p>
       </div>
       <div class="text-xs text-slate-500">
-        Version: <span class="font-mono">test-0.2.0</span>
+        Version: <span class="font-mono">test-0.3.0</span>
       </div>
     </header>
 
@@ -174,38 +174,38 @@
       .replaceAll("'", "&#039;");
   }
 
-// ACC car model ID -> name (edit as needed)
-// If a car shows as "CarModel X", tell me X and I’ll map it.
-const CAR_MODELS = {
-  0: "Porsche 991 GT3 R (2018)",
-  1: "Mercedes-AMG GT3 (2015)",
-  2: "Ferrari 488 GT3 (2018)",
-  3: "Audi R8 LMS (2015)",
-  4: "Lamborghini Huracán GT3 (2015)",
-  5: "McLaren 650S GT3",
-  6: "Nissan GT-R Nismo GT3 (2018)",
-  7: "BMW M6 GT3",
-  8: "Bentley Continental GT3 (2018)",
+  // =========================
+  // ACC car model ID -> name
+  // =========================
+  const CAR_MODELS = {
+    0: "Porsche 991 GT3 R (2018)",
+    1: "Mercedes-AMG GT3 (2015)",
+    2: "Ferrari 488 GT3 (2018)",
+    3: "Audi R8 LMS (2015)",
+    4: "Lamborghini Huracán GT3 (2015)",
+    5: "McLaren 650S GT3",
+    6: "Nissan GT-R Nismo GT3 (2018)",
+    7: "BMW M6 GT3",
+    8: "Bentley Continental GT3 (2018)",
 
-  9: "Porsche 991.2 GT3 R (2019)",
-  10: "Ferrari 488 GT3 Evo (2020)",
-  11: "Mercedes-AMG GT3 Evo (2020)",
-  12: "Lamborghini Huracán GT3 Evo (2019)",
-  13: "McLaren 720S GT3 (2019)",
-  14: "Audi R8 LMS Evo (2019)",
-  15: "Honda NSX GT3 (2019)",
-  16: "Lexus RC F GT3",
-  17: "Lamborghini Huracán Super Trofeo",
+    9: "Porsche 991.2 GT3 R (2019)",
+    10: "Ferrari 488 GT3 Evo (2020)",
+    11: "Mercedes-AMG GT3 Evo (2020)",
+    12: "Lamborghini Huracán GT3 Evo (2019)",
+    13: "McLaren 720S GT3 (2019)",
+    14: "Audi R8 LMS Evo (2019)",
+    15: "Honda NSX GT3 (2019)",
+    16: "Lexus RC F GT3",
+    17: "Lamborghini Huracán Super Trofeo",
 
-  18: "BMW M4 GT3",
-  19: "Audi R8 LMS Evo II (2022)",
-  20: "Ferrari 296 GT3",
-  21: "Lamborghini Huracán GT3 Evo2",
-  22: "Porsche 992 GT3 R",
-  23: "McLaren 720S GT3 Evo",
-};
+    18: "BMW M4 GT3",
+    19: "Audi R8 LMS Evo II (2022)",
+    20: "Ferrari 296 GT3",
+    21: "Lamborghini Huracán GT3 Evo2",
+    22: "Porsche 992 GT3 R",
+    23: "McLaren 720S GT3 Evo"
+  };
 
-  
   // =========================
   // SimGrid Entrylist parsing helpers
   // =========================
@@ -247,36 +247,37 @@ const CAR_MODELS = {
       entry.displayName ||
       (playerID ? `Unknown (${playerID})` : "Unknown");
 
-    const raceNumber = (entry.raceNumber !== undefined && entry.raceNumber !== null) ? String(entry.raceNumber) : "";
+    const raceNumber = (entry.raceNumber !== undefined && entry.raceNumber !== null)
+      ? String(entry.raceNumber)
+      : "";
+
+    const carModelId =
+      (entry.forcedCarModel !== undefined && entry.forcedCarModel !== null)
+        ? Number(entry.forcedCarModel)
+        : null;
+
+    const carName =
+      (carModelId !== null && CAR_MODELS[carModelId])
+        ? CAR_MODELS[carModelId]
+        : (carModelId !== null ? `CarModel ${carModelId}` : "");
 
     const notes = [];
-    if (entry.forcedCarModel !== undefined) notes.push("forcedCarModel: " + entry.forcedCarModel);
+    // We no longer add forcedCarModel to notes because "Car" column shows it properly.
     if (entry.restrictor !== undefined) notes.push("restrictor: " + entry.restrictor);
     if (entry.ballast !== undefined) notes.push("ballast: " + entry.ballast);
     if (entry.isServerAdmin) notes.push("server admin");
     if (d0 && d0.shortName) notes.push("tag: " + d0.shortName);
 
-const carModelId =
-  (entry.forcedCarModel !== undefined && entry.forcedCarModel !== null)
-    ? Number(entry.forcedCarModel)
-    : null;
-
-const carName =
-  (carModelId !== null && CAR_MODELS[carModelId])
-    ? CAR_MODELS[carModelId]
-    : (carModelId !== null ? `CarModel ${carModelId}` : "");
-    
     return {
-  raw: entry,
-  name,
-  raceNumber,
-  carModelId,
-  carName,
-  playerID: String(playerID || ""),
-  isServerAdmin: !!entry.isServerAdmin,
-  notes: notes.join(" • "),
-};
-
+      raw: entry,
+      name,
+      raceNumber,
+      carModelId,
+      carName,
+      playerID: String(playerID || ""),
+      isServerAdmin: !!entry.isServerAdmin,
+      notes: notes.join(" • "),
+    };
   }
 
   // =========================
@@ -289,8 +290,6 @@ const carName =
   }
 
   function detectBestNumericField(normalizedDrivers) {
-    // Pick a numeric field that exists on many entries
-    // (in SimGrid entrylist, often raceNumber exists; sometimes others exist)
     const candidateKeys = [
       "raceNumber", "forcedCarModel", "restrictor", "ballast",
       "rating", "elo", "irating", "pace", "rank", "score"
@@ -307,14 +306,12 @@ const carName =
       }
     }
 
-    // fallback
     return bestKey || "raceNumber";
   }
 
   function sortDrivers(list, seedChoice) {
     const choice = seedChoice;
 
-    // Basic sorts
     if (choice === "name") {
       return { sorted: [...list].sort((a,b) => a.name.localeCompare(b.name)), used: "name" };
     }
@@ -323,23 +320,20 @@ const carName =
     }
     if (choice === "raceNumber") {
       return {
-        sorted: [...list].sort((a,b) => (Number(a.raceNumber||999999) - Number(b.raceNumber||999999))),
+        sorted: [...list].sort((a,b) => (Number(a.raceNumber || 999999) - Number(b.raceNumber || 999999))),
         used: "raceNumber"
       };
     }
 
-    // Auto-detect numeric field from raw JSON
     const best = detectBestNumericField(list);
     const sorted = [...list].sort((a,b) => {
       const av = tryGetNumeric(a, best);
       const bv = tryGetNumeric(b, best);
 
-      // Put missing values at the bottom
       if (av === null && bv === null) return a.name.localeCompare(b.name);
       if (av === null) return 1;
       if (bv === null) return -1;
 
-      // If it's raceNumber-like, smaller first; otherwise larger first
       const ascendingKeys = new Set(["raceNumber", "forcedCarModel"]);
       return ascendingKeys.has(best) ? (av - bv) : (bv - av);
     });
@@ -389,6 +383,7 @@ const carName =
         <td class="py-2 pr-3 text-slate-500">${i + 1}</td>
         <td class="py-2 pr-3 font-semibold">${escapeHtml(d.name)}</td>
         <td class="py-2 pr-3">${escapeHtml(d.raceNumber || "")}</td>
+        <td class="py-2 pr-3">${escapeHtml(d.carName || "")}</td>
         <td class="py-2 pr-3 font-mono text-xs text-slate-700">${escapeHtml(d.playerID || "")}</td>
         <td class="py-2 pr-3 text-slate-600">${escapeHtml(d.notes || "")}</td>
       `;
@@ -408,8 +403,13 @@ const carName =
       const rows = bucket.map((d, i) => `
         <div class="flex justify-between gap-3 py-1 border-b border-slate-200/70 last:border-0">
           <div class="text-slate-500 w-8">${i + 1}.</div>
-          <div class="flex-1 font-semibold">${escapeHtml(d.name)}</div>
-          <div class="text-slate-600 text-xs font-mono">${escapeHtml(d.raceNumber ? "#" + d.raceNumber : "")}</div>
+          <div class="flex-1">
+            <div class="font-semibold">${escapeHtml(d.name)}</div>
+            <div class="text-xs text-slate-600">${escapeHtml(d.carName || "")}</div>
+          </div>
+          <div class="text-slate-600 text-xs font-mono text-right">
+            ${escapeHtml(d.raceNumber ? "#" + d.raceNumber : "")}
+          </div>
         </div>
       `).join("");
 
@@ -434,7 +434,8 @@ const carName =
       lines.push(`\n__Split ${idx + 1}__`);
       bucket.forEach((d, i) => {
         const rn = d.raceNumber ? ` (#${d.raceNumber})` : "";
-        lines.push(`${String(i + 1).padStart(2, " ")}. ${d.name}${rn}`);
+        const car = d.carName ? ` — ${d.carName}` : "";
+        lines.push(`${String(i + 1).padStart(2, " ")}. ${d.name}${rn}${car}`);
       });
     });
     return lines.join("\n");
@@ -451,6 +452,8 @@ const carName =
         drivers: bucket.map(d => ({
           name: d.name,
           raceNumber: d.raceNumber,
+          carModelId: d.carModelId,
+          carName: d.carName,
           playerID: d.playerID
         }))
       }))
@@ -498,26 +501,37 @@ const carName =
       return;
     }
 
-    drivers = arr
-  .map(normalizeDriver)
-  .filter(d => !d.isServerAdmin)
-  .filter(d => !d.name.startsWith("Unknown"));
+    // Normalize + filter out ghost entries
+    const normalized = arr.map(normalizeDriver);
+    const filtered = normalized
+      .filter(d => !d.isServerAdmin)
+      .filter(d => !d.name.startsWith("Unknown"));
 
+    drivers = filtered;
 
-    // show a quick structure preview
+    // Structure preview
     const first = arr[0] || {};
     const keys = Object.keys(first).slice(0, 120);
     setStructure(
       "Entries array length: " + arr.length + "\n" +
+      "After filtering: " + drivers.length + "\n\n" +
       "Top-level entry keys (first item):\n" + keys.join(", ") + "\n\n" +
-      "Name source expected: entry.drivers[0].firstName / lastName"
+      "Name source expected: entry.drivers[0].firstName / lastName\n" +
+      "Car source expected: entry.forcedCarModel"
     );
+
+    const removed = arr.length - drivers.length;
 
     const { sorted, used } = sortDrivers(drivers, el("seedField").value);
     drivers = sorted;
 
     renderDrivers(drivers);
-    setStatus("✅ Parsed " + drivers.length + " drivers\nSeed used: " + used + "\nNow click: Generate Splits");
+    setStatus(
+      "✅ Parsed " + drivers.length + " drivers\n" +
+      "Removed (ghost/admin/unknown): " + removed + "\n" +
+      "Seed used: " + used + "\n" +
+      "Now click: Generate Splits"
+    );
   }
 
   function generateSplits() {
@@ -561,7 +575,7 @@ const carName =
       event: { name: "TEST EVENT", provider: "SimGrid sample" },
       entries: Array.from({ length: 78 }, (_, i) => ({
         raceNumber: i + 1,
-        forcedCarModel: (i % 4),
+        forcedCarModel: (i % 24),
         restrictor: 0,
         ballast: 0,
         drivers: [{
