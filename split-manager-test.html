@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IFWL Split Manager (TEST)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <div class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+
+    <!-- Header -->
+    <header class="flex items-center justify-between gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold">IFWL Split Manager (TEST)</h1>
+        <p class="text-zinc-400 text-sm mt-1">
+          Upload SimGrid entry JSON → view drivers → generate splits → export / copy for Discord.
+        </p>
+      </div>
+      <div class="text-xs text-zinc-500">
+        Version: <span class="font-mono">test-0.0.1</span>
+      </div>
+    </header>
+
+    <!-- Controls -->
+    <section class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4 md:p-6 space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="space-y-2">
+          <label class="text-sm text-zinc-300">Upload entry list JSON</label>
+          <input id="fileInput" type="file" accept=".json,application/json"
+                 class="block w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600
+                        bg-zinc-950/40 border border-zinc-800 rounded-xl p-2"/>
+          <div class="flex gap-2 flex-wrap">
+            <button id="btnLoadSample"
+              class="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm">
+              Load sample JSON
+            </button>
+            <button id="btnClear"
+              class="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm">
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm text-zinc-300">Split size</label>
+          <input id="splitSize" type="number" min="2" max="100" value="30"
+                 class="w-full bg-zinc-950/40 border border-zinc-800 rounded-xl p-2 text-sm"/>
+          <p class="text-xs text-zinc-500">Common ACC: 25–35 per split depending on grid limit.</p>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm text-zinc-300">Sort / seed by</label>
+          <select id="seedField"
+                  class="w-full bg-zinc-950/40 border border-zinc-800 rounded-xl p-2 text-sm">
+            <option value="auto">Auto-detect (recommended)</option>
+            <option value="rating">rating</option>
+            <option value="elo">elo</option>
+            <option value="irating">irating</option>
+            <option value="pace">pace</option>
+            <option value="lastname">lastname</option>
+            <option value="name">name</option>
+          </select>
+
+          <label class="text-sm text-zinc-300 mt-2 block">Split method</label>
+          <select id="splitMethod"
+                  class="w-full bg-zinc-950/40 border border-zinc-800 rounded-xl p-2 text-sm">
+            <option value="topdown">Top-down (1..N)</option>
+            <option value="snake">Snake draft (balances strength)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="btnParse"
+          class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold">
+          Parse JSON
+        </button>
+        <button id="btnMakeSplits"
+          class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-sm font-semibold">
+          Generate Splits
+        </button>
+        <button id="btnCopyDiscord"
+          class="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm font-semibold">
+          Copy Discord text
+        </button>
+        <button id="btnExportSplits"
+          class="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-sm font-semibold">
+          Export splits JSON
+        </button>
+
+        <!-- Optional: Apps Script post -->
+        <div class="ml-auto flex items-center gap-2">
+          <label class="text-xs text-zinc-500 flex items-center gap-2">
+            <input id="enablePost" type="checkbox" class="accent-emerald-500"/>
+            Enable POST (Apps Script)
+          </label>
+          <button id="btnPost"
+            class="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-sm font-semibold disabled:opacity-40"
+            disabled>
+            POST splits
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-zinc-950/40 border border-zinc-800 rounded-2xl p-3">
+          <div class="text-xs text-zinc-400 mb-2">Status</div>
+          <pre id="status" class="text-xs text-zinc-200 whitespace-pre-wrap"></pre>
+        </div>
+        <div class="bg-zinc-950/40 border border-zinc-800 rounded-2xl p-3">
+          <div class="text-xs text-zinc-400 mb-2">Detected Fields</div>
+          <pre id="fields" class="text-xs text-zinc-200 whitespace-pre-wrap"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Driver List -->
+    <section class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4 md:p-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold">Drivers</h2>
+        <div class="text-sm text-zinc-400">Count: <span id="driverCount">0</span></div>
+      </div>
+      <div class="overflow-x-auto mt-4">
+        <table class="w-full text-sm">
+          <thead class="text-zinc-400">
+            <tr class="border-b border-zinc-800">
+              <th class="text-left py-2 pr-3">#</th>
+              <th class="text-left py-2 pr-3">Name</th>
+              <th class="text-left py-2 pr-3">Team</th>
+              <th class="text-left py-2 pr-3">Seed</th>
+              <th class="text-left py-2 pr-3">Notes</th>
+            </tr>
+          </thead>
+          <tbody id="driversTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Splits -->
+    <section class="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4 md:p-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold">Splits</h2>
+        <div class="text-sm text-zinc-400">Splits: <span id="splitCount">0</span></div>
+      </div>
+
+      <div id="splitsWrap" class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+    </section>
+
+    <footer class="text-xs text-zinc-600 pb-4">
+      Tip: This is a static test page — perfect for GitHub Pages. For Discord posting, use Apps Script so your webhook isn’t exposed.
+    </footer>
+
+  </div>
+
+<script>
+  // =========================
+  // Config (Optional POST)
+  // =========================
+  // Your currently saved IFWL Apps Script endpoint (from our previous setup).
+  // This is safe to include if your Apps Script validates requests.
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyzy47hX-roRqeVZoxqCugWRZ543zRJnZXZiFn_1kgO8lFwiIXnrK5oT5ZU1TdHaFKY/exec";
+
+  // =========================
+  // State
+  // =========================
+  let rawJson = null;
+  let drivers = [];     // normalized drivers
+  let splits = [];      // array of arrays
+
+  const el = (id) => document.getElementById(id);
+
+  function setStatus(msg) {
+    el("status").textContent = msg;
+  }
+
+  function setFields(msg) {
+    el("fields").textContent = msg;
+  }
+
+  function safeNumber(v) {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // Try to find an array of entries in common shapes
+  function findEntriesArray(obj) {
+    if (!obj) return null;
+
+    // Direct array JSON
+    if (Array.isArray(obj)) return obj;
+
+    const candidates = [
+      obj.entries,
+      obj.participants,
+      obj.drivers,
+      obj.entryList,
+      obj.entry_list,
+      obj.data,
+      obj.results,
+    ];
+
+    for (const c of candidates) {
+      if (Array.isArray(c)) return c;
+    }
+
+    // Nested common patterns
+    if (obj.payload) {
+      const nested = [obj.payload.entries, obj.payload.participants, obj.payload.drivers, obj.payload.data];
+      for (const c of nested) if (Array.isArray(c)) return c;
+    }
+
+    // Last resort: scan shallow keys for first array of objects
+    for (const [k, v] of Object.entries(obj)) {
+      if (Array.isArray(v) && v.length && typeof v[0] === "object") return v;
+    }
+
+    return null;
+  }
+
+  // Extract best-effort name/team/seed from a raw entry object
+  function normalizeDriver(entry) {
+    // Name candidates
+    const name =
+      entry.name ||
+      entry.driverName ||
+      entry.username ||
+      entry.displayName ||
+      entry.playerName ||
+      entry.fullName ||
+      [entry.firstName, entry.lastName].filter(Boolean).join(" ") ||
+      [entry.firstname, entry.lastname].filter(Boolean).join(" ") ||
+      (entry.driver && (entry.driver.name || entry.driver.username || entry.driver.displayName)) ||
+      (entry.user && (entry.user.name || entry.user.username || entry.user.displayName)) ||
+      "Unknown";
+
+    // Team candidates
+    const team =
+      entry.team ||
+      entry.teamName ||
+      (entry.team && (entry.team.name || entry.team.teamName)) ||
+      entry.squad ||
+      entry.organization ||
+      "";
+
+    // Seed candidates (rating/elo/irating/pace etc.)
+    const seedMap = {
+      rating: safeNumber(entry.rating ?? entry.driverRating ?? entry.rank ?? entry.score),
+      elo: safeNumber(entry.elo ?? entry.ELO),
+      irating: safeNumber(entry.irating ?? entry.iRating ?? entry.ir),
+      pace: safeNumber(entry.pace ?? entry.paceIndex ?? entry.pace_rating),
+    };
+
+    // misc notes
+    const notes = [];
+    if (entry.carModel) notes.push("Car: " + entry.carModel);
+    if (entry.car) notes.push("Car: " + (entry.car.name || entry.car));
+    if (entry.nationality) notes.push(entry.nationality);
+
+    return {
+      raw: entry,
+      name: String(name).trim(),
+      team: String(team).trim(),
+      seeds: seedMap,
+      notes: notes.join(" • "),
+    };
+  }
+
+  function detectSeedField(driversArr) {
+    // Pick the first field where at least 30% of drivers have a numeric value
+    const fields = ["rating", "elo", "irating", "pace"];
+    let best = null;
+    let bestCount = 0;
+
+    for (const f of fields) {
+      const count = driversArr.filter(d => d.seeds[f] !== null).length;
+      if (count > bestCount) {
+        bestCount = count;
+        best = f;
+      }
+    }
+    return bestCount ? best : "name";
+  }
+
+  function getSeedValue(d, field) {
+    if (field === "name") return d.name.toLowerCase();
+    if (field === "lastname") {
+      const parts = d.name.split(" ").filter(Boolean);
+      return (parts[parts.length - 1] || d.name).toLowerCase();
+    }
+    // numeric
+    const v = d.seeds[field];
+    // if missing, push to bottom
+    return v === null ? -Infinity : v;
+  }
+
+  function sortDrivers(list, seedField) {
+    const chosen = seedField === "auto" ? detectSeedField(list) : seedField;
+
+    // Name sorts ascending; numeric sorts descending (higher rating first)
+    const isAlpha = (chosen === "name" || chosen === "lastname");
+
+    const sorted = [...list].sort((a, b) => {
+      const av = getSeedValue(a, chosen);
+      const bv = getSeedValue(b, chosen);
+
+      if (isAlpha) return String(av).localeCompare(String(bv));
+      // numeric descending
+      return Number(bv) - Number(av);
+    });
+
+    return { sorted, chosen };
+  }
+
+  function makeSplitsTopDown(sorted, size) {
+    const out = [];
+    for (let i = 0; i < sorted.length; i += size) {
+      out.push(sorted.slice(i, i + size));
+    }
+    return out;
+  }
+
+  function makeSplitsSnake(sorted, size) {
+    const splitCount = Math.ceil(sorted.length / size);
+    const buckets = Array.from({length: splitCount}, () => []);
+    let dir = 1; // 1 forward, -1 backward
+    let idx = 0;
+
+    for (const d of sorted) {
+      buckets[idx].push(d);
+      // move idx
+      if (dir === 1) {
+        if (idx === splitCount - 1) { dir = -1; }
+        else idx++;
+      } else {
+        if (idx === 0) { dir = 1; }
+        else idx--;
+      }
+    }
+    return buckets.filter(b => b.length);
+  }
+
+  function renderDrivers(list, seedFieldUsed) {
+    el("driverCount").textContent = list.length;
+    const tbody = el("driversTbody");
+    tbody.innerHTML = "";
+
+    list.forEach((d, i) => {
+      const seedVal = (seedFieldUsed === "name" || seedFieldUsed === "lastname")
+        ? "-"
+        : (d.seeds[seedFieldUsed] ?? "-");
+
+      const tr = document.createElement("tr");
+      tr.className = "border-b border-zinc-800/60";
+      tr.innerHTML = `
+        <td class="py-2 pr-3 text-zinc-400">${i + 1}</td>
+        <td class="py-2 pr-3 font-semibold">${escapeHtml(d.name)}</td>
+        <td class="py-2 pr-3 text-zinc-300">${escapeHtml(d.team || "")}</td>
+        <td class="py-2 pr-3 text-zinc-300 font-mono">${escapeHtml(String(seedVal))}</td>
+        <td class="py-2 pr-3 text-zinc-500">${escapeHtml(d.notes || "")}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderSplits(splitsArr, seedFieldUsed) {
+    el("splitCount").textContent = splitsArr.length;
+    const wrap = el("splitsWrap");
+    wrap.innerHTML = "";
+
+    splitsArr.forEach((bucket, idx) => {
+      const card = document.createElement("div");
+      card.className = "bg-zinc-950/40 border border-zinc-800 rounded-2xl p-4";
+
+      const rows = bucket.map((d, i) => {
+        const seedVal = (seedFieldUsed === "name" || seedFieldUsed === "lastname")
+          ? ""
+          : ` <span class="text-zinc-500 font-mono">(${d.seeds[seedFieldUsed] ?? "-"})</span>`;
+
+        return `<div class="flex justify-between gap-3 py-1 border-b border-zinc-800/40 last:border-0">
+          <div class="text-zinc-400 w-8">${i + 1}.</div>
+          <div class="flex-1 font-semibold">${escapeHtml(d.name)}${seedVal}</div>
+          <div class="text-zinc-400">${escapeHtml(d.team || "")}</div>
+        </div>`;
+      }).join("");
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <div class="font-bold text-lg">Split ${idx + 1}</div>
+          <div class="text-xs text-zinc-500">Drivers: ${bucket.length}</div>
+        </div>
+        <div class="text-xs text-zinc-500 mb-3">Seeded by: <span class="font-mono">${escapeHtml(seedFieldUsed)}</span></div>
+        <div class="text-sm">${rows}</div>
+      `;
+      wrap.appendChild(card);
+    });
+  }
+
+  function formatDiscord(splitsArr) {
+    // Discord-friendly code block text
+    const lines = [];
+    lines.push("**IFWL Splits**");
+    splitsArr.forEach((bucket, idx) => {
+      lines.push(`\n__Split ${idx + 1}__`);
+      bucket.forEach((d, i) => {
+        const teamPart = d.team ? ` — ${d.team}` : "";
+        lines.push(`${String(i + 1).padStart(2, " ")}. ${d.name}${teamPart}`);
+      });
+    });
+    return lines.join("\n");
+  }
+
+  function exportSplitsJson() {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      splitSize: Number(el("splitSize").value || 30),
+      seedField: el("seedField").value,
+      splitMethod: el("splitMethod").value,
+      splits: splits.map((bucket, idx) => ({
+        split: idx + 1,
+        drivers: bucket.map(d => ({
+          name: d.name,
+          team: d.team,
+          seeds: d.seeds
+        }))
+      }))
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ifwl_splits.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  // =========================
+  // Actions
+  // =========================
+  async function handleFileUpload(file) {
+    const text = await file.text();
+    try {
+      rawJson = JSON.parse(text);
+      setStatus("Loaded JSON from file: " + file.name);
+    } catch (e) {
+      rawJson = null;
+      setStatus("❌ Failed to parse JSON: " + e.message);
+    }
+  }
+
+  function parseJsonToDrivers() {
+    if (!rawJson) {
+      setStatus("❌ No JSON loaded yet. Upload a file or click 'Load sample JSON'.");
+      return;
+    }
+
+    const arr = findEntriesArray(rawJson);
+    if (!arr || !arr.length) {
+      setStatus("❌ Could not find an entries array. Try a different SimGrid JSON export, or paste the structure here and I’ll adapt it.");
+      setFields("No entries array detected.");
+      drivers = [];
+      renderDrivers([], "auto");
+      return;
+    }
+
+    drivers = arr.map(normalizeDriver);
+
+    // show detected keys (first item)
+    const first = arr[0] || {};
+    const keys = Object.keys(first).slice(0, 80);
+    setFields(
+      "Entries array length: " + arr.length + "\n" +
+      "First entry keys (sample):\n" + keys.join(", ")
+    );
+
+    const { sorted, chosen } = sortDrivers(drivers, el("seedField").value);
+    drivers = sorted;
+
+    setStatus(
+      "✅ Parsed drivers: " + drivers.length + "\n" +
+      "Auto chosen seed field: " + chosen + " (if you selected Auto)"
+    );
+
+    renderDrivers(drivers, chosen);
+  }
+
+  function generateSplits() {
+    if (!drivers.length) {
+      setStatus("❌ No drivers parsed yet. Click 'Parse JSON' first.");
+      return;
+    }
+
+    const size = Math.max(2, Math.min(100, Number(el("splitSize").value || 30)));
+    const seedSetting = el("seedField").value;
+
+    const { sorted, chosen } = sortDrivers(drivers, seedSetting);
+
+    const method = el("splitMethod").value;
+    splits = (method === "snake")
+      ? makeSplitsSnake(sorted, size)
+      : makeSplitsTopDown(sorted, size);
+
+    setStatus(
+      "✅ Splits generated\n" +
+      "Drivers: " + sorted.length + "\n" +
+      "Split size: " + size + "\n" +
+      "Method: " + method + "\n" +
+      "Seed field used: " + chosen + "\n" +
+      "Split count: " + splits.length
+    );
+
+    renderDrivers(sorted, chosen);
+    renderSplits(splits, chosen);
+  }
+
+  async function copyDiscord() {
+    if (!splits.length) {
+      setStatus("❌ No splits generated yet.");
+      return;
+    }
+    const text = formatDiscord(splits);
+    await navigator.clipboard.writeText(text);
+    setStatus("✅ Copied Discord text to clipboard.");
+  }
+
+  function loadSampleJson() {
+    // A sample structure that mimics typical entry list exports (array under "entries")
+    rawJson = {
+      event: { name: "TEST EVENT", platform: "ACC", provider: "SimGrid (sample)" },
+      entries: Array.from({length: 78}, (_, i) => ({
+        name: `Driver ${String(i+1).padStart(2,"0")}`,
+        teamName: i % 3 === 0 ? "IFWL Academy" : (i % 3 === 1 ? "IFWL Racing" : "IFWL GT3"),
+        rating: Math.floor(1000 + Math.random() * 4000),
+        carModel: ["Ferrari 296", "BMW M4", "Porsche 992", "McLaren 720s Evo"][i % 4]
+      }))
+    };
+    setStatus("Loaded sample JSON with 78 drivers.");
+    setFields("Sample loaded. Click 'Parse JSON'.");
+  }
+
+  function clearAll() {
+    rawJson = null;
+    drivers = [];
+    splits = [];
+    el("driversTbody").innerHTML = "";
+    el("splitsWrap").innerHTML = "";
+    el("driverCount").textContent = "0";
+    el("splitCount").textContent = "0";
+    setStatus("Cleared.");
+    setFields("");
+  }
+
+  async function postSplits() {
+    if (!splits.length) {
+      setStatus("❌ No splits generated yet.");
+      return;
+    }
+    // IMPORTANT: This is only safe if your Apps Script validates requests.
+    const payload = {
+      type: "IFWL_SPLITS_TEST",
+      generatedAt: new Date().toISOString(),
+      splitSize: Number(el("splitSize").value || 30),
+      splitMethod: el("splitMethod").value,
+      seedField: el("seedField").value,
+      splits: splits.map((bucket, idx) => ({
+        split: idx + 1,
+        drivers: bucket.map(d => ({ name: d.name, team: d.team, seeds: d.seeds }))
+      }))
+    };
+
+    setStatus("Posting to Apps Script...");
+    try {
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const text = await res.text();
+      setStatus("✅ POST complete\nHTTP " + res.status + "\nResponse:\n" + text.slice(0, 1000));
+    } catch (e) {
+      setStatus("❌ POST failed: " + e.message);
+    }
+  }
+
+  // =========================
+  // Wire up UI
+  // =========================
+  el("fileInput").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    await handleFileUpload(file);
+  });
+
+  el("btnLoadSample").addEventListener("click", loadSampleJson);
+  el("btnClear").addEventListener("click", clearAll);
+  el("btnParse").addEventListener("click", parseJsonToDrivers);
+  el("btnMakeSplits").addEventListener("click", generateSplits);
+  el("btnCopyDiscord").addEventListener("click", copyDiscord);
+  el("btnExportSplits").addEventListener("click", exportSplitsJson);
+
+  el("enablePost").addEventListener("change", (e) => {
+    el("btnPost").disabled = !e.target.checked;
+  });
+  el("btnPost").addEventListener("click", postSplits);
+
+  setStatus("Ready. Upload a JSON file or load the sample.");
+</script>
+</body>
+</html>
