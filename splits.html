@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IFWL Splits</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-900">
+  <div class="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
+
+    <header class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <h1 id="title" class="text-2xl md:text-3xl font-extrabold tracking-tight">IFWL Splits</h1>
+      <div class="mt-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <a id="simgridLink" class="text-sm text-blue-700 font-semibold hover:underline" href="#" target="_blank" rel="noopener"></a>
+        <div id="publishedAt" class="text-xs text-slate-500"></div>
+      </div>
+      <div id="notes" class="mt-3 text-sm text-slate-700 whitespace-pre-wrap"></div>
+    </header>
+
+    <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <div id="status" class="text-sm text-slate-600">Loading latest splits…</div>
+      <div id="splitsWrap" class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+    </section>
+
+  </div>
+
+<script>
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1EZhYUpQ0_eS-E8sbj3i7bsVLyLAKmn8UX_ydQBXY1N5GlFYwgEjiQIXGyrJriUY86g/exec";
+
+
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+
+  async function loadLatest() {
+    try {
+      const url = APPS_SCRIPT_URL + "?action=latest";
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!data.ok) throw new Error(data.error || "Failed");
+
+      const payload = data.payload;
+
+      el("status").textContent = "";
+      el("title").textContent = payload.eventName || "IFWL Splits";
+
+      const simgridUrl = payload.simgridUrl || "";
+      const linkEl = el("simgridLink");
+      if (simgridUrl) {
+        linkEl.href = simgridUrl;
+        linkEl.textContent = "SimGrid Event Link";
+      } else {
+        linkEl.textContent = "";
+        linkEl.removeAttribute("href");
+      }
+
+      el("publishedAt").textContent = data.publishedAt ? ("Last updated: " + data.publishedAt) : "";
+      el("notes").textContent = payload.notes || "";
+
+      // render splits
+      const wrap = el("splitsWrap");
+      wrap.innerHTML = "";
+
+      (payload.splits || []).forEach((splitObj) => {
+        const card = document.createElement("div");
+        card.className = "bg-slate-50 border border-slate-200 rounded-2xl p-4";
+
+        const rows = (splitObj.drivers || []).map((d, i) => `
+          <div class="flex justify-between gap-3 py-1 border-b border-slate-200/70 last:border-0">
+            <div class="text-slate-500 w-8">${i+1}.</div>
+            <div class="flex-1">
+              <div class="font-semibold">${esc(d.name)}</div>
+              <div class="text-xs text-slate-600">${esc(d.carName || "")}</div>
+            </div>
+            <div class="text-slate-600 text-xs font-mono text-right">${esc(d.raceNumber ? "#" + d.raceNumber : "")}</div>
+          </div>
+        `).join("");
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-extrabold text-lg">Split ${esc(splitObj.split)}</div>
+            <div class="text-xs text-slate-600">Drivers: ${(splitObj.drivers || []).length}</div>
+          </div>
+          <div class="text-sm">${rows}</div>
+        `;
+        wrap.appendChild(card);
+      });
+
+      if (!(payload.splits || []).length) {
+        el("status").textContent = "No splits published yet.";
+      }
+
+    } catch (err) {
+      el("status").textContent = "Could not load splits. " + String(err);
+    }
+  }
+
+  loadLatest();
+</script>
+</body>
+</html>
