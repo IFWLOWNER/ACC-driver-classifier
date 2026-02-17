@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IFWL RT Role Gate</title>
+  <title>IFWL Season Rules Gate</title>
   <style>
     body { font-family: system-ui, Arial; background:#0b0f17; color:#e6eefc; margin:0; padding:40px; }
     .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:22px; }
@@ -14,17 +14,34 @@
     .ok { background:#0f2a1b; border:1px solid #1f6b3b; }
     .bad { background:#2a1414; border:1px solid #7a2a2a; }
     code { background:#0b1220; padding:2px 6px; border-radius:6px; }
+    .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .btnSecondary { background:#334155; }
+    .btnRules { background:#16a34a; }
+    a.linkbtn { display:inline-block; text-decoration:none; background:#334155; color:white; padding:12px 14px; border-radius:10px; font-weight:700; }
+    a.linkbtn:hover { filter:brightness(1.05); }
+    ul { margin:8px 0 0 18px; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>IFWL Race Team Gate (Test v4)</h1>
+    <h1>IFWL Season Rules Access (v1)</h1>
     <p class="muted">
-      Login with Discord. If you have <b>IFWL Race team Assessor</b> or <b>IFWL RACE TEAM ACC</b>, you’ll get access.
+      Login with Discord. To access the rules you must have <b>BOTH</b> required roles:
+      <b>SIMGRIDEVENTMEMBER</b> and <b>IFWL ACTIVE RACER</b>.
     </p>
 
-    <button id="loginBtn">Login with Discord</button>
-    <button id="logoutBtn" style="display:none;background:#334155;margin-left:8px;">Logout</button>
+    <div class="actions">
+      <button id="loginBtn">Login with Discord</button>
+      <button id="logoutBtn" class="btnSecondary" style="display:none;">Logout</button>
+
+      <!-- Only appears when user has BOTH roles -->
+      <button id="rulesBtn" class="btnRules" style="display:none;">Open Season Rules</button>
+
+      <!-- Only appears when user does NOT have BOTH roles -->
+      <a id="signupLink" class="linkbtn" style="display:none;" href="https://ifwl.net" target="_blank" rel="noopener">
+        Go to IFWL.net (Driver Profile)
+      </a>
+    </div>
 
     <div id="result" class="status" style="display:none;"></div>
 
@@ -35,13 +52,22 @@
   </div>
 
   <script>
+    // Your existing Cloud Function endpoint
     const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
     const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+    // REQUIRED role IDs (MUST HAVE BOTH)
+    const REQUIRED_ROLE_IDS = [
+      "1452080618799235224", // SIMGRIDEVENTMEMBER
+      "1166713466917224449"  // IFWL ACTIVE RACER
+    ];
 
     document.getElementById("endpointHint").textContent = FUNCTION;
 
     const loginBtn = document.getElementById("loginBtn");
     const logoutBtn = document.getElementById("logoutBtn");
+    const rulesBtn = document.getElementById("rulesBtn");
+    const signupLink = document.getElementById("signupLink");
     const resultBox = document.getElementById("result");
 
     function show(status, ok) {
@@ -59,6 +85,41 @@
       return String(s || "").replace(/[&<>"']/g, c =>
         ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])
       );
+    }
+
+    function getSessionToken() {
+      return localStorage.getItem("IFWL_RT_SESSION") || "";
+    }
+
+    function clearSession() {
+      localStorage.removeItem("IFWL_RT_SESSION");
+      localStorage.removeItem("IFWL_RT_USER");
+    }
+
+    function hasBothRequiredRoles(memberRoleIds) {
+      const roles = Array.isArray(memberRoleIds) ? memberRoleIds.map(String) : [];
+      return REQUIRED_ROLE_IDS.every(req => roles.includes(req));
+    }
+
+    function applyAccessUI({ username, granted }) {
+      if (granted) {
+        rulesBtn.style.display = "inline-block";
+        signupLink.style.display = "none";
+        show(`✅ Access granted for <b>${escapeHtml(username || "user")}</b>. You can open the season rules.`, true);
+      } else {
+        rulesBtn.style.display = "none";
+        signupLink.style.display = "inline-block";
+        show(
+          `⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(username || "user")}<br/><br/>` +
+          `To access the season rules, you must have <b>BOTH</b> Discord roles:<br/>` +
+          `<ul>` +
+          `<li><b>SIMGRIDEVENTMEMBER</b></li>` +
+          `<li><b>IFWL ACTIVE RACER</b></li>` +
+          `</ul>` +
+          `<br/>If you’re missing one, please go to <b>IFWL.net</b> and complete <b>Driver Profile signup</b>.`,
+          false
+        );
+      }
     }
 
     async function startLogin() {
@@ -89,45 +150,61 @@
       const r = await fetch(checkUrl);
       const data = await r.json();
 
-      // clean URL
+      // Clean URL
       history.replaceState({}, document.title, REDIRECT_URI);
 
       setLoggedInUI(true);
 
-      if (data.accessGranted) {
-        // store session for the hub (if backend sent one)
-        if (data.sessionToken) {
-          localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
-          localStorage.setItem("IFWL_RT_USER", JSON.stringify({
-            username: data.username,
-            userId: data.userId,
-            isAssessor: !!data.isAssessor
-          }));
-        }
-
-        // go to the hub
-        window.location.href = "RT-HUB.html";
-        return;
-      } else {
-        show(`⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username || "user")}`, false);
-        return;
+      // Store session token if backend provides one (recommended for gated rules endpoint)
+      if (data.sessionToken) {
+        localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
       }
+
+      // IMPORTANT:
+      // For the "both roles" requirement, the backend should ideally return memberRoleIds (array of role IDs).
+      // If it doesn't yet, we fall back to data.accessGranted (but that means the backend must implement BOTH-role logic).
+      const memberRoleIds = data.memberRoleIds; // <--- backend should include this
+      const granted = Array.isArray(memberRoleIds)
+        ? hasBothRequiredRoles(memberRoleIds)
+        : !!data.rulesGranted || !!data.accessGranted; // fallback
+
+      // Save user snapshot
+      localStorage.setItem("IFWL_RT_USER", JSON.stringify({
+        username: data.username,
+        userId: data.userId,
+        granted: granted
+      }));
+
+      applyAccessUI({ username: data.username, granted });
     }
 
-    // Button wiring MUST be outside handleCallback()
+    // Rules button uses a gated backend endpoint. Backend MUST verify token + roles.
+    rulesBtn.addEventListener("click", () => {
+      const token = getSessionToken();
+      if (!token) {
+        show("❌ No session token found. Please login again.", false);
+        setLoggedInUI(false);
+        rulesBtn.style.display = "none";
+        signupLink.style.display = "none";
+        return;
+      }
+      const rulesUrl = FUNCTION + `?rules=1&token=${encodeURIComponent(token)}`;
+      window.open(rulesUrl, "_blank", "noopener");
+    });
+
     loginBtn.addEventListener("click", () => {
       startLogin().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
     });
 
-    // For now, “logout” is just UI reset (we’re not storing a session here)
     logoutBtn.addEventListener("click", () => {
-      localStorage.removeItem("IFWL_RT_SESSION");
-      localStorage.removeItem("IFWL_RT_USER");
+      clearSession();
       setLoggedInUI(false);
+      rulesBtn.style.display = "none";
+      signupLink.style.display = "none";
       show("Logged out.", true);
     });
 
-    // run callback handler on load
+    // Run callback handler on load
     handleCallback().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
   </script>
 </body>
