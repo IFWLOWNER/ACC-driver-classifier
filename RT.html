@@ -9,22 +9,23 @@
     .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:22px; }
     button { background:#5865F2; color:white; border:0; padding:12px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
     button:hover { filter:brightness(1.05); }
+    .btnSecondary { background:#334155; }
     .muted { opacity:.8; font-size:14px; }
     .status { margin-top:14px; padding:12px; border-radius:10px; }
     .ok { background:#0f2a1b; border:1px solid #1f6b3b; }
     .bad { background:#2a1414; border:1px solid #7a2a2a; }
     code { background:#0b1220; padding:2px 6px; border-radius:6px; }
     .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .btnSecondary { background:#334155; }
-    .btnRules { background:#16a34a; }
     a.linkbtn { display:inline-block; text-decoration:none; background:#334155; color:white; padding:12px 14px; border-radius:10px; font-weight:700; }
     a.linkbtn:hover { filter:brightness(1.05); }
-    ul { margin:8px 0 0 18px; }
+
+    /* Rules/Eligibility block */
+    #rulesOrEligibility { margin-top: 14px; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>IFWL Season Rules Access (v1)</h1>
+    <h1>IFWL Season 2 Rules Access</h1>
     <p class="muted">
       Login with Discord. To access the rules you must have <b>BOTH</b> required roles:
       <b>SIMGRIDEVENTMEMBER</b> and <b>IFWL ACTIVE RACER</b>.
@@ -33,17 +34,10 @@
     <div class="actions">
       <button id="loginBtn">Login with Discord</button>
       <button id="logoutBtn" class="btnSecondary" style="display:none;">Logout</button>
-
-      <!-- Only appears when user has BOTH roles -->
-      <button id="rulesBtn" class="btnRules" style="display:none;">Open Season Rules</button>
-
-      <!-- Only appears when user does NOT have BOTH roles -->
-      <a id="signupLink" class="linkbtn" style="display:none;" href="https://ifwl.net" target="_blank" rel="noopener">
-        Go to IFWL.net (Driver Profile)
-      </a>
     </div>
 
     <div id="result" class="status" style="display:none;"></div>
+    <div id="rulesOrEligibility"></div>
 
     <p class="muted" style="margin-top:16px;">
       Tip: This page expects a backend endpoint at:<br/>
@@ -62,12 +56,13 @@
       "1166713466917224449"  // IFWL ACTIVE RACER
     ];
 
+    // Rules URL (public page, but we only show link if eligible)
+    const RULES_URL = "https://ifwlowner.github.io/ACC-driver-classifier/s2rules.html";
+
     document.getElementById("endpointHint").textContent = FUNCTION;
 
     const loginBtn = document.getElementById("loginBtn");
     const logoutBtn = document.getElementById("logoutBtn");
-    const rulesBtn = document.getElementById("rulesBtn");
-    const signupLink = document.getElementById("signupLink");
     const resultBox = document.getElementById("result");
 
     function show(status, ok) {
@@ -87,10 +82,6 @@
       );
     }
 
-    function getSessionToken() {
-      return localStorage.getItem("IFWL_RT_SESSION") || "";
-    }
-
     function clearSession() {
       localStorage.removeItem("IFWL_RT_SESSION");
       localStorage.removeItem("IFWL_RT_USER");
@@ -101,24 +92,48 @@
       return REQUIRED_ROLE_IDS.every(req => roles.includes(req));
     }
 
-    function applyAccessUI({ username, granted }) {
-      if (granted) {
-        rulesBtn.style.display = "inline-block";
-        signupLink.style.display = "none";
-        show(`✅ Access granted for <b>${escapeHtml(username || "user")}</b>. You can open the season rules.`, true);
+    // ✅ Your requested renderer (green -> show rules link, red -> show eligibility steps)
+    function renderRulesOrEligibility(isGreen) {
+      const el = document.getElementById("rulesOrEligibility");
+      if (!el) return;
+
+      if (isGreen) {
+        el.innerHTML = `
+          <div style="margin-top:12px; padding:12px; border:1px solid #bbf7d0; background:#ecfdf5; border-radius:14px;">
+            <div style="font-weight:800; color:#065f46;">You’re eligible.</div>
+            <div style="margin-top:6px; color:#065f46; font-size:14px;">
+              Click below to view the Season 2 Rules.
+            </div>
+            <a href="${RULES_URL}"
+              target="_blank" rel="noopener noreferrer"
+              style="display:inline-block; margin-top:10px; padding:10px 14px; border-radius:12px;
+                    text-decoration:none; font-weight:800; border:1px solid #bbf7d0; background:#fff;">
+              📘 Season 2 Rules
+            </a>
+          </div>
+        `;
       } else {
-        rulesBtn.style.display = "none";
-        signupLink.style.display = "inline-block";
-        show(
-          `⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(username || "user")}<br/><br/>` +
-          `To access the season rules, you must have <b>BOTH</b> Discord roles:<br/>` +
-          `<ul>` +
-          `<li><b>SIMGRIDEVENTMEMBER</b></li>` +
-          `<li><b>IFWL ACTIVE RACER</b></li>` +
-          `</ul>` +
-          `<br/>If you’re missing one, please go to <b>IFWL.net</b> and complete <b>Driver Profile signup</b>.`,
-          false
-        );
+        el.innerHTML = `
+          <div style="margin-top:12px; padding:12px; border:1px solid #fecaca; background:#fff5f5; border-radius:14px;">
+            <div style="font-weight:900; color:#7f1d1d;">You’re not eligible yet.</div>
+            <div style="margin-top:6px; color:#7f1d1d; font-size:14px;">
+              To access the rules you need <b>BOTH</b>:
+            </div>
+            <ol style="margin:10px 0 0 18px; color:#7f1d1d; font-size:14px;">
+              <li>
+                <strong>Be in an IFWL SimGrid hosted event</strong> (you must be signed up/registered and active on the event).
+              </li>
+              <li>
+                <strong>Have a fully updated Driver Profile on</strong>
+                <a href="https://ifwl.net" target="_blank" rel="noopener noreferrer" style="font-weight:900; color:#7f1d1d;">
+                  www.ifwl.net
+                </a>.
+                Once complete, your IFWL Discord name will show correctly formatted like:
+                <span style="font-family:monospace; font-weight:900;">[ 81 ] - drivername</span>
+              </li>
+            </ol>
+          </div>
+        `;
       }
     }
 
@@ -137,6 +152,7 @@
 
       if (error) {
         show(`❌ Discord login error: <b>${escapeHtml(error)}</b>`, false);
+        renderRulesOrEligibility(false);
         return;
       }
       if (!code) return;
@@ -155,57 +171,51 @@
 
       setLoggedInUI(true);
 
-      // Store session token if backend provides one (recommended for gated rules endpoint)
-      if (data.sessionToken) {
-        localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
-      }
+      // If backend provides role IDs, we enforce BOTH-role logic here.
+      // If backend does NOT provide memberRoleIds, then backend must enforce BOTH-role logic and return rulesGranted=true/false.
+      const memberRoleIds = data.memberRoleIds;
 
-      // IMPORTANT:
-      // For the "both roles" requirement, the backend should ideally return memberRoleIds (array of role IDs).
-      // If it doesn't yet, we fall back to data.accessGranted (but that means the backend must implement BOTH-role logic).
-      const memberRoleIds = data.memberRoleIds; // <--- backend should include this
       const granted = Array.isArray(memberRoleIds)
         ? hasBothRequiredRoles(memberRoleIds)
-        : !!data.rulesGranted || !!data.accessGranted; // fallback
+        : !!data.rulesGranted; // prefer rulesGranted if backend implements it
 
-      // Save user snapshot
       localStorage.setItem("IFWL_RT_USER", JSON.stringify({
         username: data.username,
         userId: data.userId,
-        granted: granted
+        granted
       }));
 
-      applyAccessUI({ username: data.username, granted });
+      if (granted) {
+        show(`✅ Access granted for <b>${escapeHtml(data.username || "user")}</b>.`, true);
+        renderRulesOrEligibility(true);
+      } else {
+        show(
+          `⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username || "user")}`,
+          false
+        );
+        renderRulesOrEligibility(false);
+      }
     }
 
-    // Rules button uses a gated backend endpoint. Backend MUST verify token + roles.
-    rulesBtn.addEventListener("click", () => {
-      const token = getSessionToken();
-      if (!token) {
-        show("❌ No session token found. Please login again.", false);
-        setLoggedInUI(false);
-        rulesBtn.style.display = "none";
-        signupLink.style.display = "none";
-        return;
-      }
-      const rulesUrl = FUNCTION + `?rules=1&token=${encodeURIComponent(token)}`;
-      window.open(rulesUrl, "_blank", "noopener");
-    });
-
     loginBtn.addEventListener("click", () => {
-      startLogin().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
+      startLogin().catch(e => {
+        show(`❌ ${escapeHtml(e.message || e)}`, false);
+        renderRulesOrEligibility(false);
+      });
     });
 
     logoutBtn.addEventListener("click", () => {
       clearSession();
       setLoggedInUI(false);
-      rulesBtn.style.display = "none";
-      signupLink.style.display = "none";
       show("Logged out.", true);
+      document.getElementById("rulesOrEligibility").innerHTML = "";
     });
 
     // Run callback handler on load
-    handleCallback().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
+    handleCallback().catch(e => {
+      show(`❌ ${escapeHtml(e.message || e)}`, false);
+      renderRulesOrEligibility(false);
+    });
   </script>
 </body>
 </html>
