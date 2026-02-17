@@ -164,6 +164,16 @@
     .commentBox { border:1px solid #e5e7eb; border-radius:12px; padding:12px; background:#fff; }
     .commentMeta { font-size:12px; color:#6b7280; margin-top:4px; }
 
+    /* NEW: Rules audit table */
+    .tableWrap { overflow:auto; -webkit-overflow-scrolling:touch; border:1px solid #e5e7eb; border-radius:12px; }
+    table { border-collapse:collapse; width:100%; min-width:860px; background:#fff; }
+    th, td { text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; font-size:13px; vertical-align:top; }
+    th { background:#f9fafb; font-weight:900; position:sticky; top:0; z-index:1; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .miniPill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #e5e7eb; background:#fff; }
+    .miniOk { border-color:#86efac; background:#ecfdf5; color:#065f46; font-weight:900; }
+    .miniBad { border-color:#fca5a5; background:#fef2f2; color:#991b1b; font-weight:900; }
+
     @media (max-width: 980px) {
       header { flex-direction:column; align-items:stretch; }
       header .row { width:100%; }
@@ -415,6 +425,51 @@
             Note: the Head Steward’s aggregate CAUSE score is primarily used to break tied votes.
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEW: Rules access audit logs (added below everything above) -->
+  <div style="padding:14px; padding-top:0;">
+    <div class="card" id="rulesAuditCard">
+      <div class="row" style="justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div class="title" style="margin:0;">Season Rules Access Audit</div>
+          <div class="muted" id="rulesAuditSub">Shows Discord users who have opened the Season Rules via the gateway (Firestore: <code>rules_access</code>).</div>
+        </div>
+        <div class="row" style="gap:10px;">
+          <button id="rulesAuditRefreshBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div style="flex:1; min-width:240px;">
+          <label class="muted">Search (username or userId)</label>
+          <input id="rulesAuditSearch" placeholder="e.g. bobbins3425 or 6553497…" />
+        </div>
+        <div class="pill" id="rulesAuditPill">Loading…</div>
+      </div>
+
+      <div style="margin-top:10px;" class="tableWrap">
+        <table aria-label="Rules access audit table">
+          <thead>
+            <tr>
+              <th>Discord</th>
+              <th>User ID</th>
+              <th>First access</th>
+              <th>Last access</th>
+              <th>Count</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="rulesAuditTbody">
+            <tr><td colspan="6" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="muted" style="margin-top:10px;">
+        Tip: This logs access only when users go through the Rules Gateway (the green button). Direct visits to GitHub rules page won’t be recorded.
       </div>
     </div>
   </div>
@@ -950,7 +1005,6 @@ async function loadPenaltyCodes() {
 
     $("acctRefreshBtn").onclick = () => loadMyAccountability();
 
-
     loadMyReviewBtn.onclick = () => loadMyReview();
     submitReviewBtn.onclick = () => submitMyReview();
     if (postDiscussionBtn) postDiscussionBtn.onclick = () => postDiscussion();
@@ -958,6 +1012,12 @@ const postPenaltyOpinionBtn = $("postPenaltyOpinionBtn");
 if (postPenaltyOpinionBtn) postPenaltyOpinionBtn.onclick = () => postPenaltyOpinion();
     const recuseBtn = $("recuseBtn");
 if (recuseBtn) recuseBtn.onclick = () => recuseYourself();
+
+    // NEW: Rules audit wiring
+    const rulesAuditRefreshBtn = $("rulesAuditRefreshBtn");
+    const rulesAuditSearchEl = $("rulesAuditSearch");
+    if (rulesAuditRefreshBtn) rulesAuditRefreshBtn.onclick = () => loadRulesAudit();
+    if (rulesAuditSearchEl) rulesAuditSearchEl.oninput = () => renderRulesAuditFiltered();
 
     // ---------- gating ----------
     auth.onAuthStateChanged(async (user) => {
@@ -991,10 +1051,128 @@ setDiscussionPenaltyPreviewFromSelected();
 
 await loadTickets();
 await loadMyAccountability();
+
+// NEW: load rules audit
+await loadRulesAudit();
+
       } catch (e) {
         toast("Auth error: " + (e?.message || e));
       }
     });
+
+    // ---------- Rules Access Audit (NEW) ----------
+    let rulesAuditCache = []; // [{userId, username, firstAccessAt, lastAccessAt, count}]
+    function toDateSafe(ts) {
+      try {
+        if (!ts) return null;
+        if (ts.toDate) return ts.toDate();
+        if (typeof ts === "string") {
+          const d = new Date(ts);
+          return isNaN(d.getTime()) ? null : d;
+        }
+        return null;
+      } catch { return null; }
+    }
+
+    function fmtDate(ts) {
+      const d = toDateSafe(ts);
+      return d ? d.toLocaleString() : "—";
+    }
+
+    function renderRulesAuditFiltered() {
+      const tbody = $("rulesAuditTbody");
+      const pill = $("rulesAuditPill");
+      const sub = $("rulesAuditSub");
+      if (!tbody || !pill || !sub) return;
+
+      const q = String(($("rulesAuditSearch")?.value || "")).toLowerCase().trim();
+
+      const filtered = rulesAuditCache.filter(r => {
+        const u = String(r.username || "").toLowerCase();
+        const id = String(r.userId || "").toLowerCase();
+        return !q || u.includes(q) || id.includes(q);
+      });
+
+      pill.innerHTML = `Rows: <strong>${filtered.length}</strong> / ${rulesAuditCache.length}`;
+
+      if (!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="muted">No results.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = "";
+      for (const r of filtered) {
+        const ok = (Number(r.count || 0) >= 1);
+        const status = ok
+          ? `<span class="miniPill miniOk">READ ✅</span>`
+          : `<span class="miniPill miniBad">NO READ</span>`;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(r.username || "—")}</td>
+          <td class="mono">${escapeHtml(r.userId || "—")}</td>
+          <td>${escapeHtml(fmtDate(r.firstAccessAt))}</td>
+          <td>${escapeHtml(fmtDate(r.lastAccessAt))}</td>
+          <td><span class="miniPill"><strong>${escapeHtml(String(r.count ?? 0))}</strong></span></td>
+          <td>${status}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function loadRulesAudit() {
+      const tbody = $("rulesAuditTbody");
+      const pill = $("rulesAuditPill");
+      const sub = $("rulesAuditSub");
+      if (!tbody || !pill || !sub) return;
+
+      tbody.innerHTML = `<tr><td colspan="6" class="muted">Loading…</td></tr>`;
+      pill.textContent = "Loading…";
+
+      try {
+        // Prefer orderBy lastAccessAt, fall back to unordered if index/rules complain.
+        let snap = null;
+        try {
+          snap = await db.collection("rules_access")
+            .orderBy("lastAccessAt", "desc")
+            .limit(1000)
+            .get();
+        } catch (e) {
+          console.warn("rules_access ordered query failed; trying unordered:", e);
+          snap = await db.collection("rules_access")
+            .limit(1000)
+            .get();
+        }
+
+        const rows = snap.docs.map(d => {
+          const x = d.data() || {};
+          return {
+            userId: String(x.userId || d.id || "").trim(),
+            username: String(x.username || "").trim(),
+            firstAccessAt: x.firstAccessAt || null,
+            lastAccessAt: x.lastAccessAt || null,
+            count: Number(x.count ?? 0)
+          };
+        });
+
+        // If unordered, sort client-side by lastAccessAt desc
+        rows.sort((a,b) => {
+          const da = toDateSafe(a.lastAccessAt);
+          const dbb = toDateSafe(b.lastAccessAt);
+          const aa = da ? da.getTime() : 0;
+          const bb = dbb ? dbb.getTime() : 0;
+          return bb - aa;
+        });
+
+        rulesAuditCache = rows;
+        sub.innerHTML = `Showing users who opened the rules via the gateway. Source: <code>rules_access</code>.`;
+        renderRulesAuditFiltered();
+      } catch (e) {
+        console.error("loadRulesAudit failed:", e);
+        tbody.innerHTML = `<tr><td colspan="6" class="muted">Failed to load rules access audit (check console / Firestore rules).</td></tr>`;
+        pill.textContent = "Error";
+      }
+    }
 
     // ---------- tickets ----------
     function passesFilter(status) {
