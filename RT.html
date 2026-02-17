@@ -3,42 +3,30 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IFWL Season Rules Portal Gateway.</title>
+  <title>IFWL Season 2 Rules Access test</title>
   <style>
     body { font-family: system-ui, Arial; background:#0b0f17; color:#e6eefc; margin:0; padding:40px; }
-    .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:28px; }
-    h1 { margin:0 0 10px 0; font-size:34px; }
-    .muted { opacity:.82; font-size:14px; line-height:1.5; }
-    .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-
-    button {
-      background:#5865F2; color:white; border:0; padding:10px 14px;
-      border-radius:10px; font-weight:800; cursor:pointer;
-    }
+    .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:22px; }
+    button { background:#5865F2; color:white; border:0; padding:12px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
     button:hover { filter:brightness(1.05); }
-    .btnSecondary { background:#334155; }
-
+    .muted { opacity:.8; font-size:14px; line-height:1.5; }
     .status { margin-top:14px; padding:12px; border-radius:10px; }
     .ok { background:#0f2a1b; border:1px solid #1f6b3b; }
     .bad { background:#2a1414; border:1px solid #7a2a2a; }
-
     code { background:#0b1220; padding:2px 6px; border-radius:6px; }
-
-    #rulesOrEligibility { margin-top: 14px; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #2b3b5e; background:#0b1220; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>IFWL Season 2 Rules Access</h1>
-    <p class="muted">
+    <h1 style="margin:0 0 6px 0;">IFWL Season 2 Rules Access</h1>
+    <p class="muted" style="margin:0 0 12px 0;">
       Login with Discord. To access the rules you must have <b>BOTH</b> required roles:
       <b>SIMGRIDEVENTMEMBER</b> and <b>IFWL ACTIVE RACER</b>.
     </p>
 
-    <div class="actions">
-      <button id="loginBtn">Login with Discord</button>
-      <button id="logoutBtn" class="btnSecondary" style="display:none;">Logout</button>
-    </div>
+    <button id="loginBtn">Login with Discord</button>
+    <button id="logoutBtn" style="display:none;background:#334155;margin-left:8px;">Logout</button>
 
     <div id="result" class="status" style="display:none;"></div>
     <div id="rulesOrEligibility"></div>
@@ -50,17 +38,9 @@
   </div>
 
   <script>
-    // Backend endpoint
     const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
     const REDIRECT_URI = window.location.origin + window.location.pathname;
 
-    // MUST have BOTH
-    const REQUIRED_ROLE_IDS = [
-      "1452080618799235224", // SIMGRIDEVENTMEMBER
-      "1166713466917224449"  // IFWL ACTIVE RACER
-    ];
-
-    // Rules page
     const RULES_URL = "https://ifwlowner.github.io/ACC-driver-classifier/s2rules.html";
 
     document.getElementById("endpointHint").textContent = FUNCTION;
@@ -86,30 +66,6 @@
       );
     }
 
-    function clearSession() {
-      localStorage.removeItem("IFWL_RT_SESSION");
-      localStorage.removeItem("IFWL_RT_USER");
-    }
-
-    function hasBothRequiredRoles(roleIds) {
-      const roles = Array.isArray(roleIds) ? roleIds.map(String) : [];
-      return REQUIRED_ROLE_IDS.every(req => roles.includes(req));
-    }
-
-    // Decode JWT payload (no verification; just for reading roles)
-    function decodeJwtPayload(token) {
-      try {
-        const parts = String(token || "").split(".");
-        if (parts.length < 2) return null;
-        const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-        const padded = b64 + "===".slice((b64.length + 3) % 4);
-        const json = atob(padded);
-        return JSON.parse(json);
-      } catch {
-        return null;
-      }
-    }
-
     function renderRulesOrEligibility(isGreen) {
       const el = document.getElementById("rulesOrEligibility");
       if (!el) return;
@@ -122,9 +78,9 @@
               Click below to view the Season 2 Rules.
             </div>
             <a href="${RULES_URL}"
-              target="_blank" rel="noopener noreferrer"
-              style="display:inline-block; margin-top:10px; padding:10px 14px; border-radius:12px;
-                    text-decoration:none; font-weight:800; border:1px solid #bbf7d0; background:#fff;">
+               target="_blank" rel="noopener noreferrer"
+               style="display:inline-block; margin-top:10px; padding:10px 14px; border-radius:12px;
+                      text-decoration:none; font-weight:800; border:1px solid #bbf7d0; background:#fff;">
               📘 Season 2 Rules
             </a>
           </div>
@@ -137,9 +93,7 @@
               To access the rules you need <b>BOTH</b>:
             </div>
             <ol style="margin:10px 0 0 18px; color:#7f1d1d; font-size:14px;">
-              <li>
-                <strong>Be in an IFWL SimGrid hosted event</strong> (you must be signed up/registered and active on the event).
-              </li>
+              <li><strong>Be in an IFWL SimGrid hosted event</strong> (you must be signed up/registered and active on the event).</li>
               <li>
                 <strong>Have a fully updated Driver Profile on</strong>
                 <a href="https://ifwl.net" target="_blank" rel="noopener noreferrer" style="font-weight:900; color:#7f1d1d;">
@@ -183,48 +137,39 @@
       const r = await fetch(checkUrl);
       const data = await r.json();
 
-      // Clean URL
+      // clean URL
       history.replaceState({}, document.title, REDIRECT_URI);
 
       setLoggedInUI(true);
 
-      // Store session token if provided
+      // store session if backend sent one
       if (data.sessionToken) {
         localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
       }
 
-      // 🔥 FIX: Use roles embedded in sessionToken, since backend already includes them.
-      const token = data.sessionToken || localStorage.getItem("IFWL_RT_SESSION") || "";
-      const payload = decodeJwtPayload(token);
-      const tokenRoles = payload && Array.isArray(payload.roles) ? payload.roles : null;
+      // ✅ RULES PAGE MUST USE rulesGranted (NOT accessGranted)
+      const eligibleForRules = !!data.rulesGranted;
 
-      // If token roles exist, enforce BOTH. Otherwise fallback to backend accessGranted.
-      const granted = tokenRoles ? hasBothRequiredRoles(tokenRoles) : !!data.accessGranted;
+      // Optional: show a tiny pill about Race Team hub access, but do NOT block rules
+      const rtPill = data.accessGranted
+        ? `<span class="pill">Race Team Hub: YES</span>`
+        : `<span class="pill">Race Team Hub: NO</span>`;
 
-      localStorage.setItem("IFWL_RT_USER", JSON.stringify({
-        username: data.username,
-        userId: data.userId,
-        granted
-      }));
-
-      if (granted) {
-        show(`✅ Access granted for <b>${escapeHtml(data.username || "user")}</b>.`, true);
+      if (eligibleForRules) {
+        show(`✅ Rules access granted for <b>${escapeHtml(data.username || "user")}</b> &nbsp; ${rtPill}`, true);
         renderRulesOrEligibility(true);
       } else {
-        show(`⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username || "user")}`, false);
+        show(`⛔ Rules access denied for <b>${escapeHtml(data.username || "user")}</b> &nbsp; ${rtPill}`, false);
         renderRulesOrEligibility(false);
       }
     }
 
     loginBtn.addEventListener("click", () => {
-      startLogin().catch(e => {
-        show(`❌ ${escapeHtml(e.message || e)}`, false);
-        renderRulesOrEligibility(false);
-      });
+      startLogin().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
     });
 
     logoutBtn.addEventListener("click", () => {
-      clearSession();
+      localStorage.removeItem("IFWL_RT_SESSION");
       setLoggedInUI(false);
       show("Logged out.", true);
       document.getElementById("rulesOrEligibility").innerHTML = "";
