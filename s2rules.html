@@ -89,6 +89,7 @@
       padding: 8px 12px;
       box-shadow: 0 4px 12px rgba(0,0,0,.04);
       min-width: min(520px, 100%);
+      position: relative;
     }
     .search input{
       width:100%;
@@ -98,6 +99,19 @@
       background: transparent;
       color: var(--ink);
     }
+    /* Clear (X) button */
+    .clearBtn{
+      border:1px solid var(--line);
+      background: var(--pill);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor:pointer;
+      line-height: 1;
+      display:none;
+      box-shadow: 0 2px 8px rgba(0,0,0,.04);
+    }
+    .clearBtn:active{transform: translateY(1px)}
     .card{
       background: var(--card);
       border: 1px solid var(--line);
@@ -279,6 +293,7 @@
         <span class="muted" style="font-family:var(--mono);font-size:12px;">CTRL</span>
         <span class="muted" style="font-family:var(--mono);font-size:12px;">/</span>
         <input id="searchInput" type="search" placeholder="Search headings + content (e.g., “pit stop”, “attendance”, “RP8”)…" />
+        <button class="clearBtn" id="clearSearch" type="button" aria-label="Clear search">✕</button>
       </div>
 
       <div class="note" style="margin-top:12px;">
@@ -1139,27 +1154,52 @@
     });
     syncChevrons();
 
-    // Search (filters sections based on summary + content text)
+    // -------------------------
+    // SEARCH (FIXED)
+    // -------------------------
+    // Key fixes:
+    // 1) Use textContent instead of innerText so collapsed <details> content is still searchable.
+    // 2) Filter only TOP-LEVEL sections (the ones with .anchor) so parents don't disappear while a child matches.
+    //    (Nothing removed; nested details remain fully functional and searchable because their text is inside the parent.)
     const input = document.getElementById("searchInput");
-    const sections = Array.from(document.querySelectorAll("details.section"));
+    const clearBtn = document.getElementById("clearSearch");
+
+    // Only top-level sections (preface/compliance/section1/section2/section3/section4/stewardcodes)
+    const topSections = Array.from(document.querySelectorAll("details.section.anchor"));
 
     function normalize(s){ return (s || "").toLowerCase().replace(/\s+/g," ").trim(); }
 
     function applySearch(){
       const q = normalize(input.value);
+
+      // show/hide clear button
+      clearBtn.style.display = q ? "inline-flex" : "none";
+
       if(!q){
-        sections.forEach(s => s.classList.remove("hide"));
+        topSections.forEach(s => s.classList.remove("hide"));
         return;
       }
-      sections.forEach(s => {
-        const text = normalize(s.innerText);
+
+      topSections.forEach(s => {
+        const text = normalize(s.textContent); // IMPORTANT: NOT innerText
         const match = text.includes(q);
-        // Keep nested detail blocks searchable, but don't hide the whole doc if a parent matches.
         s.classList.toggle("hide", !match);
+
+        // Optional but helpful: auto-open matching sections so user sees the result instantly
+        if(match) s.open = true;
       });
+
+      syncChevrons();
     }
 
     input.addEventListener("input", applySearch);
+
+    // Clear search button
+    clearBtn.addEventListener("click", () => {
+      input.value = "";
+      applySearch();
+      input.focus();
+    });
 
     // Ctrl + / focus search
     document.addEventListener("keydown", (e) => {
