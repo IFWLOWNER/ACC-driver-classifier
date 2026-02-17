@@ -3,209 +3,197 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IFWL Season Rules Gate</title>
+  <title>IFWL — Eligibility Check (Rules Button Logic)</title>
+  <meta name="description" content="Shows Rules button when green; shows eligibility steps and IFWL.net link when red." />
+
+  <!-- Tailwind CDN (simple + GitHub Pages friendly) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
   <style>
-    body { font-family: system-ui, Arial; background:#0b0f17; color:#e6eefc; margin:0; padding:40px; }
-    .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:22px; }
-    button { background:#5865F2; color:white; border:0; padding:12px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
-    button:hover { filter:brightness(1.05); }
-    .muted { opacity:.8; font-size:14px; }
-    .status { margin-top:14px; padding:12px; border-radius:10px; }
-    .ok { background:#0f2a1b; border:1px solid #1f6b3b; }
-    .bad { background:#2a1414; border:1px solid #7a2a2a; }
-    code { background:#0b1220; padding:2px 6px; border-radius:6px; }
-    .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .btnSecondary { background:#334155; }
-    .btnRules { background:#16a34a; }
-    a.linkbtn { display:inline-block; text-decoration:none; background:#334155; color:white; padding:12px 14px; border-radius:10px; font-weight:700; }
-    a.linkbtn:hover { filter:brightness(1.05); }
-    ul { margin:8px 0 0 18px; }
+    /* Light background + subtle texture */
+    body {
+      background: linear-gradient(180deg, #f8fafc 0%, #ffffff 60%);
+    }
   </style>
 </head>
-<body>
-  <div class="card">
-    <h1>IFWL Season Rules Access (v1)</h1>
-    <p class="muted">
-      Login with Discord. To access the rules you must have <b>BOTH</b> required roles:
-      <b>SIMGRIDEVENTMEMBER</b> and <b>IFWL ACTIVE RACER</b>.
-    </p>
 
-    <div class="actions">
-      <button id="loginBtn">Login with Discord</button>
-      <button id="logoutBtn" class="btnSecondary" style="display:none;">Logout</button>
+<body class="min-h-screen text-slate-900">
+  <main class="max-w-3xl mx-auto px-4 py-10">
+    <!-- Header -->
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+      <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="text-2xl font-extrabold tracking-tight">IFWL Eligibility / Rules Gate</h1>
+          <p class="text-sm text-slate-600 mt-1">
+            When <span class="font-bold text-emerald-700">GREEN</span> → show <span class="font-bold">Rules</span> button.
+            When <span class="font-bold text-red-700">RED</span> → show IFWL.net link + eligibility requirements.
+          </p>
+        </div>
 
-      <!-- Only appears when user has BOTH roles -->
-      <button id="rulesBtn" class="btnRules" style="display:none;">Open Season Rules</button>
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold text-slate-600">Status</span>
+          <span id="statusPill" class="px-3 py-1 rounded-full text-xs font-extrabold border">
+            CHECKING…
+          </span>
+        </div>
+      </div>
 
-      <!-- Only appears when user does NOT have BOTH roles -->
-      <a id="signupLink" class="linkbtn" style="display:none;" href="https://ifwl.net" target="_blank" rel="noopener">
-        Go to IFWL.net (Driver Profile)
-      </a>
+      <hr class="my-5 border-slate-200" />
+
+      <!-- Inputs (demo-friendly, but you can wire these to your existing logic) -->
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <label class="block text-sm font-bold mb-2">Discord Name Format</label>
+          <input
+            id="discordName"
+            type="text"
+            class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+            placeholder="[ 81 ] - name"
+            autocomplete="off"
+          />
+          <p class="text-xs text-slate-600 mt-2">
+            Must be correctly formatted like <span class="font-mono font-bold">[ 81 ] - name</span>
+          </p>
+        </div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <label class="block text-sm font-bold mb-2">SimGrid Signup</label>
+
+          <label class="flex items-start gap-3 cursor-pointer select-none">
+            <input id="signedUp" type="checkbox" class="mt-1 h-5 w-5" />
+            <span class="text-sm text-slate-800">
+              I am actively signed up to the SimGrid event
+              <span class="block text-xs text-slate-600 mt-1">
+                (This is what IFWL checks for eligibility.)
+              </span>
+            </span>
+          </label>
+
+          <button
+            id="recheckBtn"
+            class="mt-4 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-extrabold hover:bg-slate-100 active:translate-y-[1px]"
+          >
+            Re-check Eligibility
+          </button>
+        </div>
+      </div>
+
+      <!-- This is the block you asked for (Rules button OR red explanation) -->
+      <div id="rulesOrEligibility" class="mt-5"></div>
     </div>
 
-    <div id="result" class="status" style="display:none;"></div>
-
-    <p class="muted" style="margin-top:16px;">
-      Tip: This page expects a backend endpoint at:<br/>
-      <code id="endpointHint"></code>
+    <!-- Footer -->
+    <p class="text-xs text-slate-500 mt-6">
+      Tip: If you’re integrating this into your existing classifier page, keep the
+      <span class="font-mono">renderRulesOrEligibility(isGreen)</span> function and just call it from your current green/red logic.
     </p>
-  </div>
+  </main>
 
   <script>
-    // Your existing Cloud Function endpoint
-    const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
-    const REDIRECT_URI = window.location.origin + window.location.pathname;
+    // ======= CONFIG =======
+    const RULES_URL = "https://ifwlowner.github.io/ACC-driver-classifier/s2rules.html";
+    const IFWL_URL  = "https://ifwl.net";
 
-    // REQUIRED role IDs (MUST HAVE BOTH)
-    const REQUIRED_ROLE_IDS = [
-      "1452080618799235224", // SIMGRIDEVENTMEMBER
-      "1166713466917224449"  // IFWL ACTIVE RACER
-    ];
+    // ======= UI HELPERS =======
+    function setStatus(isGreen) {
+      const pill = document.getElementById("statusPill");
+      if (!pill) return;
 
-    document.getElementById("endpointHint").textContent = FUNCTION;
-
-    const loginBtn = document.getElementById("loginBtn");
-    const logoutBtn = document.getElementById("logoutBtn");
-    const rulesBtn = document.getElementById("rulesBtn");
-    const signupLink = document.getElementById("signupLink");
-    const resultBox = document.getElementById("result");
-
-    function show(status, ok) {
-      resultBox.style.display = "block";
-      resultBox.className = "status " + (ok ? "ok" : "bad");
-      resultBox.innerHTML = status;
-    }
-
-    function setLoggedInUI(isLoggedIn) {
-      loginBtn.style.display = isLoggedIn ? "none" : "inline-block";
-      logoutBtn.style.display = isLoggedIn ? "inline-block" : "none";
-    }
-
-    function escapeHtml(s) {
-      return String(s || "").replace(/[&<>"']/g, c =>
-        ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])
-      );
-    }
-
-    function getSessionToken() {
-      return localStorage.getItem("IFWL_RT_SESSION") || "";
-    }
-
-    function clearSession() {
-      localStorage.removeItem("IFWL_RT_SESSION");
-      localStorage.removeItem("IFWL_RT_USER");
-    }
-
-    function hasBothRequiredRoles(memberRoleIds) {
-      const roles = Array.isArray(memberRoleIds) ? memberRoleIds.map(String) : [];
-      return REQUIRED_ROLE_IDS.every(req => roles.includes(req));
-    }
-
-    function applyAccessUI({ username, granted }) {
-      if (granted) {
-        rulesBtn.style.display = "inline-block";
-        signupLink.style.display = "none";
-        show(`✅ Access granted for <b>${escapeHtml(username || "user")}</b>. You can open the season rules.`, true);
+      if (isGreen) {
+        pill.textContent = "GREEN";
+        pill.className =
+          "px-3 py-1 rounded-full text-xs font-extrabold border border-emerald-200 bg-emerald-50 text-emerald-800";
       } else {
-        rulesBtn.style.display = "none";
-        signupLink.style.display = "inline-block";
-        show(
-          `⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(username || "user")}<br/><br/>` +
-          `To access the season rules, you must have <b>BOTH</b> Discord roles:<br/>` +
-          `<ul>` +
-          `<li><b>SIMGRIDEVENTMEMBER</b></li>` +
-          `<li><b>IFWL ACTIVE RACER</b></li>` +
-          `</ul>` +
-          `<br/>If you’re missing one, please go to <b>IFWL.net</b> and complete <b>Driver Profile signup</b>.`,
-          false
-        );
+        pill.textContent = "RED";
+        pill.className =
+          "px-3 py-1 rounded-full text-xs font-extrabold border border-red-200 bg-red-50 text-red-800";
       }
     }
 
-    async function startLogin() {
-      const startUrl = FUNCTION + `?start=1&redirect=${encodeURIComponent(REDIRECT_URI)}`;
-      const r = await fetch(startUrl);
-      const data = await r.json();
-      if (!data.url) throw new Error(data.error || "No login url returned");
-      window.location.href = data.url;
+    // The exact behaviour you requested:
+    // - GREEN -> show Rules button linking to RULES_URL
+    // - RED -> show ifwl.net link and explanation of the two requirements
+    function renderRulesOrEligibility(isGreen) {
+      const el = document.getElementById("rulesOrEligibility");
+      if (!el) return;
+
+      if (isGreen) {
+        el.innerHTML = `
+          <div class="flex items-center justify-between gap-3 flex-wrap bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+            <div>
+              <div class="font-extrabold text-emerald-900">You’re eligible.</div>
+              <div class="text-sm text-emerald-800 mt-1">
+                Click below to view the Season 2 Rules.
+              </div>
+            </div>
+
+            <a
+              href="${RULES_URL}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center rounded-xl px-4 py-2 font-extrabold text-sm bg-white border border-emerald-200 hover:bg-emerald-100 active:translate-y-[1px]"
+            >
+              📘 Rules
+            </a>
+          </div>
+        `;
+      } else {
+        el.innerHTML = `
+          <div class="bg-red-50 border border-red-200 rounded-2xl p-4">
+            <div class="font-extrabold text-red-900">You’re not eligible yet.</div>
+
+            <div class="text-sm text-red-800 mt-2">
+              Please go to
+              <a href="${IFWL_URL}" target="_blank" rel="noopener noreferrer" class="font-extrabold underline">
+                IFWL.net
+              </a>
+              and make sure you’ve completed BOTH:
+            </div>
+
+            <ol class="list-decimal ml-5 mt-3 text-sm text-red-900 space-y-2">
+              <li>
+                <span class="font-extrabold">Actively signed up</span> to the SimGrid event
+              </li>
+              <li>
+                <span class="font-extrabold">Have a fully updated IFWL profile</span>
+                <div class="text-xs text-red-800 mt-1">
+                  You can confirm this by seeing a correctly formatted name on IFWL Discord like:
+                  <span class="font-mono font-extrabold">[ 81 ] - name</span>
+                </div>
+              </li>
+            </ol>
+          </div>
+        `;
+      }
     }
 
-    async function handleCallback() {
-      const params = new URLSearchParams(location.search);
-      const code = params.get("code");
-      const error = params.get("error");
-
-      if (error) {
-        show(`❌ Discord login error: <b>${escapeHtml(error)}</b>`, false);
-        return;
-      }
-      if (!code) return;
-
-      show("Checking your roles…", true);
-
-      const checkUrl =
-        FUNCTION +
-        `?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(REDIRECT_URI)}&issue=1`;
-
-      const r = await fetch(checkUrl);
-      const data = await r.json();
-
-      // Clean URL
-      history.replaceState({}, document.title, REDIRECT_URI);
-
-      setLoggedInUI(true);
-
-      // Store session token if backend provides one (recommended for gated rules endpoint)
-      if (data.sessionToken) {
-        localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
-      }
-
-      // IMPORTANT:
-      // For the "both roles" requirement, the backend should ideally return memberRoleIds (array of role IDs).
-      // If it doesn't yet, we fall back to data.accessGranted (but that means the backend must implement BOTH-role logic).
-      const memberRoleIds = data.memberRoleIds; // <--- backend should include this
-      const granted = Array.isArray(memberRoleIds)
-        ? hasBothRequiredRoles(memberRoleIds)
-        : !!data.rulesGranted || !!data.accessGranted; // fallback
-
-      // Save user snapshot
-      localStorage.setItem("IFWL_RT_USER", JSON.stringify({
-        username: data.username,
-        userId: data.userId,
-        granted: granted
-      }));
-
-      applyAccessUI({ username: data.username, granted });
+    // ======= ELIGIBILITY LOGIC (DEMO) =======
+    // You can replace this with your real "green/red" condition.
+    // For now, green = signed up checkbox + correctly formatted Discord name.
+    function isDiscordNameValid(name) {
+      // Matches: [ 81 ] - name (allows flexible spaces)
+      const re = /^\[\s*\d+\s*\]\s*-\s*.+$/;
+      return re.test((name || "").trim());
     }
 
-    // Rules button uses a gated backend endpoint. Backend MUST verify token + roles.
-    rulesBtn.addEventListener("click", () => {
-      const token = getSessionToken();
-      if (!token) {
-        show("❌ No session token found. Please login again.", false);
-        setLoggedInUI(false);
-        rulesBtn.style.display = "none";
-        signupLink.style.display = "none";
-        return;
-      }
-      const rulesUrl = FUNCTION + `?rules=1&token=${encodeURIComponent(token)}`;
-      window.open(rulesUrl, "_blank", "noopener");
-    });
+    function evaluateEligibility() {
+      const discordName = document.getElementById("discordName")?.value || "";
+      const signedUp = !!document.getElementById("signedUp")?.checked;
 
-    loginBtn.addEventListener("click", () => {
-      startLogin().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
-    });
+      const hasUpdatedProfile = isDiscordNameValid(discordName);
+      const isGreen = signedUp && hasUpdatedProfile;
 
-    logoutBtn.addEventListener("click", () => {
-      clearSession();
-      setLoggedInUI(false);
-      rulesBtn.style.display = "none";
-      signupLink.style.display = "none";
-      show("Logged out.", true);
-    });
+      setStatus(isGreen);
+      renderRulesOrEligibility(isGreen);
+    }
 
-    // Run callback handler on load
-    handleCallback().catch(e => show(`❌ ${escapeHtml(e.message || e)}`, false));
+    // Init + events
+    document.getElementById("recheckBtn")?.addEventListener("click", evaluateEligibility);
+    document.getElementById("discordName")?.addEventListener("input", evaluateEligibility);
+    document.getElementById("signedUp")?.addEventListener("change", evaluateEligibility);
+
+    // First run (defaults to RED)
+    evaluateEligibility();
   </script>
 </body>
 </html>
