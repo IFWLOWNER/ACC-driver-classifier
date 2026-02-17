@@ -6,20 +6,24 @@
   <title>IFWL Season Rules Gate</title>
   <style>
     body { font-family: system-ui, Arial; background:#0b0f17; color:#e6eefc; margin:0; padding:40px; }
-    .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:22px; }
-    button { background:#5865F2; color:white; border:0; padding:12px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
+    .card { max-width:720px; margin:0 auto; background:#111a2b; border:1px solid #22304d; border-radius:14px; padding:28px; }
+    h1 { margin:0 0 10px 0; font-size:34px; }
+    .muted { opacity:.82; font-size:14px; line-height:1.5; }
+    .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+
+    button {
+      background:#5865F2; color:white; border:0; padding:10px 14px;
+      border-radius:10px; font-weight:800; cursor:pointer;
+    }
     button:hover { filter:brightness(1.05); }
     .btnSecondary { background:#334155; }
-    .muted { opacity:.8; font-size:14px; }
+
     .status { margin-top:14px; padding:12px; border-radius:10px; }
     .ok { background:#0f2a1b; border:1px solid #1f6b3b; }
     .bad { background:#2a1414; border:1px solid #7a2a2a; }
-    code { background:#0b1220; padding:2px 6px; border-radius:6px; }
-    .actions { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    a.linkbtn { display:inline-block; text-decoration:none; background:#334155; color:white; padding:12px 14px; border-radius:10px; font-weight:700; }
-    a.linkbtn:hover { filter:brightness(1.05); }
 
-    /* Rules/Eligibility block */
+    code { background:#0b1220; padding:2px 6px; border-radius:6px; }
+
     #rulesOrEligibility { margin-top: 14px; }
   </style>
 </head>
@@ -46,17 +50,17 @@
   </div>
 
   <script>
-    // Your existing Cloud Function endpoint
+    // Backend endpoint
     const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
     const REDIRECT_URI = window.location.origin + window.location.pathname;
 
-    // REQUIRED role IDs (MUST HAVE BOTH)
+    // MUST have BOTH
     const REQUIRED_ROLE_IDS = [
       "1452080618799235224", // SIMGRIDEVENTMEMBER
       "1166713466917224449"  // IFWL ACTIVE RACER
     ];
 
-    // Rules URL (public page, but we only show link if eligible)
+    // Rules page
     const RULES_URL = "https://ifwlowner.github.io/ACC-driver-classifier/s2rules.html";
 
     document.getElementById("endpointHint").textContent = FUNCTION;
@@ -87,12 +91,25 @@
       localStorage.removeItem("IFWL_RT_USER");
     }
 
-    function hasBothRequiredRoles(memberRoleIds) {
-      const roles = Array.isArray(memberRoleIds) ? memberRoleIds.map(String) : [];
+    function hasBothRequiredRoles(roleIds) {
+      const roles = Array.isArray(roleIds) ? roleIds.map(String) : [];
       return REQUIRED_ROLE_IDS.every(req => roles.includes(req));
     }
 
-    // ✅ Your requested renderer (green -> show rules link, red -> show eligibility steps)
+    // Decode JWT payload (no verification; just for reading roles)
+    function decodeJwtPayload(token) {
+      try {
+        const parts = String(token || "").split(".");
+        if (parts.length < 2) return null;
+        const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const padded = b64 + "===".slice((b64.length + 3) % 4);
+        const json = atob(padded);
+        return JSON.parse(json);
+      } catch {
+        return null;
+      }
+    }
+
     function renderRulesOrEligibility(isGreen) {
       const el = document.getElementById("rulesOrEligibility");
       if (!el) return;
@@ -128,7 +145,7 @@
                 <a href="https://ifwl.net" target="_blank" rel="noopener noreferrer" style="font-weight:900; color:#7f1d1d;">
                   www.ifwl.net
                 </a>.
-                Once complete, your IFWL Discord name will show correctly formatted like:
+                Once fully complete your IFWL Discord name will show formatted correctly like:
                 <span style="font-family:monospace; font-weight:900;">[ 81 ] - drivername</span>
               </li>
             </ol>
@@ -171,13 +188,18 @@
 
       setLoggedInUI(true);
 
-      // If backend provides role IDs, we enforce BOTH-role logic here.
-      // If backend does NOT provide memberRoleIds, then backend must enforce BOTH-role logic and return rulesGranted=true/false.
-      const memberRoleIds = data.memberRoleIds;
+      // Store session token if provided
+      if (data.sessionToken) {
+        localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
+      }
 
-      const granted = Array.isArray(memberRoleIds)
-        ? hasBothRequiredRoles(memberRoleIds)
-        : !!data.rulesGranted; // prefer rulesGranted if backend implements it
+      // 🔥 FIX: Use roles embedded in sessionToken, since backend already includes them.
+      const token = data.sessionToken || localStorage.getItem("IFWL_RT_SESSION") || "";
+      const payload = decodeJwtPayload(token);
+      const tokenRoles = payload && Array.isArray(payload.roles) ? payload.roles : null;
+
+      // If token roles exist, enforce BOTH. Otherwise fallback to backend accessGranted.
+      const granted = tokenRoles ? hasBothRequiredRoles(tokenRoles) : !!data.accessGranted;
 
       localStorage.setItem("IFWL_RT_USER", JSON.stringify({
         username: data.username,
@@ -189,10 +211,7 @@
         show(`✅ Access granted for <b>${escapeHtml(data.username || "user")}</b>.`, true);
         renderRulesOrEligibility(true);
       } else {
-        show(
-          `⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username || "user")}`,
-          false
-        );
+        show(`⛔ <b>Access Denied</b><br/>Discord: ${escapeHtml(data.username || "user")}`, false);
         renderRulesOrEligibility(false);
       }
     }
@@ -211,7 +230,6 @@
       document.getElementById("rulesOrEligibility").innerHTML = "";
     });
 
-    // Run callback handler on load
     handleCallback().catch(e => {
       show(`❌ ${escapeHtml(e.message || e)}`, false);
       renderRulesOrEligibility(false);
