@@ -264,6 +264,74 @@
       transition:background .2s ease-in-out;
     }
     .patreon-btn:hover{ background-color:#e53742; }
+
+    /* ------------------------------------------------------------
+       NEW: Searchable Driver Picker (no external libs)
+       ------------------------------------------------------------ */
+    .driver-picker {
+      position: relative;
+    }
+    .driver-picker .picker-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .driver-picker .picker-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .driver-picker .mini-btn {
+      width: auto;
+      padding: 8px 10px;
+      font-size: 13px;
+      border-radius: 6px;
+      background: #2A9D8F;
+    }
+    .driver-picker .mini-btn.secondary {
+      background: #666;
+    }
+    .driver-picker .results {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-shadow: 0 8px 18px rgba(0,0,0,0.12);
+      max-height: 260px;
+      overflow: auto;
+      z-index: 50;
+      padding: 6px;
+    }
+    .driver-picker .result-item {
+      padding: 10px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+    .driver-picker .result-item:hover {
+      background: #f2f2f2;
+    }
+    .driver-picker .result-meta {
+      font-size: 12px;
+      color: #666;
+      white-space: nowrap;
+    }
+    .driver-picker .no-results {
+      padding: 10px;
+      color: #444;
+      font-size: 14px;
+    }
+    /* Keep original selects as hidden data stores (fallback) */
+    .hidden-select {
+      display: none !important;
+    }
   </style>
   <!-- jsPDF UMD build for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -324,28 +392,68 @@
       <strong>cannot be withdrawn or edited</strong>. Please review carefully before submitting.
     </div>
 
-    <!-- Accused (Driver) Dropdown -->
+    <!-- Accused (Driver) SEARCH PICKER -->
     <div class="form-group">
-      <label for="accusedSelect">Accused (Driver) <span style="color: red;">*</span></label>
-      <select id="accusedSelect">
+      <label for="accusedSearch">Accused (Driver) <span style="color: red;">*</span></label>
+
+      <div class="driver-picker" id="accusedPicker">
+        <div class="picker-row">
+          <input type="text" id="accusedSearch" placeholder="Search by number or name (e.g. 18 or Smokey)..." autocomplete="off" />
+        </div>
+        <div id="accusedResults" class="results hidden"></div>
+
+        <div class="picker-actions">
+          <button type="button" id="accusedManualBtn" class="mini-btn secondary">Can’t find driver? Add manually</button>
+          <button type="button" id="accusedClearBtn" class="mini-btn">Clear</button>
+        </div>
+      </div>
+
+      <!-- Keep original select (hidden) for data compatibility -->
+      <select id="accusedSelect" class="hidden-select">
         <option value="" disabled selected>Select a driver…</option>
       </select>
     </div>
+
+    <!-- Manual add accused -->
     <div id="newDriverContainer" class="form-group hidden">
-      <label for="newDriverInput"><strong>Add New Driver</strong></label>
-      <input type="text" id="newDriverInput" placeholder="Type new driver name…" />
+      <label><strong>Add New Driver</strong></label>
+      <input type="text" id="newDriverNumber" placeholder="Driver number (optional) e.g. 18" />
+      <input type="text" id="newDriverInput" placeholder="Driver name e.g. Smokey BH92" />
+      <div class="status" style="margin-top:6px; font-size:12px; color:#666; text-align:left;">
+        Tip: saved format will be <strong>[number] - name</strong> (and still works with old driver records).
+      </div>
     </div>
 
-    <!-- Driver Reporting Dropdown -->
+    <!-- Driver Reporting SEARCH PICKER -->
     <div class="form-group">
-      <label for="reporterSelect">Driver Reporting <span style="color: red;">*</span></label>
-      <select id="reporterSelect">
+      <label for="reporterSearch">Driver Reporting <span style="color: red;">*</span></label>
+
+      <div class="driver-picker" id="reporterPicker">
+        <div class="picker-row">
+          <input type="text" id="reporterSearch" placeholder="Search by number or name (e.g. 12 or Maximus)..." autocomplete="off" />
+        </div>
+        <div id="reporterResults" class="results hidden"></div>
+
+        <div class="picker-actions">
+          <button type="button" id="reporterManualBtn" class="mini-btn secondary">Can’t find driver? Add manually</button>
+          <button type="button" id="reporterClearBtn" class="mini-btn">Clear</button>
+        </div>
+      </div>
+
+      <!-- Keep original select (hidden) for data compatibility -->
+      <select id="reporterSelect" class="hidden-select">
         <option value="" disabled selected>Select reporting driver…</option>
       </select>
     </div>
+
+    <!-- Manual add reporter -->
     <div id="newReporterContainer" class="form-group hidden">
-      <label for="newReporterInput"><strong>Add New Reporting Driver</strong></label>
-      <input type="text" id="newReporterInput" placeholder="Type new driver name…" />
+      <label><strong>Add New Reporting Driver</strong></label>
+      <input type="text" id="newReporterNumber" placeholder="Driver number (optional) e.g. 12" />
+      <input type="text" id="newReporterInput" placeholder="Driver name e.g. Maximus" />
+      <div class="status" style="margin-top:6px; font-size:12px; color:#666; text-align:left;">
+        Tip: saved format will be <strong>[number] - name</strong>.
+      </div>
     </div>
 
     <!-- Competition Dropdown (hard-coded) -->
@@ -553,10 +661,12 @@
     const accusedSelect         = document.getElementById("accusedSelect");
     const newDriverContainer    = document.getElementById("newDriverContainer");
     const newDriverInput        = document.getElementById("newDriverInput");
+    const newDriverNumber       = document.getElementById("newDriverNumber");
 
     const reporterSelect        = document.getElementById("reporterSelect");
     const newReporterContainer  = document.getElementById("newReporterContainer");
     const newReporterInput      = document.getElementById("newReporterInput");
+    const newReporterNumber     = document.getElementById("newReporterNumber");
 
     const competitionSelect     = document.getElementById("competitionSelect");
     const fullIncident          = document.getElementById("fullIncident");
@@ -618,90 +728,243 @@
     }
     [menuSection, submitSection, viewSection, loginSection, adminSection].forEach(addPatreonCallout);
 
-    // ----------------------------------------------------------------
-    // Populate “Accused” dropdown from /drivers, sorted alphabetically
-    // ----------------------------------------------------------------
-    async function populateDriverDropdown() {
-      const snapshot = await getDocs(collection(db, "drivers"));
-      const names = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data.fullName && typeof data.fullName === "string") {
-          names.push(data.fullName);
-        }
-      });
-      names.sort((a, b) => a.localeCompare(b));
+    // ================================================================
+    // NEW: Driver cache + search utilities (Accused + Reporter)
+    // ================================================================
+    let DRIVERS_CACHE = []; // [{ fullName, name, number, docId, searchText }]
 
-      accusedSelect.innerHTML = "";
+    function safeStr(v){ return (typeof v === "string" ? v : "").trim(); }
+
+    function extractNumbers(text){
+      // returns a string like "11818" for matching numeric search
+      const nums = String(text || "").match(/\d+/g);
+      return nums ? nums.join("") : "";
+    }
+
+    function normalizeSearchText(driver){
+      const full = safeStr(driver.fullName || "");
+      const name = safeStr(driver.name || "");
+      const number = safeStr(driver.number || "");
+      const numericFromFull = extractNumbers(full);
+      const combined = `${full} ${name} ${number} ${numericFromFull}`.toLowerCase();
+      return combined.replace(/\s+/g, " ").trim();
+    }
+
+    function buildFullNameFromParts(number, name){
+      const n = safeStr(number);
+      const nm = safeStr(name);
+      if (!nm) return "";
+      if (n) return `[${n}] - ${nm}`;
+      return nm;
+    }
+
+    async function loadDriversCache(){
+      const snapshot = await getDocs(collection(db, "drivers"));
+      const list = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data() || {};
+        const fullName = safeStr(data.fullName);
+        if (!fullName) return;
+
+        list.push({
+          docId: docSnap.id,
+          fullName,
+          name: safeStr(data.name),
+          number: safeStr(data.number),
+          searchText: "" // fill below
+        });
+      });
+
+      list.forEach(d => d.searchText = normalizeSearchText(d));
+
+      // Sort by display text
+      list.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      DRIVERS_CACHE = list;
+    }
+
+    function populateHiddenSelect(selectEl, placeholderText){
+      selectEl.innerHTML = "";
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Select a driver…";
+      placeholder.textContent = placeholderText;
       placeholder.disabled = true;
       placeholder.selected = true;
-      accusedSelect.appendChild(placeholder);
+      selectEl.appendChild(placeholder);
 
-      names.forEach(name => {
+      DRIVERS_CACHE.forEach(d => {
         const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        accusedSelect.appendChild(opt);
+        opt.value = d.fullName;
+        opt.textContent = d.fullName;
+        selectEl.appendChild(opt);
       });
 
+      // keep existing fallback option
       const newOpt = document.createElement("option");
       newOpt.value = "__ADD_NEW__";
       newOpt.textContent = "➕ Add New Driver…";
-      accusedSelect.appendChild(newOpt);
-
-      accusedSelect.addEventListener("change", () => {
-        if (accusedSelect.value === "__ADD_NEW__") {
-          newDriverContainer.classList.remove("hidden");
-        } else {
-          newDriverContainer.classList.add("hidden");
-        }
-      });
+      selectEl.appendChild(newOpt);
     }
 
-    // ----------------------------------------------------------------
-    // Populate “Reporter” dropdown from /drivers, sorted alphabetically
-    // ----------------------------------------------------------------
-    async function populateReporterDropdown() {
-      const snapshot = await getDocs(collection(db, "drivers"));
-      const names = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data.fullName && typeof data.fullName === "string") {
-          names.push(data.fullName);
-        }
-      });
-      names.sort((a, b) => a.localeCompare(b));
+    function closeResults(resultsEl){
+      resultsEl.classList.add("hidden");
+      resultsEl.innerHTML = "";
+    }
 
-      reporterSelect.innerHTML = "";
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = "Select reporting driver…";
-      placeholder.disabled = true;
-      placeholder.selected = true;
-      reporterSelect.appendChild(placeholder);
+    function openResults(resultsEl){
+      resultsEl.classList.remove("hidden");
+    }
 
-      names.forEach(name => {
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        reporterSelect.appendChild(opt);
-      });
+    function filterDrivers(queryText){
+      const q = safeStr(queryText).toLowerCase();
+      if (!q) return [];
 
-      const newOpt = document.createElement("option");
-      newOpt.value = "__ADD_NEW__";
-      newOpt.textContent = "➕ Add New Reporting Driver…";
-      reporterSelect.appendChild(newOpt);
+      // If numeric query, we still match against full searchText (which contains extracted numbers)
+      return DRIVERS_CACHE.filter(d => d.searchText.includes(q));
+    }
 
-      reporterSelect.addEventListener("change", () => {
-        if (reporterSelect.value === "__ADD_NEW__") {
-          newReporterContainer.classList.remove("hidden");
+    function setupDriverPicker(opts){
+      const {
+        searchInput,
+        resultsEl,
+        hiddenSelect,
+        manualBtn,
+        clearBtn,
+        manualContainer,
+        manualNameInput,
+        manualNumberInput,
+        placeholderText
+      } = opts;
+
+      // Populate hidden select
+      populateHiddenSelect(hiddenSelect, placeholderText);
+
+      // Helper: select a driver
+      function pickDriver(fullName){
+        hiddenSelect.value = fullName || "";
+        searchInput.value = fullName || "";
+        manualContainer.classList.add("hidden");
+        manualNameInput.value = "";
+        manualNumberInput.value = "";
+        closeResults(resultsEl);
+      }
+
+      // Helper: show manual add and optionally prefill
+      function showManual(prefillQuery){
+        hiddenSelect.value = "__ADD_NEW__";
+
+        const q = safeStr(prefillQuery);
+        // If query is only digits, put it in number field
+        if (q && /^\d+$/.test(q)) {
+          manualNumberInput.value = q;
+          manualNameInput.value = "";
         } else {
-          newReporterContainer.classList.add("hidden");
+          manualNameInput.value = q;
+        }
+
+        manualContainer.classList.remove("hidden");
+        closeResults(resultsEl);
+
+        // Scroll to make it obvious
+        setTimeout(() => {
+          manualNameInput.focus();
+        }, 50);
+      }
+
+      // Search input typing
+      searchInput.addEventListener("input", () => {
+        const q = safeStr(searchInput.value);
+        if (!q) {
+          hiddenSelect.value = "";
+          closeResults(resultsEl);
+          return;
+        }
+
+        const matches = filterDrivers(q).slice(0, 30);
+
+        resultsEl.innerHTML = "";
+
+        if (matches.length === 0) {
+          openResults(resultsEl);
+
+          const noDiv = document.createElement("div");
+          noDiv.className = "no-results";
+          noDiv.innerHTML = `
+            <div><strong>No results</strong> for "<span style="color:#000">${q.replace(/</g,"&lt;")}</span>"</div>
+            <div style="margin-top:8px;">
+              <button type="button" style="width:auto; padding:8px 10px; font-size:13px; background:#6200EE; border-radius:6px;">
+                ➕ Add this driver
+              </button>
+            </div>
+          `;
+          resultsEl.appendChild(noDiv);
+
+          const btn = noDiv.querySelector("button");
+          btn.addEventListener("click", () => showManual(q));
+          return;
+        }
+
+        openResults(resultsEl);
+
+        matches.forEach(d => {
+          const item = document.createElement("div");
+          item.className = "result-item";
+          item.innerHTML = `
+            <div>${d.fullName.replace(/</g,"&lt;")}</div>
+            <div class="result-meta">${d.number ? "#" + d.number : ""}</div>
+          `;
+          item.addEventListener("click", () => pickDriver(d.fullName));
+          resultsEl.appendChild(item);
+        });
+      });
+
+      // Clicking outside closes results
+      document.addEventListener("click", (e) => {
+        const pickerRoot = searchInput.closest(".driver-picker");
+        if (!pickerRoot) return;
+        if (!pickerRoot.contains(e.target)) closeResults(resultsEl);
+      });
+
+      // Enter key: if exactly 1 match, select it. If none, go manual.
+      searchInput.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const q = safeStr(searchInput.value);
+        if (!q) return;
+        const matches = filterDrivers(q);
+        if (matches.length === 1) {
+          hiddenSelect.value = matches[0].fullName;
+          searchInput.value = matches[0].fullName;
+          closeResults(resultsEl);
+          manualContainer.classList.add("hidden");
+        } else if (matches.length === 0) {
+          showManual(q);
         }
       });
+
+      // Manual button
+      manualBtn.addEventListener("click", () => showManual(searchInput.value));
+
+      // Clear button
+      clearBtn.addEventListener("click", () => {
+        searchInput.value = "";
+        hiddenSelect.value = "";
+        manualContainer.classList.add("hidden");
+        manualNameInput.value = "";
+        manualNumberInput.value = "";
+        closeResults(resultsEl);
+      });
+
+      // If user changes the hidden select somehow (fallback)
+      hiddenSelect.addEventListener("change", () => {
+        if (hiddenSelect.value === "__ADD_NEW__") {
+          showManual(searchInput.value);
+        } else {
+          pickDriver(hiddenSelect.value);
+        }
+      });
+
+      // Expose a way to programmatically pick (optional)
+      return { pickDriver, showManual };
     }
 
     // ----------------------------------------------------------------
@@ -799,10 +1062,12 @@
 
       // 1) Read and trim values
       let accused = accusedSelect.value;
-      const newDriverName = newDriverInput.value.trim();
+      const accusedNameManual = safeStr(newDriverInput.value);
+      const accusedNumberManual = safeStr(newDriverNumber.value);
 
       let reporter = reporterSelect.value;
-      const newReporterName = newReporterInput.value.trim();
+      const reporterNameManual = safeStr(newReporterInput.value);
+      const reporterNumberManual = safeStr(newReporterNumber.value);
 
       const competition = competitionSelect.value;
       if (!competition) {
@@ -812,43 +1077,63 @@
         return;
       }
 
-      const summary = fullIncident.value.trim();
+      const summary = safeStr(fullIncident.value);
       const eventVal = eventSelect.value;
-      const proofUrl = proofUrlInput.value.trim();
+      const proofUrl = safeStr(proofUrlInput.value);
       const season = seasonSelect.value;
 
       let track = trackSelect.value;
-      const newTrackName = newTrackInput.value.trim();
+      const newTrackName = safeStr(newTrackInput.value);
 
       const ruleBreach = ruleBreachSelect.value;
 
       // 2) Required fields: accused, reporter, competition, summary
-      if (
-        ((!accused && !newDriverName)) ||
-        ((!reporter && !newReporterName)) ||
-        !summary
-      ) {
+      const accusedValid = (accused && accused !== "__ADD_NEW__") || (accused === "__ADD_NEW__" && accusedNameManual);
+      const reporterValid = (reporter && reporter !== "__ADD_NEW__") || (reporter === "__ADD_NEW__" && reporterNameManual);
+
+      if (!accusedValid || !reporterValid || !summary) {
         statusMsg.textContent = "Please fill in all required fields: Accused, Driver Reporting, Competition, Full Incident Summary.";
         statusMsg.className = "status error";
         submitBtn.disabled = false;
         return;
       }
 
-      // 3) If “Add New Driver…” was chosen, add to Firestore
+      // 3) If accused is manual, build a fullName and add to Firestore
       if (accused === "__ADD_NEW__") {
-        accused = newDriverName;
+        const fullNameBuilt = buildFullNameFromParts(accusedNumberManual, accusedNameManual);
+        accused = fullNameBuilt;
+
         try {
-          await addDoc(collection(db, "drivers"), { fullName: newDriverName });
+          await addDoc(collection(db, "drivers"), {
+            fullName: fullNameBuilt,
+            name: accusedNameManual,
+            number: accusedNumberManual,
+            key: `${(accusedNumberManual || "").trim()}|${(accusedNameManual || "").trim()}`.toLowerCase()
+          });
+          // refresh cache + hidden selects so next search instantly finds it
+          await loadDriversCache();
+          populateHiddenSelect(accusedSelect, "Select a driver…");
+          populateHiddenSelect(reporterSelect, "Select reporting driver…");
         } catch (err) {
           console.error("Error adding new driver:", err);
         }
       }
 
-      // 4) If “Add New Reporting Driver…” was chosen, add to Firestore
+      // 4) If reporter is manual, build a fullName and add to Firestore
       if (reporter === "__ADD_NEW__") {
-        reporter = newReporterName;
+        const fullNameBuilt = buildFullNameFromParts(reporterNumberManual, reporterNameManual);
+        reporter = fullNameBuilt;
+
         try {
-          await addDoc(collection(db, "drivers"), { fullName: newReporterName });
+          await addDoc(collection(db, "drivers"), {
+            fullName: fullNameBuilt,
+            name: reporterNameManual,
+            number: reporterNumberManual,
+            key: `${(reporterNumberManual || "").trim()}|${(reporterNameManual || "").trim()}`.toLowerCase()
+          });
+          await loadDriversCache();
+          populateHiddenSelect(accusedSelect, "Select a driver…");
+          populateHiddenSelect(reporterSelect, "Select reporting driver…");
         } catch (err) {
           console.error("Error adding new reporting driver:", err);
         }
@@ -922,14 +1207,23 @@
         statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
         statusMsg.className = "status success";
 
-        // Clear fields
+        // Clear accused UI
+        document.getElementById("accusedSearch").value = "";
         accusedSelect.value = "";
         newDriverContainer.classList.add("hidden");
         newDriverInput.value = "";
+        newDriverNumber.value = "";
+        document.getElementById("accusedResults").classList.add("hidden");
+        document.getElementById("accusedResults").innerHTML = "";
 
+        // Clear reporter UI
+        document.getElementById("reporterSearch").value = "";
         reporterSelect.value = "";
         newReporterContainer.classList.add("hidden");
         newReporterInput.value = "";
+        newReporterNumber.value = "";
+        document.getElementById("reporterResults").classList.add("hidden");
+        document.getElementById("reporterResults").innerHTML = "";
 
         fullIncident.value = "";
         eventSelect.value = "Practice";
@@ -1088,8 +1382,35 @@
     // ----------------------------------------------------------------
     // Populate dropdowns on initial load (so submit is ready when opened)
     // ----------------------------------------------------------------
-    populateDriverDropdown();
-    populateReporterDropdown();
+    await loadDriversCache();
+
+    // Setup accused picker
+    setupDriverPicker({
+      searchInput: document.getElementById("accusedSearch"),
+      resultsEl: document.getElementById("accusedResults"),
+      hiddenSelect: accusedSelect,
+      manualBtn: document.getElementById("accusedManualBtn"),
+      clearBtn: document.getElementById("accusedClearBtn"),
+      manualContainer: newDriverContainer,
+      manualNameInput: newDriverInput,
+      manualNumberInput: newDriverNumber,
+      placeholderText: "Select a driver…"
+    });
+
+    // Setup reporter picker
+    setupDriverPicker({
+      searchInput: document.getElementById("reporterSearch"),
+      resultsEl: document.getElementById("reporterResults"),
+      hiddenSelect: reporterSelect,
+      manualBtn: document.getElementById("reporterManualBtn"),
+      clearBtn: document.getElementById("reporterClearBtn"),
+      manualContainer: newReporterContainer,
+      manualNameInput: newReporterInput,
+      manualNumberInput: newReporterNumber,
+      placeholderText: "Select reporting driver…"
+    });
+
+    // Tracks + regulations as before
     populateTrackDropdown();
     populateRegulationsDropdown();
 
@@ -1470,7 +1791,6 @@
 
     // ----------------------------------------------------------------
     // Everything below here (PDF generation etc.) remains as per your original.
-    // (Kept intact above where you pasted it.)
     // ----------------------------------------------------------------
 
     // 12) PDF GENERATION: Helper to convert an image URL to Data URL
