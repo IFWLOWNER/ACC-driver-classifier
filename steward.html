@@ -156,6 +156,25 @@
       font-weight:700;
     }
 
+    /* NEW: ACCUSED reminder box */
+    .amberBox{
+      border:1px solid #fcd34d;
+      background:#fffbeb;
+      color:#92400e;
+      border-radius:12px;
+      padding:10px 12px;
+      margin-top:10px;
+      font-size:13px;
+      line-height:1.25;
+      font-weight:800;
+    }
+    .amberBox small{
+      display:block;
+      margin-top:6px;
+      font-weight:700;
+      opacity:.95;
+    }
+
     .videoWrap {
       position:relative; width:100%; padding-top:56.25%; background:#000; border-radius:12px; overflow:hidden;
       border:1px solid #e5e7eb; margin-top:10px;
@@ -177,9 +196,6 @@
 
     /* ===========================
        ✅ FULL-WIDTH RULES AUDIT FIX
-       This forces the Rules Audit section to span full width even if it
-       accidentally sits inside the .wrap grid due to any HTML nesting.
-       Nothing else is removed or altered.
        =========================== */
     .rulesAuditFullWidth { width:100% !important; max-width:100% !important; display:block !important; }
     .wrap .rulesAuditFullWidth { grid-column: 1 / -1 !important; }
@@ -432,6 +448,12 @@
             Submit your CAUSE review first, then head to Discord to deliberate as a steward team on the final outcome.
           </div>
 
+          <!-- ✅ NEW: ACCUSED reminder (CAUSE + EFFECT applies to accused only) -->
+          <div class="amberBox">
+            IMPORTANT: You are scoring the <b>ACCUSED</b> driver only — at no point are you scoring the reporting driver.
+            <small>Make sure the footage you’re using fairly shows the accused driver’s actions (some clips only show the reporter’s angle).</small>
+          </div>
+
           <div class="grid2" style="margin-top:10px;">
             <div>
               <label class="muted">C — Control (1–5)</label>
@@ -479,15 +501,14 @@
           </div>
 
           <!-- =============================
-               NEW: CAUSE + EFFECT SECTION
-               (No removals — only additions)
+               CAUSE + EFFECT SECTION
                ============================= -->
           <div class="effectWrap" id="effectWrap">
             <div class="row" style="justify-content:space-between; align-items:flex-start;">
               <div>
                 <div style="font-weight:900; font-size:13px; margin-bottom:4px;">EFFECT (tick all that apply)</div>
                 <div class="muted">
-                  Effects stack using micro-values. Your total EFFECT is clamped to <b>-1.00 to +1.00</b> per steward for fairness.
+                  Ensure you remember this is scoring the <b>ACCUSED</b> driver — at no point are you scoring the reporting driver — so ensure footage is checked.
                 </div>
               </div>
               <button id="clearEffectsBtn">Clear Effects</button>
@@ -1318,13 +1339,11 @@
     }
 
     // ==========================
-    // NEW: EFFECT SYSTEM (STACKING, MICRO VALUES)
+    // EFFECT SYSTEM (STACKING, MICRO VALUES)
     // ==========================
     const EFFECT_CAP_MIN = -1.00;
     const EFFECT_CAP_MAX =  1.00;
 
-    // NOTE: these are the Discord-friendly options you approved, now as checkbox definitions.
-    // Each effect has: key, label, delta, group ("add" or "sub").
     const EFFECTS = [
       // Aggravating (adds)
       { key:"first_lap_incident", label:"First corner Incident (AUTOMATICALLY SEVERE)", delta:+0.40, group:"add", note:"Golden bullet: first lap context" },
@@ -1379,9 +1398,6 @@
     }
 
     function computeRawCauseThisSteward(){
-      // UI values: c, a, u (UI), s, e.
-      // Stored U is reversed; raw cause should represent the scale as shown to steward (UI).
-      // (This is for display + audit text only; your stored schema still reverses U.)
       const c = clampScore($("cScore")?.value);
       const a = clampScore($("aScore")?.value);
       const u = clampScore($("uScore")?.value); // UI score
@@ -1488,7 +1504,6 @@
         };
       }
 
-      // Wire CAUSE dropdown changes to refresh preview too (raw cause changes)
       for (const id of ["cScore","aScore","uScore","sScore","eScore"]){
         const el = $(id);
         if (el) el.onchange = () => renderEffectPreview();
@@ -1498,7 +1513,6 @@
     }
 
     function applySelectedEffects(keys){
-      // Clears all then checks listed keys
       for (const ef of EFFECTS){
         const cb = $("ef_" + ef.key);
         if (cb) cb.checked = false;
@@ -1547,7 +1561,6 @@
       statementStatusCache.clear();
       deliberationStatusCache.clear();
 
-      // ✅ ONLY CHANGE: 200 -> 400
       const snap = await db.collection("tickets").limit(400).get();
 
       const docs = snap.docs;
@@ -1654,7 +1667,6 @@
 
       const filterName = filterEl.value;
 
-      // ✅ ONLY CHANGE: 200 -> 400
       ticketHintEl.textContent =
         `Showing ${shown} ticket(s) for filter: "${filterName}". Live workload in batch: ${liveCount} | Needs your input: ${needsMyInputCount}. (Max 400 fetched).`;
     }
@@ -1671,7 +1683,6 @@
       $("discussionList").innerHTML = `<div class="muted">Loading comments…</div>`;
       $("discussionInput").value = "";
 
-      // NEW: clear effect checkboxes + refresh preview when switching tickets
       applySelectedEffects([]);
 
       const ref = db.collection("tickets").doc(ticketId);
@@ -1939,8 +1950,6 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
       if (!snap.exists) {
         $("myReviewStatus").textContent = "Not submitted";
         $("myReviewStatus").className = "badge";
-
-        // NEW: ensure preview is accurate even when blank
         renderEffectPreview();
         return;
       }
@@ -1965,12 +1974,10 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
 
       $("penaltyCode").value = d.penaltyCode || "";
 
-      // NEW: restore effects
       const eff = d.EFFECT || d.effect || {};
       const keys = Array.isArray(eff.selectedKeys) ? eff.selectedKeys : (Array.isArray(eff.selected) ? eff.selected : []);
       applySelectedEffects(keys);
 
-      // NEW: ensure preview updates when loading saved review
       setPenaltyPreviewFromSelected();
 
       $("myReviewStatus").textContent = "Submitted ✅";
@@ -1995,7 +2002,6 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
         const uUi = Number($("uScore").value);
         const uStored = reverseScore(uUi);
 
-        // NEW: compute effects + preview numbers
         const eff = computeEffectTotals();
 
         const review = {
@@ -2009,7 +2015,6 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
             severity:     { score: Number($("sScore").value), text: getFreeText("sText") },
             environment:  { score: Number($("eScore").value), text: getFreeText("eText") },
           },
-          // NEW: effect payload (auditable)
           EFFECT: {
             selectedKeys: eff.selectedKeys,
             total: Number(eff.total),
@@ -2025,8 +2030,6 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
 
         await ref.set(review, { merge: true });
 
-        // NEW: also write an auditable steward comment (overwrites per steward per ticket)
-        // This is visible for Patreon audits as you requested.
         try {
           const authorKey = safeKey(currentEmail);
           const col = db.collection("tickets").doc(selectedTicketId).collection("steward_comments");
@@ -2070,7 +2073,7 @@ Selected effects: ${effectsLine}`;
 
         toast("CAUSE review submitted ✅");
         await loadTickets();
-        await loadDiscussion(); // so the audit comment appears immediately
+        await loadDiscussion();
       } catch (e) {
         toast("Submit failed: " + (e?.message || e));
       } finally {
