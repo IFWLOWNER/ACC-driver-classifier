@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IFWL — Race Control</title>
+  <style>
+    body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui;background:#0b1220;color:#fff}
+    .wrap{width:min(720px,92vw);text-align:center}
+    h1{margin:0 0 10px;font-size:28px}
+    p{margin:0 0 22px;opacity:.75}
+    .row{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
+    button{
+      border:none;cursor:pointer;font-weight:900;letter-spacing:.3px;
+      width:260px;height:260px;border-radius:999px;
+      box-shadow:0 18px 55px rgba(0,0,0,.45);
+      transition:transform .08s ease, filter .12s ease;
+      color:#fff;font-size:20px;
+    }
+    button:active{transform:scale(.98)}
+    .red{background:radial-gradient(circle at 30% 25%, #ff7a7a, #ef4444 45%, #7f1d1d)}
+    .green{background:radial-gradient(circle at 30% 25%, #86efac, #22c55e 45%, #14532d)}
+    .status{margin-top:18px;font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.9}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>IFWL Race Control</h1>
+    <p>Posts to Discord + switches the live Command Center state.</p>
+
+    <div class="row">
+      <button class="red" id="btnRed">CALL RED FLAG</button>
+      <button class="green" id="btnGreen">GREEN FLAG</button>
+    </div>
+
+    <div class="status" id="status">Ready.</div>
+  </div>
+
+  <script>
+    const WORKER_BASE = "https://fancy-frog-e248.benjamin-leahy1.workers.dev";
+    const AUTH_TOKEN = "PASTE_YOUR_AUTH_TOKEN_HERE";
+
+    const statusEl = document.getElementById("status");
+
+    async function setState(state){
+      statusEl.textContent = "Sending…";
+      try{
+        const res = await fetch(`${WORKER_BASE}/set`,{
+          method:"POST",
+          headers:{
+            "Content-Type":"application/json",
+            "X-Auth": AUTH_TOKEN
+          },
+          body: JSON.stringify({ state })
+        });
+        const data = await res.json().catch(()=> ({}));
+        if(!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        statusEl.textContent = `OK — "${data.state}" @ ${new Date(data.updatedAt).toLocaleTimeString()}`;
+      }catch(err){
+        statusEl.textContent = `ERROR — ${err.message}`;
+      }
+    }
+
+    document.getElementById("btnRed").addEventListener("click", ()=>setState("red"));
+    document.getElementById("btnGreen").addEventListener("click", ()=>setState("green"));
+  </script>
+</body>
+</html>
