@@ -57,27 +57,48 @@
       catch { return "—"; }
     }
 
-    function apply(state, updatedAt){
+    // Prefer lastCommand if present (supports "server_reset" without changing UI state)
+    function getEffectiveMode(data){
+      const state = String(data?.state || "green").toLowerCase();
+      const lastCommand = String(data?.lastCommand || "").toLowerCase();
+
+      // If the worker sends server_reset as lastCommand, show a special green message
+      if(lastCommand === "server_reset") return "server_reset";
+
+      // otherwise use state-based modes
+      if(state === "red") return "red";
+      if(state === "vsc_slow") return "vsc_slow";
+      if(state === "vsc_pit") return "vsc_pit";
+      return "green";
+    }
+
+    function apply(mode, updatedAt){
       // clear modes
       document.body.classList.remove("red","vsc");
 
-      if(state === "red"){
+      if(mode === "red"){
         document.body.classList.add("red");
         dot.className = "dot red";
         title.innerHTML = `<span class="dot red" id="dot"></span>RED FLAG`;
         msg.textContent = "Return to pits immediately. Send standings screenshot into Discord.";
       }
-      else if(state === "vsc_slow"){
+      else if(mode === "vsc_slow"){
         document.body.classList.add("vsc");
         dot.className = "dot yellow";
         title.innerHTML = `<span class="dot yellow" id="dot"></span>VSC — FORMATION`;
         msg.textContent = "Remain in formation. Continue at reduced speed. No overtaking.";
       }
-      else if(state === "vsc_pit"){
+      else if(mode === "vsc_pit"){
         document.body.classList.add("vsc");
         dot.className = "dot yellow";
         title.innerHTML = `<span class="dot yellow" id="dot"></span>VSC — PIT NOW`;
         msg.textContent = "Enter pits now. Keep formation at pit exit line. No overtaking.";
+      }
+      else if(mode === "server_reset"){
+        // stays green visually, but shows reset message
+        dot.className = "dot green";
+        title.innerHTML = `<span class="dot green" id="dot"></span>SERVER RESET`;
+        msg.textContent = "Practice session is now live. You have 15 minutes to organise re-entry to the server — good luck!";
       }
       else {
         dot.className = "dot green";
@@ -90,17 +111,18 @@
 
     async function poll(){
       try{
+        // Pull state (supports worker responding at / or /state)
         const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
         if(!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
 
-        const state = String(data?.state || "green").toLowerCase();
+        const mode = getEffectiveMode(data);
         const updatedAt = data?.updatedAt || null;
 
-        // IMPORTANT: always apply (even if state didn’t change)
-        apply(state, updatedAt);
+        // Always apply to keep it feeling "live"
+        apply(mode, updatedAt);
       }catch(e){
-        // show obvious offline state so you know it’s not polling
+        // offline state
         document.body.classList.remove("red","vsc");
         dot.className = "dot red";
         title.innerHTML = `<span class="dot red" id="dot"></span>FLAG FEED OFFLINE`;
