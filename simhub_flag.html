@@ -6,14 +6,9 @@
   <title>IFWL Flag</title>
   <style>
     html,body{height:100%;margin:0;font-family:system-ui;background:transparent;overflow:hidden}
-    .wrap{
-      height:100%;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-    }
+    .wrap{height:100%;display:flex;align-items:center;justify-content:center}
     .panel{
-      width:min(520px, 96vw);
+      width:min(620px, 96vw);
       border-radius:24px;
       border:2px solid rgba(255,255,255,.18);
       background: rgba(0,0,0,.45);
@@ -23,52 +18,37 @@
       color:#fff;
       box-shadow:0 18px 55px rgba(0,0,0,.55);
     }
-    .big{
-      font-weight:1000;
-      letter-spacing:.6px;
-      font-size: clamp(28px, 4.5vw, 44px);
-      margin:0 0 8px;
-    }
-    .sub{
-      margin:0;
-      opacity:.9;
-      font-size: clamp(14px, 2.2vw, 18px);
-      line-height:1.25;
-    }
-    .stamp{
-      margin-top:10px;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size: 12px;
-      opacity:.85;
-    }
+    .big{font-weight:1000;letter-spacing:.6px;font-size: clamp(26px, 4.2vw, 40px);margin:0 0 8px}
+    .sub{margin:0;opacity:.92;font-size: clamp(14px, 2.1vw, 18px);line-height:1.25}
+    .stamp{margin-top:10px;font-family: ui-monospace, Menlo, Consolas, monospace;font-size: 12px;opacity:.85}
 
-    /* state visuals */
     @keyframes rfFlash { 0%,49%{background:#000;} 50%,100%{background:#b30000;} }
+    @keyframes vscFlash { 0%,49%{background:#000;} 50%,100%{background:#8a5a00;} }
+
     body.red { animation: rfFlash .7s infinite; }
+    body.vsc { animation: vscFlash .9s infinite; }
+
     .dot{display:inline-block;width:14px;height:14px;border-radius:999px;margin-right:10px;vertical-align:middle}
     .dot.green{background:#22c55e; box-shadow:0 0 0 6px rgba(34,197,94,.18)}
     .dot.red{background:#ef4444; box-shadow:0 0 0 6px rgba(239,68,68,.18)}
+    .dot.yellow{background:#f59e0b; box-shadow:0 0 0 6px rgba(245,158,11,.18)}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="panel">
-      <div class="big" id="title"><span class="dot green" id="dot"></span>GREEN FLAG</div>
-      <p class="sub" id="msg">Race control : green flag (does not overide yellow or blue).</p>
+      <div class="big" id="title"><span class="dot green"></span>GREEN FLAG</div>
+      <p class="sub" id="msg">Practice session live — join with primary driver.</p>
       <div class="stamp" id="stamp">Last update: —</div>
     </div>
   </div>
 
   <script>
-    // Your Worker
     const WORKER_BASE = "https://fancy-frog-e248.benjamin-leahy1.workers.dev";
-
-    // Faster polling for overlays
     const POLL_MS = 750;
 
     const title = document.getElementById("title");
     const msg = document.getElementById("msg");
-    const dot = document.getElementById("dot");
     const stamp = document.getElementById("stamp");
 
     let lastState = null;
@@ -79,20 +59,30 @@
     }
 
     function apply(state, updatedAt){
-      const isRed = state === "red";
-      document.body.classList.toggle("red", isRed);
+      document.body.classList.remove("red","vsc");
 
-      dot.className = "dot " + (isRed ? "red" : "green");
-      title.innerHTML = `<span class="${dot.className}"></span>${isRed ? "RED FLAG" : "SERVER GOOD : ADHERE TO RACE FLAGS"}`;
-      msg.textContent = isRed
-        ? "Return to pits immediately. Send standings screenshot into Discord."
-        : "RACE CONTROL : GREEN.";
+      if(state === "red"){
+        document.body.classList.add("red");
+        title.innerHTML = `<span class="dot red"></span>RED FLAG`;
+        msg.textContent = "Return to pits immediately. Send standings screenshot into Discord.";
+      } else if(state === "vsc_slow"){
+        document.body.classList.add("vsc");
+        title.innerHTML = `<span class="dot yellow"></span>VSC — FORMATION`;
+        msg.textContent = "Remain in formation. Continue at reduced speed. No overtaking.";
+      } else if(state === "vsc_pit"){
+        document.body.classList.add("vsc");
+        title.innerHTML = `<span class="dot yellow"></span>VSC — PIT NOW`;
+        msg.textContent = "Enter pits now. Keep formation at pit exit line. No overtaking.";
+      } else {
+        title.innerHTML = `<span class="dot green"></span>GREEN FLAG`;
+        msg.textContent = "Practice session live — join with primary driver.";
+      }
+
       stamp.textContent = "Last update: " + (updatedAt ? fmt(updatedAt) : "—");
     }
 
     async function poll(){
       try{
-        // cache-buster to avoid any caching anywhere
         const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
         if(!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
@@ -106,7 +96,7 @@
           stamp.textContent = "Last update: " + fmt(updatedAt);
         }
       }catch(e){
-        // If it fails, keep last shown state (no spam)
+        // keep last shown state
       }
     }
 
