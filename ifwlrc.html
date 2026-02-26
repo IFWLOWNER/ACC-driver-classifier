@@ -14,22 +14,35 @@
       border:none;cursor:pointer;font-weight:1000;letter-spacing:.3px;
       width:240px;height:240px;border-radius:999px;
       box-shadow:0 18px 55px rgba(0,0,0,.45);
-      transition:transform .08s ease, filter .12s ease;
+      transition:transform .08s ease, filter .12s ease, opacity .12s ease;
       color:#fff;font-size:18px; padding:16px;
       line-height:1.15;
     }
     button:active{transform:scale(.98)}
+    button[disabled]{opacity:.55; cursor:not-allowed}
     .red{background:radial-gradient(circle at 30% 25%, #ff7a7a, #ef4444 45%, #7f1d1d)}
     .yellow{color:#111827;background:radial-gradient(circle at 30% 25%, #fff3b0, #f59e0b 45%, #7c4a00)}
     .green{background:radial-gradient(circle at 30% 25%, #86efac, #22c55e 45%, #14532d)}
-    .status{margin-top:18px;font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.9}
+    .status{margin-top:18px;font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.95;white-space:pre-wrap}
     .hint{margin-top:10px;opacity:.75;font-size:13px}
+    .minirow{margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+    .pill{
+      font-family:ui-monospace,Menlo,Consolas,monospace;
+      font-size:12px;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.06);
+      opacity:.9;
+    }
+    .ok{color:#86efac}
+    .bad{color:#ff7a7a}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>IFWL Race Control</h1>
-    <p>Posts to Discord + updates Command Center + SimHub flag.</p>
+    <p>Updates Command Center + SimHub flag instantly (Durable Object + SSE). Discord posts are non-blocking.</p>
 
     <div class="row">
       <button class="red" id="btnRed">CALL<br>RED FLAG</button>
@@ -54,42 +67,158 @@
       </button>
     </div>
 
+    <div class="minirow">
+      <span class="pill" id="endpointPill">Endpoint: —</span>
+      <span class="pill" id="livePill">Live feed: —</span>
+      <span class="pill" id="statePill">Current: —</span>
+    </div>
+
     <div class="status" id="status">Ready.</div>
     <div class="hint">Tip: keep this page private — it can trigger live race control.</div>
   </div>
 
   <script>
-    const WORKER_BASE = "https://fancy-frog-e248.benjamin-leahy1.workers.dev";
-    const AUTH_TOKEN  = "ifwl-redflag-2026";
+    // ✅ UPDATED: new Durable Object Worker URL
+    const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
 
-    const statusEl = document.getElementById("status");
+    // ✅ UPDATED SECURITY MODEL:
+    // Do NOT hardcode AUTH_TOKEN in the HTML if you can avoid it.
+    // Put it in the URL like: racecontrol.html#token=YOURTOKEN
+    // (This keeps it out of the file and GitHub.)
+    const AUTH_TOKEN = (() => {
+      const hash = (location.hash || "").replace(/^#/, "");
+      const params = new URLSearchParams(hash);
+      return params.get("token") || "";
+    })();
+
+    const statusEl   = document.getElementById("status");
+    const endpointPill = document.getElementById("endpointPill");
+    const livePill   = document.getElementById("livePill");
+    const statePill  = document.getElementById("statePill");
+
+    const buttons = [
+      document.getElementById("btnRed"),
+      document.getElementById("btnVscSlow"),
+      document.getElementById("btnVscPit"),
+      document.getElementById("btnGreen"),
+      document.getElementById("btnReset"),
+    ];
+
+    endpointPill.textContent = `Endpoint: ${WORKER_BASE}`;
+
+    function fmt(ts){
+      try { return new Date(ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"}); }
+      catch { return "—"; }
+    }
+
+    function setBusy(isBusy){
+      for(const b of buttons) b.disabled = isBusy;
+    }
+
+    function setLive(ok, detail=""){
+      livePill.innerHTML = ok
+        ? `Live feed: <span class="ok">CONNECTED</span>`
+        : `Live feed: <span class="bad">OFFLINE</span>${detail ? " — " + detail : ""}`;
+    }
+
+    function modeFrom(data){
+      const state = String(data?.state || "green").toLowerCase();
+      const lastCommand = String(data?.lastCommand || "").toLowerCase();
+      return lastCommand || state || "green";
+    }
+
+    function updateCurrentPill(data){
+      const m = modeFrom(data);
+      const when = data?.updatedAt ? fmt(data.updatedAt) : "—";
+      statePill.textContent = `Current: ${m} @ ${when}`;
+    }
+
+    async function getState(){
+      const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
 
     async function setState(state){
+      if(!AUTH_TOKEN){
+        statusEl.textContent =
+          "ERROR — Missing token.\n\n" +
+          "Open this page with a token in the URL hash:\n" +
+          "racecontrol.html#token=YOUR_AUTH_TOKEN";
+        return;
+      }
+
+      setBusy(true);
       statusEl.textContent = "Sending…";
+
       try{
         const res = await fetch(`${WORKER_BASE}/set`,{
           method:"POST",
           headers:{
             "Content-Type":"application/json",
-            "X-Auth": AUTH_TOKEN
+            // ✅ UPDATED: use lowercase header name to match worker CORS allow-headers
+            "x-auth": AUTH_TOKEN
           },
           body: JSON.stringify({ state })
         });
+
         const data = await res.json().catch(()=> ({}));
         if(!res.ok) throw new Error(data?.detail || data?.error || `HTTP ${res.status}`);
 
-        const shown = data.lastCommand ? data.lastCommand : data.state;
-        statusEl.textContent = `OK — "${shown}" @ ${new Date(data.updatedAt).toLocaleTimeString()}`;
+        const shown = modeFrom(data);
+        statusEl.textContent = `OK — "${shown}" @ ${fmt(data.updatedAt)}`;
+        updateCurrentPill(data);
       }catch(err){
         statusEl.textContent = `ERROR — ${err.message}`;
+      }finally{
+        setBusy(false);
       }
     }
 
+    // Wire buttons
     document.getElementById("btnRed").addEventListener("click", ()=>setState("red"));
     document.getElementById("btnVscSlow").addEventListener("click", ()=>setState("vsc_slow"));
     document.getElementById("btnVscPit").addEventListener("click", ()=>setState("vsc_pit"));
     document.getElementById("btnGreen").addEventListener("click", ()=>setState("green"));
     document.getElementById("btnReset").addEventListener("click", ()=>setState("server_reset"));
+
+    // ✅ NEW: live status in the control page too (SSE subscribe)
+    function startSSE(){
+      try{
+        const es = new EventSource(`${WORKER_BASE}/events?t=${Date.now()}`);
+
+        es.onopen = () => setLive(true);
+
+        es.onmessage = (ev) => {
+          try{
+            const data = JSON.parse(ev.data);
+            updateCurrentPill(data);
+          }catch{
+            // ignore parse issues
+          }
+        };
+
+        es.onerror = () => {
+          setLive(false, "retrying…");
+          try { es.close(); } catch {}
+          // retry after a short delay
+          setTimeout(startSSE, 1500);
+        };
+      }catch{
+        setLive(false);
+      }
+    }
+
+    // Initial state + SSE
+    (async () => {
+      try{
+        const data = await getState();
+        updateCurrentPill(data);
+      }catch{
+        statePill.textContent = "Current: —";
+      }
+      startSSE();
+    })();
   </script>
 </body>
 </html>
