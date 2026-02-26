@@ -9,6 +9,7 @@
     .wrap{width:min(980px,92vw);text-align:center}
     h1{margin:0 0 10px;font-size:28px}
     p{margin:0 0 22px;opacity:.75}
+
     .row{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
     button{
       border:none;cursor:pointer;font-weight:1000;letter-spacing:.3px;
@@ -20,11 +21,14 @@
     }
     button:active{transform:scale(.98)}
     button[disabled]{opacity:.55; cursor:not-allowed}
+
     .red{background:radial-gradient(circle at 30% 25%, #ff7a7a, #ef4444 45%, #7f1d1d)}
     .yellow{color:#111827;background:radial-gradient(circle at 30% 25%, #fff3b0, #f59e0b 45%, #7c4a00)}
     .green{background:radial-gradient(circle at 30% 25%, #86efac, #22c55e 45%, #14532d)}
+
     .status{margin-top:18px;font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.95;white-space:pre-wrap}
     .hint{margin-top:10px;opacity:.75;font-size:13px}
+
     .minirow{margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
     .pill{
       font-family:ui-monospace,Menlo,Consolas,monospace;
@@ -37,6 +41,35 @@
     }
     .ok{color:#86efac}
     .bad{color:#ff7a7a}
+
+    .authBox{
+      margin: 16px auto 0;
+      width: min(720px, 92vw);
+      text-align:left;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.06);
+      border-radius:14px;
+      padding:12px 12px 10px;
+    }
+    .authRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .authRow input{
+      flex: 1 1 280px;
+      padding:10px 12px;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.25);
+      color:#fff;
+      outline:none;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+    }
+    .authRow .smallBtn{
+      width:auto;height:auto;border-radius:12px;padding:10px 14px;font-size:13px;
+      background:rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.18);
+      box-shadow:none;
+    }
+    .authNote{margin:8px 0 0;opacity:.8;font-size:12px;line-height:1.25}
+    .authNote code{opacity:.95}
   </style>
 </head>
 <body>
@@ -44,7 +77,20 @@
     <h1>IFWL Race Control</h1>
     <p>Updates Command Center + SimHub flag instantly (Durable Object + SSE). Discord posts are non-blocking.</p>
 
-    <div class="row">
+    <!-- Auth box (token saved locally so stewards only enter it once) -->
+    <div class="authBox">
+      <div class="authRow">
+        <input id="tokenInput" type="password" placeholder="Enter steward token (one-time) — stored on this device" />
+        <button class="smallBtn" id="btnSaveToken">Save token</button>
+        <button class="smallBtn" id="btnClearToken">Clear token</button>
+      </div>
+      <div class="authNote">
+        This token is stored <b>only in your browser</b> (localStorage) on this device.
+        If you change PCs or browsers, you’ll need to enter it again.
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:18px">
       <button class="red" id="btnRed">CALL<br>RED FLAG</button>
 
       <button class="yellow" id="btnVscSlow">
@@ -71,6 +117,7 @@
       <span class="pill" id="endpointPill">Endpoint: —</span>
       <span class="pill" id="livePill">Live feed: —</span>
       <span class="pill" id="statePill">Current: —</span>
+      <span class="pill" id="authPill">Auth: —</span>
     </div>
 
     <div class="status" id="status">Ready.</div>
@@ -78,23 +125,18 @@
   </div>
 
   <script>
-    // ✅ UPDATED: new Durable Object Worker URL
     const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
+    const TOKEN_KEY = "ifwl_racecontrol_token_v1";
 
-    // ✅ UPDATED SECURITY MODEL:
-    // Do NOT hardcode AUTH_TOKEN in the HTML if you can avoid it.
-    // Put it in the URL like: racecontrol.html#token=YOURTOKEN
-    // (This keeps it out of the file and GitHub.)
-    const AUTH_TOKEN = (() => {
-      const hash = (location.hash || "").replace(/^#/, "");
-      const params = new URLSearchParams(hash);
-      return params.get("token") || "";
-    })();
-
-    const statusEl   = document.getElementById("status");
+    const statusEl = document.getElementById("status");
     const endpointPill = document.getElementById("endpointPill");
-    const livePill   = document.getElementById("livePill");
-    const statePill  = document.getElementById("statePill");
+    const livePill = document.getElementById("livePill");
+    const statePill = document.getElementById("statePill");
+    const authPill = document.getElementById("authPill");
+
+    const tokenInput = document.getElementById("tokenInput");
+    const btnSaveToken = document.getElementById("btnSaveToken");
+    const btnClearToken = document.getElementById("btnClearToken");
 
     const buttons = [
       document.getElementById("btnRed"),
@@ -133,6 +175,24 @@
       statePill.textContent = `Current: ${m} @ ${when}`;
     }
 
+    function getToken(){
+      return (localStorage.getItem(TOKEN_KEY) || "").trim();
+    }
+
+    function setToken(t){
+      const v = (t || "").trim();
+      if(v) localStorage.setItem(TOKEN_KEY, v);
+      else localStorage.removeItem(TOKEN_KEY);
+      updateAuthUI();
+    }
+
+    function updateAuthUI(){
+      const has = !!getToken();
+      authPill.innerHTML = has
+        ? `Auth: <span class="ok">SET</span>`
+        : `Auth: <span class="bad">MISSING</span>`;
+    }
+
     async function getState(){
       const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -140,11 +200,11 @@
     }
 
     async function setState(state){
-      if(!AUTH_TOKEN){
+      const token = getToken();
+      if(!token){
         statusEl.textContent =
           "ERROR — Missing token.\n\n" +
-          "Open this page with a token in the URL hash:\n" +
-          "racecontrol.html#token=ifwl-redflag-2026";
+          "Enter the steward token at the top of the page and click 'Save token'.";
         return;
       }
 
@@ -156,8 +216,7 @@
           method:"POST",
           headers:{
             "Content-Type":"application/json",
-            // ✅ UPDATED: use lowercase header name to match worker CORS allow-headers
-            "x-auth": AUTH_TOKEN
+            "x-auth": token
           },
           body: JSON.stringify({ state })
         });
@@ -175,14 +234,35 @@
       }
     }
 
-    // Wire buttons
+    // Buttons
     document.getElementById("btnRed").addEventListener("click", ()=>setState("red"));
     document.getElementById("btnVscSlow").addEventListener("click", ()=>setState("vsc_slow"));
     document.getElementById("btnVscPit").addEventListener("click", ()=>setState("vsc_pit"));
     document.getElementById("btnGreen").addEventListener("click", ()=>setState("green"));
     document.getElementById("btnReset").addEventListener("click", ()=>setState("server_reset"));
 
-    // ✅ NEW: live status in the control page too (SSE subscribe)
+    // Token UI
+    btnSaveToken.addEventListener("click", () => {
+      setToken(tokenInput.value);
+      tokenInput.value = "";
+      statusEl.textContent = "Token saved on this device.";
+    });
+
+    btnClearToken.addEventListener("click", () => {
+      setToken("");
+      tokenInput.value = "";
+      statusEl.textContent = "Token cleared on this device.";
+    });
+
+    tokenInput.addEventListener("keydown", (e) => {
+      if(e.key === "Enter"){
+        setToken(tokenInput.value);
+        tokenInput.value = "";
+        statusEl.textContent = "Token saved on this device.";
+      }
+    });
+
+    // SSE subscribe for live state
     function startSSE(){
       try{
         const es = new EventSource(`${WORKER_BASE}/events?t=${Date.now()}`);
@@ -193,15 +273,12 @@
           try{
             const data = JSON.parse(ev.data);
             updateCurrentPill(data);
-          }catch{
-            // ignore parse issues
-          }
+          }catch{}
         };
 
         es.onerror = () => {
           setLive(false, "retrying…");
           try { es.close(); } catch {}
-          // retry after a short delay
           setTimeout(startSSE, 1500);
         };
       }catch{
@@ -209,14 +286,22 @@
       }
     }
 
-    // Initial state + SSE
+    // Init
     (async () => {
+      updateAuthUI();
+
+      try{
+        const existing = getToken();
+        if(existing) authPill.innerHTML = `Auth: <span class="ok">SET</span>`;
+      }catch{}
+
       try{
         const data = await getState();
         updateCurrentPill(data);
       }catch{
         statePill.textContent = "Current: —";
       }
+
       startSSE();
     })();
   </script>
