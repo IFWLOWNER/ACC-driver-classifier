@@ -41,6 +41,7 @@
     }
     .ok{color:#86efac}
     .bad{color:#ff7a7a}
+    .warn{color:#fde68a}
 
     .authBox{
       margin: 16px auto 0;
@@ -67,9 +68,12 @@
       background:rgba(255,255,255,.10);
       border:1px solid rgba(255,255,255,.18);
       box-shadow:none;
+      color:#fff;
+      font-weight:900;
+      letter-spacing:.2px;
+      cursor:pointer;
     }
     .authNote{margin:8px 0 0;opacity:.8;font-size:12px;line-height:1.25}
-    .authNote code{opacity:.95}
   </style>
 </head>
 <body>
@@ -77,7 +81,6 @@
     <h1>IFWL Race Control</h1>
     <p>Updates Command Center + SimHub flag instantly (Durable Object + SSE). Discord posts are non-blocking.</p>
 
-    <!-- Auth box (token saved locally so stewards only enter it once) -->
     <div class="authBox">
       <div class="authRow">
         <input id="tokenInput" type="password" placeholder="Enter steward token (one-time) — stored on this device" />
@@ -85,8 +88,8 @@
         <button class="smallBtn" id="btnClearToken">Clear token</button>
       </div>
       <div class="authNote">
-        This token is stored <b>only in your browser</b> (localStorage) on this device.
-        If you change PCs or browsers, you’ll need to enter it again.
+        Token is stored <b>only in your browser</b> (localStorage) on this device.
+        If you change PCs/browsers, you’ll need to enter it again.
       </div>
     </div>
 
@@ -116,6 +119,7 @@
     <div class="minirow">
       <span class="pill" id="endpointPill">Endpoint: —</span>
       <span class="pill" id="livePill">Live feed: —</span>
+      <span class="pill" id="pollPill">Polling: —</span>
       <span class="pill" id="statePill">Current: —</span>
       <span class="pill" id="authPill">Auth: —</span>
     </div>
@@ -127,10 +131,12 @@
   <script>
     const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
     const TOKEN_KEY = "ifwl_racecontrol_token_v1";
+    const POLL_MS = 1000; // fallback polling every 1s (only used if SSE fails)
 
     const statusEl = document.getElementById("status");
     const endpointPill = document.getElementById("endpointPill");
     const livePill = document.getElementById("livePill");
+    const pollPill = document.getElementById("pollPill");
     const statePill = document.getElementById("statePill");
     const authPill = document.getElementById("authPill");
 
@@ -161,6 +167,12 @@
       livePill.innerHTML = ok
         ? `Live feed: <span class="ok">CONNECTED</span>`
         : `Live feed: <span class="bad">OFFLINE</span>${detail ? " — " + detail : ""}`;
+    }
+
+    function setPolling(on){
+      pollPill.innerHTML = on
+        ? `Polling: <span class="warn">ON</span>`
+        : `Polling: <span class="ok">OFF</span>`;
     }
 
     function modeFrom(data){
@@ -199,6 +211,7 @@
       return res.json();
     }
 
+    // --- Robust send: even if browser can't read /set response, verify via /state ---
     async function setState(state){
       const token = getToken();
       if(!token){
@@ -209,11 +222,16 @@
       }
 
       setBusy(true);
-      statusEl.textContent = "Sending…";
+      statusEl.textContent = `Sending "${state}"…`;
+
+      // Attempt POST. If it fails, we STILL verify via /state (because we know /state works).
+      let postOk = false;
 
       try{
         const res = await fetch(`${WORKER_BASE}/set`,{
           method:"POST",
+          mode:"cors",
+          cache:"no-store",
           headers:{
             "Content-Type":"application/json",
             "x-auth": token
@@ -221,14 +239,41 @@
           body: JSON.stringify({ state })
         });
 
-        const data = await res.json().catch(()=> ({}));
-        if(!res.ok) throw new Error(data?.detail || data?.error || `HTTP ${res.status}`);
+        // Read as text first (helps debugging)
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
 
+        if(!res.ok){
+          throw new Error(data?.detail || data?.error || `HTTP ${res.status} — ${text || "no body"}`);
+        }
+
+        postOk = true;
         const shown = modeFrom(data);
         statusEl.textContent = `OK — "${shown}" @ ${fmt(data.updatedAt)}`;
         updateCurrentPill(data);
       }catch(err){
-        statusEl.textContent = `ERROR — ${err.message}`;
+        // This is where you were seeing "Failed to fetch"
+        statusEl.textContent =
+          `WARN — POST may have sent, but browser couldn't read the response.\n` +
+          `Reason: ${err.message}\n` +
+          `Verifying via /state…`;
+      }
+
+      // Verify via /state (this is the key reliability improvement)
+      try{
+        // tiny delay helps edge propagation; DO is fast but this keeps UI smooth
+        await new Promise(r => setTimeout(r, 150));
+        const fresh = await getState();
+        updateCurrentPill(fresh);
+
+        if(!postOk){
+          statusEl.textContent =
+            `Verified via /state — now "${modeFrom(fresh)}" @ ${fmt(fresh.updatedAt)}\n` +
+            `(If Discord posted, command definitely executed.)`;
+        }
+      }catch(e){
+        statusEl.textContent += `\nERROR — Could not verify /state: ${e.message}`;
       }finally{
         setBusy(false);
       }
@@ -247,13 +292,11 @@
       tokenInput.value = "";
       statusEl.textContent = "Token saved on this device.";
     });
-
     btnClearToken.addEventListener("click", () => {
       setToken("");
       tokenInput.value = "";
       statusEl.textContent = "Token cleared on this device.";
     });
-
     tokenInput.addEventListener("keydown", (e) => {
       if(e.key === "Enter"){
         setToken(tokenInput.value);
@@ -262,12 +305,42 @@
       }
     });
 
-    // SSE subscribe for live state
+    // --- Live feed: SSE first, fallback polling if SSE fails ---
+    let pollTimer = null;
+
+    function startPolling(){
+      if(pollTimer) return;
+      setPolling(true);
+
+      const tick = async () => {
+        try{
+          const data = await getState();
+          updateCurrentPill(data);
+        }catch{
+          // ignore; pill stays last known
+        }
+      };
+
+      tick();
+      pollTimer = setInterval(tick, POLL_MS);
+    }
+
+    function stopPolling(){
+      if(pollTimer){
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      setPolling(false);
+    }
+
     function startSSE(){
       try{
         const es = new EventSource(`${WORKER_BASE}/events?t=${Date.now()}`);
 
-        es.onopen = () => setLive(true);
+        es.onopen = () => {
+          setLive(true);
+          stopPolling();
+        };
 
         es.onmessage = (ev) => {
           try{
@@ -277,23 +350,23 @@
         };
 
         es.onerror = () => {
-          setLive(false, "retrying…");
+          setLive(false, "fallback to polling");
           try { es.close(); } catch {}
-          setTimeout(startSSE, 1500);
+          startPolling();
+          // keep trying to restore SSE
+          setTimeout(startSSE, 2000);
         };
       }catch{
-        setLive(false);
+        setLive(false, "fallback to polling");
+        startPolling();
       }
     }
 
     // Init
     (async () => {
       updateAuthUI();
-
-      try{
-        const existing = getToken();
-        if(existing) authPill.innerHTML = `Auth: <span class="ok">SET</span>`;
-      }catch{}
+      setLive(false);
+      setPolling(false);
 
       try{
         const data = await getState();
