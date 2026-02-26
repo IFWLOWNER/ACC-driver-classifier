@@ -37,17 +37,24 @@
 <body>
   <div class="wrap">
     <div class="panel">
-      <div class="big" id="title"><span class="dot green" id="dot"></span>SERVER GOOD : ADHERE TO RACE FLAGS</div>
+      <!-- ✅ FIX: split headline text so we never replace the dot element -->
+      <div class="big" id="title">
+        <span class="dot green" id="dot"></span>
+        <span id="headline">SERVER GOOD : ADHERE TO RACE FLAGS</span>
+      </div>
       <p class="sub" id="msg">Race control : green flag (does not override yellow or blue).</p>
       <div class="stamp" id="stamp">Last update: —</div>
     </div>
   </div>
 
   <script>
-    const WORKER_BASE = "https://fancy-frog-e248.benjamin-leahy1.workers.dev";
+    // ✅ UPDATED: new Durable Object Worker
+    const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
+
+    // Poll fallback (used if SSE fails or SimHub blocks EventSource)
     const POLL_MS = 750;
 
-    const title = document.getElementById("title");
+    const headline = document.getElementById("headline");
     const msg = document.getElementById("msg");
     const dot = document.getElementById("dot");
     const stamp = document.getElementById("stamp");
@@ -62,77 +69,128 @@
       const state = String(data?.state || "green").toLowerCase();
       const lastCommand = String(data?.lastCommand || "").toLowerCase();
 
-      // If the worker sends server_reset as lastCommand, show a special green message
       if(lastCommand === "server_reset") return "server_reset";
-
-      // otherwise use state-based modes
       if(state === "red") return "red";
       if(state === "vsc_slow") return "vsc_slow";
       if(state === "vsc_pit") return "vsc_pit";
       return "green";
     }
 
+    function setDot(color){
+      dot.className = "dot " + color;
+    }
+
     function apply(mode, updatedAt){
-      // clear modes
       document.body.classList.remove("red","vsc");
 
       if(mode === "red"){
         document.body.classList.add("red");
-        dot.className = "dot red";
-        title.innerHTML = `<span class="dot red" id="dot"></span>RED FLAG`;
+        setDot("red");
+        headline.textContent = "RED FLAG";
         msg.textContent = "drive to pits immediately. Send standings screenshot into Discord.";
       }
       else if(mode === "vsc_slow"){
         document.body.classList.add("vsc");
-        dot.className = "dot yellow";
-        title.innerHTML = `<span class="dot yellow" id="dot"></span>VSC — FORMATION`;
+        setDot("yellow");
+        headline.textContent = "VSC — FORMATION";
         msg.textContent = "Remain in formation. 1st gear, enable limiter, no overtaking.";
       }
       else if(mode === "vsc_pit"){
         document.body.classList.add("vsc");
-        dot.className = "dot yellow";
-        title.innerHTML = `<span class="dot yellow" id="dot"></span>VSC — PIT NOW`;
+        setDot("yellow");
+        headline.textContent = "VSC — PIT NOW";
         msg.textContent = "all cars to enter pits now. Keep formation at pit exit line. No overtaking.";
       }
       else if(mode === "server_reset"){
-        // stays green visually, but shows reset message
-        dot.className = "dot green";
-        title.innerHTML = `<span class="dot green" id="dot"></span>SERVER RESET`;
+        setDot("green");
+        headline.textContent = "SERVER RESET";
         msg.textContent = "Practice session is now live. You have 15 minutes to organise re-enter to the server — good luck!";
       }
-      else {
-        dot.className = "dot green";
-        title.innerHTML = `<span class="dot green" id="dot"></span>SERVER GOOD : ADHERE TO RACE FLAGS`;
+      else{
+        setDot("green");
+        headline.textContent = "SERVER GOOD : ADHERE TO RACE FLAGS";
         msg.textContent = "if shown after a VSC : race leader to resume race pace within 45 seconds.";
       }
 
       stamp.textContent = "Last update: " + (updatedAt ? fmt(updatedAt) : "—");
     }
 
-    async function poll(){
-      try{
-        // Pull state (supports worker responding at / or /state)
-        const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
-        if(!res.ok) throw new Error("HTTP " + res.status);
-        const data = await res.json();
+    function showOffline(){
+      document.body.classList.remove("red","vsc");
+      setDot("red");
+      headline.textContent = "FLAG FEED OFFLINE";
+      msg.textContent = "Cannot reach Race Control state endpoint.";
+      stamp.textContent = "Last update: —";
+    }
 
-        const mode = getEffectiveMode(data);
-        const updatedAt = data?.updatedAt || null;
+    async function pollOnce(){
+      const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }
 
-        // Always apply to keep it feeling "live"
-        apply(mode, updatedAt);
-      }catch(e){
-        // offline state
-        document.body.classList.remove("red","vsc");
-        dot.className = "dot red";
-        title.innerHTML = `<span class="dot red" id="dot"></span>FLAG FEED OFFLINE`;
-        msg.textContent = "Cannot reach Race Control state endpoint.";
-        stamp.textContent = "Last update: —";
+    let pollTimer = null;
+    function startPolling(){
+      if(pollTimer) return;
+
+      const tick = async () => {
+        try{
+          const data = await pollOnce();
+          apply(getEffectiveMode(data), data?.updatedAt || null);
+        }catch{
+          showOffline();
+        }
+      };
+
+      tick();
+      pollTimer = setInterval(tick, POLL_MS);
+    }
+
+    function stopPolling(){
+      if(pollTimer){
+        clearInterval(pollTimer);
+        pollTimer = null;
       }
     }
 
-    poll();
-    setInterval(poll, POLL_MS);
+    function startSSE(){
+      try{
+        const es = new EventSource(`${WORKER_BASE}/events?t=${Date.now()}`);
+
+        es.onopen = () => {
+          // When SSE works, we can stop polling
+          stopPolling();
+        };
+
+        es.onmessage = (ev) => {
+          try{
+            const data = JSON.parse(ev.data);
+            apply(getEffectiveMode(data), data?.updatedAt || null);
+          }catch{
+            // ignore
+          }
+        };
+
+        es.onerror = () => {
+          try{ es.close(); }catch{}
+          // If SSE fails (common in embedded browsers), fallback to polling
+          startPolling();
+          // and retry SSE periodically
+          setTimeout(startSSE, 2000);
+        };
+      }catch{
+        startPolling();
+      }
+    }
+
+    // Init: load once, then prefer SSE, fallback to polling
+    pollOnce()
+      .then(data => apply(getEffectiveMode(data), data?.updatedAt || null))
+      .catch(showOffline);
+
+    startSSE();
+    // Also start polling immediately as safety; SSE will stop it if it connects
+    startPolling();
   </script>
 </body>
 </html>
