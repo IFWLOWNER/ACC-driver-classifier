@@ -121,8 +121,46 @@
 
     <!-- Main App -->
     <div id="appSection" class="mt-5 hidden">
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+<!-- Create Team -->
+<div class="glass p-5">
+  <div class="flex items-center justify-between gap-2 mb-3">
+    <div>
+      <div class="text-lg font-bold">Create a Team</div>
+      <div class="text-white/70 text-sm">Team captains create their entry here</div>
+    </div>
+  </div>
 
+  <div class="space-y-3">
+    <div>
+      <label class="text-white/70 text-sm">Team name</label>
+      <input id="teamNameInput" type="text"
+        class="mt-1 w-full px-3 py-2 rounded-xl bg-white/10 border border-white/10 outline-none focus:ring-2 focus:ring-emerald-400"
+        placeholder="e.g., Grease Monkey Racing" maxlength="50">
+    </div>
+
+    <div>
+      <label class="text-white/70 text-sm">Team image (optional URL)</label>
+      <input id="teamImageUrlInput" type="url"
+        class="mt-1 w-full px-3 py-2 rounded-xl bg-white/10 border border-white/10 outline-none focus:ring-2 focus:ring-emerald-400"
+        placeholder="https://... (png/jpg/webp)" maxlength="300">
+      <div class="text-xs text-white/60 mt-1">
+        (We’ll add file upload later — for now use an image URL.)
+      </div>
+    </div>
+
+    <button id="btnCreateTeam"
+      class="w-full px-4 py-3 rounded-xl font-extrabold bg-indigo-500 hover:bg-indigo-400">
+      Create Team
+    </button>
+
+    <div id="createTeamMsg" class="status"></div>
+
+    <div class="text-xs text-white/60 leading-relaxed">
+      You will become the <strong>Team Leader</strong>. Drivers can then apply to join.
+    </div>
+  </div>
+</div>
         <!-- Teams -->
         <div class="glass p-5">
           <div class="flex items-center justify-between gap-2 mb-3">
@@ -187,16 +225,18 @@
     // Firestore (same Firebase project as tickets)
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
-      getFirestore,
-      collection,
-      addDoc,
-      getDocs,
-      query,
-      where,
-      orderBy,
-      serverTimestamp,
-      limit
-    } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  serverTimestamp,
+  limit,
+  doc,
+  setDoc
+} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
     // ==========================================================
     // DISCORD LOGIN (rtGate Gen2) — copied from tickets system
@@ -253,6 +293,11 @@
     const teamsLoading    = document.getElementById("teamsLoading");
     const teamsEmpty      = document.getElementById("teamsEmpty");
     const teamsList       = document.getElementById("teamsList");
+
+    const teamNameInput = document.getElementById("teamNameInput");
+    const teamImageUrlInput = document.getElementById("teamImageUrlInput");
+    const btnCreateTeam = document.getElementById("btnCreateTeam");
+    const createTeamMsg = document.getElementById("createTeamMsg");
 
     const selectedTeamEl = document.getElementById("selectedTeam");
     const noteEl         = document.getElementById("note");
@@ -346,6 +391,88 @@
       showLogin();
     });
 
+
+function makeTeamIdFromName(name){
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9\-]/g, "")
+    .slice(0, 60);
+}
+
+btnCreateTeam.addEventListener("click", async () => {
+  createTeamMsg.className = "status";
+  createTeamMsg.textContent = "";
+
+  if (!requireDiscordOrShowLogin()) return;
+
+  const u = getDiscordUser();
+  const teamName = safeStr(teamNameInput.value).slice(0, 50);
+  const teamImageUrl = safeStr(teamImageUrlInput.value).slice(0, 300);
+
+  if (!teamName) {
+    createTeamMsg.textContent = "Please enter a team name.";
+    createTeamMsg.className = "status error";
+    return;
+  }
+
+  btnCreateTeam.disabled = true;
+  btnCreateTeam.classList.add("opacity-60", "cursor-not-allowed");
+  createTeamMsg.textContent = "Creating team…";
+
+  try {
+    // Create a predictable doc id so duplicates are harder
+    // also include leader id to avoid same-name collisions if you want
+    const baseId = makeTeamIdFromName(teamName);
+    const docId = baseId ? `${baseId}__${u.id}` : `team__${u.id}`;
+
+    const payload = {
+      eventId: EVENT_ID,
+      teamName,
+      teamImageUrl: teamImageUrl || "",
+      leaderDiscordId: safeStr(u.id),
+      leaderNick: safeStr(u.nick),
+      leaderUsername: safeStr(u.username),
+      leaderGlobal: safeStr(u.global),
+
+      // Members list starts with leader
+      drivers: [
+        {
+          discordId: safeStr(u.id),
+          nick: safeStr(u.nick),
+          username: safeStr(u.username),
+          global: safeStr(u.global),
+          role: "leader",
+          joinedAt: null
+        }
+      ],
+
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    // Use setDoc so docId is deterministic
+    await setDoc(doc(db, "gteam3_teams", docId), payload, { merge: false });
+
+    teamNameInput.value = "";
+    teamImageUrlInput.value = "";
+
+    createTeamMsg.textContent = "Team created! It will appear in the list.";
+    createTeamMsg.className = "status success";
+
+    await loadTeams(); // refresh list
+  } catch (e) {
+    console.error(e);
+    createTeamMsg.textContent = "Could not create team (rules/config). Check console.";
+    createTeamMsg.className = "status error";
+  } finally {
+    btnCreateTeam.disabled = false;
+    btnCreateTeam.classList.remove("opacity-60", "cursor-not-allowed");
+  }
+});
+
+    
     // ==========================================================
     // UI gating
     // ==========================================================
