@@ -210,10 +210,11 @@
         Practice live (15 min)
       </button>
 
+      <!-- ✅ UPDATED PURPOSE: triggers the end-user SimHub check-in screen -->
       <button class="blue" id="btnCheckIn">
         RACE<br>CHECK-IN<br><br>
-        Add your name<br>
-        to the live list
+        Show driver<br>
+        check-in screen
       </button>
     </div>
 
@@ -243,7 +244,7 @@
     <div class="hint">Tip: keep this page private — it can trigger live race control.</div>
   </div>
 
-  <!-- Modal -->
+  <!-- Modal (kept exactly as-is; no removals) -->
   <div class="modalBackdrop" id="checkinModal">
     <div class="modal">
       <div class="modalTop">
@@ -287,7 +288,7 @@
     const btnRefreshCheckins = document.getElementById("btnRefreshCheckins");
     const btnClearCheckins = document.getElementById("btnClearCheckins");
 
-    // Modal elements
+    // Modal elements (kept)
     const modalBackdrop = document.getElementById("checkinModal");
     const btnCloseModal = document.getElementById("btnCloseModal");
     const btnCancelCheckin = document.getElementById("btnCancelCheckin");
@@ -377,6 +378,7 @@
       setBusy(true);
       statusEl.textContent = `Sending "${state}"…`;
 
+      // Attempt POST. If it fails, we STILL verify via /state
       let postOk = false;
 
       try{
@@ -410,6 +412,7 @@
           `Verifying via /state…`;
       }
 
+      // Verify via /state
       try{
         await new Promise(r => setTimeout(r, 150));
         const fresh = await getState();
@@ -427,7 +430,7 @@
       }
     }
 
-    // ---- Check-ins (NEW) ----
+    // ---- Check-ins (still used for admin list; unchanged) ----
     function openModal(){
       modalBackdrop.style.display = "flex";
       checkinNameInput.value = "";
@@ -451,7 +454,6 @@
         return;
       }
 
-      // newest first
       const sorted = [...list].sort((a,b) => (b?.ts||0) - (a?.ts||0));
 
       checkinListEl.innerHTML = sorted.map(x => {
@@ -579,6 +581,15 @@
       }
     }
 
+    // ✅ NEW: after enabling check-in mode, do a quick refresh burst so list fills fast
+    function burstRefreshCheckins(){
+      // 0s, 1s, 2s, 3s then normal timer continues
+      refreshCheckins(false);
+      setTimeout(() => refreshCheckins(false), 1000);
+      setTimeout(() => refreshCheckins(false), 2000);
+      setTimeout(() => refreshCheckins(false), 3000);
+    }
+
     // Buttons
     document.getElementById("btnRed").addEventListener("click", ()=>setState("red"));
     document.getElementById("btnVscSlow").addEventListener("click", ()=>setState("vsc_slow"));
@@ -586,10 +597,13 @@
     document.getElementById("btnGreen").addEventListener("click", ()=>setState("green"));
     document.getElementById("btnReset").addEventListener("click", ()=>setState("server_reset"));
 
-    // Check-in button
-    btnCheckIn.addEventListener("click", openModal);
+    // ✅ UPDATED: blue button triggers end-user check-in screen (does NOT open modal)
+    btnCheckIn.addEventListener("click", async () => {
+      await setState("race_checkin");
+      burstRefreshCheckins();
+    });
 
-    // Modal controls
+    // Modal controls (kept)
     btnCloseModal.addEventListener("click", closeModal);
     btnCancelCheckin.addEventListener("click", closeModal);
     modalBackdrop.addEventListener("click", (e) => {
