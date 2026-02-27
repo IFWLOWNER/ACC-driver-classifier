@@ -596,7 +596,7 @@
   } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 
   // ==========================================================
-  // DISCORD LOGIN (rtGate Gen2) - WORKING
+  // DISCORD LOGIN (rtGate Gen2)
   // ==========================================================
   const RTGATE_BASE = "https://rtgate-vdr3uafd2q-nw.a.run.app/rtGate";
   const REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -806,7 +806,6 @@
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error || "Login failed");
 
-      // Must be in IFWL server: roles array will exist if member fetch succeeded
       const roles = Array.isArray(data.memberRoleIds) ? data.memberRoleIds : [];
       if (!roles.length) {
         discordLoginStatus.textContent = "You must be a member of the IFWL Discord server to use this portal.";
@@ -815,12 +814,13 @@
         return true;
       }
 
-      const nick = safeStr(data.nick || "");
+      // Be tolerant of different response shapes
+      const nick = safeStr(data.nick || data.nickname || data.guildNick || data.displayName || "");
       const userObj = {
         nick,
-        id: safeStr(data.userId || ""),
-        username: safeStr(data.username || ""),
-        global: safeStr(data.globalName || ""),
+        id: safeStr(data.userId || data.id || ""),
+        username: safeStr(data.username || data.user || ""),
+        global: safeStr(data.globalName || data.global || ""),
         loggedInAt: Date.now()
       };
 
@@ -870,7 +870,8 @@
   let DRIVERS_CACHE = [];
 
   function extractNumbers(text){
-    const nums = String(text || "").match(/\\d+/g);
+    // ✅ FIXED (no double escaping)
+    const nums = String(text || "").match(/\d+/g);
     return nums ? nums.join("") : "";
   }
 
@@ -880,7 +881,8 @@
     const number = safeStr(driver.number || "");
     const numericFromFull = extractNumbers(full);
     const combined = `${full} ${name} ${number} ${numericFromFull}`.toLowerCase();
-    return combined.replace(/\\s+/g, " ").trim();
+    // ✅ FIXED (no double escaping)
+    return combined.replace(/\s+/g, " ").trim();
   }
 
   function buildFullNameFromParts(number, name){
@@ -891,7 +893,59 @@
     return nm;
   }
 
-  
+  // ✅ MISSING FUNCTION RESTORED (this was the reason login stopped)
+  async function loadDriversCache() {
+    // Prefer drivers_v2 if it exists, fall back to drivers
+    const collectionsToTry = ["drivers_v2", "drivers"];
+    let rows = [];
+
+    for (const colName of collectionsToTry) {
+      try {
+        const snap = await getDocs(collection(db, colName));
+        if (!snap.empty) {
+          rows = snap.docs.map(d => ({ id: d.id, ...d.data(), _col: colName }));
+          break;
+        }
+      } catch (e) {
+        console.warn("Driver load failed for", colName, e);
+      }
+    }
+
+    DRIVERS_CACHE = rows.map(r => {
+      const fullName = safeStr(
+        r.fullName ||
+        r.discordNameRaw ||
+        r.name ||
+        r.discordUser ||
+        r.id
+      );
+
+      const driverObj = {
+        id: r.id,
+        fullName,
+        name: safeStr(r.name || ""),
+        number: safeStr(r.number || "")
+      };
+
+      driverObj.searchText = normalizeSearchText(driverObj);
+      return driverObj;
+    });
+
+    // Sort: numbered first (numeric), then non-numbered (alpha)
+    const numbered = [];
+    const unnumbered = [];
+
+    for (const d of DRIVERS_CACHE) {
+      const n = parseInt(d.number, 10);
+      if (!isNaN(n)) numbered.push(d);
+      else unnumbered.push(d);
+    }
+
+    numbered.sort((a, b) => parseInt(a.number, 10) - parseInt(b.number, 10));
+    unnumbered.sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+
+    DRIVERS_CACHE = [...numbered, ...unnumbered];
+  }
 
   function populateHiddenSelect(selectEl, placeholderText){
     selectEl.innerHTML = "";
@@ -954,7 +1008,7 @@
     function showManual(prefillQuery){
       hiddenSelect.value = "__ADD_NEW__";
       const q = safeStr(prefillQuery);
-      if (q && /^\\d+$/.test(q)) {
+      if (q && /^\d+$/.test(q)) {
         manualNumberInput.value = q;
         manualNameInput.value = "";
       } else {
