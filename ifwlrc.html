@@ -25,6 +25,7 @@
     .red{background:radial-gradient(circle at 30% 25%, #ff7a7a, #ef4444 45%, #7f1d1d)}
     .yellow{color:#111827;background:radial-gradient(circle at 30% 25%, #fff3b0, #f59e0b 45%, #7c4a00)}
     .green{background:radial-gradient(circle at 30% 25%, #86efac, #22c55e 45%, #14532d)}
+    .blue{background:radial-gradient(circle at 30% 25%, #93c5fd, #3b82f6 45%, #1e3a8a)}
 
     .status{margin-top:18px;font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.95;white-space:pre-wrap}
     .hint{margin-top:10px;opacity:.75;font-size:13px}
@@ -74,6 +75,100 @@
       cursor:pointer;
     }
     .authNote{margin:8px 0 0;opacity:.8;font-size:12px;line-height:1.25}
+
+    /* Check-in panel */
+    .panel{
+      margin:18px auto 0;
+      width: min(720px, 92vw);
+      text-align:left;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.06);
+      border-radius:14px;
+      padding:12px;
+      box-shadow:0 18px 55px rgba(0,0,0,.25);
+    }
+    .panelHeader{
+      display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+      margin-bottom:10px;
+    }
+    .panelTitle{
+      font-weight:1000;letter-spacing:.3px;
+      font-size:14px;opacity:.95;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+    }
+    .panelBtns{display:flex;gap:10px;flex-wrap:wrap}
+    .tinyBtn{
+      width:auto;height:auto;border-radius:12px;padding:9px 12px;font-size:12px;
+      background:rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.18);
+      box-shadow:none;
+      color:#fff;
+      font-weight:900;
+      letter-spacing:.2px;
+      cursor:pointer;
+    }
+    .tinyBtn.danger{border-color:rgba(239,68,68,.55); background:rgba(239,68,68,.12)}
+    .list{
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      max-height:260px;
+      overflow:auto;
+    }
+    .item{
+      display:flex;justify-content:space-between;gap:10px;align-items:center;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(0,0,0,.18);
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:12.5px;
+    }
+    .itemName{font-weight:1000}
+    .itemTime{opacity:.8}
+
+    /* Modal */
+    .modalBackdrop{
+      position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+      background:rgba(0,0,0,.62);
+      padding:18px;
+      z-index:9999;
+    }
+    .modal{
+      width:min(560px, 92vw);
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(12,18,32,.92);
+      box-shadow:0 24px 80px rgba(0,0,0,.65);
+      padding:14px;
+      text-align:left;
+    }
+    .modalTop{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+    .modalTitle{
+      font-weight:1000;letter-spacing:.3px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:13px;
+    }
+    .closeX{
+      width:auto;height:auto;border-radius:10px;padding:8px 10px;font-size:12px;
+      background:rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.18);
+      box-shadow:none;color:#fff;font-weight:900;cursor:pointer;
+    }
+    .modalBody{display:flex;flex-direction:column;gap:10px}
+    .modalBody label{font-size:12px;opacity:.85}
+    .modalBody input{
+      padding:11px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.25);color:#fff;outline:none;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:14px;
+    }
+    .modalActions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:2px}
+    .modalActions .tinyBtn{padding:10px 14px}
+    .modalActions .primary{border-color:rgba(34,197,94,.55); background:rgba(34,197,94,.14)}
   </style>
 </head>
 <body>
@@ -114,6 +209,12 @@
         SERVER RESET<br><br>
         Practice live (15 min)
       </button>
+
+      <button class="blue" id="btnCheckIn">
+        RACE<br>CHECK-IN<br><br>
+        Add your name<br>
+        to the live list
+      </button>
     </div>
 
     <div class="minirow">
@@ -122,10 +223,42 @@
       <span class="pill" id="pollPill">Polling: —</span>
       <span class="pill" id="statePill">Current: —</span>
       <span class="pill" id="authPill">Auth: —</span>
+      <span class="pill" id="checkinPill">Check-ins: —</span>
+    </div>
+
+    <div class="panel">
+      <div class="panelHeader">
+        <div class="panelTitle">RACE CHECK-INS (live)</div>
+        <div class="panelBtns">
+          <button class="tinyBtn" id="btnRefreshCheckins">Refresh</button>
+          <button class="tinyBtn danger" id="btnClearCheckins">Clear All</button>
+        </div>
+      </div>
+      <ul class="list" id="checkinList">
+        <li class="item"><span class="itemName">—</span><span class="itemTime">No check-ins yet</span></li>
+      </ul>
     </div>
 
     <div class="status" id="status">Ready.</div>
     <div class="hint">Tip: keep this page private — it can trigger live race control.</div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modalBackdrop" id="checkinModal">
+    <div class="modal">
+      <div class="modalTop">
+        <div class="modalTitle">RACE CHECK-IN</div>
+        <button class="closeX" id="btnCloseModal">Close</button>
+      </div>
+      <div class="modalBody">
+        <label for="checkinName">Type your name exactly as it should appear:</label>
+        <input id="checkinName" type="text" placeholder="e.g. Ben Leahy" maxlength="40" />
+        <div class="modalActions">
+          <button class="tinyBtn" id="btnCancelCheckin">Cancel</button>
+          <button class="tinyBtn primary" id="btnSendCheckin">Send</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -133,16 +266,33 @@
     const TOKEN_KEY = "ifwl_racecontrol_token_v1";
     const POLL_MS = 1000; // fallback polling every 1s (only used if SSE fails)
 
+    // Check-in polling
+    const CHECKIN_REFRESH_MS = 4000;
+
     const statusEl = document.getElementById("status");
     const endpointPill = document.getElementById("endpointPill");
     const livePill = document.getElementById("livePill");
     const pollPill = document.getElementById("pollPill");
     const statePill = document.getElementById("statePill");
     const authPill = document.getElementById("authPill");
+    const checkinPill = document.getElementById("checkinPill");
 
     const tokenInput = document.getElementById("tokenInput");
     const btnSaveToken = document.getElementById("btnSaveToken");
     const btnClearToken = document.getElementById("btnClearToken");
+
+    const btnCheckIn = document.getElementById("btnCheckIn");
+
+    const checkinListEl = document.getElementById("checkinList");
+    const btnRefreshCheckins = document.getElementById("btnRefreshCheckins");
+    const btnClearCheckins = document.getElementById("btnClearCheckins");
+
+    // Modal elements
+    const modalBackdrop = document.getElementById("checkinModal");
+    const btnCloseModal = document.getElementById("btnCloseModal");
+    const btnCancelCheckin = document.getElementById("btnCancelCheckin");
+    const btnSendCheckin = document.getElementById("btnSendCheckin");
+    const checkinNameInput = document.getElementById("checkinName");
 
     const buttons = [
       document.getElementById("btnRed"),
@@ -150,6 +300,7 @@
       document.getElementById("btnVscPit"),
       document.getElementById("btnGreen"),
       document.getElementById("btnReset"),
+      document.getElementById("btnCheckIn"),
     ];
 
     endpointPill.textContent = `Endpoint: ${WORKER_BASE}`;
@@ -161,6 +312,8 @@
 
     function setBusy(isBusy){
       for(const b of buttons) b.disabled = isBusy;
+      btnRefreshCheckins.disabled = isBusy;
+      btnClearCheckins.disabled = isBusy;
     }
 
     function setLive(ok, detail=""){
@@ -211,7 +364,7 @@
       return res.json();
     }
 
-    // --- Robust send: even if browser can't read /set response, verify via /state ---
+    // --- Race Control send (unchanged) ---
     async function setState(state){
       const token = getToken();
       if(!token){
@@ -224,7 +377,6 @@
       setBusy(true);
       statusEl.textContent = `Sending "${state}"…`;
 
-      // Attempt POST. If it fails, we STILL verify via /state (because we know /state works).
       let postOk = false;
 
       try{
@@ -239,7 +391,6 @@
           body: JSON.stringify({ state })
         });
 
-        // Read as text first (helps debugging)
         const text = await res.text();
         let data = {};
         try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
@@ -253,16 +404,13 @@
         statusEl.textContent = `OK — "${shown}" @ ${fmt(data.updatedAt)}`;
         updateCurrentPill(data);
       }catch(err){
-        // This is where you were seeing "Failed to fetch"
         statusEl.textContent =
           `WARN — POST may have sent, but browser couldn't read the response.\n` +
           `Reason: ${err.message}\n` +
           `Verifying via /state…`;
       }
 
-      // Verify via /state (this is the key reliability improvement)
       try{
-        // tiny delay helps edge propagation; DO is fast but this keeps UI smooth
         await new Promise(r => setTimeout(r, 150));
         const fresh = await getState();
         updateCurrentPill(fresh);
@@ -279,12 +427,183 @@
       }
     }
 
+    // ---- Check-ins (NEW) ----
+    function openModal(){
+      modalBackdrop.style.display = "flex";
+      checkinNameInput.value = "";
+      setTimeout(() => checkinNameInput.focus(), 50);
+    }
+
+    function closeModal(){
+      modalBackdrop.style.display = "none";
+    }
+
+    function normName(v){
+      return String(v || "").trim().replace(/\s+/g, " ");
+    }
+
+    function renderCheckins(items){
+      const list = Array.isArray(items) ? items : [];
+      checkinPill.textContent = `Check-ins: ${list.length} @ ${fmt(Date.now())}`;
+
+      if(list.length === 0){
+        checkinListEl.innerHTML = `<li class="item"><span class="itemName">—</span><span class="itemTime">No check-ins yet</span></li>`;
+        return;
+      }
+
+      // newest first
+      const sorted = [...list].sort((a,b) => (b?.ts||0) - (a?.ts||0));
+
+      checkinListEl.innerHTML = sorted.map(x => {
+        const name = normName(x?.name) || "Unknown";
+        const t = x?.ts ? fmt(x.ts) : "—";
+        return `<li class="item"><span class="itemName">${escapeHtml(name)}</span><span class="itemTime">${t}</span></li>`;
+      }).join("");
+    }
+
+    function escapeHtml(s){
+      return String(s)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    async function fetchCheckins(){
+      const res = await fetch(`${WORKER_BASE}/checkins?t=${Date.now()}`, { cache:"no-store" });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    async function refreshCheckins(showStatus=false){
+      try{
+        const data = await fetchCheckins();
+        renderCheckins(data?.items || []);
+        if(showStatus) statusEl.textContent = `OK — Check-ins refreshed @ ${fmt(Date.now())}`;
+      }catch(e){
+        if(showStatus) statusEl.textContent = `ERROR — Could not load check-ins: ${e.message}`;
+      }
+    }
+
+    async function sendCheckin(name){
+      const token = getToken();
+      if(!token){
+        statusEl.textContent =
+          "ERROR — Missing token.\n\n" +
+          "Enter the steward token at the top of the page and click 'Save token'.";
+        return;
+      }
+
+      const clean = normName(name);
+      if(!clean){
+        statusEl.textContent = "ERROR — Please type a name for check-in.";
+        return;
+      }
+
+      setBusy(true);
+      statusEl.textContent = `Sending check-in for "${clean}"…`;
+
+      try{
+        const res = await fetch(`${WORKER_BASE}/checkin`,{
+          method:"POST",
+          mode:"cors",
+          cache:"no-store",
+          headers:{
+            "Content-Type":"application/json",
+            "x-auth": token
+          },
+          body: JSON.stringify({ name: clean })
+        });
+
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+
+        if(!res.ok){
+          throw new Error(data?.detail || data?.error || `HTTP ${res.status} — ${text || "no body"}`);
+        }
+
+        statusEl.textContent = `OK — Check-in added: "${clean}" @ ${fmt(Date.now())}`;
+        closeModal();
+        await refreshCheckins(false);
+      }catch(e){
+        statusEl.textContent = `ERROR — Check-in failed: ${e.message}`;
+      }finally{
+        setBusy(false);
+      }
+    }
+
+    async function clearAllCheckins(){
+      const token = getToken();
+      if(!token){
+        statusEl.textContent =
+          "ERROR — Missing token.\n\n" +
+          "Enter the steward token at the top of the page and click 'Save token'.";
+        return;
+      }
+
+      if(!confirm("Clear ALL check-ins?")){
+        return;
+      }
+
+      setBusy(true);
+      statusEl.textContent = "Clearing all check-ins…";
+
+      try{
+        const res = await fetch(`${WORKER_BASE}/checkins/clear`,{
+          method:"POST",
+          mode:"cors",
+          cache:"no-store",
+          headers:{
+            "Content-Type":"application/json",
+            "x-auth": token
+          },
+          body: JSON.stringify({ ok:true })
+        });
+
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+
+        if(!res.ok){
+          throw new Error(data?.detail || data?.error || `HTTP ${res.status} — ${text || "no body"}`);
+        }
+
+        statusEl.textContent = `OK — Cleared check-ins @ ${fmt(Date.now())}`;
+        await refreshCheckins(false);
+      }catch(e){
+        statusEl.textContent = `ERROR — Could not clear check-ins: ${e.message}`;
+      }finally{
+        setBusy(false);
+      }
+    }
+
     // Buttons
     document.getElementById("btnRed").addEventListener("click", ()=>setState("red"));
     document.getElementById("btnVscSlow").addEventListener("click", ()=>setState("vsc_slow"));
     document.getElementById("btnVscPit").addEventListener("click", ()=>setState("vsc_pit"));
     document.getElementById("btnGreen").addEventListener("click", ()=>setState("green"));
     document.getElementById("btnReset").addEventListener("click", ()=>setState("server_reset"));
+
+    // Check-in button
+    btnCheckIn.addEventListener("click", openModal);
+
+    // Modal controls
+    btnCloseModal.addEventListener("click", closeModal);
+    btnCancelCheckin.addEventListener("click", closeModal);
+    modalBackdrop.addEventListener("click", (e) => {
+      if(e.target === modalBackdrop) closeModal();
+    });
+    checkinNameInput.addEventListener("keydown", (e) => {
+      if(e.key === "Enter") sendCheckin(checkinNameInput.value);
+      if(e.key === "Escape") closeModal();
+    });
+    btnSendCheckin.addEventListener("click", () => sendCheckin(checkinNameInput.value));
+
+    // Check-in panel buttons
+    btnRefreshCheckins.addEventListener("click", () => refreshCheckins(true));
+    btnClearCheckins.addEventListener("click", clearAllCheckins);
 
     // Token UI
     btnSaveToken.addEventListener("click", () => {
@@ -353,13 +672,21 @@
           setLive(false, "fallback to polling");
           try { es.close(); } catch {}
           startPolling();
-          // keep trying to restore SSE
           setTimeout(startSSE, 2000);
         };
       }catch{
         setLive(false, "fallback to polling");
         startPolling();
       }
+    }
+
+    // Check-in auto-refresh loop
+    let checkinTimer = null;
+    function startCheckinAutoRefresh(){
+      if(checkinTimer) return;
+      const tick = () => refreshCheckins(false);
+      tick();
+      checkinTimer = setInterval(tick, CHECKIN_REFRESH_MS);
     }
 
     // Init
@@ -376,6 +703,8 @@
       }
 
       startSSE();
+      startCheckinAutoRefresh();
+      await refreshCheckins(false);
     })();
   </script>
 </body>
