@@ -579,6 +579,7 @@
     getFirestore,
     collection,
     addDoc,
+    setDoc,         
     getDocs,
     getDoc,
     query,
@@ -1241,24 +1242,43 @@
       return;
     }
 
-    // If accused is manual, add to Firestore
-    if (accused === "__ADD_NEW__") {
-      const fullNameBuilt = buildFullNameFromParts(accusedNumberManual, accusedNameManual);
-      accused = fullNameBuilt;
+    // If accused is manual, add to Firestore (drivers_v2)
+if (accused === "__ADD_NEW__") {
+  const fullNameBuilt = buildFullNameFromParts(accusedNumberManual, accusedNameManual);
+  accused = fullNameBuilt;
 
-      try {
-        await addDoc(collection(db, "drivers"), {
-          fullName: fullNameBuilt,
-          name: accusedNameManual,
-          number: accusedNumberManual,
-          key: `${(accusedNumberManual || "").trim()}|${(accusedNameManual || "").trim()}`.toLowerCase()
-        });
-        await loadDriversCache();
-        populateHiddenSelect(accusedSelect, "Select a driver…");
-      } catch (err) {
-        console.error("Error adding new driver:", err);
-      }
-    }
+  try {
+    const cleanNumber = safeStr(accusedNumberManual);
+    const cleanName   = safeStr(accusedNameManual);
+
+    const rawId = `${cleanNumber}|${cleanName}`.toLowerCase();
+    const docId = rawId
+      .replace(/\s+/g, "_")
+      .replace(/[^\w\-]/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 150) || `manual_${Date.now()}`;
+
+    await setDoc(
+      doc(db, "drivers_v2", docId),
+      {
+        discordUser: "",
+        discordNameRaw: fullNameBuilt,
+        fullName: fullNameBuilt,
+        key: rawId,
+        name: cleanName,
+        number: cleanNumber,
+        source: "manual",
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    );
+
+    await loadDriversCache();
+    populateHiddenSelect(accusedSelect, "Select a driver…");
+  } catch (err) {
+    console.error("Error adding new driver:", err);
+  }
+}
 
     // If new track chosen, add de-duped
     if (track === "__ADD_NEW__") {
