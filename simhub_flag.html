@@ -3,29 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Flag + Check-In</title>
+  <title>IFWL Flag</title>
   <style>
     html,body{
       height:100%;
       margin:0;
       font-family:system-ui;
       overflow:hidden;
+      background:transparent;
     }
 
-    /* Purple screen background */
-    body{
+    /* Purple screen background (only used in check-in mode) */
+    body.purple{
       background: radial-gradient(circle at 25% 20%, #a78bfa 0%, #6d28d9 35%, #2e1065 75%, #120426 100%);
       color:#fff;
     }
 
-    /* This layer is used ONLY to "clear" the SimHub frame */
     #clearLayer{
       position:fixed;
       inset:0;
-      display:none;                 /* hidden by default */
+      display:none;
       pointer-events:none;
-
-      /* visually invisible but forces repaint/clear */
       background: rgba(0,0,0,0.001);
     }
 
@@ -37,18 +35,12 @@
       padding:18px;
     }
 
-    .stack{
-      width:min(720px, 96vw);
-      display:flex;
-      flex-direction:column;
-      gap:14px;
-    }
-
     .panel{
+      width:min(520px, 96vw);
       border-radius:24px;
       border:2px solid rgba(255,255,255,.18);
-      background: rgba(0,0,0,.35);
-      backdrop-filter: blur(10px);
+      background: rgba(0,0,0,.45);
+      backdrop-filter: blur(8px);
       padding: 18px 16px;
       text-align:center;
       color:#fff;
@@ -56,7 +48,7 @@
     }
 
     .big{font-weight:1000;letter-spacing:.6px;font-size: clamp(26px, 4.2vw, 40px);margin:0 0 8px}
-    .sub{margin:0;opacity:.92;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
+    .sub{margin:0;opacity:.9;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
     .stamp{margin-top:10px;font-family: ui-monospace, Menlo, Consolas, monospace;font-size: 12px;opacity:.85}
 
     @keyframes rfFlash { 0%,49%{background:#000;} 50%,100%{background:#b30000;} }
@@ -70,7 +62,7 @@
     .dot.red{background:#ef4444; box-shadow:0 0 0 6px rgba(239,68,68,.18)}
     .dot.yellow{background:#f59e0b; box-shadow:0 0 0 6px rgba(245,158,11,.18)}
 
-    /* Check-in box styles */
+    /* Check-in UI */
     .titleSmall{
       font-weight:1000;
       letter-spacing:.7px;
@@ -85,6 +77,7 @@
       flex-wrap:wrap;
       justify-content:center;
       align-items:center;
+      margin-top:6px;
     }
     .nameInput{
       flex: 1 1 260px;
@@ -111,7 +104,6 @@
       box-shadow:none;
     }
     .sendBtn:disabled{opacity:.55;cursor:not-allowed}
-
     .note{
       margin:10px 0 0;
       opacity:.9;
@@ -127,28 +119,9 @@
   <div id="clearLayer"></div>
 
   <div class="wrap" id="wrap">
-    <div class="stack">
-
-      <!-- FLAG PANEL -->
-      <div class="panel" id="panel">
-        <div class="big">
-          <span class="dot green" id="dot"></span>
-          <span id="headline">SERVER GOOD : ADHERE TO RACE FLAGS</span>
-        </div>
-        <p class="sub" id="msg"></p>
-        <div class="stamp" id="stamp"></div>
-      </div>
-
-      <!-- CHECK-IN PANEL -->
-      <div class="panel" id="checkinPanel">
-        <div class="titleSmall">RACE CHECK-IN</div>
-        <div class="formRow">
-          <input id="checkinName" class="nameInput" type="text" placeholder="Add name here…" maxlength="40" />
-          <button id="btnSendCheckin" class="sendBtn">Send</button>
-        </div>
-        <div class="note" id="checkinNote"></div>
-      </div>
-
+    <div class="panel" id="panel">
+      <!-- This gets swapped between FLAG UI and CHECK-IN UI -->
+      <div id="content"></div>
     </div>
   </div>
 
@@ -158,40 +131,41 @@
 
   const clearLayer = document.getElementById("clearLayer");
   const wrap = document.getElementById("wrap");
-
-  const dot = document.getElementById("dot");
-  const headline = document.getElementById("headline");
-  const msg = document.getElementById("msg");
-  const stamp = document.getElementById("stamp");
-
-  const checkinPanel = document.getElementById("checkinPanel");
-  const checkinName = document.getElementById("checkinName");
-  const btnSendCheckin = document.getElementById("btnSendCheckin");
-  const checkinNote = document.getElementById("checkinNote");
+  const content = document.getElementById("content");
 
   function fmt(ts){
     try { return new Date(ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"}); }
     catch { return "—"; }
   }
 
-  function setDot(color){
-    dot.className = "dot " + color;
+  function escapeHtml(s){
+    return String(s)
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
   }
 
   function getEffectiveMode(data){
     const state = String(data?.state || "green").toLowerCase();
     const lastCommand = String(data?.lastCommand || "").toLowerCase();
 
+    // lastCommand can override for special modes if you use it
     if(lastCommand === "server_reset") return "server_reset";
+
+    // ✅ our new mode
+    if(state === "race_checkin") return "race_checkin";
+
     if(state === "red") return "red";
     if(state === "vsc_slow") return "vsc_slow";
     if(state === "vsc_pit") return "vsc_pit";
+    if(state === "server_reset") return "server_reset";
     return "green";
   }
 
-  // GREEN: clear the frame & hide UI (your SimHub trick)
   function showGreenBlank(){
-    document.body.classList.remove("red","vsc");
+    document.body.classList.remove("red","vsc","purple");
 
     wrap.style.display = "none";
     clearLayer.style.display = "block";
@@ -207,49 +181,155 @@
     wrap.style.display = "flex";
   }
 
+  function renderFlagUI(mode, updatedAt){
+    document.body.classList.remove("purple");
+    document.body.classList.remove("red","vsc");
+
+    let dotClass = "green";
+    let headline = "SERVER GOOD : ADHERE TO RACE FLAGS";
+    let msg = "";
+    if(mode === "red"){
+      document.body.classList.add("red");
+      dotClass = "red";
+      headline = "RED FLAG";
+      msg = "Drive to pits immediately. Send standings screenshot into Discord.";
+    } else if(mode === "vsc_slow"){
+      document.body.classList.add("vsc");
+      dotClass = "yellow";
+      headline = "VSC — FORMATION";
+      msg = "Remain in formation. 1st gear, enable limiter, no overtaking.";
+    } else if(mode === "vsc_pit"){
+      document.body.classList.add("vsc");
+      dotClass = "yellow";
+      headline = "VSC — PIT NOW";
+      msg = "All cars to enter pits now. Keep formation at pit exit line. No overtaking.";
+    } else if(mode === "server_reset"){
+      dotClass = "green";
+      headline = "SERVER RESET";
+      msg = "Practice session is live. You have 15 minutes to re-enter the server.";
+    }
+
+    content.innerHTML = `
+      <div class="big">
+        <span class="dot ${dotClass}"></span>
+        <span>${escapeHtml(headline)}</span>
+      </div>
+      <p class="sub">${escapeHtml(msg)}</p>
+      <div class="stamp">Last update: ${updatedAt ? fmt(updatedAt) : ""}</div>
+    `;
+  }
+
+  function renderCheckinUI(){
+    // Purple background ON in this mode
+    document.body.classList.remove("red","vsc");
+    document.body.classList.add("purple");
+
+    content.innerHTML = `
+      <div class="titleSmall">RACE CHECK-IN</div>
+      <div class="big" style="font-size: clamp(22px, 3.4vw, 30px); margin:0 0 4px;">
+        Add name here
+      </div>
+      <div class="formRow">
+        <input id="checkinName" class="nameInput" type="text" placeholder="e.g. Ben Leahy" maxlength="40" />
+        <button id="btnSendCheckin" class="sendBtn">Send</button>
+      </div>
+      <div class="note" id="checkinNote"></div>
+      <div class="stamp" style="margin-top:12px; opacity:.75;">Waiting for drivers…</div>
+    `;
+
+    const inp = document.getElementById("checkinName");
+    const btn = document.getElementById("btnSendCheckin");
+    const note = document.getElementById("checkinNote");
+
+    function normName(v){
+      return String(v || "").trim().replace(/\s+/g, " ");
+    }
+
+    async function send(){
+      const name = normName(inp.value);
+      if(!name){
+        note.innerHTML = `<span class="bad">Type your name first.</span>`;
+        inp.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      note.textContent = "Sending…";
+
+      try{
+        const res = await fetch(`${WORKER_BASE}/checkin`,{
+          method:"POST",
+          mode:"cors",
+          cache:"no-store",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ name })
+        });
+
+        const text = await res.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+
+        if(!res.ok){
+          throw new Error(data?.detail || data?.error || `HTTP ${res.status}`);
+        }
+
+        note.innerHTML = `<span class="ok">Checked in!</span> (${fmt(Date.now())})`;
+        inp.value = "";
+        inp.focus();
+      }catch(e){
+        note.innerHTML = `<span class="bad">Check-in failed:</span> ${escapeHtml(String(e.message || e))}`;
+      }finally{
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener("click", send);
+    inp.addEventListener("keydown", (e) => {
+      if(e.key === "Enter") send();
+    });
+
+    setTimeout(() => inp.focus(), 50);
+  }
+
+  // Render control with minimal flicker (don’t rebuild same UI repeatedly)
+  let lastMode = null;
+
   function apply(mode, updatedAt){
     if(mode === "green"){
+      lastMode = mode;
       showGreenBlank();
       return;
     }
 
     showUI();
-    document.body.classList.remove("red","vsc");
 
-    if(mode === "red"){
-      document.body.classList.add("red");
-      setDot("red");
-      headline.textContent = "RED FLAG";
-      msg.textContent = "Drive to pits immediately. Send standings screenshot into Discord.";
-    }
-    else if(mode === "vsc_slow"){
-      document.body.classList.add("vsc");
-      setDot("yellow");
-      headline.textContent = "VSC — FORMATION";
-      msg.textContent = "Remain in formation. 1st gear, enable limiter, no overtaking.";
-    }
-    else if(mode === "vsc_pit"){
-      document.body.classList.add("vsc");
-      setDot("yellow");
-      headline.textContent = "VSC — PIT NOW";
-      msg.textContent = "All cars to enter pits now. Keep formation at pit exit line. No overtaking.";
-    }
-    else if(mode === "server_reset"){
-      setDot("green");
-      headline.textContent = "SERVER RESET";
-      msg.textContent = "Practice session is live. You have 15 minutes to re-enter the server.";
-    }
+    if(mode !== lastMode){
+      // Only rebuild UI when mode changes
+      if(mode === "race_checkin") renderCheckinUI();
+      else renderFlagUI(mode, updatedAt);
 
-    stamp.textContent = "Last update: " + (updatedAt ? fmt(updatedAt) : "");
+      lastMode = mode;
+    } else {
+      // Same mode: only update timestamp for flag screens
+      if(mode !== "race_checkin"){
+        const stampEl = content.querySelector(".stamp");
+        if(stampEl) stampEl.textContent = "Last update: " + (updatedAt ? fmt(updatedAt) : "");
+      }
+    }
   }
 
   function showOffline(){
     showUI();
-    document.body.classList.remove("red","vsc");
-    setDot("red");
-    headline.textContent = "FLAG FEED OFFLINE";
-    msg.textContent = "Cannot reach Race Control endpoint.";
-    stamp.textContent = "";
+    document.body.classList.remove("purple","red","vsc");
+    content.innerHTML = `
+      <div class="big">
+        <span class="dot red"></span>
+        <span>FLAG FEED OFFLINE</span>
+      </div>
+      <p class="sub">Cannot reach Race Control endpoint.</p>
+      <div class="stamp"></div>
+    `;
+    lastMode = "offline";
   }
 
   async function poll(){
@@ -263,54 +343,6 @@
     }
   }
 
-  function normName(v){
-    return String(v || "").trim().replace(/\s+/g, " ");
-  }
-
-  async function sendCheckin(){
-    const name = normName(checkinName.value);
-    if(!name){
-      checkinNote.innerHTML = `<span class="bad">Type your name first.</span>`;
-      checkinName.focus();
-      return;
-    }
-
-    btnSendCheckin.disabled = true;
-    checkinNote.textContent = "Sending…";
-
-    try{
-      const res = await fetch(`${WORKER_BASE}/checkin`,{
-        method:"POST",
-        mode:"cors",
-        cache:"no-store",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ name })
-      });
-
-      const text = await res.text();
-      let data = {};
-      try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-
-      if(!res.ok){
-        throw new Error(data?.detail || data?.error || `HTTP ${res.status}`);
-      }
-
-      checkinNote.innerHTML = `<span class="ok">Checked in!</span> (${fmt(Date.now())})`;
-      checkinName.value = "";
-      checkinName.focus();
-    }catch(e){
-      checkinNote.innerHTML = `<span class="bad">Check-in failed:</span> ${String(e.message || e)}`;
-    }finally{
-      btnSendCheckin.disabled = false;
-    }
-  }
-
-  btnSendCheckin.addEventListener("click", sendCheckin);
-  checkinName.addEventListener("keydown", (e) => {
-    if(e.key === "Enter") sendCheckin();
-  });
-
-  // start
   poll();
   setInterval(poll, POLL_MS);
 </script>
