@@ -3,14 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IFWL Flag</title>
+  <title>IFWL Flag + Check-In</title>
   <style>
     html,body{
       height:100%;
       margin:0;
       font-family:system-ui;
-      background:transparent;
       overflow:hidden;
+    }
+
+    /* Purple screen background */
+    body{
+      background: radial-gradient(circle at 25% 20%, #a78bfa 0%, #6d28d9 35%, #2e1065 75%, #120426 100%);
+      color:#fff;
     }
 
     /* This layer is used ONLY to "clear" the SimHub frame */
@@ -20,8 +25,7 @@
       display:none;                 /* hidden by default */
       pointer-events:none;
 
-      /* KEY TRICK:
-         alpha=0.001 is visually invisible, but forces the capture pipeline to repaint/clear. */
+      /* visually invisible but forces repaint/clear */
       background: rgba(0,0,0,0.001);
     }
 
@@ -30,14 +34,21 @@
       display:flex;
       align-items:center;
       justify-content:center;
+      padding:18px;
+    }
+
+    .stack{
+      width:min(720px, 96vw);
+      display:flex;
+      flex-direction:column;
+      gap:14px;
     }
 
     .panel{
-      width:min(520px, 96vw);
       border-radius:24px;
       border:2px solid rgba(255,255,255,.18);
-      background: rgba(0,0,0,.45);
-      backdrop-filter: blur(8px);
+      background: rgba(0,0,0,.35);
+      backdrop-filter: blur(10px);
       padding: 18px 16px;
       text-align:center;
       color:#fff;
@@ -45,7 +56,7 @@
     }
 
     .big{font-weight:1000;letter-spacing:.6px;font-size: clamp(26px, 4.2vw, 40px);margin:0 0 8px}
-    .sub{margin:0;opacity:.9;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
+    .sub{margin:0;opacity:.92;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
     .stamp{margin-top:10px;font-family: ui-monospace, Menlo, Consolas, monospace;font-size: 12px;opacity:.85}
 
     @keyframes rfFlash { 0%,49%{background:#000;} 50%,100%{background:#b30000;} }
@@ -58,36 +69,105 @@
     .dot.green{background:#22c55e; box-shadow:0 0 0 6px rgba(34,197,94,.18)}
     .dot.red{background:#ef4444; box-shadow:0 0 0 6px rgba(239,68,68,.18)}
     .dot.yellow{background:#f59e0b; box-shadow:0 0 0 6px rgba(245,158,11,.18)}
+
+    /* Check-in box styles */
+    .titleSmall{
+      font-weight:1000;
+      letter-spacing:.7px;
+      font-size:14px;
+      opacity:.95;
+      margin:0 0 10px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+    }
+    .formRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:center;
+      align-items:center;
+    }
+    .nameInput{
+      flex: 1 1 260px;
+      max-width:420px;
+      padding:12px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.20);
+      background: rgba(0,0,0,.25);
+      color:#fff;
+      outline:none;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:14px;
+    }
+    .sendBtn{
+      width:auto;height:auto;
+      padding:12px 16px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.20);
+      background: rgba(255,255,255,.10);
+      color:#fff;
+      font-weight:1000;
+      letter-spacing:.3px;
+      cursor:pointer;
+      box-shadow:none;
+    }
+    .sendBtn:disabled{opacity:.55;cursor:not-allowed}
+
+    .note{
+      margin:10px 0 0;
+      opacity:.9;
+      font-size:12px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      min-height:16px;
+    }
+    .ok{color:#86efac}
+    .bad{color:#ff7a7a}
   </style>
 </head>
 <body>
   <div id="clearLayer"></div>
 
   <div class="wrap" id="wrap">
-    <div class="panel" id="panel">
-      <div class="big">
-        <span class="dot green" id="dot"></span>
-        <span id="headline">SERVER GOOD : ADHERE TO RACE FLAGS</span>
+    <div class="stack">
+
+      <!-- FLAG PANEL -->
+      <div class="panel" id="panel">
+        <div class="big">
+          <span class="dot green" id="dot"></span>
+          <span id="headline">SERVER GOOD : ADHERE TO RACE FLAGS</span>
+        </div>
+        <p class="sub" id="msg"></p>
+        <div class="stamp" id="stamp"></div>
       </div>
-      <p class="sub" id="msg"></p>
-      <div class="stamp" id="stamp"></div>
+
+      <!-- CHECK-IN PANEL -->
+      <div class="panel" id="checkinPanel">
+        <div class="titleSmall">RACE CHECK-IN</div>
+        <div class="formRow">
+          <input id="checkinName" class="nameInput" type="text" placeholder="Add name here…" maxlength="40" />
+          <button id="btnSendCheckin" class="sendBtn">Send</button>
+        </div>
+        <div class="note" id="checkinNote"></div>
+      </div>
+
     </div>
   </div>
 
 <script>
-  // ✅ new worker
   const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
-
-  // polling is best reliability in SimHub; SSE might be blocked
   const POLL_MS = 500;
 
   const clearLayer = document.getElementById("clearLayer");
   const wrap = document.getElementById("wrap");
-  const panel = document.getElementById("panel");
+
   const dot = document.getElementById("dot");
   const headline = document.getElementById("headline");
   const msg = document.getElementById("msg");
   const stamp = document.getElementById("stamp");
+
+  const checkinPanel = document.getElementById("checkinPanel");
+  const checkinName = document.getElementById("checkinName");
+  const btnSendCheckin = document.getElementById("btnSendCheckin");
+  const checkinNote = document.getElementById("checkinNote");
 
   function fmt(ts){
     try { return new Date(ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"}); }
@@ -109,20 +189,15 @@
     return "green";
   }
 
-  // This is the key: on green we CLEAR the frame by drawing the almost-transparent layer.
+  // GREEN: clear the frame & hide UI (your SimHub trick)
   function showGreenBlank(){
     document.body.classList.remove("red","vsc");
 
-    // hide all UI
     wrap.style.display = "none";
-
-    // show clear layer to overwrite previous pixels
     clearLayer.style.display = "block";
 
-    // force a redraw tick
     clearLayer.style.opacity = "0.001";
     requestAnimationFrame(() => {
-      // keep it displayed; opacity tweak helps some captures
       clearLayer.style.opacity = "0.001";
     });
   }
@@ -138,7 +213,6 @@
       return;
     }
 
-    // all other modes show UI
     showUI();
     document.body.classList.remove("red","vsc");
 
@@ -170,7 +244,6 @@
   }
 
   function showOffline(){
-    // if offline, SHOW UI with warning (not blank)
     showUI();
     document.body.classList.remove("red","vsc");
     setDot("red");
@@ -189,6 +262,53 @@
       showOffline();
     }
   }
+
+  function normName(v){
+    return String(v || "").trim().replace(/\s+/g, " ");
+  }
+
+  async function sendCheckin(){
+    const name = normName(checkinName.value);
+    if(!name){
+      checkinNote.innerHTML = `<span class="bad">Type your name first.</span>`;
+      checkinName.focus();
+      return;
+    }
+
+    btnSendCheckin.disabled = true;
+    checkinNote.textContent = "Sending…";
+
+    try{
+      const res = await fetch(`${WORKER_BASE}/checkin`,{
+        method:"POST",
+        mode:"cors",
+        cache:"no-store",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ name })
+      });
+
+      const text = await res.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+
+      if(!res.ok){
+        throw new Error(data?.detail || data?.error || `HTTP ${res.status}`);
+      }
+
+      checkinNote.innerHTML = `<span class="ok">Checked in!</span> (${fmt(Date.now())})`;
+      checkinName.value = "";
+      checkinName.focus();
+    }catch(e){
+      checkinNote.innerHTML = `<span class="bad">Check-in failed:</span> ${String(e.message || e)}`;
+    }finally{
+      btnSendCheckin.disabled = false;
+    }
+  }
+
+  btnSendCheckin.addEventListener("click", sendCheckin);
+  checkinName.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") sendCheckin();
+  });
 
   // start
   poll();
