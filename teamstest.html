@@ -390,6 +390,23 @@
         console.warn("Anonymous auth failed (storage may be blocked by rules):", e);
         return false;
       }
+
+
+    // Ensure Firestore auth (anonymous) so Firestore rules can use request.auth.uid reliably
+    let _firestoreAuthReady = false;
+    async function ensureFirestoreAuth(){
+      if (_firestoreAuthReady && auth.currentUser) return true;
+      try {
+        await signInAnonymously(auth);
+        _firestoreAuthReady = true;
+        // handy for debugging in console
+        window.__firebaseUid = auth.currentUser ? auth.currentUser.uid : null;
+        return true;
+      } catch (e) {
+        console.warn("Anonymous auth failed (firestore may be blocked by rules):", e);
+        return false;
+      }
+    }
     }
 
     // UI
@@ -647,6 +664,7 @@
       createTeamMsg.textContent = "";
 
       if (!requireDiscordOrShowLogin()) return;
+      await ensureFirestoreAuth();
 
       const u = getDiscordUser();
       const teamName = safeStr(teamNameInput.value).slice(0, 50);
@@ -696,6 +714,7 @@
           teamImagePath: uploadedLogoPath || "",
 
           leaderDiscordId: safeStr(u.id),
+          leaderUid: (auth.currentUser ? auth.currentUser.uid : ""),
           leaderNick: safeStr(u.nick),
           leaderUsername: safeStr(u.username),
           leaderGlobal: safeStr(u.global),
@@ -704,6 +723,7 @@
           drivers: [
             {
               discordId: safeStr(u.id),
+              uid: (auth.currentUser ? auth.currentUser.uid : ""),
               nick: safeStr(u.nick),
               username: safeStr(u.username),
               global: safeStr(u.global),
@@ -823,7 +843,7 @@
       const qApps = query(
         collection(db, "gteam3_applications"),
         where("eventId", "==", EVENT_ID),
-        where("applicantDiscordId", "==", safeStr(u.id)),
+        where("applicantUid", "==", (auth.currentUser ? auth.currentUser.uid : "__noauth__")),
         orderBy("createdAt", "desc"),
         limit(50)
       );
@@ -883,7 +903,7 @@
 
     // Logo preview (leader)
     if (leaderTeamImageFileInput) {
-      leaderTeamImageFileInput.addEventListener("change", () => {
+      if (leaderTeamImageFileInput) leaderTeamImageFileInput.addEventListener("change", () => {
         if (!leaderSaveMsg) return;
         leaderSaveMsg.textContent = "";
         leaderSaveMsg.className = "status";
@@ -915,6 +935,7 @@
     }
 
     async function loadLeaderTeamIfAny(){
+      await ensureFirestoreAuth();
       leaderTeamId = null;
       leaderTeamData = null;
 
@@ -1328,11 +1349,11 @@
       }
     }
 
-    if (btnLeaderSaveTeam) btnLeaderSaveTeam.addEventListener("click", saveLeaderTeamEdits);
+    if (btnLeaderSaveTeam) if (btnLeaderSaveTeam) btnLeaderSaveTeam.addEventListener("click", saveLeaderTeamEdits);
     if (btnLeaderSaveRoster) btnLeaderSaveRoster.addEventListener("click", saveRosterSelection);
 
     if (btnLeaderPublishJson) {
-      btnLeaderPublishJson.addEventListener("click", async () => {
+      if (btnLeaderPublishJson) btnLeaderPublishJson.addEventListener("click", async () => {
         if (!leaderTeamId) return;
         // Ensure the latest team data is used
         await refreshLeaderTeamDoc();
@@ -1347,6 +1368,7 @@ btnApply.addEventListener("click", async () => {
       applyMsg.textContent = "";
 
       if (!requireDiscordOrShowLogin()) return;
+      await ensureFirestoreAuth();
       const u = getDiscordUser();
 
       if (!selectedTeam) {
@@ -1365,6 +1387,8 @@ btnApply.addEventListener("click", async () => {
           teamId: selectedTeam.id,
           teamName: safeStr(selectedTeam.teamName),
           leaderDiscordId: safeStr(selectedTeam.leaderDiscordId),
+
+          applicantUid: (auth.currentUser ? auth.currentUser.uid : ""),
 
           applicantDiscordId: safeStr(u.id),
           applicantNick: safeStr(u.nick),
@@ -1404,6 +1428,7 @@ btnApply.addEventListener("click", async () => {
 
     if (requireDiscordOrShowLogin()) {
       showApp();
+      await ensureFirestoreAuth();
       await loadTeams();
       await loadMyApplications();
       await loadLeaderTeamIfAny();
