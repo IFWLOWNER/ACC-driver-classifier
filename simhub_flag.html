@@ -13,8 +13,19 @@
       overflow:hidden;
     }
 
-    /* Keep a root wrapper we can remove/restore */
-    #root{
+    /* This layer is used ONLY to "clear" the SimHub frame */
+    #clearLayer{
+      position:fixed;
+      inset:0;
+      display:none;                 /* hidden by default */
+      pointer-events:none;
+
+      /* KEY TRICK:
+         alpha=0.001 is visually invisible, but forces the capture pipeline to repaint/clear. */
+      background: rgba(0,0,0,0.001);
+    }
+
+    .wrap{
       height:100%;
       display:flex;
       align-items:center;
@@ -50,7 +61,9 @@
   </style>
 </head>
 <body>
-  <div id="root">
+  <div id="clearLayer"></div>
+
+  <div class="wrap" id="wrap">
     <div class="panel" id="panel">
       <div class="big">
         <span class="dot green" id="dot"></span>
@@ -62,17 +75,27 @@
   </div>
 
 <script>
+  // ✅ new worker
   const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
-  const POLL_MS = 750;
 
-  // We keep the original DOM so we can restore it after "green blank"
-  const ORIGINAL_HTML = document.body.innerHTML;
+  // polling is best reliability in SimHub; SSE might be blocked
+  const POLL_MS = 500;
 
-  function qs(id){ return document.getElementById(id); }
+  const clearLayer = document.getElementById("clearLayer");
+  const wrap = document.getElementById("wrap");
+  const panel = document.getElementById("panel");
+  const dot = document.getElementById("dot");
+  const headline = document.getElementById("headline");
+  const msg = document.getElementById("msg");
+  const stamp = document.getElementById("stamp");
 
   function fmt(ts){
     try { return new Date(ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"}); }
     catch { return "—"; }
+  }
+
+  function setDot(color){
+    dot.className = "dot " + color;
   }
 
   function getEffectiveMode(data){
@@ -86,50 +109,37 @@
     return "green";
   }
 
-  function ensureUI(){
-    // If we blanked the page, restore it
-    if(!document.getElementById("root")){
-      document.body.innerHTML = ORIGINAL_HTML;
-    }
-  }
+  // This is the key: on green we CLEAR the frame by drawing the almost-transparent layer.
+  function showGreenBlank(){
+    document.body.classList.remove("red","vsc");
 
-  function forceRepaint(){
-    // Helps SimHub/CEF actually redraw to transparent
-    document.body.style.transform = "translateZ(0)";
+    // hide all UI
+    wrap.style.display = "none";
+
+    // show clear layer to overwrite previous pixels
+    clearLayer.style.display = "block";
+
+    // force a redraw tick
+    clearLayer.style.opacity = "0.001";
     requestAnimationFrame(() => {
-      document.body.style.transform = "";
+      // keep it displayed; opacity tweak helps some captures
+      clearLayer.style.opacity = "0.001";
     });
   }
 
-  function blankScreen(){
-    document.body.classList.remove("red","vsc");
-    // Remove all content so the browser has nothing to "hold onto"
-    document.body.innerHTML = "";
-    // Explicitly transparent
-    document.documentElement.style.background = "transparent";
-    document.body.style.background = "transparent";
-    forceRepaint();
-  }
-
-  function setDot(color){
-    const dot = qs("dot");
-    if(dot) dot.className = "dot " + color;
+  function showUI(){
+    clearLayer.style.display = "none";
+    wrap.style.display = "flex";
   }
 
   function apply(mode, updatedAt){
-    // GREEN = FULL BLANK
     if(mode === "green"){
-      blankScreen();
+      showGreenBlank();
       return;
     }
 
-    // For any non-green state, restore UI if needed
-    ensureUI();
-
-    const headline = qs("headline");
-    const msg = qs("msg");
-    const stamp = qs("stamp");
-
+    // all other modes show UI
+    showUI();
     document.body.classList.remove("red","vsc");
 
     if(mode === "red"){
@@ -157,66 +167,32 @@
     }
 
     stamp.textContent = "Last update: " + (updatedAt ? fmt(updatedAt) : "");
-    forceRepaint();
   }
 
   function showOffline(){
-    ensureUI();
-    const headline = qs("headline");
-    const msg = qs("msg");
-    const stamp = qs("stamp");
+    // if offline, SHOW UI with warning (not blank)
+    showUI();
     document.body.classList.remove("red","vsc");
     setDot("red");
     headline.textContent = "FLAG FEED OFFLINE";
     msg.textContent = "Cannot reach Race Control endpoint.";
     stamp.textContent = "";
-    forceRepaint();
   }
 
-  async function pollOnce(){
-    const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
-    if(!res.ok) throw new Error("HTTP " + res.status);
-    return res.json();
-  }
-
-  let pollTimer = null;
-  function startPolling(){
-    if(pollTimer) return;
-    const tick = async () => {
-      try{
-        const data = await pollOnce();
-        apply(getEffectiveMode(data), data?.updatedAt || null);
-      }catch{
-        showOffline();
-      }
-    };
-    tick();
-    pollTimer = setInterval(tick, POLL_MS);
-  }
-
-  function startSSE(){
+  async function poll(){
     try{
-      const es = new EventSource(`${WORKER_BASE}/events?t=${Date.now()}`);
-
-      es.onmessage = (ev) => {
-        try{
-          const data = JSON.parse(ev.data);
-          apply(getEffectiveMode(data), data?.updatedAt || null);
-        }catch{}
-      };
-
-      es.onerror = () => {
-        try{ es.close(); }catch{}
-        // SimHub often blocks SSE; polling keeps it reliable
-      };
+      const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      apply(getEffectiveMode(data), data?.updatedAt || null);
     }catch{
-      // ignore
+      showOffline();
     }
   }
 
-  // Init
-  startPolling();   // reliable in SimHub
-  startSSE();       // optional upgrade if EventSource works
+  // start
+  poll();
+  setInterval(poll, POLL_MS);
 </script>
 </body>
 </html>
