@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GTeam 3 – Team Applications</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="min-h-screen text-white" style="background:#0b0f1a;">
+  <div class="max-w-5xl mx-auto p-4 sm:p-6">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between gap-3 mb-6">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center font-bold">G3</div>
+        <div>
+          <div class="text-xl font-semibold">GTeam 3 – Team Hub</div>
+          <div class="text-sm text-white/70">Login, view teams, apply to join</div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="btnLogin" class="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-semibold">
+          Login with Discord
+        </button>
+        <button id="btnLogout" class="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 font-semibold hidden">
+          Logout
+        </button>
+      </div>
+    </div>
+
+    <!-- User Card -->
+    <div id="userCard" class="hidden mb-6 p-4 rounded-2xl bg-white/5 border border-white/10">
+      <div class="flex items-center gap-3">
+        <img id="userPhoto" class="w-12 h-12 rounded-full bg-white/10 object-cover" alt="" />
+        <div class="flex-1">
+          <div id="userName" class="font-semibold"></div>
+          <div id="userMeta" class="text-sm text-white/70"></div>
+        </div>
+        <div class="text-xs px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-200 border border-emerald-500/25">
+          Signed in
+        </div>
+      </div>
+    </div>
+
+    <!-- Not signed in helper -->
+    <div id="loggedOutNote" class="mb-6 p-4 rounded-2xl bg-white/5 border border-white/10 text-white/80">
+      <div class="font-semibold mb-1">To apply to join a team, you’ll need to log in.</div>
+      <div class="text-sm text-white/70">Click “Login with Discord” to authenticate, then pick a team and submit your application.</div>
+    </div>
+
+    <!-- Teams -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+      <!-- Team list -->
+      <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="text-lg font-semibold">Available Teams</div>
+            <div class="text-sm text-white/70">Select a team, then apply</div>
+          </div>
+          <button id="btnRefresh" class="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-semibold">
+            Refresh
+          </button>
+        </div>
+
+        <div id="teamsLoading" class="text-white/70 text-sm">Loading teams…</div>
+        <div id="teamsEmpty" class="hidden text-white/70 text-sm">No teams found yet.</div>
+
+        <div id="teamsList" class="mt-3 space-y-2"></div>
+      </div>
+
+      <!-- Application panel -->
+      <div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+        <div class="text-lg font-semibold mb-1">Apply to Join Team</div>
+        <div class="text-sm text-white/70 mb-4">Team leaders can approve or decline your request.</div>
+
+        <div class="mb-3">
+          <div class="text-sm text-white/70 mb-1">Selected team</div>
+          <div id="selectedTeam" class="px-3 py-3 rounded-xl bg-white/10 border border-white/10 text-white/80">
+            None selected
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="text-sm text-white/70">Optional note to the team leader</label>
+          <textarea id="note" class="mt-1 w-full px-3 py-2 rounded-xl bg-white/10 border border-white/10 outline-none focus:ring-2 focus:ring-indigo-500"
+            rows="3" placeholder="e.g., Preferred stint times, experience level, availability…"></textarea>
+        </div>
+
+        <button id="btnApply" disabled
+          class="w-full px-4 py-3 rounded-xl font-semibold bg-indigo-500/40 text-white/70 cursor-not-allowed">
+          Submit Application
+        </button>
+
+        <div id="applyMsg" class="mt-3 text-sm text-white/70"></div>
+
+        <hr class="my-5 border-white/10"/>
+
+        <div class="text-lg font-semibold mb-1">Your Applications</div>
+        <div class="text-sm text-white/70 mb-3">Shows pending/approved/declined.</div>
+
+        <div id="appsEmpty" class="text-white/70 text-sm">No applications yet.</div>
+        <div id="appsList" class="mt-3 space-y-2"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module">
+    // ====== 1) Firebase imports (v9 modular) ======
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getAuth,
+      onAuthStateChanged,
+      signInWithPopup,
+      signOut,
+      OAuthProvider
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+    import {
+      getFirestore,
+      collection,
+      query,
+      where,
+      orderBy,
+      getDocs,
+      addDoc,
+      serverTimestamp,
+      onSnapshot
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    // ====== 2) TODO: Replace with your Firebase config ======
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_AUTH_DOMAIN",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_STORAGE_BUCKET",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID",
+    };
+
+    const EVENT_ID = "gteam3-2026";
+
+    // ====== 3) Init ======
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // ====== 4) UI refs ======
+    const btnLogin = document.getElementById("btnLogin");
+    const btnLogout = document.getElementById("btnLogout");
+    const btnRefresh = document.getElementById("btnRefresh");
+    const btnApply = document.getElementById("btnApply");
+
+    const userCard = document.getElementById("userCard");
+    const loggedOutNote = document.getElementById("loggedOutNote");
+    const userName = document.getElementById("userName");
+    const userMeta = document.getElementById("userMeta");
+    const userPhoto = document.getElementById("userPhoto");
+
+    const teamsList = document.getElementById("teamsList");
+    const teamsLoading = document.getElementById("teamsLoading");
+    const teamsEmpty = document.getElementById("teamsEmpty");
+
+    const selectedTeam = document.getElementById("selectedTeam");
+    const noteEl = document.getElementById("note");
+    const applyMsg = document.getElementById("applyMsg");
+
+    const appsEmpty = document.getElementById("appsEmpty");
+    const appsList = document.getElementById("appsList");
+
+    // ====== 5) State ======
+    let currentUser = null;
+    let selectedTeamData = null;
+    let appsUnsub = null;
+
+    // ====== 6) Auth: Discord provider ======
+    // This assumes you configured Discord as an OIDC provider in Firebase Auth.
+    // Common providerId for custom OIDC is "oidc.discord" (but yours may differ).
+    // If your old setup used a different providerId, change it here.
+    const DISCORD_OIDC_PROVIDER_ID = "oidc.discord";
+    const discordProvider = new OAuthProvider(DISCORD_OIDC_PROVIDER_ID);
+
+    btnLogin.addEventListener("click", async () => {
+      applyMsg.textContent = "";
+      try {
+        await signInWithPopup(auth, discordProvider);
+      } catch (e) {
+        console.error(e);
+        applyMsg.textContent = "Login failed. Check console + providerId.";
+      }
+    });
+
+    btnLogout.addEventListener("click", async () => {
+      await signOut(auth);
+    });
+
+    // ====== 7) Load teams ======
+    async function loadTeams() {
+      teamsLoading.classList.remove("hidden");
+      teamsEmpty.classList.add("hidden");
+      teamsList.innerHTML = "";
+
+      const qTeams = query(
+        collection(db, "gteam3_teams"),
+        where("eventId", "==", EVENT_ID),
+        orderBy("createdAt", "desc")
+      );
+
+      const snap = await getDocs(qTeams);
+
+      teamsLoading.classList.add("hidden");
+      if (snap.empty) {
+        teamsEmpty.classList.remove("hidden");
+        return;
+      }
+
+      snap.forEach(doc => {
+        const t = { id: doc.id, ...doc.data() };
+        teamsList.appendChild(teamRow(t));
+      });
+    }
+
+    function teamRow(team) {
+      const div = document.createElement("button");
+      div.type = "button";
+      div.className = "w-full text-left p-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10";
+      div.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="font-semibold">${escapeHtml(team.teamName || "Unnamed Team")}</div>
+            <div class="text-sm text-white/70">Leader: ${escapeHtml(team.leaderName || "Unknown")}</div>
+          </div>
+          <div class="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10 text-white/70">Select</div>
+        </div>
+      `;
+
+      div.addEventListener("click", () => {
+        selectedTeamData = team;
+        selectedTeam.textContent = `${team.teamName} (Leader: ${team.leaderName || "Unknown"})`;
+        updateApplyButtonState();
+        applyMsg.textContent = "";
+      });
+
+      return div;
+    }
+
+    btnRefresh.addEventListener("click", loadTeams);
+
+    // ====== 8) Applications: realtime list for current user ======
+    function listenToMyApplications(uid) {
+      // clean up old listener
+      if (appsUnsub) appsUnsub();
+
+      const qApps = query(
+        collection(db, "gteam3_teamApplications"),
+        where("eventId", "==", EVENT_ID),
+        where("applicantUid", "==", uid),
+        orderBy("createdAt", "desc")
+      );
+
+      appsUnsub = onSnapshot(qApps, (snap) => {
+        appsList.innerHTML = "";
+        if (snap.empty) {
+          appsEmpty.classList.remove("hidden");
+          return;
+        }
+        appsEmpty.classList.add("hidden");
+
+        snap.forEach(doc => {
+          const a = { id: doc.id, ...doc.data() };
+          appsList.appendChild(appCard(a));
+        });
+      });
+    }
+
+    function appCard(app) {
+      const wrap = document.createElement("div");
+      const badge = statusBadge(app.status);
+      wrap.className = "p-3 rounded-xl bg-white/10 border border-white/10";
+      wrap.innerHTML = `
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="font-semibold">${escapeHtml(app.teamName || "Team")}</div>
+            <div class="text-sm text-white/70">Status: ${badge}</div>
+          </div>
+          <div class="text-xs text-white/60">${app.createdAt?.toDate ? app.createdAt.toDate().toLocaleString() : ""}</div>
+        </div>
+      `;
+      return wrap;
+    }
+
+    function statusBadge(status) {
+      const s = (status || "pending").toLowerCase();
+      if (s === "approved") return `<span class="px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-200 border border-emerald-500/25">Approved</span>`;
+      if (s === "declined") return `<span class="px-2 py-1 rounded-full bg-rose-500/15 text-rose-200 border border-rose-500/25">Declined</span>`;
+      return `<span class="px-2 py-1 rounded-full bg-amber-500/15 text-amber-200 border border-amber-500/25">Pending</span>`;
+    }
+
+    // ====== 9) Apply submit ======
+    btnApply.addEventListener("click", async () => {
+      applyMsg.textContent = "";
+      if (!currentUser) {
+        applyMsg.textContent = "Please log in first.";
+        return;
+      }
+      if (!selectedTeamData) {
+        applyMsg.textContent = "Please select a team first.";
+        return;
+      }
+
+      try {
+        // basic client-side guard: prevent applying to own team
+        if (selectedTeamData.leaderUid && selectedTeamData.leaderUid === currentUser.uid) {
+          applyMsg.textContent = "You’re already the leader of this team.";
+          return;
+        }
+
+        const payload = {
+          eventId: EVENT_ID,
+          teamId: selectedTeamData.id,
+          teamName: selectedTeamData.teamName || "Team",
+          applicantUid: currentUser.uid,
+          applicantName: currentUser.displayName || "Driver",
+          applicantDiscordId: currentUser.providerData?.[0]?.uid || null,
+          status: "pending",
+          note: (noteEl.value || "").trim().slice(0, 500),
+          createdAt: serverTimestamp(),
+          resolvedAt: null,
+          resolvedByUid: null
+        };
+
+        await addDoc(collection(db, "gteam3_teamApplications"), payload);
+
+        noteEl.value = "";
+        applyMsg.textContent = "Application submitted! Awaiting team leader approval.";
+      } catch (e) {
+        console.error(e);
+        applyMsg.textContent = "Could not submit application (rules or config issue). Check console.";
+      }
+    });
+
+    function updateApplyButtonState() {
+      const enabled = !!currentUser && !!selectedTeamData;
+      btnApply.disabled = !enabled;
+      btnApply.className = enabled
+        ? "w-full px-4 py-3 rounded-xl font-semibold bg-indigo-500 hover:bg-indigo-400"
+        : "w-full px-4 py-3 rounded-xl font-semibold bg-indigo-500/40 text-white/70 cursor-not-allowed";
+    }
+
+    // ====== 10) Auth state UI ======
+    onAuthStateChanged(auth, async (user) => {
+      currentUser = user || null;
+
+      if (currentUser) {
+        btnLogin.classList.add("hidden");
+        btnLogout.classList.remove("hidden");
+        userCard.classList.remove("hidden");
+        loggedOutNote.classList.add("hidden");
+
+        userName.textContent = currentUser.displayName || "Signed in";
+        userMeta.textContent = currentUser.email ? currentUser.email : `UID: ${currentUser.uid}`;
+        userPhoto.src = currentUser.photoURL || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Crect width='96' height='96' fill='%231a2236'/%3E%3Ctext x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' fill='%23ffffff' font-size='22' font-family='Arial'%3EUSER%3C/text%3E%3C/svg%3E";
+
+        listenToMyApplications(currentUser.uid);
+      } else {
+        btnLogin.classList.remove("hidden");
+        btnLogout.classList.add("hidden");
+        userCard.classList.add("hidden");
+        loggedOutNote.classList.remove("hidden");
+
+        if (appsUnsub) appsUnsub();
+        appsList.innerHTML = "";
+        appsEmpty.classList.remove("hidden");
+      }
+
+      updateApplyButtonState();
+    });
+
+    // ====== 11) Helpers ======
+    function escapeHtml(str) {
+      return String(str || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    // initial load
+    loadTeams().catch(console.error);
+  </script>
+</body>
+</html>
