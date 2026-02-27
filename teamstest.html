@@ -210,6 +210,99 @@
 
       </div>
 
+
+      <!-- Team Leader Controls -->
+      <div id="leaderSection" class="glass p-5 mt-5 hidden">
+        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+          <div>
+            <div class="text-xl font-extrabold">Team Leader Controls</div>
+            <div class="text-white/70 text-sm">Manage your team • approve drivers • select roster • publish JSON</div>
+          </div>
+          <div class="text-white/60 text-xs">
+            Only visible if you are the leader of a team for this event.
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+          <!-- Edit team -->
+          <div class="glass p-4">
+            <div class="text-lg font-bold">Edit Team</div>
+            <div class="text-white/70 text-sm mb-3">Update your team name and (if allowed) logo.</div>
+
+            <div class="space-y-3">
+              <div>
+                <label class="text-white/70 text-sm">Team name</label>
+                <input id="leaderTeamNameInput" type="text"
+                  class="mt-1 w-full px-3 py-2 rounded-xl bg-white/10 border border-white/10 outline-none focus:ring-2 focus:ring-emerald-400"
+                  maxlength="50">
+              </div>
+
+              <div>
+                <label class="text-white/70 text-sm">Replace team image (JPEG only, max 5MB)</label>
+                <input id="leaderTeamImageFileInput" type="file" accept="image/jpeg"
+                  class="mt-1 w-full px-3 py-2 rounded-xl bg-white/10 border border-white/10 outline-none focus:ring-2 focus:ring-emerald-400">
+                <div class="text-xs text-white/60 mt-1" id="leaderTeamImageHelp">
+                  Only <strong>IFWL Active Racers</strong> can upload a team logo.
+                </div>
+                <div id="leaderTeamImagePreviewWrap" class="hidden mt-3">
+                  <img id="leaderTeamImagePreview" alt="Team preview" class="w-full max-h-40 object-contain rounded-xl border border-white/10 bg-black/20">
+                  <div class="text-xs text-white/60 mt-1">Preview (will upload on “Save Changes”).</div>
+                </div>
+              </div>
+
+              <button id="btnLeaderSaveTeam"
+                class="w-full px-4 py-3 rounded-xl font-extrabold bg-indigo-500 hover:bg-indigo-400">
+                Save Changes
+              </button>
+
+              <div id="leaderSaveMsg" class="status"></div>
+              <div class="text-xs text-white/60" id="leaderTeamMeta"></div>
+            </div>
+          </div>
+
+          <!-- Approvals -->
+          <div class="glass p-4">
+            <div class="text-lg font-bold">Driver Applications</div>
+            <div class="text-white/70 text-sm mb-3">Approve or decline join requests.</div>
+
+            <div id="leaderAppsLoading" class="text-white/70 text-sm">Loading applications…</div>
+            <div id="leaderAppsEmpty" class="hidden text-white/70 text-sm">No applications for your team yet.</div>
+            <div id="leaderAppsList" class="mt-3 space-y-2"></div>
+          </div>
+
+          <!-- Roster + Publish -->
+          <div class="glass p-4">
+            <div class="text-lg font-bold">Roster & Publish</div>
+            <div class="text-white/70 text-sm mb-3">Select from accepted drivers, then export.</div>
+
+            <div class="text-white/70 text-sm mb-2">Accepted drivers</div>
+            <div id="leaderAcceptedList" class="space-y-2"></div>
+
+            <button id="btnLeaderSaveRoster"
+              class="mt-3 w-full px-4 py-3 rounded-xl font-extrabold bg-emerald-500 hover:bg-emerald-400">
+              Save Roster Selection
+            </button>
+            <div id="leaderRosterMsg" class="status"></div>
+
+            <div class="mt-4 border-t border-white/10 pt-4">
+              <div class="text-white/70 text-sm mb-2">Publish to JSON</div>
+
+              <button id="btnLeaderPublishJson"
+                class="w-full px-4 py-3 rounded-xl font-extrabold bg-white/10 hover:bg-white/15">
+                Generate & Download JSON
+              </button>
+
+              <textarea id="leaderJsonPreview" rows="8"
+                class="mt-3 w-full px-3 py-2 rounded-xl bg-black/30 border border-white/10 outline-none focus:ring-2 focus:ring-emerald-400 text-xs font-mono"
+                placeholder="JSON preview will appear here…" readonly></textarea>
+              <div class="text-xs text-white/60 mt-2">
+                This downloads a file to your device. It does not upload anywhere (unless we add that next).
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="text-center text-white/50 text-xs mt-6">IFWL.net • GTeam 3 Team Hub</div>
     </div>
   </div>
@@ -224,13 +317,16 @@
       collection,
       addDoc,
       getDocs,
+      getDoc,
       query,
       where,
       orderBy,
       serverTimestamp,
       limit,
       doc,
-      setDoc
+      setDoc,
+      updateDoc,
+      arrayUnion
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
     // ==========================================================
@@ -362,8 +458,34 @@
     const applyMsg       = document.getElementById("applyMsg");
     const myAppsEl       = document.getElementById("myApps");
 
+    // Team Leader UI
+    const leaderSection = document.getElementById("leaderSection");
+    const leaderTeamNameInput = document.getElementById("leaderTeamNameInput");
+    const leaderTeamImageFileInput = document.getElementById("leaderTeamImageFileInput");
+    const leaderTeamImageHelp = document.getElementById("leaderTeamImageHelp");
+    const leaderTeamImagePreviewWrap = document.getElementById("leaderTeamImagePreviewWrap");
+    const leaderTeamImagePreview = document.getElementById("leaderTeamImagePreview");
+    const btnLeaderSaveTeam = document.getElementById("btnLeaderSaveTeam");
+    const leaderSaveMsg = document.getElementById("leaderSaveMsg");
+    const leaderTeamMeta = document.getElementById("leaderTeamMeta");
+
+    const leaderAppsLoading = document.getElementById("leaderAppsLoading");
+    const leaderAppsEmpty = document.getElementById("leaderAppsEmpty");
+    const leaderAppsList = document.getElementById("leaderAppsList");
+
+    const leaderAcceptedList = document.getElementById("leaderAcceptedList");
+    const btnLeaderSaveRoster = document.getElementById("btnLeaderSaveRoster");
+    const leaderRosterMsg = document.getElementById("leaderRosterMsg");
+
+    const btnLeaderPublishJson = document.getElementById("btnLeaderPublishJson");
+    const leaderJsonPreview = document.getElementById("leaderJsonPreview");
+
+
     // State
     let selectedTeam = null;
+
+    let leaderTeamId = null;
+    let leaderTeamData = null; // latest team doc data
 
     // ==========================================================
     // Discord session helpers
@@ -488,6 +610,7 @@
         showApp();
         await loadTeams();
         await loadMyApplications();
+        await loadLeaderTeamIfAny();
         return true;
 
       } catch (e) {
@@ -735,7 +858,491 @@
       }
     }
 
-    btnApply.addEventListener("click", async () => {
+    
+
+    // ==========================================================
+    // Team Leader Controls
+    // ==========================================================
+    function canUploadTeamLogo(u){
+      return hasRole(u, ROLE_IFWL_ACTIVE_RACER_ID);
+    }
+
+    function setLeaderLogoGating(){
+      const u = getDiscordUser();
+      if (!leaderTeamImageFileInput || !leaderTeamImageHelp) return;
+      const ok = !!u && canUploadTeamLogo(u);
+      leaderTeamImageFileInput.disabled = !ok;
+      if (!ok) {
+        leaderTeamImageHelp.innerHTML = 'Only <strong>IFWL Active Racers</strong> can upload a team logo. (Ask staff to add the role if needed.)';
+        leaderTeamImageFileInput.value = "";
+        if (leaderTeamImagePreviewWrap) leaderTeamImagePreviewWrap.classList.add("hidden");
+      } else {
+        leaderTeamImageHelp.innerHTML = 'JPEG only, max 5MB. Upload happens when you click <strong>Save Changes</strong>.';
+      }
+    }
+
+    // Logo preview (leader)
+    if (leaderTeamImageFileInput) {
+      leaderTeamImageFileInput.addEventListener("change", () => {
+        if (!leaderSaveMsg) return;
+        leaderSaveMsg.textContent = "";
+        leaderSaveMsg.className = "status";
+        const f = leaderTeamImageFileInput.files && leaderTeamImageFileInput.files[0] ? leaderTeamImageFileInput.files[0] : null;
+        if (!f) {
+          if (leaderTeamImagePreviewWrap) leaderTeamImagePreviewWrap.classList.add("hidden");
+          return;
+        }
+        const isJpeg = (f.type === "image/jpeg") || /\.jpe?g$/i.test(f.name || "");
+        if (!isJpeg) {
+          leaderSaveMsg.textContent = "Team image must be a JPEG (.jpg / .jpeg).";
+          leaderSaveMsg.className = "status error";
+          leaderTeamImageFileInput.value = "";
+          if (leaderTeamImagePreviewWrap) leaderTeamImagePreviewWrap.classList.add("hidden");
+          return;
+        }
+        const maxBytes = 5 * 1024 * 1024;
+        if (f.size > maxBytes) {
+          leaderSaveMsg.textContent = "Team image is too large. Max size is 5MB.";
+          leaderSaveMsg.className = "status error";
+          leaderTeamImageFileInput.value = "";
+          if (leaderTeamImagePreviewWrap) leaderTeamImagePreviewWrap.classList.add("hidden");
+          return;
+        }
+        const url = URL.createObjectURL(f);
+        if (leaderTeamImagePreview) leaderTeamImagePreview.src = url;
+        if (leaderTeamImagePreviewWrap) leaderTeamImagePreviewWrap.classList.remove("hidden");
+      });
+    }
+
+    async function loadLeaderTeamIfAny(){
+      leaderTeamId = null;
+      leaderTeamData = null;
+
+      if (!leaderSection) return;
+      leaderSection.classList.add("hidden");
+
+      const u = getDiscordUser();
+      if (!u) return;
+
+      setLeaderLogoGating();
+
+      try {
+        const qLeaderTeam = query(
+          collection(db, "gteam3_teams"),
+          where("eventId", "==", EVENT_ID),
+          where("leaderDiscordId", "==", safeStr(u.id)),
+          limit(1)
+        );
+        const snap = await getDocs(qLeaderTeam);
+        if (snap.empty) return;
+
+        const d = snap.docs[0];
+        leaderTeamId = d.id;
+        leaderTeamData = d.data() || {};
+
+        // Populate edit UI
+        if (leaderTeamNameInput) leaderTeamNameInput.value = safeStr(leaderTeamData.teamName).slice(0, 50);
+        if (leaderTeamMeta) leaderTeamMeta.textContent = `Team ID: ${leaderTeamId}`;
+
+        leaderSection.classList.remove("hidden");
+
+        await loadLeaderApplications();
+        renderAcceptedDrivers();
+      } catch (e) {
+        console.error(e);
+        // If leader controls fail, we just hide them (avoid breaking app)
+        leaderSection.classList.add("hidden");
+      }
+    }
+
+    async function refreshLeaderTeamDoc(){
+      if (!leaderTeamId) return;
+      try {
+        const refTeam = doc(db, "gteam3_teams", leaderTeamId);
+        const snap = await getDoc(refTeam);
+        if (snap.exists()) leaderTeamData = snap.data() || {};
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function loadLeaderApplications(){
+      if (!leaderAppsLoading || !leaderAppsList || !leaderAppsEmpty) return;
+      leaderAppsLoading.classList.remove("hidden");
+      leaderAppsEmpty.classList.add("hidden");
+      leaderAppsList.innerHTML = "";
+
+      if (!leaderTeamId) {
+        leaderAppsLoading.classList.add("hidden");
+        leaderAppsEmpty.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        const qApps = query(
+          collection(db, "gteam3_applications"),
+          where("eventId", "==", EVENT_ID),
+          where("teamId", "==", leaderTeamId),
+          orderBy("createdAt", "desc"),
+          limit(200)
+        );
+        const snap = await getDocs(qApps);
+
+        leaderAppsLoading.classList.add("hidden");
+
+        if (snap.empty) {
+          leaderAppsEmpty.classList.remove("hidden");
+          return;
+        }
+
+        const apps = snap.docs.map(d => ({ _id: d.id, ...(d.data() || {}) }));
+
+        apps.forEach(appRow => {
+          const status = safeStr(appRow.status || "pending").toLowerCase();
+          const badge = status === "approved" ? "bg-emerald-500/30 text-emerald-100"
+                      : status === "declined" ? "bg-red-500/30 text-red-100"
+                      : "bg-yellow-500/30 text-yellow-100";
+
+          const wrap = document.createElement("div");
+          wrap.className = "glass p-3";
+
+          const note = safeStr(appRow.note);
+          const who = safeStr(appRow.applicantNick || appRow.applicantUsername || appRow.applicantDiscordId || "Applicant");
+          const did = safeStr(appRow.applicantDiscordId);
+
+          wrap.innerHTML = `
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="font-bold truncate">${who}</div>
+                <div class="text-white/60 text-xs truncate">${did}</div>
+              </div>
+              <div class="text-xs px-2 py-1 rounded-full ${badge} whitespace-nowrap">${status.toUpperCase()}</div>
+            </div>
+            ${note ? `<div class="text-white/70 text-sm mt-2">${note}</div>` : ""}
+          `;
+
+          if (status === "pending") {
+            const actions = document.createElement("div");
+            actions.className = "flex gap-2 mt-3";
+
+            const btnApprove = document.createElement("button");
+            btnApprove.className = "flex-1 px-3 py-2 rounded-xl font-extrabold bg-emerald-500 hover:bg-emerald-400";
+            btnApprove.textContent = "Approve";
+
+            const btnDecline = document.createElement("button");
+            btnDecline.className = "flex-1 px-3 py-2 rounded-xl font-extrabold bg-red-500/70 hover:bg-red-500/80";
+            btnDecline.textContent = "Decline";
+
+            btnApprove.addEventListener("click", async () => {
+              btnApprove.disabled = true; btnDecline.disabled = true;
+              try { await approveApplication(appRow); }
+              finally { btnApprove.disabled = false; btnDecline.disabled = false; }
+            });
+
+            btnDecline.addEventListener("click", async () => {
+              btnApprove.disabled = true; btnDecline.disabled = true;
+              try { await declineApplication(appRow); }
+              finally { btnApprove.disabled = false; btnDecline.disabled = false; }
+            });
+
+            actions.appendChild(btnApprove);
+            actions.appendChild(btnDecline);
+            wrap.appendChild(actions);
+          }
+
+          leaderAppsList.appendChild(wrap);
+        });
+      } catch (e) {
+        console.error(e);
+        leaderAppsLoading.textContent = "Error loading applications (check console).";
+      }
+    }
+
+    async function approveApplication(appRow){
+      if (!leaderTeamId || !appRow?._id) return;
+      try {
+        await updateDoc(doc(db, "gteam3_applications", appRow._id), {
+          status: "approved",
+          updatedAt: serverTimestamp()
+        });
+
+        const refTeam = doc(db, "gteam3_teams", leaderTeamId);
+        const snap = await getDoc(refTeam);
+        if (!snap.exists()) throw new Error("Team doc not found");
+
+        const team = snap.data() || {};
+        const drivers = Array.isArray(team.drivers) ? team.drivers : [];
+        const did = safeStr(appRow.applicantDiscordId);
+
+        const exists = drivers.some(d => safeStr(d?.discordId) === did);
+        if (!exists && did) {
+          const newDriver = {
+            discordId: did,
+            nick: safeStr(appRow.applicantNick),
+            username: safeStr(appRow.applicantUsername),
+            global: safeStr(appRow.applicantGlobal),
+            role: "driver",
+            joinedAt: null
+          };
+          await updateDoc(refTeam, {
+            drivers: [...drivers, newDriver],
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          await updateDoc(refTeam, { updatedAt: serverTimestamp() });
+        }
+
+        await refreshLeaderTeamDoc();
+        renderAcceptedDrivers();
+        await loadLeaderApplications();
+        await loadTeams();
+      } catch (e) {
+        console.error(e);
+        alert(String(e?.message || "Approve failed. Check console."));
+      }
+    }
+
+    async function declineApplication(appRow){
+      if (!appRow?._id) return;
+      try {
+        await updateDoc(doc(db, "gteam3_applications", appRow._id), {
+          status: "declined",
+          updatedAt: serverTimestamp()
+        });
+        await loadLeaderApplications();
+      } catch (e) {
+        console.error(e);
+        alert("Decline failed. Check console.");
+      }
+    }
+
+    function getTeamDrivers(){
+      return Array.isArray(leaderTeamData?.drivers) ? leaderTeamData.drivers : [];
+    }
+
+    function getPublishedRosterIds(){
+      return Array.isArray(leaderTeamData?.publishedRosterIds) ? leaderTeamData.publishedRosterIds : [];
+    }
+
+    function renderAcceptedDrivers(){
+      if (!leaderAcceptedList) return;
+      leaderAcceptedList.innerHTML = "";
+
+      const drivers = getTeamDrivers();
+      if (!drivers.length) {
+        leaderAcceptedList.innerHTML = `<div class="text-white/70 text-sm">No drivers on your team yet.</div>`;
+        return;
+      }
+
+      const published = new Set(getPublishedRosterIds());
+
+      drivers.forEach(d => {
+        const did = safeStr(d?.discordId);
+        const isLeader = safeStr(d?.role) === "leader";
+        const label = safeStr(d?.nick || d?.username || did || "Driver");
+
+        const row = document.createElement("label");
+        row.className = "flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/10";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "h-4 w-4";
+        cb.dataset.did = did;
+
+        if (isLeader) {
+          cb.checked = true;
+          cb.disabled = true;
+        } else {
+          cb.checked = published.size ? published.has(did) : true; // default include all if none saved
+        }
+
+        const text = document.createElement("div");
+        text.className = "min-w-0";
+        text.innerHTML = `
+          <div class="font-bold truncate">${label}${isLeader ? " <span class='text-white/60 text-xs'>(Leader)</span>" : ""}</div>
+          <div class="text-white/60 text-xs truncate">${did}</div>
+        `;
+
+        row.appendChild(cb);
+        row.appendChild(text);
+        leaderAcceptedList.appendChild(row);
+      });
+    }
+
+    function getRosterSelectionFromUI(){
+      if (!leaderAcceptedList) return [];
+      const checks = leaderAcceptedList.querySelectorAll("input[type='checkbox']");
+      const ids = [];
+      checks.forEach(cb => {
+        const did = safeStr(cb.dataset.did);
+        if (cb.checked && did) ids.push(did);
+      });
+      return ids;
+    }
+
+    async function saveRosterSelection(){
+      if (!leaderTeamId) return;
+      leaderRosterMsg.className = "status";
+      leaderRosterMsg.textContent = "";
+
+      const rosterIds = getRosterSelectionFromUI();
+      if (!rosterIds.length) {
+        leaderRosterMsg.textContent = "Select at least one driver.";
+        leaderRosterMsg.className = "status error";
+        return;
+      }
+
+      try {
+        await updateDoc(doc(db, "gteam3_teams", leaderTeamId), {
+          publishedRosterIds: rosterIds,
+          updatedAt: serverTimestamp()
+        });
+        await refreshLeaderTeamDoc();
+        leaderRosterMsg.textContent = "Roster saved.";
+        leaderRosterMsg.className = "status success";
+      } catch (e) {
+        console.error(e);
+        leaderRosterMsg.textContent = "Failed to save roster (check console).";
+        leaderRosterMsg.className = "status error";
+      }
+    }
+
+    function buildPublishJson(){
+      const drivers = getTeamDrivers();
+      const rosterIds = getRosterSelectionFromUI();
+      const rosterSet = new Set(rosterIds);
+
+      // Include only selected drivers; leader checkbox is always selected+disabled so included.
+      const roster = drivers
+        .filter(d => rosterSet.has(safeStr(d?.discordId)))
+        .map(d => ({
+          discordId: safeStr(d?.discordId),
+          nick: safeStr(d?.nick),
+          username: safeStr(d?.username),
+          global: safeStr(d?.global),
+          role: safeStr(d?.role || "driver")
+        }));
+
+      return {
+        eventId: EVENT_ID,
+        teamId: leaderTeamId,
+        teamName: safeStr(leaderTeamData?.teamName),
+        teamImageUrl: safeStr(leaderTeamData?.teamImageUrl),
+        leader: {
+          discordId: safeStr(leaderTeamData?.leaderDiscordId),
+          nick: safeStr(leaderTeamData?.leaderNick),
+          username: safeStr(leaderTeamData?.leaderUsername),
+          global: safeStr(leaderTeamData?.leaderGlobal)
+        },
+        roster,
+        publishedAt: new Date().toISOString()
+      };
+    }
+
+    function downloadJson(filename, obj){
+      const text = JSON.stringify(obj, null, 2);
+      if (leaderJsonPreview) leaderJsonPreview.value = text;
+
+      const blob = new Blob([text], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(a.href);
+        a.remove();
+      }, 0);
+    }
+
+    async function saveLeaderTeamEdits(){
+      if (!leaderTeamId) return;
+      if (!requireDiscordOrShowLogin()) return;
+
+      leaderSaveMsg.className = "status";
+      leaderSaveMsg.textContent = "";
+
+      const u = getDiscordUser();
+
+      const newName = safeStr(leaderTeamNameInput?.value).slice(0, 50);
+      if (!newName) {
+        leaderSaveMsg.textContent = "Team name cannot be empty.";
+        leaderSaveMsg.className = "status error";
+        return;
+      }
+
+      btnLeaderSaveTeam.disabled = true;
+      btnLeaderSaveTeam.classList.add("opacity-60", "cursor-not-allowed");
+      leaderSaveMsg.textContent = "Saving…";
+
+      try {
+        const refTeam = doc(db, "gteam3_teams", leaderTeamId);
+
+        let uploadedLogoUrl = "";
+        let uploadedLogoPath = "";
+
+        const f = leaderTeamImageFileInput && leaderTeamImageFileInput.files ? leaderTeamImageFileInput.files[0] : null;
+        if (f) {
+          const isJpeg = (f.type === "image/jpeg") || /\.jpe?g$/i.test(f.name || "");
+          if (!isJpeg) throw new Error("Team image must be JPEG");
+          if (f.size > 5 * 1024 * 1024) throw new Error("Team image exceeds 5MB");
+          if (!canUploadTeamLogo(u)) throw new Error("Only IFWL Active Racers can upload a team logo.");
+
+          const okAuth = await ensureStorageAuth();
+          if (!okAuth) throw new Error("Storage auth failed (check Storage rules / Anonymous Auth).");
+
+          uploadedLogoPath = `gteam3/team_logos/${EVENT_ID}/${leaderTeamId}.jpg`;
+          const refObj = storageRef(storage, uploadedLogoPath);
+          await uploadBytes(refObj, f, { contentType: "image/jpeg" });
+          uploadedLogoUrl = await getDownloadURL(refObj);
+        }
+
+        const updatePayload = {
+          teamName: newName,
+          updatedAt: serverTimestamp()
+        };
+        if (uploadedLogoUrl) {
+          updatePayload.teamImageUrl = uploadedLogoUrl;
+          updatePayload.teamImagePath = uploadedLogoPath;
+        }
+
+        await updateDoc(refTeam, updatePayload);
+
+        // Reset file picker + preview
+        if (leaderTeamImageFileInput) leaderTeamImageFileInput.value = "";
+        if (leaderTeamImagePreviewWrap) leaderTeamImagePreviewWrap.classList.add("hidden");
+
+        await refreshLeaderTeamDoc();
+        leaderSaveMsg.textContent = "Saved.";
+        leaderSaveMsg.className = "status success";
+
+        await loadTeams(); // refresh public list
+        renderAcceptedDrivers();
+      } catch (e) {
+        console.error(e);
+        leaderSaveMsg.textContent = String(e?.message || "Save failed (check console).");
+        leaderSaveMsg.className = "status error";
+      } finally {
+        btnLeaderSaveTeam.disabled = false;
+        btnLeaderSaveTeam.classList.remove("opacity-60", "cursor-not-allowed");
+      }
+    }
+
+    if (btnLeaderSaveTeam) btnLeaderSaveTeam.addEventListener("click", saveLeaderTeamEdits);
+    if (btnLeaderSaveRoster) btnLeaderSaveRoster.addEventListener("click", saveRosterSelection);
+
+    if (btnLeaderPublishJson) {
+      btnLeaderPublishJson.addEventListener("click", async () => {
+        if (!leaderTeamId) return;
+        // Ensure the latest team data is used
+        await refreshLeaderTeamDoc();
+        const obj = buildPublishJson();
+        const safeName = safeStr(obj.teamName || "team").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "").slice(0, 40);
+        downloadJson(`${EVENT_ID}_${safeName || leaderTeamId}.json`, obj);
+      });
+    }
+
+btnApply.addEventListener("click", async () => {
       applyMsg.className = "status";
       applyMsg.textContent = "";
 
@@ -799,6 +1406,7 @@
       showApp();
       await loadTeams();
       await loadMyApplications();
+      await loadLeaderTeamIfAny();
     } else {
       showLogin();
     }
