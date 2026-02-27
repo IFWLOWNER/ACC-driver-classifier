@@ -13,7 +13,8 @@
       overflow:hidden;
     }
 
-    .wrap{
+    /* Keep a root wrapper we can remove/restore */
+    #root{
       height:100%;
       display:flex;
       align-items:center;
@@ -32,26 +33,9 @@
       box-shadow:0 18px 55px rgba(0,0,0,.55);
     }
 
-    .big{
-      font-weight:1000;
-      letter-spacing:.6px;
-      font-size: clamp(26px, 4.2vw, 40px);
-      margin:0 0 8px
-    }
-
-    .sub{
-      margin:0;
-      opacity:.9;
-      font-size: clamp(14px, 2.2vw, 18px);
-      line-height:1.25
-    }
-
-    .stamp{
-      margin-top:10px;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size: 12px;
-      opacity:.85
-    }
+    .big{font-weight:1000;letter-spacing:.6px;font-size: clamp(26px, 4.2vw, 40px);margin:0 0 8px}
+    .sub{margin:0;opacity:.9;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
+    .stamp{margin-top:10px;font-family: ui-monospace, Menlo, Consolas, monospace;font-size: 12px;opacity:.85}
 
     @keyframes rfFlash { 0%,49%{background:#000;} 50%,100%{background:#b30000;} }
     @keyframes vscFlash { 0%,49%{background:#000;} 50%,100%{background:#8a5a00;} }
@@ -59,22 +43,14 @@
     body.red { animation: rfFlash .7s infinite; }
     body.vsc { animation: vscFlash .9s infinite; }
 
-    .dot{
-      display:inline-block;
-      width:14px;
-      height:14px;
-      border-radius:999px;
-      margin-right:10px;
-      vertical-align:middle
-    }
-
+    .dot{display:inline-block;width:14px;height:14px;border-radius:999px;margin-right:10px;vertical-align:middle}
     .dot.green{background:#22c55e; box-shadow:0 0 0 6px rgba(34,197,94,.18)}
     .dot.red{background:#ef4444; box-shadow:0 0 0 6px rgba(239,68,68,.18)}
     .dot.yellow{background:#f59e0b; box-shadow:0 0 0 6px rgba(245,158,11,.18)}
   </style>
 </head>
 <body>
-  <div class="wrap">
+  <div id="root">
     <div class="panel" id="panel">
       <div class="big">
         <span class="dot green" id="dot"></span>
@@ -89,34 +65,72 @@
   const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
   const POLL_MS = 750;
 
-  const panel = document.getElementById("panel");
-  const headline = document.getElementById("headline");
-  const msg = document.getElementById("msg");
-  const dot = document.getElementById("dot");
-  const stamp = document.getElementById("stamp");
+  // We keep the original DOM so we can restore it after "green blank"
+  const ORIGINAL_HTML = document.body.innerHTML;
+
+  function qs(id){ return document.getElementById(id); }
 
   function fmt(ts){
     try { return new Date(ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"}); }
     catch { return "—"; }
   }
 
+  function getEffectiveMode(data){
+    const state = String(data?.state || "green").toLowerCase();
+    const lastCommand = String(data?.lastCommand || "").toLowerCase();
+
+    if(lastCommand === "server_reset") return "server_reset";
+    if(state === "red") return "red";
+    if(state === "vsc_slow") return "vsc_slow";
+    if(state === "vsc_pit") return "vsc_pit";
+    return "green";
+  }
+
+  function ensureUI(){
+    // If we blanked the page, restore it
+    if(!document.getElementById("root")){
+      document.body.innerHTML = ORIGINAL_HTML;
+    }
+  }
+
+  function forceRepaint(){
+    // Helps SimHub/CEF actually redraw to transparent
+    document.body.style.transform = "translateZ(0)";
+    requestAnimationFrame(() => {
+      document.body.style.transform = "";
+    });
+  }
+
+  function blankScreen(){
+    document.body.classList.remove("red","vsc");
+    // Remove all content so the browser has nothing to "hold onto"
+    document.body.innerHTML = "";
+    // Explicitly transparent
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
+    forceRepaint();
+  }
+
   function setDot(color){
-    dot.className = "dot " + color;
+    const dot = qs("dot");
+    if(dot) dot.className = "dot " + color;
   }
 
   function apply(mode, updatedAt){
-
-    // ALWAYS reset animation
-    document.body.classList.remove("red","vsc");
-
-    // ✅ GREEN = FULLY BLANK SCREEN
+    // GREEN = FULL BLANK
     if(mode === "green"){
-      panel.style.display = "none";
+      blankScreen();
       return;
     }
 
-    // Show panel for everything else
-    panel.style.display = "block";
+    // For any non-green state, restore UI if needed
+    ensureUI();
+
+    const headline = qs("headline");
+    const msg = qs("msg");
+    const stamp = qs("stamp");
+
+    document.body.classList.remove("red","vsc");
 
     if(mode === "red"){
       document.body.classList.add("red");
@@ -143,36 +157,66 @@
     }
 
     stamp.textContent = "Last update: " + (updatedAt ? fmt(updatedAt) : "");
+    forceRepaint();
   }
 
-  function getEffectiveMode(data){
-    const state = String(data?.state || "green").toLowerCase();
-    const lastCommand = String(data?.lastCommand || "").toLowerCase();
-
-    if(lastCommand === "server_reset") return "server_reset";
-    if(state === "red") return "red";
-    if(state === "vsc_slow") return "vsc_slow";
-    if(state === "vsc_pit") return "vsc_pit";
-    return "green";
+  function showOffline(){
+    ensureUI();
+    const headline = qs("headline");
+    const msg = qs("msg");
+    const stamp = qs("stamp");
+    document.body.classList.remove("red","vsc");
+    setDot("red");
+    headline.textContent = "FLAG FEED OFFLINE";
+    msg.textContent = "Cannot reach Race Control endpoint.";
+    stamp.textContent = "";
+    forceRepaint();
   }
 
-  async function poll(){
+  async function pollOnce(){
+    const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+
+  let pollTimer = null;
+  function startPolling(){
+    if(pollTimer) return;
+    const tick = async () => {
+      try{
+        const data = await pollOnce();
+        apply(getEffectiveMode(data), data?.updatedAt || null);
+      }catch{
+        showOffline();
+      }
+    };
+    tick();
+    pollTimer = setInterval(tick, POLL_MS);
+  }
+
+  function startSSE(){
     try{
-      const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
-      if(!res.ok) throw new Error();
-      const data = await res.json();
-      apply(getEffectiveMode(data), data?.updatedAt || null);
+      const es = new EventSource(`${WORKER_BASE}/events?t=${Date.now()}`);
+
+      es.onmessage = (ev) => {
+        try{
+          const data = JSON.parse(ev.data);
+          apply(getEffectiveMode(data), data?.updatedAt || null);
+        }catch{}
+      };
+
+      es.onerror = () => {
+        try{ es.close(); }catch{}
+        // SimHub often blocks SSE; polling keeps it reliable
+      };
     }catch{
-      panel.style.display = "block";
-      setDot("red");
-      headline.textContent = "FLAG FEED OFFLINE";
-      msg.textContent = "Cannot reach Race Control endpoint.";
-      stamp.textContent = "";
+      // ignore
     }
   }
 
-  poll();
-  setInterval(poll, POLL_MS);
+  // Init
+  startPolling();   // reliable in SimHub
+  startSSE();       // optional upgrade if EventSource works
 </script>
 </body>
 </html>
