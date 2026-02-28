@@ -5,49 +5,145 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IFWL — Race Control</title>
   <style>
-    body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui;background:#0b1220;color:#fff}
-    .wrap{width:min(980px,92vw);text-align:center}
-    h1{margin:0 0 10px;font-size:28px}
-    p{margin:0 0 22px;opacity:.75}
+    :root{
+      --bg0:#070b14;
+      --bg1:#0b1220;
+      --panel: rgba(255,255,255,.06);
+      --panel2: rgba(0,0,0,.26);
+      --line: rgba(255,255,255,.14);
+      --line2: rgba(255,255,255,.18);
+      --text:#e9eefc;
+      --muted: rgba(233,238,252,.72);
 
-    .row{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
-    button{
-      border:none;cursor:pointer;font-weight:1000;letter-spacing:.3px;
-      width:240px;height:240px;border-radius:999px;
-      box-shadow:0 18px 55px rgba(0,0,0,.45);
-      transition:transform .08s ease, filter .12s ease, opacity .12s ease;
-      color:#fff;font-size:18px; padding:16px;
-      line-height:1.15;
-      position:relative;
-      overflow:hidden;
+      --red:#ef4444;
+      --red2:#7f1d1d;
+      --amber:#f59e0b;
+      --green:#22c55e;
+      --blue:#3b82f6;
+
+      --shadow: 0 18px 55px rgba(0,0,0,.38);
+      --shadow2: 0 10px 28px rgba(0,0,0,.35);
+
+      --radius: 16px;
+      --radius2: 14px;
+      --mono: ui-monospace, Menlo, Consolas, monospace;
+      --sans: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
     }
-    button:active{transform:scale(.98)}
-    button[disabled]{opacity:.55; cursor:not-allowed}
 
-    .red{background:radial-gradient(circle at 30% 25%, #ff7a7a, #ef4444 45%, #7f1d1d)}
-    .yellow{color:#111827;background:radial-gradient(circle at 30% 25%, #fff3b0, #f59e0b 45%, #7c4a00)}
-    .green{background:radial-gradient(circle at 30% 25%, #86efac, #22c55e 45%, #14532d)}
-    .blue{background:radial-gradient(circle at 30% 25%, #93c5fd, #3b82f6 45%, #1e3a8a)}
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family:var(--sans);
+      color:var(--text);
+      background:
+        radial-gradient(1200px 800px at 20% 10%, rgba(59,130,246,.16), transparent 60%),
+        radial-gradient(900px 700px at 80% 20%, rgba(34,197,94,.10), transparent 60%),
+        radial-gradient(900px 700px at 50% 90%, rgba(245,158,11,.10), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+      overflow-x:hidden;
+    }
 
-    .rowSmall{margin-top:16px}
-    .smallCircle{width:190px;height:190px;font-size:15px;padding:14px}
+    /* subtle carbon-ish texture */
+    body:before{
+      content:"";
+      position:fixed; inset:0;
+      background-image:
+        linear-gradient(135deg, rgba(255,255,255,.03) 0 1px, transparent 1px 12px),
+        linear-gradient(225deg, rgba(255,255,255,.02) 0 1px, transparent 1px 16px);
+      opacity:.35;
+      pointer-events:none;
+      mix-blend-mode:overlay;
+    }
 
-    .liveDotWrap{
-      margin-top:10px;
+    .wrap{
+      width:min(1120px, 94vw);
+      margin: 18px auto 28px;
+    }
+
+    /* HEADER */
+    .topbar{
       display:flex;
       align-items:center;
-      justify-content:center;
-      gap:8px;
-      font-size:12px;
-      font-weight:900;
-      letter-spacing:.2px;
-      opacity:.95;
+      justify-content:space-between;
+      gap:12px;
+      padding: 16px 16px;
+      border:1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+      box-shadow: var(--shadow2);
+      position: relative;
+      overflow:hidden;
     }
-    .liveDot{
-      width:14px;height:14px;border-radius:999px;background:#22c55e;
-      box-shadow:0 0 0 0 rgba(34,197,94,.65);
-      animation:pulse 1.25s infinite;
-      border:1px solid rgba(255,255,255,.35);
+
+    .topbar:after{
+      content:"";
+      position:absolute; inset:-1px;
+      background:
+        linear-gradient(90deg, transparent 0 18%, rgba(255,255,255,.06) 18% 19%, transparent 19% 100%),
+        linear-gradient(90deg, transparent 0 62%, rgba(255,255,255,.05) 62% 63%, transparent 63% 100%);
+      opacity:.55;
+      pointer-events:none;
+    }
+
+    .brand{
+      display:flex; flex-direction:column; gap:2px;
+      min-width: 240px;
+      z-index:1;
+    }
+    .brand .title{
+      font-weight: 1000;
+      letter-spacing:.4px;
+      font-size: 16px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .badge{
+      font-family:var(--mono);
+      font-size: 11px;
+      padding: 4px 8px;
+      border:1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(0,0,0,.18);
+      color: rgba(233,238,252,.9);
+    }
+    .brand .sub{
+      font-size: 12px;
+      color: var(--muted);
+      line-height:1.2;
+    }
+
+    /* STATUS STRIP */
+    .statusStrip{
+      z-index:1;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:6px;
+      text-align:right;
+      min-width: 240px;
+    }
+    .statusStrip .live{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: rgba(233,238,252,.92);
+      letter-spacing:.2px;
+      justify-content:flex-end;
+      flex-wrap:wrap;
+    }
+    .dot{
+      width:10px;height:10px;border-radius:999px;
+      background: var(--green);
+      box-shadow: 0 0 0 0 rgba(34,197,94,.6);
+      animation: pulse 1.25s infinite;
+      border: 1px solid rgba(255,255,255,.35);
+    }
+    .dot.off{
+      background: rgba(239,68,68,.85);
+      animation:none;
+      box-shadow:none;
     }
     @keyframes pulse{
       0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}
@@ -55,120 +151,315 @@
       100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}
     }
 
-    .status{margin-top:18px;font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.95;white-space:pre-wrap}
-    .hint{margin-top:10px;opacity:.75;font-size:13px}
+    .statusBox{
+      width: min(520px, 100%);
+      border:1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,.20);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: rgba(233,238,252,.9);
+      white-space: pre-wrap;
+    }
 
-    .minirow{margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+    /* LAYOUT GRID */
+    .gridMain{
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    @media (max-width: 980px){
+      .gridMain{ grid-template-columns: 1fr; }
+      .statusStrip{ align-items:flex-start; text-align:left; }
+      .topbar{ flex-direction:column; align-items:flex-start; }
+    }
+
+    /* PANELS */
+    .panel{
+      border:1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .panelHeader{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      padding: 12px 14px;
+      background: linear-gradient(180deg, rgba(0,0,0,.24), rgba(0,0,0,.10));
+      border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    .panelTitle{
+      font-family: var(--mono);
+      font-weight: 1000;
+      letter-spacing:.35px;
+      font-size: 12.5px;
+      opacity: .96;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      text-transform: uppercase;
+    }
+    .chip{
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border:1px solid var(--line);
+      background: rgba(0,0,0,.18);
+      color: rgba(233,238,252,.88);
+    }
+    .panelBody{
+      padding: 12px 14px 14px;
+    }
+
+    /* AUTH */
+    .authRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .authRow input{
+      flex: 1 1 280px;
+      padding:11px 12px;
+      border-radius:12px;
+      border:1px solid var(--line2);
+      background: rgba(0,0,0,.26);
+      color: var(--text);
+      outline:none;
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+    .authNote{
+      margin:10px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height:1.25;
+    }
+
+    /* BUTTONS */
+    button{
+      border:none;
+      cursor:pointer;
+      font-weight: 1000;
+      letter-spacing:.25px;
+      color: var(--text);
+      transition: transform .06s ease, filter .12s ease, opacity .12s ease;
+    }
+    button:active{ transform: translateY(1px) scale(.995); }
+    button[disabled]{ opacity:.55; cursor:not-allowed; transform:none; }
+
+    .btn{
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.08);
+      box-shadow: 0 10px 25px rgba(0,0,0,.25);
+      padding: 10px 12px;
+      font-size: 12px;
+      font-family: var(--mono);
+    }
+    .btn:hover{ filter: brightness(1.06); }
+
+    .btn.danger{
+      border-color: rgba(239,68,68,.55);
+      background: rgba(239,68,68,.12);
+    }
+
+    /* COMMAND GRID */
+    .commandWrap{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .cmdGrid{
+      display:grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 10px;
+    }
+
+    @media (max-width: 740px){
+      .cmdGrid{ gap: 10px; }
+    }
+
+    .cmd{
+      grid-column: span 4;
+      min-height: 92px;
+      border-radius: 18px;
+      border:1px solid rgba(255,255,255,.12);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      box-shadow: 0 14px 32px rgba(0,0,0,.35);
+      padding: 12px 12px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      gap:8px;
+      text-align:left;
+      position:relative;
+      overflow:hidden;
+    }
+    .cmd:before{
+      content:"";
+      position:absolute;
+      inset:-1px;
+      opacity:.55;
+      pointer-events:none;
+      background:
+        radial-gradient(600px 200px at 10% 0%, rgba(255,255,255,.16), transparent 55%),
+        linear-gradient(90deg, rgba(255,255,255,.06), transparent 35%, rgba(255,255,255,.03));
+    }
+    .cmd:hover{ filter: brightness(1.06); }
+
+    /* flag color accents */
+    .cmd.red{ border-color: rgba(239,68,68,.40); }
+    .cmd.yellow{ border-color: rgba(245,158,11,.40); }
+    .cmd.green{ border-color: rgba(34,197,94,.38); }
+    .cmd.blue{ border-color: rgba(59,130,246,.40); }
+
+    .cmd .hdr{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      z-index:1;
+    }
+    .cmd .name{
+      font-family: var(--mono);
+      font-size: 13px;
+      letter-spacing:.35px;
+      font-weight: 1000;
+      text-transform: uppercase;
+    }
+    .cmd .tag{
+      font-family: var(--mono);
+      font-size: 10.5px;
+      padding: 4px 7px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.22);
+      opacity:.95;
+      white-space:nowrap;
+    }
+    .cmd .desc{
+      z-index:1;
+      font-size: 12px;
+      color: rgba(233,238,252,.78);
+      line-height:1.25;
+      font-family: var(--mono);
+    }
+
+    .cmd .stripe{
+      position:absolute;
+      left:0; top:0; bottom:0;
+      width: 6px;
+      opacity:.92;
+    }
+    .cmd.red .stripe{ background: linear-gradient(180deg, var(--red), var(--red2)); }
+    .cmd.yellow .stripe{ background: linear-gradient(180deg, #ffd36a, var(--amber)); }
+    .cmd.green .stripe{ background: linear-gradient(180deg, #86efac, var(--green)); }
+    .cmd.blue .stripe{ background: linear-gradient(180deg, #93c5fd, var(--blue)); }
+
+    /* grid spans */
+    .span6{ grid-column: span 6; }
+    .span4{ grid-column: span 4; }
+    .span12{ grid-column: span 12; }
+
+    @media (max-width: 980px){
+      .cmd{ grid-column: span 6; }
+      .span6{ grid-column: span 12; }
+    }
+    @media (max-width: 560px){
+      .cmd{ grid-column: span 12; }
+    }
+
+    /* pills row */
+    .minirow{
+      margin-top: 12px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
     .pill{
-      font-family:ui-monospace,Menlo,Consolas,monospace;
-      font-size:12px;
-      padding:8px 10px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(255,255,255,.06);
-      opacity:.9;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.18);
+      opacity:.95;
+      white-space:nowrap;
     }
     .ok{color:#86efac}
     .bad{color:#ff7a7a}
     .warn{color:#fde68a}
 
-    .authBox{
-      margin: 16px auto 0;
-      width: min(720px, 92vw);
-      text-align:left;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(255,255,255,.06);
-      border-radius:14px;
-      padding:12px 12px 10px;
-    }
-    .authRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .authRow input{
-      flex: 1 1 280px;
-      padding:10px 12px;
-      border-radius:10px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(0,0,0,.25);
-      color:#fff;
-      outline:none;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-    }
-    .authRow .smallBtn{
-      width:auto;height:auto;border-radius:12px;padding:10px 14px;font-size:13px;
-      background:rgba(255,255,255,.10);
-      border:1px solid rgba(255,255,255,.18);
-      box-shadow:none;
-      color:#fff;
-      font-weight:900;
-      letter-spacing:.2px;
-      cursor:pointer;
-    }
-    .authNote{margin:8px 0 0;opacity:.8;font-size:12px;line-height:1.25}
-
-    .panel{
-      margin:18px auto 0;
-      width: min(720px, 92vw);
-      text-align:left;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(255,255,255,.06);
-      border-radius:14px;
-      padding:12px;
-      box-shadow:0 18px 55px rgba(0,0,0,.25);
-    }
-    .panelHeader{
-      display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
-      margin-bottom:10px;
-    }
-    .panelTitle{
-      font-weight:1000;letter-spacing:.3px;
-      font-size:14px;opacity:.95;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-    }
-    .panelBtns{display:flex;gap:10px;flex-wrap:wrap}
-    .tinyBtn{
-      width:auto;height:auto;border-radius:12px;padding:9px 12px;font-size:12px;
-      background:rgba(255,255,255,.10);
-      border:1px solid rgba(255,255,255,.18);
-      box-shadow:none;
-      color:#fff;
-      font-weight:900;
-      letter-spacing:.2px;
-      cursor:pointer;
-    }
-    .tinyBtn.danger{border-color:rgba(239,68,68,.55); background:rgba(239,68,68,.12)}
+    /* list */
     .list{
-      margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;
-      max-height:260px;overflow:auto;
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      max-height: 280px;
+      overflow:auto;
     }
     .item{
-      display:flex;justify-content:space-between;gap:10px;align-items:center;
-      padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
-      background:rgba(0,0,0,.18);
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size:12.5px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:center;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.20);
+      font-family: var(--mono);
+      font-size: 12.5px;
     }
-    .itemName{font-weight:1000}
-    .itemTime{opacity:.8}
+    .itemName{ font-weight:1000; }
+    .itemTime{ opacity:.82; }
 
-    /* Broadcast */
-    .msgRow{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+    /* broadcast */
+    .msgRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-start;
+    }
     .msgBox{
       flex: 1 1 420px;
       width:100%;
-      min-height:96px;
-      resize:vertical;
-      padding:12px 12px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(0,0,0,.25);
-      color:#fff;
+      min-height: 104px;
+      resize: vertical;
+      padding: 12px 12px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.26);
+      color: var(--text);
       outline:none;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size:13px;
+      font-family: var(--mono);
+      font-size: 12.5px;
       line-height:1.25;
     }
-    .msgHelp{margin-top:8px;opacity:.8;font-size:12px;font-family: ui-monospace, Menlo, Consolas, monospace;}
+    .msgHelp{
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: var(--mono);
+      line-height:1.25;
+    }
 
-    /* ✅ NEW: Quali split scheduler */
+    /* Quali split scheduler (kept IDs/classes, restyled) */
     .grid{
       display:grid;
       grid-template-columns: 1fr;
@@ -176,207 +467,318 @@
     }
     .rowLine{
       display:grid;
-      grid-template-columns: 18px 110px 1fr 120px;
+      grid-template-columns: 18px 118px 1fr 132px;
       gap:10px;
       align-items:center;
-      padding:10px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(0,0,0,.18);
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size:12.5px;
+      padding: 10px 10px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.20);
+      font-family: var(--mono);
+      font-size: 12.5px;
     }
-    .rowLine label{font-weight:1000}
+    @media (max-width: 560px){
+      .rowLine{
+        grid-template-columns: 18px 1fr;
+        grid-auto-rows: auto;
+      }
+      .rowLine > :nth-child(3),
+      .rowLine > :nth-child(4){
+        grid-column: 1 / -1;
+      }
+    }
+
+    .rowLine label{ font-weight:1000; letter-spacing:.3px; }
     .rowLine input[type="number"], .rowLine select{
-      padding:9px 10px;
-      border-radius:10px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(0,0,0,.25);
-      color:#fff;
+      width:100%;
+      padding: 10px 10px;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.26);
+      color: var(--text);
       outline:none;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size:12.5px;
+      font-family: var(--mono);
+      font-size: 12.5px;
     }
-    .muted{opacity:.8;font-size:12px;font-family: ui-monospace, Menlo, Consolas, monospace;}
+    .muted{ opacity:.82; font-size: 12px; font-family: var(--mono); }
+
     .warnBox{
-      margin-top:10px;
-      padding:10px 12px;
-      border-radius:12px;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
       border:1px solid rgba(245,158,11,.35);
-      background:rgba(245,158,11,.10);
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size:12.5px;
-      opacity:.95;
+      background: rgba(245,158,11,.10);
+      font-family: var(--mono);
+      font-size: 12.5px;
+      opacity:.97;
+      line-height:1.3;
+    }
+
+    /* bottom hint */
+    .hint{
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12.5px;
+      font-family: var(--mono);
+      line-height:1.25;
+    }
+
+    /* sticky status on mobile */
+    @media (max-width: 560px){
+      .statusBox{
+        position: sticky;
+        top: 10px;
+        z-index: 50;
+        backdrop-filter: blur(10px);
+        background: rgba(0,0,0,.35);
+        border-color: rgba(255,255,255,.16);
+      }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>IFWL Race Control</h1>
-    <p>Updates Command Center + SimHub flag instantly (Durable Object + SSE). Discord posts are non-blocking.</p>
-
-    <div class="authBox">
-      <div class="authRow">
-        <input id="tokenInput" type="password" placeholder="Enter steward token (one-time) — stored on this device" />
-        <button class="smallBtn" id="btnSaveToken">Save token</button>
-        <button class="smallBtn" id="btnClearToken">Clear token</button>
-      </div>
-      <div class="authNote">
-        Token is stored <b>only in your browser</b> (localStorage) on this device.
-        If you change PCs/browsers, you’ll need to enter it again.
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:18px">
-      <button class="red" id="btnRed">CALL<br>RED FLAG</button>
-
-      <button class="yellow" id="btnVscSlow">
-        VIRTUAL SAFETY CAR<br><br>
-        Remain in formation<br>
-        Continue at reduced speed
-      </button>
-
-      <button class="yellow" id="btnVscPit">
-        VIRTUAL SAFETY CAR<br><br>
-        Enter pits now<br>
-        Keep formation at pit exit line
-      </button>
-
-      <button class="green" id="btnGreen">GREEN FLAG</button>
-
-      <button class="green" id="btnReset">
-        SERVER RESET<br><br>
-        Practice live (15 min)
-      </button>
-
-      <button class="blue" id="btnCheckIn">
-        RACE<br>CHECK-IN<br><br>
-        Show driver<br>
-        check-in screen
-      </button>
-    </div>
-
-    <div class="row rowSmall">
-      <button class="green smallCircle" id="btnGreenConsole">
-        GREEN FLAG<br>
-        <span style="font-weight:900;opacity:.95">— CONSOLE ONLY —</span><br><br>
-        Adhere to in-game rules &amp; flags
-        <div class="liveDotWrap">
-          <span class="liveDot" aria-hidden="true"></span>
-          <span>SYSTEM LIVE</span>
+    <div class="topbar">
+      <div class="brand">
+        <div class="title">
+          IFWL Race Control
+          <span class="badge">Stewards Console</span>
         </div>
-      </button>
+        <div class="sub">Command Center + SimHub flag updates (Durable Object + SSE). Discord posts are non-blocking.</div>
+      </div>
+
+      <div class="statusStrip">
+        <div class="live" id="liveLine">
+          <span class="dot off" id="liveDot" aria-hidden="true"></span>
+          <span>Operations Link</span>
+          <span class="badge" id="opsBadge">OFFLINE</span>
+        </div>
+        <div class="statusBox" id="status">Ready.</div>
+      </div>
     </div>
 
-    <div class="minirow">
-      <span class="pill" id="endpointPill">Endpoint: —</span>
-      <span class="pill" id="livePill">Live feed: —</span>
-      <span class="pill" id="pollPill">Polling: —</span>
-      <span class="pill" id="statePill">Current: —</span>
-      <span class="pill" id="authPill">Auth: —</span>
-      <span class="pill" id="checkinPill">Check-ins: —</span>
+    <div class="gridMain">
+      <!-- LEFT: Command / Operations -->
+      <div class="panel">
+        <div class="panelHeader">
+          <div class="panelTitle">Flag &amp; Server Control <span class="chip">Live Commands</span></div>
+          <div class="panelBtns">
+            <!-- (No new JS required; these are purely visual headers) -->
+            <span class="chip">Use only when authorised</span>
+          </div>
+        </div>
+
+        <div class="panelBody commandWrap">
+          <div class="cmdGrid">
+            <button class="cmd red span6" id="btnRed" type="button">
+              <span class="stripe" aria-hidden="true"></span>
+              <div class="hdr">
+                <div class="name">CALL RED FLAG</div>
+                <div class="tag">TRACK STOP</div>
+              </div>
+              <div class="desc">Immediate session halt. Drivers: slow safely, no overtaking, follow steward instructions.</div>
+            </button>
+
+            <button class="cmd yellow span6" id="btnVscSlow" type="button">
+              <span class="stripe" aria-hidden="true"></span>
+              <div class="hdr">
+                <div class="name">VIRTUAL SAFETY CAR</div>
+                <div class="tag">REDUCED SPEED</div>
+              </div>
+              <div class="desc">Remain in formation. Continue at reduced speed. Maintain gaps and follow delta rules.</div>
+            </button>
+
+            <button class="cmd yellow span6" id="btnVscPit" type="button">
+              <span class="stripe" aria-hidden="true"></span>
+              <div class="hdr">
+                <div class="name">VSC — ENTER PITS</div>
+                <div class="tag">PIT NOW</div>
+              </div>
+              <div class="desc">Enter pits now. Keep formation at pit exit line. No overtakes unless instructed.</div>
+            </button>
+
+            <button class="cmd green span6" id="btnGreen" type="button">
+              <span class="stripe" aria-hidden="true"></span>
+              <div class="hdr">
+                <div class="name">GREEN FLAG</div>
+                <div class="tag">RACING RESUMES</div>
+              </div>
+              <div class="desc">Session continues. Standard rules apply. Drivers: be alert on restart.</div>
+            </button>
+
+            <button class="cmd green span6" id="btnReset" type="button">
+              <span class="stripe" aria-hidden="true"></span>
+              <div class="hdr">
+                <div class="name">SERVER RESET</div>
+                <div class="tag">PRACTICE LIVE</div>
+              </div>
+              <div class="desc">Resets to Practice (15 min). Use for recovery only when approved by Race Director.</div>
+            </button>
+
+            <button class="cmd blue span6" id="btnCheckIn" type="button">
+              <span class="stripe" aria-hidden="true"></span>
+              <div class="hdr">
+                <div class="name">RACE CHECK-IN</div>
+                <div class="tag">DRIVER SCREEN</div>
+              </div>
+              <div class="desc">Shows driver check-in screen. Use before grid / session start to confirm attendance.</div>
+            </button>
+
+            <button class="cmd green span12" id="btnGreenConsole" type="button">
+              <span class="stripe" aria-hidden="true"></span>
+              <div class="hdr">
+                <div class="name">GREEN FLAG — CONSOLE ONLY</div>
+                <div class="tag">
+                  <span style="display:inline-flex;align-items:center;gap:8px;">
+                    <span class="dot" aria-hidden="true"></span>
+                    SYSTEM LIVE
+                  </span>
+                </div>
+              </div>
+              <div class="desc">Console sessions: adhere to in-game rules &amp; flags. Use this command for console green state.</div>
+            </button>
+          </div>
+
+          <div class="minirow">
+            <span class="pill" id="endpointPill">Endpoint: —</span>
+            <span class="pill" id="livePill">Live feed: —</span>
+            <span class="pill" id="pollPill">Polling: —</span>
+            <span class="pill" id="statePill">Current: —</span>
+            <span class="pill" id="authPill">Auth: —</span>
+            <span class="pill" id="checkinPill">Check-ins: —</span>
+          </div>
+
+          <div class="hint">Tip: keep this page private — it can trigger live race control.</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Auth + tools -->
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <div class="panel">
+          <div class="panelHeader">
+            <div class="panelTitle">Authorisation <span class="chip">Local Device</span></div>
+            <div class="panelBtns">
+              <button class="btn" id="btnSaveToken" type="button">Save token</button>
+              <button class="btn danger" id="btnClearToken" type="button">Clear token</button>
+            </div>
+          </div>
+          <div class="panelBody">
+            <div class="authRow">
+              <input id="tokenInput" type="password" placeholder="Enter steward token (one-time) — stored on this device" />
+            </div>
+            <div class="authNote">
+              Token is stored <b>only in your browser</b> (localStorage) on this device.
+              If you change PCs/browsers, you’ll need to enter it again.
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panelHeader">
+            <div class="panelTitle">Race Check-ins <span class="chip">Live</span></div>
+            <div class="panelBtns">
+              <button class="btn" id="btnRefreshCheckins" type="button">Refresh</button>
+              <button class="btn danger" id="btnClearCheckins" type="button">Clear All</button>
+            </div>
+          </div>
+          <div class="panelBody">
+            <ul class="list" id="checkinList">
+              <li class="item"><span class="itemName">—</span><span class="itemTime">No check-ins yet</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="panel">
+    <!-- Broadcast -->
+    <div class="panel" style="margin-top:14px;">
       <div class="panelHeader">
-        <div class="panelTitle">RACE CHECK-INS (live)</div>
+        <div class="panelTitle">Broadcast Message <span class="chip">Displays 20s</span></div>
         <div class="panelBtns">
-          <button class="tinyBtn" id="btnRefreshCheckins">Refresh</button>
-          <button class="tinyBtn danger" id="btnClearCheckins">Clear All</button>
+          <button class="btn" id="btnSendBroadcast" type="button">Send message</button>
         </div>
       </div>
-      <ul class="list" id="checkinList">
-        <li class="item"><span class="itemName">—</span><span class="itemTime">No check-ins yet</span></li>
-      </ul>
+      <div class="panelBody">
+        <div class="msgRow">
+          <textarea id="broadcastText" class="msgBox" maxlength="220"
+            placeholder="Type message here… (e.g. Please hold position at pit exit, stewards reviewing incident)"></textarea>
+        </div>
+        <div class="msgHelp">Tip: Ctrl+Enter sends. Message disappears automatically after 20 seconds.</div>
+      </div>
     </div>
 
-    <div class="panel">
+    <!-- Quali Split Scheduler -->
+    <div class="panel" style="margin-top:14px;">
       <div class="panelHeader">
-        <div class="panelTitle">SEND MESSAGE TO ALL DRIVERS (shows 20s)</div>
+        <div class="panelTitle">Quali Split Scheduler <span class="chip">1–3 splits</span></div>
         <div class="panelBtns">
-          <button class="tinyBtn" id="btnSendBroadcast">Send message</button>
-        </div>
-      </div>
-      <div class="msgRow">
-        <textarea id="broadcastText" class="msgBox" maxlength="220"
-          placeholder="Type message here… (e.g. Please hold position at pit exit, stewards reviewing incident)"></textarea>
-      </div>
-      <div class="msgHelp">Tip: Ctrl+Enter sends. Message disappears automatically after 20 seconds.</div>
-    </div>
-
-    <!-- ✅ NEW: Quali Split Scheduler -->
-    <div class="panel">
-      <div class="panelHeader">
-        <div class="panelTitle">QUALI SPLIT SCHEDULER (1–3 splits, seamless rotation)</div>
-        <div class="panelBtns">
-          <button class="tinyBtn" id="btnStartQuali">Start Quali Splits</button>
-          <button class="tinyBtn danger" id="btnStopQuali">Stop Quali Splits</button>
+          <button class="btn" id="btnStartQuali" type="button">Start Quali Splits</button>
+          <button class="btn danger" id="btnStopQuali" type="button">Stop Quali Splits</button>
         </div>
       </div>
 
-      <div class="grid">
-        <div class="rowLine">
-          <input type="checkbox" id="enBeginner" checked />
-          <label for="enBeginner">BEGINNER</label>
-          <div>
-            <div class="muted">Duration (minutes)</div>
-            <input id="minBeginner" type="number" min="1" max="60" step="1" value="4" />
+      <div class="panelBody">
+        <div class="grid">
+          <div class="rowLine">
+            <input type="checkbox" id="enBeginner" checked />
+            <label for="enBeginner">BEGINNER</label>
+            <div>
+              <div class="muted">Duration (minutes)</div>
+              <input id="minBeginner" type="number" min="1" max="60" step="1" value="4" />
+            </div>
+            <div>
+              <div class="muted">Order</div>
+              <select id="ordBeginner">
+                <option value="1" selected>1st</option>
+                <option value="2">2nd</option>
+                <option value="3">3rd</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <div class="muted">Order</div>
-            <select id="ordBeginner">
-              <option value="1" selected>1st</option>
-              <option value="2">2nd</option>
-              <option value="3">3rd</option>
-            </select>
+
+          <div class="rowLine">
+            <input type="checkbox" id="enAms" checked />
+            <label for="enAms">AMS</label>
+            <div>
+              <div class="muted">Duration (minutes)</div>
+              <input id="minAms" type="number" min="1" max="60" step="1" value="2" />
+            </div>
+            <div>
+              <div class="muted">Order</div>
+              <select id="ordAms">
+                <option value="0">—</option>
+                <option value="1">1st</option>
+                <option value="2" selected>2nd</option>
+                <option value="3">3rd</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="rowLine">
+            <input type="checkbox" id="enPros" checked />
+            <label for="enPros">PROS</label>
+            <div>
+              <div class="muted">Duration (minutes)</div>
+              <input id="minPros" type="number" min="1" max="60" step="1" value="1" />
+            </div>
+            <div>
+              <div class="muted">Order</div>
+              <select id="ordPros">
+                <option value="0">—</option>
+                <option value="1">1st</option>
+                <option value="2">2nd</option>
+                <option value="3" selected>3rd</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <div class="rowLine">
-          <input type="checkbox" id="enAms" checked />
-          <label for="enAms">AMS</label>
-          <div>
-            <div class="muted">Duration (minutes)</div>
-            <input id="minAms" type="number" min="1" max="60" step="1" value="2" />
-          </div>
-          <div>
-            <div class="muted">Order</div>
-            <select id="ordAms">
-              <option value="0">—</option>
-              <option value="1">1st</option>
-              <option value="2" selected>2nd</option>
-              <option value="3">3rd</option>
-            </select>
-          </div>
+        <div class="warnBox" id="qualiHint">
+          Rule: tick the splits you need, set minutes, and choose unique orders starting at 1 (e.g. 1–2 or 1–2–3).
+          If you only want 1 split, set just one split to order 1 and disable the rest.
         </div>
-
-        <div class="rowLine">
-          <input type="checkbox" id="enPros" checked />
-          <label for="enPros">PROS</label>
-          <div>
-            <div class="muted">Duration (minutes)</div>
-            <input id="minPros" type="number" min="1" max="60" step="1" value="1" />
-          </div>
-          <div>
-            <div class="muted">Order</div>
-            <select id="ordPros">
-              <option value="0">—</option>
-              <option value="1">1st</option>
-              <option value="2">2nd</option>
-              <option value="3" selected>3rd</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="warnBox" id="qualiHint">
-        Rule: tick the splits you need, set minutes, and choose unique orders starting at 1 (e.g. 1–2 or 1–2–3).  
-        If you only want 1 split, set just one split to order 1 and disable the rest.
       </div>
     </div>
-
-    <div class="status" id="status">Ready.</div>
-    <div class="hint">Tip: keep this page private — it can trigger live race control.</div>
   </div>
 
   <script>
@@ -451,10 +853,26 @@
       btnClearCheckins.disabled = isBusy;
     }
 
+    // --- UI helpers for the new header live badge ---
+    const liveDot = document.getElementById("liveDot");
+    const opsBadge = document.getElementById("opsBadge");
+
     function setLive(ok, detail=""){
       livePill.innerHTML = ok
         ? `Live feed: <span class="ok">CONNECTED</span>`
         : `Live feed: <span class="bad">OFFLINE</span>${detail ? " — " + detail : ""}`;
+
+      if(liveDot && opsBadge){
+        if(ok){
+          liveDot.classList.remove("off");
+          opsBadge.textContent = "ONLINE";
+          opsBadge.style.borderColor = "rgba(34,197,94,.45)";
+        }else{
+          liveDot.classList.add("off");
+          opsBadge.textContent = "OFFLINE";
+          opsBadge.style.borderColor = "rgba(239,68,68,.45)";
+        }
+      }
     }
 
     function setPolling(on){
@@ -504,7 +922,7 @@
       if(!token){
         statusEl.textContent =
           "ERROR — Missing token.\n\n" +
-          "Enter the steward token at the top of the page and click 'Save token'.";
+          "Enter the steward token and click 'Save token'.";
         throw new Error("missing_token");
       }
 
