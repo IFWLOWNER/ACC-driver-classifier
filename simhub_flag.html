@@ -51,11 +51,17 @@
     .sub{margin:0;opacity:.9;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
     .stamp{margin-top:10px;font-family: ui-monospace, Menlo, Consolas, monospace;font-size: 12px;opacity:.85}
 
+    /* ✅ Safer flashing: slower + only used briefly */
     @keyframes rfFlash { 0%,49%{background:#000;} 50%,100%{background:#b30000;} }
     @keyframes vscFlash { 0%,49%{background:#000;} 50%,100%{background:#8a5a00;} }
 
-    body.red { animation: rfFlash .7s infinite; }
-    body.vsc { animation: vscFlash .9s infinite; }
+    /* Flashing classes (used only for ~2s) */
+    body.red.flash { animation: rfFlash 1.2s infinite; }
+    body.vsc.flash { animation: vscFlash 1.4s infinite; }
+
+    /* Solid background fallback after flash window */
+    body.red.solid { background:#b30000; }
+    body.vsc.solid { background:#8a5a00; }
 
     .dot{display:inline-block;width:14px;height:14px;border-radius:999px;margin-right:10px;vertical-align:middle}
     .dot.green{background:#22c55e; box-shadow:0 0 0 6px rgba(34,197,94,.18)}
@@ -138,6 +144,9 @@
   const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
   const POLL_MS = 500;
 
+  // ✅ NEW: flash safety window (ms)
+  const FLASH_MS = 2000;
+
   const clearLayer = document.getElementById("clearLayer");
   const wrap = document.getElementById("wrap");
   const panel = document.getElementById("panel");
@@ -161,16 +170,10 @@
     const state = String(data?.state || "green").toLowerCase();
     const lastCommand = String(data?.lastCommand || "").toLowerCase();
 
-    // lastCommand can override for special modes if you use it
     if(lastCommand === "server_reset") return "server_reset";
-
-    // ✅ check-in
     if(state === "race_checkin") return "race_checkin";
 
-    // ✅ NEW: console-only green (explicit state)
     if(state === "green_console") return "green_console";
-
-    // ✅ NEW: quali split notifications
     if(state === "qually_beginner") return "qually_beginner";
     if(state === "qually_ams") return "qually_ams";
     if(state === "qually_pros") return "qually_pros";
@@ -183,10 +186,7 @@
   }
 
   function resetBodyClasses(){
-    document.body.classList.remove(
-      "red","vsc","purple",
-      "qually_beginner","qually_ams","qually_pros"
-    );
+    document.body.className = "";
   }
 
   function showGreenBlank(){
@@ -207,8 +207,6 @@
   }
 
   function ensurePanelTextColor(isDarkText){
-    // For PROS (white bg) we want black text on the panel,
-    // and a lighter panel background so it reads clean.
     if(isDarkText){
       panel.style.color = "#111827";
       panel.style.borderColor = "rgba(17,24,39,.20)";
@@ -220,29 +218,56 @@
     }
   }
 
+  // ✅ NEW: controlled flashing logic
+  let flashTimer = null;
+  function applyFlash(baseClass){
+    // baseClass is "red" or "vsc"
+    // Start flash, then settle to solid after FLASH_MS
+    if(flashTimer){ clearTimeout(flashTimer); flashTimer = null; }
+
+    // Ensure body has the base class + flash
+    document.body.classList.remove("solid","flash");
+    document.body.classList.add(baseClass, "flash");
+
+    flashTimer = setTimeout(() => {
+      // Switch to solid (no animation)
+      document.body.classList.remove("flash");
+      document.body.classList.add("solid");
+      flashTimer = null;
+    }, FLASH_MS);
+  }
+
+  function stopFlash(){
+    if(flashTimer){ clearTimeout(flashTimer); flashTimer = null; }
+    document.body.classList.remove("flash","solid");
+  }
+
   function renderFlagUI(mode, updatedAt){
-    // reset special backgrounds, then apply per-mode
+    // clear everything and stop flash timers
     resetBodyClasses();
+    stopFlash();
 
     let dotClass = "green";
     let headline = "SERVER GOOD : ADHERE TO RACE FLAGS";
     let msg = "";
 
-    // default panel colors (white text)
     ensurePanelTextColor(false);
 
     if(mode === "red"){
-      document.body.classList.add("red");
+      // ✅ 2s flash then solid red
+      applyFlash("red");
       dotClass = "red";
       headline = "RED FLAG";
       msg = "Drive to pits immediately. Send standings screenshot into Discord.";
     } else if(mode === "vsc_slow"){
-      document.body.classList.add("vsc");
+      // ✅ 2s flash then solid VSC amber
+      applyFlash("vsc");
       dotClass = "yellow";
       headline = "VSC — FORMATION";
       msg = "Remain in formation. 1st gear, enable limiter, no overtaking.";
     } else if(mode === "vsc_pit"){
-      document.body.classList.add("vsc");
+      // ✅ 2s flash then solid VSC amber
+      applyFlash("vsc");
       dotClass = "yellow";
       headline = "VSC — PIT NOW";
       msg = "All cars to enter pits now. Keep formation at pit exit line. No overtaking.";
@@ -251,33 +276,24 @@
       headline = "SERVER RESET";
       msg = "Practice session is live. You have 15 minutes to re-enter the server.";
     } else if(mode === "green_console"){
-      // ✅ NEW: console green flag + live green system dot
       dotClass = "green";
       headline = "GREEN FLAG — CONSOLE ONLY";
       msg = "Adhere to in game rules and flags.";
-
-      // Slightly punchier green “system live” inline
-      msg += "  ● SYSTEM LIVE";
     } else if(mode === "qually_beginner"){
-      // ✅ NEW: beginner quali split (red box, white writing)
       document.body.classList.add("qually_beginner");
       dotClass = "red";
       headline = "QUALI SPLIT — BEGINNER";
       msg = "Proceed with Beginner qualifying split now.";
     } else if(mode === "qually_ams"){
-      // ✅ NEW: ams quali split (silver box, white writing)
       document.body.classList.add("qually_ams");
       dotClass = "silver";
       headline = "QUALI SPLIT — AMS";
       msg = "Proceed with AMS qualifying split now.";
     } else if(mode === "qually_pros"){
-      // ✅ NEW: pros quali split (white box, black writing)
       document.body.classList.add("qually_pros");
       dotClass = "black";
       headline = "QUALI SPLIT — PROS";
       msg = "Proceed with PROS qualifying split now.";
-
-      // Make panel readable on white background (black text)
       ensurePanelTextColor(true);
     }
 
@@ -290,7 +306,6 @@
       <div class="stamp">Last update: ${updatedAt ? fmt(updatedAt) : ""}</div>
     `;
 
-    // Extra: if green_console, replace the "● SYSTEM LIVE" with a true green dot
     if(mode === "green_console"){
       const sub = content.querySelector(".sub");
       if(sub){
@@ -306,11 +321,9 @@
   }
 
   function renderCheckinUI(){
-    // Purple background ON in this mode
     resetBodyClasses();
+    stopFlash();
     document.body.classList.add("purple");
-
-    // check-in panel should be white text
     ensurePanelTextColor(false);
 
     content.innerHTML = `
@@ -380,7 +393,6 @@
     setTimeout(() => inp.focus(), 50);
   }
 
-  // Render control with minimal flicker (don’t rebuild same UI repeatedly)
   let lastMode = null;
 
   function apply(mode, updatedAt){
@@ -393,13 +405,10 @@
     showUI();
 
     if(mode !== lastMode){
-      // Only rebuild UI when mode changes
       if(mode === "race_checkin") renderCheckinUI();
       else renderFlagUI(mode, updatedAt);
-
       lastMode = mode;
     } else {
-      // Same mode: only update timestamp for flag screens
       if(mode !== "race_checkin"){
         const stampEl = content.querySelector(".stamp");
         if(stampEl) stampEl.textContent = "Last update: " + (updatedAt ? fmt(updatedAt) : "");
@@ -410,6 +419,7 @@
   function showOffline(){
     showUI();
     resetBodyClasses();
+    stopFlash();
     ensurePanelTextColor(false);
     content.innerHTML = `
       <div class="big">
