@@ -10,6 +10,7 @@
       background: radial-gradient(circle at 25% 20%, #a78bfa 0%, #6d28d9 35%, #2e1065 75%, #120426 100%);
       color:#fff;
     }
+
     #clearLayer{position:fixed;inset:0;display:none;pointer-events:none;background: rgba(0,0,0,0.001);}
     .wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:18px;}
     .panel{
@@ -23,11 +24,12 @@
       color:#fff;
       box-shadow:0 18px 55px rgba(0,0,0,.55);
     }
+
     .big{font-weight:1000;letter-spacing:.6px;font-size: clamp(26px, 4.2vw, 40px);margin:0 0 8px}
     .sub{margin:0;opacity:.9;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
     .stamp{margin-top:10px;font-family: ui-monospace, Menlo, Consolas, monospace;font-size: 12px;opacity:.85}
 
-    /* safer flashing: slow + controlled by JS window */
+    /* Safer controlled flashing for red/vsc only */
     @keyframes rfFlash { 0%,49%{background:#000;} 50%,100%{background:#b30000;} }
     @keyframes vscFlash { 0%,49%{background:#000;} 50%,100%{background:#8a5a00;} }
     body.red.flash { animation: rfFlash 1.2s infinite; }
@@ -43,9 +45,39 @@
     .dot.black{background:#111827; box-shadow:0 0 0 6px rgba(17,24,39,.18)}
     .dot.blue{background:#3b82f6; box-shadow:0 0 0 6px rgba(59,130,246,.18)}
 
-    body.qually_beginner{background:#b30000; color:#fff;}
-    body.qually_ams{background:#9ca3af; color:#fff;}
-    body.qually_pros{background:#ffffff; color:#111827;}
+    /* Broadcast */
+    body.broadcast_bg{background:#0b1220;color:#fff;}
+    .msgBox{
+      margin-top:10px;
+      font-size: clamp(18px, 3.4vw, 26px);
+      font-weight:1000;
+      letter-spacing:.3px;
+      line-height:1.15;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+    .countdown{
+      margin-top:12px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:12px;
+      opacity:.85;
+    }
+
+    /* Quali schedule */
+    body.quali_bg{background:#0b1220;color:#fff;}
+    .warnPill{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      margin-top:10px;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.20);
+      background:rgba(0,0,0,.25);
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:12px;
+      opacity:.95;
+    }
 
     /* Check-in UI */
     .titleSmall{font-weight:1000;letter-spacing:.7px;font-size:14px;opacity:.95;margin:0 0 10px;font-family: ui-monospace, Menlo, Consolas, monospace;}
@@ -63,24 +95,6 @@
     .note{margin:10px 0 0;opacity:.9;font-size:12px;font-family: ui-monospace, Menlo, Consolas, monospace;min-height:16px;}
     .ok{color:#86efac}
     .bad{color:#ff7a7a}
-
-    /* Broadcast message styling */
-    body.broadcast_bg{background:#0b1220;color:#fff;}
-    .msgBox{
-      margin-top:10px;
-      font-size: clamp(18px, 3.4vw, 26px);
-      font-weight:1000;
-      letter-spacing:.3px;
-      line-height:1.15;
-      white-space:pre-wrap;
-      word-break:break-word;
-    }
-    .countdown{
-      margin-top:12px;
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-size:12px;
-      opacity:.85;
-    }
   </style>
 </head>
 <body>
@@ -94,8 +108,6 @@
 <script>
   const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
   const POLL_MS = 500;
-
-  // Flash window for red/vsc only
   const FLASH_MS = 4000;
 
   const clearLayer = document.getElementById("clearLayer");
@@ -117,28 +129,10 @@
       .replaceAll("'","&#039;");
   }
 
-  function getEffectiveMode(data){
-    const state = String(data?.state || "green").toLowerCase();
-    const lastCommand = String(data?.lastCommand || "").toLowerCase();
-
-    if(lastCommand === "server_reset") return "server_reset";
-    if(state === "race_checkin") return "race_checkin";
-
-    if(state === "green_console") return "green_console";
-    if(state === "qually_beginner") return "qually_beginner";
-    if(state === "qually_ams") return "qually_ams";
-    if(state === "qually_pros") return "qually_pros";
-
-    if(state === "red") return "red";
-    if(state === "vsc_slow") return "vsc_slow";
-    if(state === "vsc_pit") return "vsc_pit";
-    if(state === "server_reset") return "server_reset";
-    return "green";
-  }
-
   function resetAll(){
     document.body.className = "";
     document.body.style.background = "";
+    document.body.style.color = "";
   }
 
   function showGreenBlank(){
@@ -183,33 +177,114 @@
     document.body.classList.remove("flash","solid");
   }
 
-  // Broadcast renderer (no flashing)
+  function getEffectiveMode(data){
+    const state = String(data?.state || "green").toLowerCase();
+    const lastCommand = String(data?.lastCommand || "").toLowerCase();
+
+    if(lastCommand === "server_reset") return "server_reset";
+    if(state === "race_checkin") return "race_checkin";
+
+    if(state === "green_console") return "green_console";
+
+    if(state === "red") return "red";
+    if(state === "vsc_slow") return "vsc_slow";
+    if(state === "vsc_pit") return "vsc_pit";
+    if(state === "server_reset") return "server_reset";
+    return "green";
+  }
+
+  // Broadcast
   let broadcastTimer = null;
-  function renderBroadcastUI(broadcast){
+  function renderBroadcastUI(b){
     resetAll();
     stopFlash();
     document.body.classList.add("broadcast_bg");
     ensurePanelTextColor(false);
 
-    const now = Date.now();
-    const expiresAt = Number(broadcast?.expiresAt || 0);
-    const remainingMs = Math.max(0, expiresAt - now);
-    const remainingSec = Math.ceil(remainingMs / 1000);
+    const remainingMs = Math.max(0, Number(b?.expiresAt||0) - Date.now());
+    const remainingSec = Math.ceil(remainingMs/1000);
 
     content.innerHTML = `
       <div class="big">
         <span class="dot blue"></span>
         <span>RACE CONTROL MESSAGE</span>
       </div>
-      <div class="msgBox">${escapeHtml(String(broadcast?.message || ""))}</div>
+      <div class="msgBox">${escapeHtml(String(b?.message || ""))}</div>
       <div class="countdown">Showing for ~${remainingSec}s</div>
-      <div class="stamp">Last update: ${broadcast?.ts ? fmt(broadcast.ts) : ""}</div>
+      <div class="stamp">Last update: ${b?.ts ? fmt(b.ts) : ""}</div>
     `;
 
-    if(broadcastTimer){ clearTimeout(broadcastTimer); broadcastTimer = null; }
-    if(remainingMs > 0){
-      broadcastTimer = setTimeout(() => { broadcastTimer = null; }, remainingMs + 50);
+    if(broadcastTimer){ clearTimeout(broadcastTimer); broadcastTimer=null; }
+    if(remainingMs>0){
+      broadcastTimer = setTimeout(() => { broadcastTimer=null; }, remainingMs+50);
     }
+  }
+
+  // ✅ NEW: Quali schedule (time-based)
+  function computeQualiNow(q){
+    if(!q || !q.startAt || !Array.isArray(q.steps) || q.steps.length===0) return null;
+
+    const now = Date.now();
+    const startAt = Number(q.startAt);
+    const steps = q.steps;
+
+    // Not started yet (rare)
+    if(now < startAt) return { phase:"pending", step: steps[0], idx:0, remainingMs: (startAt-now), endAt: startAt };
+
+    let t = startAt;
+    for(let i=0;i<steps.length;i++){
+      const durMs = Number(steps[i]?.durationMs || 0);
+      const end = t + durMs;
+      if(now < end){
+        return { phase:"running", step: steps[i], idx:i, remainingMs: (end-now), endAt:end };
+      }
+      t = end;
+    }
+
+    return { phase:"done" };
+  }
+
+  function renderQualiScheduleUI(q){
+    resetAll();
+    stopFlash();
+    document.body.classList.add("quali_bg");
+
+    const cur = computeQualiNow(q);
+    if(!cur || cur.phase==="done"){
+      return false;
+    }
+
+    // step styling
+    const bg = String(cur?.step?.bg || "#0b1220");
+    const fg = String(cur?.step?.fg || "#ffffff");
+    const dot = String(cur?.step?.dot || "green");
+    const label = String(cur?.step?.label || "SPLIT");
+    const remainingMs = Math.max(0, Number(cur.remainingMs||0));
+    const remainingSec = Math.ceil(remainingMs/1000);
+
+    // 1 minute warning when <=60s
+    const showWarn = remainingMs > 0 && remainingMs <= 60_000;
+
+    // Make the whole screen match split style (no flashing)
+    document.body.style.background = bg;
+    document.body.style.color = fg;
+
+    // Make panel readable on white (pros)
+    ensurePanelTextColor(fg.toLowerCase() !== "#ffffff" && fg.toLowerCase() !== "white");
+
+    const minsLeft = Math.ceil(remainingSec/60);
+
+    content.innerHTML = `
+      <div class="big">
+        <span class="dot ${escapeHtml(dot)}"></span>
+        <span>QUALI SPLIT — ${escapeHtml(label)}</span>
+      </div>
+      <p class="sub">${escapeHtml("Proceed with this split now.")}</p>
+      ${showWarn ? `<div class="warnPill"><span class="dot yellow" style="margin:0;width:12px;height:12px;"></span><span>${minsLeft} minute${minsLeft===1?"":"s"} left</span></div>` : ``}
+      <div class="stamp">Switching in ~${minsLeft} min • ${escapeHtml(label)} • ${fmt(Date.now())}</div>
+    `;
+
+    return true;
   }
 
   function renderFlagUI(mode, updatedAt){
@@ -241,27 +316,10 @@
       headline = "SERVER RESET";
       msg = "Practice session is live. You have 15 minutes to re-enter the server.";
     } else if(mode === "green_console"){
-      // neutral dark (no green bg)
       document.body.style.background = "#0b1220";
       dotClass = "green";
       headline = "GREEN FLAG — CONSOLE ONLY";
       msg = "Adhere to in game rules and flags.";
-    } else if(mode === "qually_beginner"){
-      document.body.classList.add("qually_beginner");
-      dotClass = "red";
-      headline = "QUALI SPLIT — BEGINNER";
-      msg = "Proceed with Beginner qualifying split now.";
-    } else if(mode === "qually_ams"){
-      document.body.classList.add("qually_ams");
-      dotClass = "silver";
-      headline = "QUALI SPLIT — AMS";
-      msg = "Proceed with AMS qualifying split now.";
-    } else if(mode === "qually_pros"){
-      document.body.classList.add("qually_pros");
-      dotClass = "black";
-      headline = "QUALI SPLIT — PROS";
-      msg = "Proceed with PROS qualifying split now.";
-      ensurePanelTextColor(true);
     }
 
     content.innerHTML = `
@@ -356,10 +414,7 @@
   let lastKey = null;
 
   function apply(data){
-    const mode = getEffectiveMode(data);
-    const updatedAt = data?.updatedAt || null;
-
-    // ✅ broadcast overrides everything while active
+    // ✅ 1) Broadcast overrides everything while active
     const b = data?.broadcast || null;
     if(b && b.expiresAt && b.expiresAt > Date.now() && b.message){
       showUI();
@@ -368,7 +423,6 @@
         renderBroadcastUI(b);
         lastKey = key;
       } else {
-        // update countdown lightly
         const cd = content.querySelector(".countdown");
         if(cd){
           const remainingSec = Math.ceil(Math.max(0, b.expiresAt - Date.now()) / 1000);
@@ -378,7 +432,31 @@
       return;
     }
 
-    // no broadcast -> normal behaviour
+    // ✅ 2) Quali schedule overrides flags while active
+    const q = data?.qualiSchedule || null;
+    if(q && q.startAt && Array.isArray(q.steps) && q.steps.length){
+      showUI();
+      const cur = computeQualiNow(q);
+      const phase = cur?.phase || "none";
+      const idx = String(cur?.idx ?? "");
+      const endAt = String(cur?.endAt ?? "");
+      const key = "quali:" + phase + ":" + idx + ":" + endAt;
+
+      if(key !== lastKey){
+        const ok = renderQualiScheduleUI(q);
+        lastKey = key;
+        if(ok) return;
+      } else {
+        // same step: update warning/minutes left smoothly
+        renderQualiScheduleUI(q);
+        return;
+      }
+    }
+
+    // ✅ 3) Normal flags
+    const mode = getEffectiveMode(data);
+    const updatedAt = data?.updatedAt || null;
+
     if(mode === "green"){
       lastKey = "green";
       showGreenBlank();
@@ -386,7 +464,6 @@
     }
 
     showUI();
-
     const key = mode + ":" + String(updatedAt || "");
     if(key !== lastKey){
       if(mode === "race_checkin") renderCheckinUI();
