@@ -62,6 +62,15 @@
     .dot.red{background:#ef4444; box-shadow:0 0 0 6px rgba(239,68,68,.18)}
     .dot.yellow{background:#f59e0b; box-shadow:0 0 0 6px rgba(245,158,11,.18)}
 
+    /* ✅ NEW: extra dot variants */
+    .dot.silver{background:#cbd5e1; box-shadow:0 0 0 6px rgba(203,213,225,.18)}
+    .dot.black{background:#111827; box-shadow:0 0 0 6px rgba(17,24,39,.18)}
+
+    /* ✅ NEW: solid “quali split” background modes */
+    body.qually_beginner{background:#b30000; color:#fff;}
+    body.qually_ams{background:#9ca3af; color:#fff;}
+    body.qually_pros{background:#ffffff; color:#111827;}
+
     /* Check-in UI */
     .titleSmall{
       font-weight:1000;
@@ -131,6 +140,7 @@
 
   const clearLayer = document.getElementById("clearLayer");
   const wrap = document.getElementById("wrap");
+  const panel = document.getElementById("panel");
   const content = document.getElementById("content");
 
   function fmt(ts){
@@ -154,8 +164,16 @@
     // lastCommand can override for special modes if you use it
     if(lastCommand === "server_reset") return "server_reset";
 
-    // ✅ our new mode
+    // ✅ check-in
     if(state === "race_checkin") return "race_checkin";
+
+    // ✅ NEW: console-only green (explicit state)
+    if(state === "green_console") return "green_console";
+
+    // ✅ NEW: quali split notifications
+    if(state === "qually_beginner") return "qually_beginner";
+    if(state === "qually_ams") return "qually_ams";
+    if(state === "qually_pros") return "qually_pros";
 
     if(state === "red") return "red";
     if(state === "vsc_slow") return "vsc_slow";
@@ -164,8 +182,15 @@
     return "green";
   }
 
+  function resetBodyClasses(){
+    document.body.classList.remove(
+      "red","vsc","purple",
+      "qually_beginner","qually_ams","qually_pros"
+    );
+  }
+
   function showGreenBlank(){
-    document.body.classList.remove("red","vsc","purple");
+    resetBodyClasses();
 
     wrap.style.display = "none";
     clearLayer.style.display = "block";
@@ -181,13 +206,31 @@
     wrap.style.display = "flex";
   }
 
+  function ensurePanelTextColor(isDarkText){
+    // For PROS (white bg) we want black text on the panel,
+    // and a lighter panel background so it reads clean.
+    if(isDarkText){
+      panel.style.color = "#111827";
+      panel.style.borderColor = "rgba(17,24,39,.20)";
+      panel.style.background = "rgba(255,255,255,.72)";
+    }else{
+      panel.style.color = "#fff";
+      panel.style.borderColor = "rgba(255,255,255,.18)";
+      panel.style.background = "rgba(0,0,0,.45)";
+    }
+  }
+
   function renderFlagUI(mode, updatedAt){
-    document.body.classList.remove("purple");
-    document.body.classList.remove("red","vsc");
+    // reset special backgrounds, then apply per-mode
+    resetBodyClasses();
 
     let dotClass = "green";
     let headline = "SERVER GOOD : ADHERE TO RACE FLAGS";
     let msg = "";
+
+    // default panel colors (white text)
+    ensurePanelTextColor(false);
+
     if(mode === "red"){
       document.body.classList.add("red");
       dotClass = "red";
@@ -207,6 +250,35 @@
       dotClass = "green";
       headline = "SERVER RESET";
       msg = "Practice session is live. You have 15 minutes to re-enter the server.";
+    } else if(mode === "green_console"){
+      // ✅ NEW: console green flag + live green system dot
+      dotClass = "green";
+      headline = "GREEN FLAG — CONSOLE ONLY";
+      msg = "Adhere to in game rules and flags.";
+
+      // Slightly punchier green “system live” inline
+      msg += "  ● SYSTEM LIVE";
+    } else if(mode === "qually_beginner"){
+      // ✅ NEW: beginner quali split (red box, white writing)
+      document.body.classList.add("qually_beginner");
+      dotClass = "red";
+      headline = "QUALI SPLIT — BEGINNER";
+      msg = "Proceed with Beginner qualifying split now.";
+    } else if(mode === "qually_ams"){
+      // ✅ NEW: ams quali split (silver box, white writing)
+      document.body.classList.add("qually_ams");
+      dotClass = "silver";
+      headline = "QUALI SPLIT — AMS";
+      msg = "Proceed with AMS qualifying split now.";
+    } else if(mode === "qually_pros"){
+      // ✅ NEW: pros quali split (white box, black writing)
+      document.body.classList.add("qually_pros");
+      dotClass = "black";
+      headline = "QUALI SPLIT — PROS";
+      msg = "Proceed with PROS qualifying split now.";
+
+      // Make panel readable on white background (black text)
+      ensurePanelTextColor(true);
     }
 
     content.innerHTML = `
@@ -217,12 +289,29 @@
       <p class="sub">${escapeHtml(msg)}</p>
       <div class="stamp">Last update: ${updatedAt ? fmt(updatedAt) : ""}</div>
     `;
+
+    // Extra: if green_console, replace the "● SYSTEM LIVE" with a true green dot
+    if(mode === "green_console"){
+      const sub = content.querySelector(".sub");
+      if(sub){
+        sub.innerHTML = `
+          ${escapeHtml("Adhere to in game rules and flags.")}<br>
+          <span style="display:inline-flex;align-items:center;gap:10px;margin-top:10px;font-weight:1000;letter-spacing:.3px;">
+            <span class="dot green" style="margin:0; width:14px; height:14px;"></span>
+            <span>SYSTEM LIVE</span>
+          </span>
+        `;
+      }
+    }
   }
 
   function renderCheckinUI(){
     // Purple background ON in this mode
-    document.body.classList.remove("red","vsc");
+    resetBodyClasses();
     document.body.classList.add("purple");
+
+    // check-in panel should be white text
+    ensurePanelTextColor(false);
 
     content.innerHTML = `
       <div class="titleSmall">RACE CHECK-IN</div>
@@ -320,7 +409,8 @@
 
   function showOffline(){
     showUI();
-    document.body.classList.remove("purple","red","vsc");
+    resetBodyClasses();
+    ensurePanelTextColor(false);
     content.innerHTML = `
       <div class="big">
         <span class="dot red"></span>
