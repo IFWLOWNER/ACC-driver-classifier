@@ -221,6 +221,7 @@
   }
 
   // ✅ NEW: Quali schedule (time-based)
+  // FIX: tolerate steps that use durationMs OR minutes
   function computeQualiNow(q){
     if(!q || !q.startAt || !Array.isArray(q.steps) || q.steps.length===0) return null;
 
@@ -228,13 +229,34 @@
     const startAt = Number(q.startAt);
     const steps = q.steps;
 
+    if(!Number.isFinite(startAt)) return null;
+
+    function stepDurationMs(step){
+      const d = Number(step?.durationMs);
+      if(Number.isFinite(d) && d > 0) return d;
+
+      const m = Number(step?.minutes);
+      if(Number.isFinite(m) && m > 0) return Math.round(m) * 60_000;
+
+      return 0;
+    }
+
     // Not started yet (rare)
-    if(now < startAt) return { phase:"pending", step: steps[0], idx:0, remainingMs: (startAt-now), endAt: startAt };
+    if(now < startAt){
+      return { phase:"pending", step: steps[0], idx:0, remainingMs: (startAt-now), endAt: startAt };
+    }
 
     let t = startAt;
     for(let i=0;i<steps.length;i++){
-      const durMs = Number(steps[i]?.durationMs || 0);
+      const durMs = stepDurationMs(steps[i]);
       const end = t + durMs;
+
+      // If duration missing, skip safely
+      if(durMs <= 0){
+        t = end;
+        continue;
+      }
+
       if(now < end){
         return { phase:"running", step: steps[i], idx:i, remainingMs: (end-now), endAt:end };
       }
@@ -433,7 +455,9 @@
     }
 
     // ✅ 2) Quali schedule overrides flags while active
-    const q = data?.qualiSchedule || null;
+    // FIX: tolerate different key casing/names
+    const q = data?.qualiSchedule || data?.quali_schedule || null;
+
     if(q && q.startAt && Array.isArray(q.steps) && q.steps.length){
       showUI();
       const cur = computeQualiNow(q);
@@ -447,7 +471,6 @@
         lastKey = key;
         if(ok) return;
       } else {
-        // same step: update warning/minutes left smoothly
         renderQualiScheduleUI(q);
         return;
       }
