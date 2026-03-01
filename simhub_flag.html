@@ -37,6 +37,9 @@
     body.red.solid { background:#b30000; }
     body.vsc.solid { background:#8a5a00; }
 
+    /* NEW: Return-to-race-pace solid background (no flashing) */
+    body.rtp_solid{ background:#8a5a00; color:#fff; }
+
     .dot{display:inline-block;width:14px;height:14px;border-radius:999px;margin-right:10px;vertical-align:middle}
     .dot.green{background:#22c55e; box-shadow:0 0 0 6px rgba(34,197,94,.18)}
     .dot.red{background:#ef4444; box-shadow:0 0 0 6px rgba(239,68,68,.18)}
@@ -95,6 +98,47 @@
     .note{margin:10px 0 0;opacity:.9;font-size:12px;font-family: ui-monospace, Menlo, Consolas, monospace;min-height:16px;}
     .ok{color:#86efac}
     .bad{color:#ff7a7a}
+
+    /* NEW: secondary info box (for server password) */
+    .divider{
+      margin:14px auto 10px;
+      width: 88%;
+      height:1px;
+      background: rgba(255,255,255,.18);
+      border-radius: 999px;
+    }
+    .miniTitle{
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:12px;
+      letter-spacing:.6px;
+      font-weight:1000;
+      opacity:.95;
+      margin:0 0 6px;
+      text-transform:uppercase;
+    }
+    .pwBox{
+      margin-top:6px;
+      padding:10px 12px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.20);
+      background: rgba(0,0,0,.25);
+      text-align:center;
+    }
+    .pwValue{
+      font-weight:1000;
+      letter-spacing:.3px;
+      font-size: clamp(16px, 2.7vw, 20px);
+      line-height:1.2;
+      word-break:break-word;
+      white-space:pre-wrap;
+      margin:0;
+    }
+    .pwStamp{
+      margin-top:8px;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size:11px;
+      opacity:.78;
+    }
   </style>
 </head>
 <body>
@@ -177,25 +221,54 @@
     document.body.classList.remove("flash","solid");
   }
 
+  // NEW: server password renderer (as a secondary box)
+  function renderServerPasswordSection(data){
+    const pwLine = String(data?.serverPassword || "").trim();
+    const pwUpdated = data?.serverPasswordUpdatedAt || null;
+
+    if(!pwLine) return "";
+
+    return `
+      <div class="divider"></div>
+      <div class="pwBox">
+        <div class="miniTitle">Server Password</div>
+        <p class="pwValue">${escapeHtml(pwLine)}</p>
+        <div class="pwStamp">${pwUpdated ? ("Updated: " + fmt(pwUpdated)) : ""}</div>
+      </div>
+    `;
+  }
+
+  // NEW: Return-to-race-pace helpers
+  function getRtpSecondsLeft(data){
+    const rev = data?.revert || null;
+    const revertAt = Number(rev?.revertAt || 0);
+    if(!Number.isFinite(revertAt) || revertAt <= 0) return null;
+    const msLeft = Math.max(0, revertAt - Date.now());
+    return Math.ceil(msLeft / 1000);
+  }
+
   function getEffectiveMode(data){
     const state = String(data?.state || "green").toLowerCase();
     const lastCommand = String(data?.lastCommand || "").toLowerCase();
 
+    // Return-to-race-pace state (Worker overrides state during countdown)
+    if(state === "return_to_race_pace" || lastCommand === "return_to_race_pace") return "return_to_race_pace";
+
     if(lastCommand === "server_reset") return "server_reset";
     if(state === "race_checkin") return "race_checkin";
-
     if(state === "green_console") return "green_console";
 
     if(state === "red") return "red";
     if(state === "vsc_slow") return "vsc_slow";
     if(state === "vsc_pit") return "vsc_pit";
     if(state === "server_reset") return "server_reset";
+
     return "green";
   }
 
   // Broadcast
   let broadcastTimer = null;
-  function renderBroadcastUI(b){
+  function renderBroadcastUI(b, data){
     resetAll();
     stopFlash();
     document.body.classList.add("broadcast_bg");
@@ -212,6 +285,7 @@
       <div class="msgBox">${escapeHtml(String(b?.message || ""))}</div>
       <div class="countdown">Showing for ~${remainingSec}s</div>
       <div class="stamp">Last update: ${b?.ts ? fmt(b.ts) : ""}</div>
+      ${renderServerPasswordSection(data)}
     `;
 
     if(broadcastTimer){ clearTimeout(broadcastTimer); broadcastTimer=null; }
@@ -220,8 +294,7 @@
     }
   }
 
-  // ✅ NEW: Quali schedule (time-based)
-  // FIX: tolerate steps that use durationMs OR minutes
+  // Quali schedule
   function computeQualiNow(q){
     if(!q || !q.startAt || !Array.isArray(q.steps) || q.steps.length===0) return null;
 
@@ -241,7 +314,6 @@
       return 0;
     }
 
-    // Not started yet (rare)
     if(now < startAt){
       return { phase:"pending", step: steps[0], idx:0, remainingMs: (startAt-now), endAt: startAt };
     }
@@ -251,7 +323,6 @@
       const durMs = stepDurationMs(steps[i]);
       const end = t + durMs;
 
-      // If duration missing, skip safely
       if(durMs <= 0){
         t = end;
         continue;
@@ -266,7 +337,7 @@
     return { phase:"done" };
   }
 
-  function renderQualiScheduleUI(q){
+  function renderQualiScheduleUI(q, data){
     resetAll();
     stopFlash();
     document.body.classList.add("quali_bg");
@@ -276,7 +347,6 @@
       return false;
     }
 
-    // step styling
     const bg = String(cur?.step?.bg || "#0b1220");
     const fg = String(cur?.step?.fg || "#ffffff");
     const dot = String(cur?.step?.dot || "green");
@@ -284,14 +354,11 @@
     const remainingMs = Math.max(0, Number(cur.remainingMs||0));
     const remainingSec = Math.ceil(remainingMs/1000);
 
-    // 1 minute warning when <=60s
     const showWarn = remainingMs > 0 && remainingMs <= 60_000;
 
-    // Make the whole screen match split style (no flashing)
     document.body.style.background = bg;
     document.body.style.color = fg;
 
-    // Make panel readable on white (pros)
     ensurePanelTextColor(fg.toLowerCase() !== "#ffffff" && fg.toLowerCase() !== "white");
 
     const minsLeft = Math.ceil(remainingSec/60);
@@ -304,12 +371,13 @@
       <p class="sub">${escapeHtml("Proceed with this split now.")}</p>
       ${showWarn ? `<div class="warnPill"><span class="dot yellow" style="margin:0;width:12px;height:12px;"></span><span>${minsLeft} minute${minsLeft===1?"":"s"} left</span></div>` : ``}
       <div class="stamp">Switching in ~${minsLeft} min • ${escapeHtml(label)} • ${fmt(Date.now())}</div>
+      ${renderServerPasswordSection(data)}
     `;
 
     return true;
   }
 
-  function renderFlagUI(mode, updatedAt){
+  function renderFlagUI(mode, updatedAt, data){
     resetAll();
     stopFlash();
     ensurePanelTextColor(false);
@@ -318,25 +386,40 @@
     let headline = "SERVER GOOD : ADHERE TO RACE FLAGS";
     let msg = "";
 
-    if(mode === "red"){
+    if(mode === "return_to_race_pace"){
+      // Solid amber background, no flashing
+      document.body.classList.add("rtp_solid");
+      dotClass = "yellow";
+
+      const secLeft = getRtpSecondsLeft(data);
+      headline = "VSC ENDING";
+      msg = secLeft === null
+        ? "Return to race pace."
+        : `Return to race pace in ${secLeft}s`;
+
+    } else if(mode === "red"){
       applyFlash("red");
       dotClass = "red";
       headline = "RED FLAG";
       msg = "Drive to pits immediately. Send standings screenshot into Discord.";
+
     } else if(mode === "vsc_slow"){
       applyFlash("vsc");
       dotClass = "yellow";
       headline = "VSC — FORMATION";
       msg = "Remain in formation. 1st gear, enable limiter, no overtaking.";
+
     } else if(mode === "vsc_pit"){
       applyFlash("vsc");
       dotClass = "yellow";
       headline = "VSC — PIT NOW";
       msg = "All cars to enter pits now. Keep formation at pit exit line. No overtaking.";
+
     } else if(mode === "server_reset"){
       dotClass = "green";
       headline = "SERVER RESET";
       msg = "Practice session is live. You have 15 minutes to re-enter the server.";
+
     } else if(mode === "green_console"){
       document.body.style.background = "#0b1220";
       dotClass = "green";
@@ -351,6 +434,7 @@
       </div>
       <p class="sub">${escapeHtml(msg)}</p>
       <div class="stamp">Last update: ${updatedAt ? fmt(updatedAt) : ""}</div>
+      ${renderServerPasswordSection(data)}
     `;
 
     if(mode === "green_console"){
@@ -367,7 +451,25 @@
     }
   }
 
-  function renderCheckinUI(){
+  function renderPasswordOnlyUI(data){
+    resetAll();
+    stopFlash();
+    ensurePanelTextColor(false);
+    document.body.style.background = "#0b1220";
+    document.body.style.color = "#fff";
+
+    content.innerHTML = `
+      <div class="big">
+        <span class="dot blue"></span>
+        <span>INFO</span>
+      </div>
+      <p class="sub">Server password is active.</p>
+      <div class="stamp">Updated: ${data?.serverPasswordUpdatedAt ? fmt(data.serverPasswordUpdatedAt) : ""}</div>
+      ${renderServerPasswordSection(data)}
+    `;
+  }
+
+  function renderCheckinUI(data){
     resetAll();
     stopFlash();
     document.body.classList.add("purple");
@@ -384,6 +486,7 @@
       </div>
       <div class="note" id="checkinNote"></div>
       <div class="stamp" style="margin-top:12px; opacity:.75;">Waiting for drivers…</div>
+      ${renderServerPasswordSection(data)}
     `;
 
     const inp = document.getElementById("checkinName");
@@ -413,10 +516,10 @@
         });
 
         const text = await res.text();
-        let data = {};
-        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+        let data2 = {};
+        try { data2 = text ? JSON.parse(text) : {}; } catch { data2 = { raw: text }; }
 
-        if(!res.ok) throw new Error(data?.detail || data?.error || `HTTP ${res.status}`);
+        if(!res.ok) throw new Error(data2?.detail || data2?.error || `HTTP ${res.status}`);
 
         note.innerHTML = `<span class="ok">Checked in!</span> (${fmt(Date.now())})`;
         inp.value = "";
@@ -436,13 +539,16 @@
   let lastKey = null;
 
   function apply(data){
-    // ✅ 1) Broadcast overrides everything while active
+    const pwLine = String(data?.serverPassword || "").trim();
+    const hasPassword = !!pwLine;
+
+    // 1) Broadcast overrides everything while active
     const b = data?.broadcast || null;
     if(b && b.expiresAt && b.expiresAt > Date.now() && b.message){
       showUI();
-      const key = "broadcast:" + String(b.expiresAt) + ":" + String(b.ts);
+      const key = "broadcast:" + String(b.expiresAt) + ":" + String(b.ts) + ":" + String(data?.serverPasswordUpdatedAt||"");
       if(key !== lastKey){
-        renderBroadcastUI(b);
+        renderBroadcastUI(b, data);
         lastKey = key;
       } else {
         const cd = content.querySelector(".countdown");
@@ -454,43 +560,58 @@
       return;
     }
 
-    // ✅ 2) Quali schedule overrides flags while active
-    // FIX: tolerate different key casing/names
+    // 2) Quali schedule overrides flags while active
     const q = data?.qualiSchedule || data?.quali_schedule || null;
-
     if(q && q.startAt && Array.isArray(q.steps) && q.steps.length){
       showUI();
       const cur = computeQualiNow(q);
       const phase = cur?.phase || "none";
       const idx = String(cur?.idx ?? "");
       const endAt = String(cur?.endAt ?? "");
-      const key = "quali:" + phase + ":" + idx + ":" + endAt;
+      const key = "quali:" + phase + ":" + idx + ":" + endAt + ":" + String(data?.serverPasswordUpdatedAt||"");
 
       if(key !== lastKey){
-        const ok = renderQualiScheduleUI(q);
+        const ok = renderQualiScheduleUI(q, data);
         lastKey = key;
         if(ok) return;
       } else {
-        renderQualiScheduleUI(q);
+        renderQualiScheduleUI(q, data);
         return;
       }
     }
 
-    // ✅ 3) Normal flags
+    // 3) Normal flags (plus RTP)
     const mode = getEffectiveMode(data);
     const updatedAt = data?.updatedAt || null;
 
+    // Green normally blanks the screen — BUT if password is active, show the password UI instead.
     if(mode === "green"){
+      if(hasPassword){
+        showUI();
+        const key = "pw_only:" + String(data?.serverPasswordUpdatedAt||"");
+        if(key !== lastKey){
+          renderPasswordOnlyUI(data);
+          lastKey = key;
+        } else {
+          // no-op
+        }
+        return;
+      }
+
       lastKey = "green";
       showGreenBlank();
       return;
     }
 
     showUI();
-    const key = mode + ":" + String(updatedAt || "");
+
+    // For RTP we want live seconds ticking, so include the seconds in the key.
+    const rtpSec = (mode === "return_to_race_pace") ? String(getRtpSecondsLeft(data) ?? "") : "";
+    const key = mode + ":" + String(updatedAt || "") + ":" + rtpSec + ":" + String(data?.serverPasswordUpdatedAt||"");
+
     if(key !== lastKey){
-      if(mode === "race_checkin") renderCheckinUI();
-      else renderFlagUI(mode, updatedAt);
+      if(mode === "race_checkin") renderCheckinUI(data);
+      else renderFlagUI(mode, updatedAt, data);
       lastKey = key;
     } else {
       if(mode !== "race_checkin"){
