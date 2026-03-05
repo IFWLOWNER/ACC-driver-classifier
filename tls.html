@@ -83,7 +83,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1550px;
+      min-width:1700px;
     }
     th, td{
       padding:10px;
@@ -107,6 +107,14 @@
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
     a{color:#111827;}
     a:hover{opacity:0.85;}
+
+    .driverLink{
+      cursor:pointer;
+      font-weight:900;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .driverLink:hover{opacity:0.85;}
 
     .tag{
       display:inline-block;
@@ -148,7 +156,7 @@
     }
     .modalOverlay.show{display:flex;}
     .modal{
-      width:min(720px, 100%);
+      width:min(820px, 100%);
       background:#fff;
       border-radius:16px;
       border:1px solid #e5e7eb;
@@ -201,12 +209,45 @@
       color:#111827;
     }
 
+    /* Ticket list in modal */
+    .modalTableWrap{
+      overflow:auto;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      margin-top:12px;
+    }
+    .modalTable{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:900px;
+    }
+    .modalTable th, .modalTable td{
+      padding:10px;
+      border-bottom:1px solid #f3f4f6;
+      font-size:13px;
+      text-align:left;
+      vertical-align:top;
+    }
+    .modalTable th{
+      position:sticky;
+      top:0;
+      background:#f9fafb;
+      z-index:2;
+      font-size:12px;
+      color:#111827;
+      border-bottom:1px solid #e5e7eb;
+      white-space:nowrap;
+    }
+    .modalTable tr:last-child td{border-bottom:0;}
+
     @media (max-width: 980px){
       body{background-attachment:scroll;}
       header{flex-direction:column; align-items:stretch;}
       header .row{width:100%;}
       header button{width:100%;}
-      table{min-width:1300px;}
+      table{min-width:1450px;}
     }
   </style>
 </head>
@@ -279,7 +320,7 @@
       <div class="muted" style="margin-top:8px;">
         Totals are calculated from tickets within the selected date range (based on ticket <span class="mono">timestamp</span>).
         Only <b>finalised</b> tickets (Finalised/Finalized/Closed/Resolved) are counted.
-        Driver names are grouped using <b>auto-normalisation</b> + steward-managed <b>Merge/Alias</b> rules.
+        Click a driver to view all linked tickets.
       </div>
 
       <div class="tableWrap">
@@ -293,6 +334,7 @@
               <th>DQ flags</th>
               <th>Last ticket</th>
               <th>Recent events (up to 3)</th>
+              <th>Tickets</th>
               <th>Merge</th>
               <th>Action (Red)</th>
               <th>Action note</th>
@@ -370,7 +412,7 @@
         <div class="miniGrid" id="mergeMeta"></div>
 
         <div style="margin-top:12px;">
-          <div class="muted" style="margin-bottom:6px;">Merge this driver into…</div>
+          <div class="muted" style="margin-bottom:6px;">Merge this alias into…</div>
           <select id="mergeTarget"></select>
         </div>
 
@@ -388,6 +430,50 @@
       <div class="modalFooter">
         <button id="mergeCancelBtn">Cancel</button>
         <button id="mergeConfirmBtn" class="primary">Save merge</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Driver Tickets Modal -->
+  <div class="modalOverlay" id="ticketsOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ticketsTitle" style="width:min(980px, 100%);">
+      <div class="modalHeader">
+        <div>
+          <div class="modalTitle" id="ticketsTitle">Driver tickets</div>
+          <div class="muted" id="ticketsSubtitle" style="color:rgba(255,255,255,0.85); margin-top:4px;"></div>
+        </div>
+        <button id="ticketsCloseBtn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modalBody">
+        <div class="miniGrid" id="ticketsMeta"></div>
+
+        <div class="row" style="margin-top:12px; justify-content:space-between;">
+          <div class="muted" id="ticketsHint">—</div>
+          <input id="ticketsSearch" placeholder="Search event / competition / ticket id / accused…" style="min-width:320px;">
+        </div>
+
+        <div class="modalTableWrap">
+          <table class="modalTable" aria-label="Driver tickets table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Ticket</th>
+                <th>Open</th>
+                <th>Status</th>
+                <th>Event</th>
+                <th>Competition</th>
+                <th>Accused (raw)</th>
+                <th>Parsed penalty</th>
+              </tr>
+            </thead>
+            <tbody id="ticketsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <button id="ticketsCloseBtn2">Close</button>
       </div>
     </div>
   </div>
@@ -434,6 +520,12 @@
       }catch{ return 0; }
     }
 
+    // Link to ticket page (same convention as your other page)
+    function ticketViewUrl(ticketId){
+      const base = "ticket.html";
+      return `${base}?id=${encodeURIComponent(ticketId || "")}`;
+    }
+
     // ---------- Date range helpers ----------
     function startOfDayLocal(yyyy, mm, dd){ return new Date(yyyy, mm - 1, dd, 0, 0, 0, 0).getTime(); }
     function endOfDayLocal(yyyy, mm, dd){ return new Date(yyyy, mm - 1, dd, 23, 59, 59, 999).getTime(); }
@@ -474,12 +566,8 @@
     }
 
     // ---------- Driver normalisation + aliasing ----------
-    // Goal: turn variants like "C. Morabito #133" and "133 Morabito" into the same key.
     function normaliseAccusedToAliasKey(name){
       const raw = String(name || "").trim().toLowerCase();
-
-      // Replace punctuation with spaces, kill #, collapse spaces
-      // Keep letters/numbers as tokens, then remove number-only tokens.
       const cleaned = raw
         .replaceAll("#", " ")
         .replace(/[^a-z0-9\s]/g, " ")
@@ -487,29 +575,18 @@
         .trim();
 
       const parts = cleaned.split(" ").filter(Boolean);
-
-      // Remove pure numbers (car numbers etc.)
       let tokens = parts.filter(t => !/^\d+$/.test(t));
 
-      // If it starts with a single-letter initial and has more tokens, drop it (C Morabito -> Morabito)
+      // drop leading initial if it exists
       if (tokens.length >= 2 && tokens[0].length === 1){
         tokens = tokens.slice(1);
       }
 
-      // If everything got removed, fallback to cleaned
       const key = (tokens.join(" ").trim() || cleaned).replace(/\s+/g, " ").trim();
       return key;
     }
 
-    function canonicalKeyFromName(name){
-      // canonical keys should be stable; use the same normaliser
-      return normaliseAccusedToAliasKey(name);
-    }
-
-    // Alias mapping:
-    // driverAliases/{aliasKey} => { canonicalKey, canonicalName, updatedBy, updatedAt }
     let aliasMap = {}; // aliasKey -> { canonicalKey, canonicalName, updatedBy, updatedAt }
-
     function resolveCanonical(aliasKey, fallbackDisplayName){
       const rule = aliasMap[aliasKey];
       if (rule && rule.canonicalKey){
@@ -518,7 +595,6 @@
           canonicalName: rule.canonicalName || fallbackDisplayName || aliasKey
         };
       }
-      // no rule - canonical is itself
       return {
         canonicalKey: aliasKey,
         canonicalName: fallbackDisplayName || aliasKey
@@ -544,16 +620,16 @@
 
     function parsePenaltyFromText(text){
       const src = String(text || "").trim();
-      if (!src) return { seconds: 0, dq: false };
+      if (!src) return { seconds: 0, dq: false, label: "-" };
 
       const up = src.toUpperCase();
-      if (up.includes("NFA")) return { seconds: 0, dq: false };
-      if (up.includes("DQ")) return { seconds: 0, dq: true };
+      if (up.includes("NFA")) return { seconds: 0, dq: false, label: "NFA" };
+      if (up.includes("DQ")) return { seconds: 0, dq: true, label: "DQ" };
 
       const mSec = src.match(/\((\s*\d+\s*)(s|sec|secs|seconds)?\s*\)/i);
       if (mSec && mSec[1]) {
         const n = parseInt(String(mSec[1]).replace(/\D/g,""), 10);
-        if (!isNaN(n) && n > 0) return { seconds: n, dq: false };
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s` };
       }
 
       const mRp = src.match(/\b(RP[0-9A-Z]+)\b/i);
@@ -562,31 +638,29 @@
         const mapped = rpPenaltyMap[code] || code;
 
         if (String(mapped).toUpperCase().includes("DQ")){
-          return { seconds: 0, dq: true };
+          return { seconds: 0, dq: true, label: "DQ" };
         }
-
         if (String(mapped).toUpperCase() === "SG30"){
-          return { seconds: 30, dq: false };
+          return { seconds: 30, dq: false, label: "SG30 (30s)" };
         }
-
         const m = String(mapped).match(/(\d+)\s*s/i);
         if (m && m[1]){
           const n = parseInt(m[1], 10);
-          if (!isNaN(n) && n > 0) return { seconds: n, dq: false };
+          if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s` };
         }
 
-        return { seconds: 0, dq: false };
+        return { seconds: 0, dq: false, label: String(mapped).slice(0, 30) };
       }
 
       const mPlain = src.match(/\b(\d+)\s*s\b/i);
       if (mPlain && mPlain[1]){
         const n = parseInt(mPlain[1], 10);
-        if (!isNaN(n) && n > 0) return { seconds: n, dq: false };
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s` };
       }
 
-      if (up.includes("SG30")) return { seconds: 30, dq: false };
+      if (up.includes("SG30")) return { seconds: 30, dq: false, label: "SG30 (30s)" };
 
-      return { seconds: 0, dq: false };
+      return { seconds: 0, dq: false, label: src.slice(0, 30) };
     }
 
     function ticketPenaltyInfo(ticket){
@@ -609,7 +683,7 @@
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
 
-    $("refreshBtn").onclick = () => loadEverything(); // reload DB + aliases + actions
+    $("refreshBtn").onclick = () => loadEverything();
     $("filterMode").onchange = () => render();
     $("search").oninput = () => render();
     $("dateRange").onchange = () => recomputeFromCache();
@@ -618,6 +692,7 @@
     let allTicketsCache = [];  // raw tickets
     let driverRows = [];       // computed drivers
     let actionsByDriver = {};  // tlsActions cache
+    let ticketsByCanonical = {}; // canonicalKey -> array of ticket rows (for modal)
 
     // ---------- TLS actions modal ----------
     const actionModal = {
@@ -628,11 +703,13 @@
       cancel: $("actionCancelBtn"),
       confirm: $("actionConfirmBtn"),
       close: $("actionCloseBtn"),
-      pending: null
+      pending: null,
+      row: null
     };
 
     function closeActionModal(){
       actionModal.pending = null;
+      actionModal.row = null;
       actionModal.overlay.classList.remove("show");
       actionModal.overlay.setAttribute("aria-hidden","true");
       actionModal.confirm.disabled = false;
@@ -640,8 +717,8 @@
       actionModal.note.value = "";
     }
     function openActionModal(row){
-      const key = row.canonicalKey;
-      const act = actionsByDriver[key] || null;
+      actionModal.row = row;
+      const act = actionsByDriver[row.canonicalKey] || null;
 
       const tls = tlsFromSeconds(row.totalSeconds);
       actionModal.meta.innerHTML = `
@@ -728,11 +805,15 @@
       cancel: $("mergeCancelBtn"),
       confirm: $("mergeConfirmBtn"),
       close: $("mergeCloseBtn"),
-      pending: null
+      pending: null,
+      aliasKey: null,
+      row: null
     };
 
     function closeMergeModal(){
       mergeModal.pending = null;
+      mergeModal.aliasKey = null;
+      mergeModal.row = null;
       mergeModal.overlay.classList.remove("show");
       mergeModal.overlay.setAttribute("aria-hidden","true");
       mergeModal.confirm.disabled = false;
@@ -741,17 +822,18 @@
     }
 
     function openMergeModal(row){
-      // row here is a visible TLS row (already canonical-resolved)
-      // But we merge starting from a *source variant key* we’ve observed: we store the row's observed aliasKeys list.
-      const sourceAliasKey = row.primaryAliasKey || row.canonicalKey;
+      mergeModal.row = row;
+
+      // Choose the "alias key to merge" — if row has multiple alias keys, we merge using its primary alias key (first seen)
+      const aliasKey = row.primaryAliasKey || row.canonicalKey;
+      mergeModal.aliasKey = aliasKey;
 
       mergeModal.meta.innerHTML = `
-        <div class="k">Current driver row</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
-        <div class="k">This row key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
-        <div class="k">Detected alias key</div><div class="v"><span class="mono">${escapeHtml(sourceAliasKey)}</span></div>
+        <div class="k">Driver row</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
+        <div class="k">Canonical key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
+        <div class="k">Alias key (this rule)</div><div class="v"><span class="mono">${escapeHtml(aliasKey)}</span></div>
       `;
 
-      // Fill dropdown with other canonical drivers (including itself)
       const options = driverRows
         .slice()
         .sort((a,b)=> (b.totalSeconds - a.totalSeconds))
@@ -762,12 +844,11 @@
 
       mergeModal.target.innerHTML = options.map(o => {
         const label = `${o.name}  —  (${o.canonicalKey})`;
-        // default select itself? better: select itself, steward chooses the other one.
         const selected = (o.canonicalKey === row.canonicalKey) ? "selected" : "";
         return `<option value="${escapeHtml(o.canonicalKey)}" ${selected}>${escapeHtml(label)}</option>`;
       }).join("");
 
-      mergeModal.pending = async () => saveAliasMerge(sourceAliasKey, row.driverName);
+      mergeModal.pending = async () => saveAliasMerge(aliasKey, row.driverName);
       mergeModal.overlay.classList.add("show");
       mergeModal.overlay.setAttribute("aria-hidden","false");
       mergeModal.cancel.focus();
@@ -796,11 +877,8 @@
       const targetCanonicalKey = (mergeModal.target.value || "").trim();
       if (!targetCanonicalKey) return toast("Pick a merge target.");
 
-      // Prevent silly self-alias loop (aliasKey -> same canonicalKey is still okay, but pointless)
-      // We allow it, but warn.
       const customName = (mergeModal.canonicalName.value || "").trim();
 
-      // Find target row for name
       const targetRow = driverRows.find(r => r.canonicalKey === targetCanonicalKey);
       const canonicalName = customName || (targetRow ? targetRow.driverName : "");
 
@@ -851,6 +929,94 @@
       }
       $("aliasPill").textContent = `Aliases: ${Object.keys(aliasMap).length}`;
     }
+
+    // ---------- Driver tickets modal ----------
+    const ticketsModal = {
+      overlay: $("ticketsOverlay"),
+      title: $("ticketsTitle"),
+      subtitle: $("ticketsSubtitle"),
+      meta: $("ticketsMeta"),
+      hint: $("ticketsHint"),
+      tbody: $("ticketsTbody"),
+      search: $("ticketsSearch"),
+      close: $("ticketsCloseBtn"),
+      close2: $("ticketsCloseBtn2"),
+      currentKey: null
+    };
+
+    function closeTicketsModal(){
+      ticketsModal.currentKey = null;
+      ticketsModal.search.value = "";
+      ticketsModal.tbody.innerHTML = "";
+      ticketsModal.overlay.classList.remove("show");
+      ticketsModal.overlay.setAttribute("aria-hidden","true");
+    }
+
+    function openTicketsModal(row){
+      const key = row.canonicalKey;
+      ticketsModal.currentKey = key;
+
+      const range = getSelectedRange();
+      ticketsModal.title.textContent = "Driver tickets";
+      ticketsModal.subtitle.textContent = `Range: ${range.label}`;
+      ticketsModal.meta.innerHTML = `
+        <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
+        <div class="k">Canonical key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
+        <div class="k">Known aliases</div><div class="v">${(row.aliasKeys || []).length ? row.aliasKeys.map(a=>`<span class="mono">${escapeHtml(a)}</span>`).join("<br>") : "—"}</div>
+        <div class="k">TLS</div><div class="v"><span class="tag ${row.tls.className}">${row.tls.label}</span> <span class="muted">(Total: ${escapeHtml(String(row.totalSeconds))}s)</span></div>
+      `;
+
+      ticketsModal.overlay.classList.add("show");
+      ticketsModal.overlay.setAttribute("aria-hidden","false");
+
+      renderTicketsList();
+      ticketsModal.search.focus();
+    }
+
+    function matchesTicketSearch(t, q){
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const hay = [
+        t.id, t.status, t.event, t.competition, t.accusedRaw, t.penaltyLabel
+      ].map(x => String(x || "").toLowerCase()).join(" | ");
+      return hay.includes(s);
+    }
+
+    function renderTicketsList(){
+      const key = ticketsModal.currentKey;
+      if (!key) return;
+
+      const list = (ticketsByCanonical[key] || []).slice();
+      list.sort((a,b)=> (b.tsMs - a.tsMs));
+
+      const q = (ticketsModal.search.value || "").trim();
+      const filtered = list.filter(t => matchesTicketSearch(t, q));
+
+      ticketsModal.hint.textContent = `Tickets: ${filtered.length} (newest first)`;
+      ticketsModal.tbody.innerHTML = "";
+
+      for (const t of filtered){
+        const tr = document.createElement("tr");
+        const openLink = `<a href="${ticketViewUrl(t.id)}" target="_blank" rel="noopener">Open</a>`;
+        tr.innerHTML = `
+          <td>${escapeHtml(t.timestampText || "")}</td>
+          <td class="mono">${escapeHtml(t.id)}</td>
+          <td>${openLink}</td>
+          <td>${escapeHtml(t.status)}</td>
+          <td>${escapeHtml(t.event || "")}</td>
+          <td>${escapeHtml(t.competition || "")}</td>
+          <td>${escapeHtml(t.accusedRaw || "")}</td>
+          <td><b>${escapeHtml(t.penaltyLabel || "-")}</b>${t.dq ? `<div class="muted">DQ flag</div>` : ""}</td>
+        `;
+        ticketsModal.tbody.appendChild(tr);
+      }
+    }
+
+    ticketsModal.close.onclick = closeTicketsModal;
+    ticketsModal.close2.onclick = closeTicketsModal;
+    ticketsModal.overlay.addEventListener("click", (e)=>{ if (e.target === ticketsModal.overlay) closeTicketsModal(); });
+    ticketsModal.search.oninput = renderTicketsList;
+    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && ticketsModal.overlay.classList.contains("show")) closeTicketsModal(); });
 
     // ---------- Render / aggregation ----------
     function matchesSearchDriver(row, q){
@@ -906,8 +1072,6 @@
         const recentEvents = (r.recentEvents || []).slice(0,3);
         const recentEventsHtml = recentEvents.length ? recentEvents.map(x => `<div>${escapeHtml(x)}</div>`).join("") : `<span class="muted">—</span>`;
 
-        // Merge UI:
-        // We show the "primaryAliasKey" that feeds into this row (helpful for clearing/merging).
         const hasRule = !!aliasMap[r.primaryAliasKey || ""];
         const mergeButtons = `
           <div class="row" style="gap:8px;">
@@ -920,15 +1084,24 @@
           </div>
         `;
 
+        const ticketCount = (ticketsByCanonical[r.canonicalKey] || []).length;
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td><span class="tag ${r.tls.className}">${r.tls.label}</span></td>
-          <td><b>${escapeHtml(r.driverName)}</b></td>
+          <td>
+            <span class="driverLink" data-action="viewTickets" data-key="${escapeHtml(r.canonicalKey)}">${escapeHtml(r.driverName)}</span>
+            <div class="muted" style="margin-top:6px;">${escapeHtml(r.canonicalKey)}</div>
+          </td>
           <td><b>${escapeHtml(String(r.totalSeconds))}s</b></td>
           <td>${escapeHtml(String(r.ticketCount))}</td>
           <td>${escapeHtml(String(r.dqCount))}</td>
           <td>${lastTicketText}</td>
           <td>${recentEventsHtml}</td>
+          <td>
+            <button data-action="viewTickets" data-key="${escapeHtml(r.canonicalKey)}">View tickets</button>
+            <div class="muted" style="margin-top:6px;">Linked: ${escapeHtml(String(ticketCount))}</div>
+          </td>
           <td>${mergeButtons}</td>
           <td>${actionCell}<div class="muted" style="margin-top:6px;">${r.tls.key === "red" ? "Action required" : "No action required"}</div></td>
           <td>${actText}<div class="muted" style="margin-top:6px;">${noteText}</div></td>
@@ -937,13 +1110,12 @@
         tbody.appendChild(tr);
       }
 
-      // Bind buttons
-      tbody.querySelectorAll("button[data-action]").forEach(btn=>{
-        btn.onclick = ()=>{
-          const action = btn.getAttribute("data-action");
+      tbody.querySelectorAll("[data-action]").forEach(el=>{
+        el.onclick = ()=>{
+          const action = el.getAttribute("data-action");
 
           if (action === "tlsAction"){
-            const key = btn.getAttribute("data-key");
+            const key = el.getAttribute("data-key");
             const row = driverRows.find(x => x.canonicalKey === key);
             if (!row) return;
             openActionModal(row);
@@ -951,7 +1123,7 @@
           }
 
           if (action === "merge"){
-            const key = btn.getAttribute("data-key");
+            const key = el.getAttribute("data-key");
             const row = driverRows.find(x => x.canonicalKey === key);
             if (!row) return;
             openMergeModal(row);
@@ -959,9 +1131,17 @@
           }
 
           if (action === "clearMerge"){
-            const alias = btn.getAttribute("data-alias");
+            const alias = el.getAttribute("data-alias");
             if (!alias) return;
             clearAliasMerge(alias);
+            return;
+          }
+
+          if (action === "viewTickets"){
+            const key = el.getAttribute("data-key");
+            const row = driverRows.find(x => x.canonicalKey === key);
+            if (!row) return;
+            openTicketsModal(row);
             return;
           }
         };
@@ -971,6 +1151,7 @@
     function recomputeFromCache(){
       const range = getSelectedRange();
       const byCanonical = {};
+      ticketsByCanonical = {};
       let considered = 0;
 
       for (const t of allTicketsCache){
@@ -980,7 +1161,6 @@
         const accusedRaw = String(t.accused || "").trim();
         if (!accusedRaw) continue;
 
-        // Auto-normalise to aliasKey, then resolve via alias rules
         const aliasKey = normaliseAccusedToAliasKey(accusedRaw);
         const resolved = resolveCanonical(aliasKey, accusedRaw);
 
@@ -991,8 +1171,8 @@
           byCanonical[canonicalKey] = {
             canonicalKey,
             driverName: canonicalName,
-            // Keep the primary aliasKey we saw first (useful for steward merging/clearing)
             primaryAliasKey: aliasKey,
+            aliasKeys: new Set([aliasKey]),
             totalSeconds: 0,
             ticketCount: 0,
             dqCount: 0,
@@ -1000,14 +1180,17 @@
             recentEvents: [],
             recentCompetitions: []
           };
+        } else {
+          byCanonical[canonicalKey].aliasKeys.add(aliasKey);
         }
 
-        // If we didn’t have a nicer name yet, update it
-        if (!byCanonical[canonicalKey].driverName && canonicalName){
+        // Prefer longer/nicer display name if alias provides it
+        if (canonicalName && (!byCanonical[canonicalKey].driverName || canonicalName.length > byCanonical[canonicalKey].driverName.length)){
           byCanonical[canonicalKey].driverName = canonicalName;
         }
 
         const info = ticketPenaltyInfo(t);
+
         byCanonical[canonicalKey].totalSeconds += (info.seconds || 0);
         if (info.dq) byCanonical[canonicalKey].dqCount += 1;
         byCanonical[canonicalKey].ticketCount += 1;
@@ -1028,10 +1211,37 @@
           if (byCanonical[canonicalKey].recentCompetitions.length > 6) byCanonical[canonicalKey].recentCompetitions.length = 6;
         }
 
+        // store ticket rows for modal
+        if (!ticketsByCanonical[canonicalKey]) ticketsByCanonical[canonicalKey] = [];
+        ticketsByCanonical[canonicalKey].push({
+          id: t.id,
+          status: t.status || "",
+          event: t.event || "",
+          competition: t.competition || "",
+          accusedRaw,
+          timestampText: formatTimestamp(t.timestamp) || "",
+          tsMs: timestampMs(t.timestamp),
+          penaltySeconds: info.seconds || 0,
+          dq: !!info.dq,
+          penaltyLabel: info.label || "-"
+        });
+
         considered += 1;
       }
 
-      driverRows = Object.values(byCanonical).map(r => ({ ...r, tls: tlsFromSeconds(r.totalSeconds) }));
+      driverRows = Object.values(byCanonical).map(r => ({
+        canonicalKey: r.canonicalKey,
+        driverName: r.driverName,
+        primaryAliasKey: r.primaryAliasKey,
+        aliasKeys: Array.from(r.aliasKeys || []),
+        totalSeconds: r.totalSeconds,
+        ticketCount: r.ticketCount,
+        dqCount: r.dqCount,
+        lastTicketAt: r.lastTicketAt,
+        recentEvents: r.recentEvents,
+        recentCompetitions: r.recentCompetitions,
+        tls: tlsFromSeconds(r.totalSeconds)
+      }));
 
       $("hint").textContent = `Computed TLS from ${considered} finalised ticket(s) within: ${range.label}.`;
       render();
@@ -1046,7 +1256,7 @@
 
         await Promise.all([ loadAliases(), loadActions() ]);
 
-        // If you ever exceed 2000 tickets, we can add pagination (still single HTML).
+        // If you ever exceed 2000 tickets, we can add pagination.
         const snap = await db.collection("tickets").limit(2000).get();
         allTicketsCache = snap.docs.map(doc=>{
           const x = doc.data() || {};
@@ -1117,7 +1327,7 @@
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
 
-          $("welcomeLine").textContent = `Welcome, ${niceName}. Use Merge to combine duplicate driver name variants.`;
+          $("welcomeLine").textContent = `Welcome, ${niceName}. Click a driver to view all linked tickets.`;
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
           $("permPill").textContent = "Permissions: Steward";
 
