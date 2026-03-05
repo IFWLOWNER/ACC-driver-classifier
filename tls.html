@@ -25,12 +25,7 @@
       gap:12px;
     }
 
-    .brand{
-      display:flex;
-      gap:12px;
-      align-items:flex-start;
-      min-width:0;
-    }
+    .brand{display:flex; gap:12px; align-items:flex-start; min-width:0;}
     .brand img{
       width:38px;height:38px;object-fit:contain;margin-top:2px;flex:0 0 auto;
       filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
@@ -83,7 +78,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1700px;
+      min-width:1800px;
     }
     th, td{
       padding:10px;
@@ -156,7 +151,7 @@
     }
     .modalOverlay.show{display:flex;}
     .modal{
-      width:min(820px, 100%);
+      width:min(980px, 100%);
       background:#fff;
       border-radius:16px;
       border:1px solid #e5e7eb;
@@ -242,12 +237,36 @@
     }
     .modalTable tr:last-child td{border-bottom:0;}
 
+    /* Discord box */
+    .discordBox{
+      border:1px solid #e5e7eb;
+      background:#fff;
+      border-radius:12px;
+      padding:12px;
+      margin-top:12px;
+    }
+    .discordBox .titleLine{
+      font-weight:900;
+      font-size:13px;
+      margin-bottom:8px;
+    }
+    .discordRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .discordRow input{
+      min-width:320px;
+      flex:1 1 320px;
+    }
+
     @media (max-width: 980px){
       body{background-attachment:scroll;}
       header{flex-direction:column; align-items:stretch;}
       header .row{width:100%;}
       header button{width:100%;}
-      table{min-width:1450px;}
+      table{min-width:1500px;}
     }
   </style>
 </head>
@@ -323,6 +342,20 @@
         Click a driver to view all linked tickets.
       </div>
 
+      <!-- Discord publishing -->
+      <div class="discordBox">
+        <div class="titleLine">Submit TLS to Discord (image report)</div>
+        <div class="discordRow">
+          <input id="webhookInput" placeholder="Paste Discord webhook URL here (saved locally)">
+          <button id="saveWebhookBtn">Save</button>
+          <button id="publishDiscordBtn" class="primary">Publish TLS to Discord</button>
+        </div>
+        <div class="muted" style="margin-top:8px;">
+          This will generate a PNG image with Green/Amber/Red driver lists for the <b>current date range</b> and upload it to Discord.
+          <b>Warning:</b> webhooks in client-side pages can be copied if someone views source.
+        </div>
+      </div>
+
       <div class="tableWrap">
         <table aria-label="TLS drivers table">
           <thead>
@@ -353,7 +386,7 @@
 
   <!-- TLS Action Modal -->
   <div class="modalOverlay" id="actionOverlay" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="actionTitle">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="actionTitle" style="width:min(720px, 100%);">
       <div class="modalHeader">
         <div>
           <div class="modalTitle" id="actionTitle">Record TLS action</div>
@@ -364,7 +397,7 @@
 
       <div class="modalBody">
         <p class="muted" style="margin-top:0;">
-          What separates this system from others is IFWL’s use of human discretion. This system is designed to highlight patterns and data, but it is you who has been chosen to steward and apply judgement. A driver’s record here does not represent their entire time racing — it only shows the moments where things went wrong. That alone does not always mean they deserve to be banned. Keep this perspective in mind as you consider your actions. <span class="mono">tlsActions</span>.
+          This records the steward action for this driver in Firestore collection <span class="mono">tlsActions</span>.
         </p>
 
         <div class="miniGrid" id="actionMeta"></div>
@@ -394,7 +427,7 @@
 
   <!-- Merge/Alias Modal -->
   <div class="modalOverlay" id="mergeOverlay" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mergeTitle">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mergeTitle" style="width:min(780px, 100%);">
       <div class="modalHeader">
         <div>
           <div class="modalTitle" id="mergeTitle">Merge driver names</div>
@@ -491,7 +524,7 @@
     function toast(msg){
       toastEl.textContent = msg;
       toastEl.classList.add("show");
-      setTimeout(() => toastEl.classList.remove("show"), 2200);
+      setTimeout(() => toastEl.classList.remove("show"), 2400);
     }
 
     function escapeHtml(s){ return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
@@ -520,7 +553,6 @@
       }catch{ return 0; }
     }
 
-    // Link to ticket page (same convention as your other page)
     function ticketViewUrl(ticketId){
       const base = "ticket.html";
       return `${base}?id=${encodeURIComponent(ticketId || "")}`;
@@ -577,7 +609,6 @@
       const parts = cleaned.split(" ").filter(Boolean);
       let tokens = parts.filter(t => !/^\d+$/.test(t));
 
-      // drop leading initial if it exists
       if (tokens.length >= 2 && tokens[0].length === 1){
         tokens = tokens.slice(1);
       }
@@ -676,7 +707,7 @@
       return { key: "none", label: "UNDER 15s", className: "none" };
     }
 
-    // ---------- Auth / page state ----------
+    // ---------- State ----------
     let currentEmail = "";
     let canSteward = false;
 
@@ -688,228 +719,25 @@
     $("search").oninput = () => render();
     $("dateRange").onchange = () => recomputeFromCache();
 
+    // Discord
+    const WEBHOOK_LS_KEY = "IFWL_TLS_DISCORD_WEBHOOK";
+    const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1479252355252748440/eidW0tMyQzvghRMctzbPB2xUPsmmKHkfYx5W5WafTGSKmRNBeYV7n9Z-DGL-NQKhxhXe";
+    $("saveWebhookBtn").onclick = () => {
+      const val = ($("webhookInput").value || "").trim();
+      if (!val) { localStorage.removeItem(WEBHOOK_LS_KEY); toast("Webhook cleared (local)"); return; }
+      localStorage.setItem(WEBHOOK_LS_KEY, val);
+      toast("Webhook saved (local) ✅");
+    };
+    $("publishDiscordBtn").onclick = async () => publishTLSReportToDiscord();
+
     // cached
-    let allTicketsCache = [];  // raw tickets
-    let driverRows = [];       // computed drivers
-    let actionsByDriver = {};  // tlsActions cache
-    let ticketsByCanonical = {}; // canonicalKey -> array of ticket rows (for modal)
+    let allTicketsCache = [];
+    let driverRows = [];
+    let actionsByDriver = {};
+    let ticketsByCanonical = {};
 
-    // ---------- TLS actions modal ----------
-    const actionModal = {
-      overlay: $("actionOverlay"),
-      meta: $("actionMeta"),
-      select: $("actionSelect"),
-      note: $("actionNote"),
-      cancel: $("actionCancelBtn"),
-      confirm: $("actionConfirmBtn"),
-      close: $("actionCloseBtn"),
-      pending: null,
-      row: null
-    };
-
-    function closeActionModal(){
-      actionModal.pending = null;
-      actionModal.row = null;
-      actionModal.overlay.classList.remove("show");
-      actionModal.overlay.setAttribute("aria-hidden","true");
-      actionModal.confirm.disabled = false;
-      actionModal.select.value = "Series Ban";
-      actionModal.note.value = "";
-    }
-    function openActionModal(row){
-      actionModal.row = row;
-      const act = actionsByDriver[row.canonicalKey] || null;
-
-      const tls = tlsFromSeconds(row.totalSeconds);
-      actionModal.meta.innerHTML = `
-        <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
-        <div class="k">TLS</div><div class="v"><span class="tag ${tls.className}">${tls.label}</span></div>
-        <div class="k">Total seconds</div><div class="v"><b>${escapeHtml(String(row.totalSeconds))}s</b></div>
-        <div class="k">Tickets counted</div><div class="v">${escapeHtml(String(row.ticketCount))}</div>
-        <div class="k">DQ flags</div><div class="v">${escapeHtml(String(row.dqCount))}</div>
-      `;
-
-      if (act){
-        actionModal.select.value = act.action || "Series Ban";
-        actionModal.note.value = act.note || "";
-      }
-
-      actionModal.pending = async () => saveTLSAction(row);
-      actionModal.overlay.classList.add("show");
-      actionModal.overlay.setAttribute("aria-hidden","false");
-      actionModal.cancel.focus();
-    }
-
-    actionModal.cancel.onclick = closeActionModal;
-    actionModal.close.onclick = closeActionModal;
-    actionModal.overlay.addEventListener("click", (e)=>{ if (e.target === actionModal.overlay) closeActionModal(); });
-    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && actionModal.overlay.classList.contains("show")) closeActionModal(); });
-
-    actionModal.confirm.onclick = async ()=>{
-      if (!actionModal.pending) return closeActionModal();
-      try{
-        actionModal.confirm.disabled = true;
-        await actionModal.pending();
-        closeActionModal();
-      }catch(err){
-        console.error(err);
-        toast("Save failed:\n" + (err?.message || err));
-        actionModal.confirm.disabled = false;
-      }
-    };
-
+    // ---------- Load Firestore data ----------
     function serverNow(){ return firebase.firestore.FieldValue.serverTimestamp(); }
-
-    async function saveTLSAction(row){
-      if (!canSteward) return toast("Access denied.");
-      const ref = db.collection("tlsActions").doc(row.canonicalKey);
-
-      await ref.set({
-        canonicalKey: row.canonicalKey,
-        driverName: row.driverName,
-        action: (actionModal.select.value || "").trim(),
-        note: (actionModal.note.value || "").trim(),
-        updatedBy: currentEmail,
-        updatedAt: serverNow()
-      }, { merge: true });
-
-      toast("TLS action saved ✅");
-      await loadActions();
-      render();
-    }
-
-    async function loadActions(){
-      actionsByDriver = {};
-      try{
-        const snap = await db.collection("tlsActions").limit(2000).get();
-        snap.forEach(doc=>{
-          const d = doc.data() || {};
-          actionsByDriver[doc.id] = {
-            action: d.action || "",
-            note: d.note || "",
-            updatedBy: d.updatedBy || "",
-            updatedAt: d.updatedAt || null
-          };
-        });
-      }catch(e){
-        console.warn("tlsActions load failed:", e);
-      }
-    }
-
-    // ---------- Merge/Alias modal ----------
-    const mergeModal = {
-      overlay: $("mergeOverlay"),
-      meta: $("mergeMeta"),
-      target: $("mergeTarget"),
-      canonicalName: $("mergeCanonicalName"),
-      cancel: $("mergeCancelBtn"),
-      confirm: $("mergeConfirmBtn"),
-      close: $("mergeCloseBtn"),
-      pending: null,
-      aliasKey: null,
-      row: null
-    };
-
-    function closeMergeModal(){
-      mergeModal.pending = null;
-      mergeModal.aliasKey = null;
-      mergeModal.row = null;
-      mergeModal.overlay.classList.remove("show");
-      mergeModal.overlay.setAttribute("aria-hidden","true");
-      mergeModal.confirm.disabled = false;
-      mergeModal.canonicalName.value = "";
-      mergeModal.target.innerHTML = "";
-    }
-
-    function openMergeModal(row){
-      mergeModal.row = row;
-
-      // Choose the "alias key to merge" — if row has multiple alias keys, we merge using its primary alias key (first seen)
-      const aliasKey = row.primaryAliasKey || row.canonicalKey;
-      mergeModal.aliasKey = aliasKey;
-
-      mergeModal.meta.innerHTML = `
-        <div class="k">Driver row</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
-        <div class="k">Canonical key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
-        <div class="k">Alias key (this rule)</div><div class="v"><span class="mono">${escapeHtml(aliasKey)}</span></div>
-      `;
-
-      const options = driverRows
-        .slice()
-        .sort((a,b)=> (b.totalSeconds - a.totalSeconds))
-        .map(d => ({
-          canonicalKey: d.canonicalKey,
-          name: d.driverName
-        }));
-
-      mergeModal.target.innerHTML = options.map(o => {
-        const label = `${o.name}  —  (${o.canonicalKey})`;
-        const selected = (o.canonicalKey === row.canonicalKey) ? "selected" : "";
-        return `<option value="${escapeHtml(o.canonicalKey)}" ${selected}>${escapeHtml(label)}</option>`;
-      }).join("");
-
-      mergeModal.pending = async () => saveAliasMerge(aliasKey, row.driverName);
-      mergeModal.overlay.classList.add("show");
-      mergeModal.overlay.setAttribute("aria-hidden","false");
-      mergeModal.cancel.focus();
-    }
-
-    mergeModal.cancel.onclick = closeMergeModal;
-    mergeModal.close.onclick = closeMergeModal;
-    mergeModal.overlay.addEventListener("click",(e)=>{ if (e.target === mergeModal.overlay) closeMergeModal(); });
-    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && mergeModal.overlay.classList.contains("show")) closeMergeModal(); });
-
-    mergeModal.confirm.onclick = async ()=>{
-      if (!mergeModal.pending) return closeMergeModal();
-      try{
-        mergeModal.confirm.disabled = true;
-        await mergeModal.pending();
-        closeMergeModal();
-      }catch(err){
-        console.error(err);
-        toast("Merge failed:\n" + (err?.message || err));
-        mergeModal.confirm.disabled = false;
-      }
-    };
-
-    async function saveAliasMerge(sourceAliasKey, sourceDisplayName){
-      if (!canSteward) return toast("Access denied.");
-      const targetCanonicalKey = (mergeModal.target.value || "").trim();
-      if (!targetCanonicalKey) return toast("Pick a merge target.");
-
-      const customName = (mergeModal.canonicalName.value || "").trim();
-
-      const targetRow = driverRows.find(r => r.canonicalKey === targetCanonicalKey);
-      const canonicalName = customName || (targetRow ? targetRow.driverName : "");
-
-      const ref = db.collection("driverAliases").doc(sourceAliasKey);
-      await ref.set({
-        aliasKey: sourceAliasKey,
-        canonicalKey: targetCanonicalKey,
-        canonicalName: canonicalName || sourceDisplayName || sourceAliasKey,
-        updatedBy: currentEmail,
-        updatedAt: serverNow()
-      }, { merge: true });
-
-      toast("Merge saved ✅ Recomputing…");
-      await loadAliases();
-      recomputeFromCache();
-    }
-
-    async function clearAliasMerge(aliasKey){
-      if (!canSteward) return toast("Access denied.");
-      if (!aliasKey) return;
-
-      try{
-        await db.collection("driverAliases").doc(aliasKey).delete();
-        toast("Merge cleared ✅ Recomputing…");
-        await loadAliases();
-        recomputeFromCache();
-      }catch(err){
-        console.error(err);
-        toast("Clear failed:\n" + (err?.message || err));
-      }
-    }
 
     async function loadAliases(){
       aliasMap = {};
@@ -930,224 +758,56 @@
       $("aliasPill").textContent = `Aliases: ${Object.keys(aliasMap).length}`;
     }
 
-    // ---------- Driver tickets modal ----------
-    const ticketsModal = {
-      overlay: $("ticketsOverlay"),
-      title: $("ticketsTitle"),
-      subtitle: $("ticketsSubtitle"),
-      meta: $("ticketsMeta"),
-      hint: $("ticketsHint"),
-      tbody: $("ticketsTbody"),
-      search: $("ticketsSearch"),
-      close: $("ticketsCloseBtn"),
-      close2: $("ticketsCloseBtn2"),
-      currentKey: null
-    };
-
-    function closeTicketsModal(){
-      ticketsModal.currentKey = null;
-      ticketsModal.search.value = "";
-      ticketsModal.tbody.innerHTML = "";
-      ticketsModal.overlay.classList.remove("show");
-      ticketsModal.overlay.setAttribute("aria-hidden","true");
-    }
-
-    function openTicketsModal(row){
-      const key = row.canonicalKey;
-      ticketsModal.currentKey = key;
-
-      const range = getSelectedRange();
-      ticketsModal.title.textContent = "Driver tickets";
-      ticketsModal.subtitle.textContent = `Range: ${range.label}`;
-      ticketsModal.meta.innerHTML = `
-        <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
-        <div class="k">Canonical key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
-        <div class="k">Known aliases</div><div class="v">${(row.aliasKeys || []).length ? row.aliasKeys.map(a=>`<span class="mono">${escapeHtml(a)}</span>`).join("<br>") : "—"}</div>
-        <div class="k">TLS</div><div class="v"><span class="tag ${row.tls.className}">${row.tls.label}</span> <span class="muted">(Total: ${escapeHtml(String(row.totalSeconds))}s)</span></div>
-      `;
-
-      ticketsModal.overlay.classList.add("show");
-      ticketsModal.overlay.setAttribute("aria-hidden","false");
-
-      renderTicketsList();
-      ticketsModal.search.focus();
-    }
-
-    function matchesTicketSearch(t, q){
-      if (!q) return true;
-      const s = q.toLowerCase().trim();
-      const hay = [
-        t.id, t.status, t.event, t.competition, t.accusedRaw, t.penaltyLabel
-      ].map(x => String(x || "").toLowerCase()).join(" | ");
-      return hay.includes(s);
-    }
-
-    function renderTicketsList(){
-      const key = ticketsModal.currentKey;
-      if (!key) return;
-
-      const list = (ticketsByCanonical[key] || []).slice();
-      list.sort((a,b)=> (b.tsMs - a.tsMs));
-
-      const q = (ticketsModal.search.value || "").trim();
-      const filtered = list.filter(t => matchesTicketSearch(t, q));
-
-      ticketsModal.hint.textContent = `Tickets: ${filtered.length} (newest first)`;
-      ticketsModal.tbody.innerHTML = "";
-
-      for (const t of filtered){
-        const tr = document.createElement("tr");
-        const openLink = `<a href="${ticketViewUrl(t.id)}" target="_blank" rel="noopener">Open</a>`;
-        tr.innerHTML = `
-          <td>${escapeHtml(t.timestampText || "")}</td>
-          <td class="mono">${escapeHtml(t.id)}</td>
-          <td>${openLink}</td>
-          <td>${escapeHtml(t.status)}</td>
-          <td>${escapeHtml(t.event || "")}</td>
-          <td>${escapeHtml(t.competition || "")}</td>
-          <td>${escapeHtml(t.accusedRaw || "")}</td>
-          <td><b>${escapeHtml(t.penaltyLabel || "-")}</b>${t.dq ? `<div class="muted">DQ flag</div>` : ""}</td>
-        `;
-        ticketsModal.tbody.appendChild(tr);
+    async function loadActions(){
+      actionsByDriver = {};
+      try{
+        const snap = await db.collection("tlsActions").limit(2000).get();
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          actionsByDriver[doc.id] = {
+            action: d.action || "",
+            note: d.note || "",
+            updatedBy: d.updatedBy || "",
+            updatedAt: d.updatedAt || null
+          };
+        });
+      }catch(e){
+        console.warn("tlsActions load failed:", e);
       }
     }
 
-    ticketsModal.close.onclick = closeTicketsModal;
-    ticketsModal.close2.onclick = closeTicketsModal;
-    ticketsModal.overlay.addEventListener("click", (e)=>{ if (e.target === ticketsModal.overlay) closeTicketsModal(); });
-    ticketsModal.search.oninput = renderTicketsList;
-    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && ticketsModal.overlay.classList.contains("show")) closeTicketsModal(); });
+    async function loadEverything(){
+      try{
+        $("tbody").innerHTML = "";
+        $("countPill").textContent = "Loading…";
+        $("hint").textContent = "Loading tickets, aliases, and TLS totals…";
 
-    // ---------- Render / aggregation ----------
-    function matchesSearchDriver(row, q){
-      if (!q) return true;
-      const s = q.toLowerCase().trim();
-      const hay = [
-        row.driverName,
-        ...(row.recentEvents || []),
-        ...(row.recentCompetitions || [])
-      ].map(x => String(x || "").toLowerCase()).join(" | ");
-      return hay.includes(s);
-    }
+        await Promise.all([ loadAliases(), loadActions() ]);
 
-    function render(){
-      const tbody = $("tbody");
-      tbody.innerHTML = "";
+        const snap = await db.collection("tickets").limit(2000).get();
+        allTicketsCache = snap.docs.map(doc=>{
+          const x = doc.data() || {};
+          return {
+            id: doc.id,
+            status: x.status || "",
+            accused: x.accused || "",
+            event: x.event || "",
+            competition: x.competition || "",
+            timestamp: x.timestamp || null,
+            postRaceCode: x.postRaceCode || "",
+            ruleBreach: x.ruleBreach || ""
+          };
+        });
 
-      const mode = $("filterMode").value;
-      const q = ($("search").value || "").trim();
-
-      let rows = driverRows.slice();
-      if (mode !== "all") rows = rows.filter(r => r.tls.key === mode);
-      rows = rows.filter(r => matchesSearchDriver(r, q));
-
-      const rank = { red: 3, amber: 2, green: 1, none: 0 };
-      rows.sort((a,b)=>{
-        const ra = rank[a.tls.key] ?? 0;
-        const rb = rank[b.tls.key] ?? 0;
-        if (rb !== ra) return rb - ra;
-        return b.totalSeconds - a.totalSeconds;
-      });
-
-      $("countPill").innerHTML = `Drivers: <strong>${rows.length}</strong>`;
-
-      const range = getSelectedRange();
-      $("rangePill").textContent = `Range: ${range.label}`;
-      $("hint").textContent = `Showing ${rows.length} driver(s). (Sorted by TLS severity, then total seconds)`;
-
-      for (const r of rows){
-        const act = actionsByDriver[r.canonicalKey] || null;
-
-        const actionCell = (r.tls.key === "red")
-          ? `<button class="primary" data-action="tlsAction" data-key="${escapeHtml(r.canonicalKey)}">Set action</button>`
-          : `<span class="muted">—</span>`;
-
-        const actText = act?.action ? `<b>${escapeHtml(act.action)}</b>` : `<span class="muted">—</span>`;
-        const noteText = act?.note ? escapeHtml(act.note) : `<span class="muted">—</span>`;
-        const updText = act
-          ? `${escapeHtml(act.updatedBy || "—")}<div class="muted">${escapeHtml(formatTimestamp(act.updatedAt) || "")}</div>`
-          : `<span class="muted">—</span>`;
-
-        const lastTicketText = r.lastTicketAt ? escapeHtml(formatTimestamp(r.lastTicketAt)) : "—";
-        const recentEvents = (r.recentEvents || []).slice(0,3);
-        const recentEventsHtml = recentEvents.length ? recentEvents.map(x => `<div>${escapeHtml(x)}</div>`).join("") : `<span class="muted">—</span>`;
-
-        const hasRule = !!aliasMap[r.primaryAliasKey || ""];
-        const mergeButtons = `
-          <div class="row" style="gap:8px;">
-            <button data-action="merge" data-key="${escapeHtml(r.canonicalKey)}">Merge…</button>
-            ${hasRule ? `<button class="danger" data-action="clearMerge" data-alias="${escapeHtml(r.primaryAliasKey)}">Clear merge</button>` : ""}
-          </div>
-          <div class="muted" style="margin-top:6px;">
-            Key: <span class="mono">${escapeHtml(r.canonicalKey)}</span>
-            ${r.primaryAliasKey && r.primaryAliasKey !== r.canonicalKey ? `<div>Alias: <span class="mono">${escapeHtml(r.primaryAliasKey)}</span></div>` : ""}
-          </div>
-        `;
-
-        const ticketCount = (ticketsByCanonical[r.canonicalKey] || []).length;
-
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><span class="tag ${r.tls.className}">${r.tls.label}</span></td>
-          <td>
-            <span class="driverLink" data-action="viewTickets" data-key="${escapeHtml(r.canonicalKey)}">${escapeHtml(r.driverName)}</span>
-            <div class="muted" style="margin-top:6px;">${escapeHtml(r.canonicalKey)}</div>
-          </td>
-          <td><b>${escapeHtml(String(r.totalSeconds))}s</b></td>
-          <td>${escapeHtml(String(r.ticketCount))}</td>
-          <td>${escapeHtml(String(r.dqCount))}</td>
-          <td>${lastTicketText}</td>
-          <td>${recentEventsHtml}</td>
-          <td>
-            <button data-action="viewTickets" data-key="${escapeHtml(r.canonicalKey)}">View tickets</button>
-            <div class="muted" style="margin-top:6px;">Linked: ${escapeHtml(String(ticketCount))}</div>
-          </td>
-          <td>${mergeButtons}</td>
-          <td>${actionCell}<div class="muted" style="margin-top:6px;">${r.tls.key === "red" ? "Action required" : "No action required"}</div></td>
-          <td>${actText}<div class="muted" style="margin-top:6px;">${noteText}</div></td>
-          <td>${updText}</td>
-        `;
-        tbody.appendChild(tr);
+        recomputeFromCache();
+        toast("TLS loaded ✅");
+      }catch(e){
+        console.error(e);
+        toast("Load failed:\n" + (e?.message || e));
       }
-
-      tbody.querySelectorAll("[data-action]").forEach(el=>{
-        el.onclick = ()=>{
-          const action = el.getAttribute("data-action");
-
-          if (action === "tlsAction"){
-            const key = el.getAttribute("data-key");
-            const row = driverRows.find(x => x.canonicalKey === key);
-            if (!row) return;
-            openActionModal(row);
-            return;
-          }
-
-          if (action === "merge"){
-            const key = el.getAttribute("data-key");
-            const row = driverRows.find(x => x.canonicalKey === key);
-            if (!row) return;
-            openMergeModal(row);
-            return;
-          }
-
-          if (action === "clearMerge"){
-            const alias = el.getAttribute("data-alias");
-            if (!alias) return;
-            clearAliasMerge(alias);
-            return;
-          }
-
-          if (action === "viewTickets"){
-            const key = el.getAttribute("data-key");
-            const row = driverRows.find(x => x.canonicalKey === key);
-            if (!row) return;
-            openTicketsModal(row);
-            return;
-          }
-        };
-      });
     }
 
+    // ---------- Aggregation ----------
     function recomputeFromCache(){
       const range = getSelectedRange();
       const byCanonical = {};
@@ -1184,7 +844,6 @@
           byCanonical[canonicalKey].aliasKeys.add(aliasKey);
         }
 
-        // Prefer longer/nicer display name if alias provides it
         if (canonicalName && (!byCanonical[canonicalKey].driverName || canonicalName.length > byCanonical[canonicalKey].driverName.length)){
           byCanonical[canonicalKey].driverName = canonicalName;
         }
@@ -1211,7 +870,6 @@
           if (byCanonical[canonicalKey].recentCompetitions.length > 6) byCanonical[canonicalKey].recentCompetitions.length = 6;
         }
 
-        // store ticket rows for modal
         if (!ticketsByCanonical[canonicalKey]) ticketsByCanonical[canonicalKey] = [];
         ticketsByCanonical[canonicalKey].push({
           id: t.id,
@@ -1245,41 +903,628 @@
 
       $("hint").textContent = `Computed TLS from ${considered} finalised ticket(s) within: ${range.label}.`;
       render();
-      toast("Recomputed ✅");
     }
 
-    async function loadEverything(){
+    // ---------- Rendering ----------
+    function matchesSearchDriver(row, q){
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const hay = [
+        row.driverName,
+        ...(row.recentEvents || []),
+        ...(row.recentCompetitions || [])
+      ].map(x => String(x || "").toLowerCase()).join(" | ");
+      return hay.includes(s);
+    }
+
+    function render(){
+      const tbody = $("tbody");
+      tbody.innerHTML = "";
+
+      const mode = $("filterMode").value;
+      const q = ($("search").value || "").trim();
+
+      let rows = driverRows.slice();
+      if (mode !== "all") rows = rows.filter(r => r.tls.key === mode);
+      rows = rows.filter(r => matchesSearchDriver(r, q));
+
+      const rank = { red: 3, amber: 2, green: 1, none: 0 };
+      rows.sort((a,b)=>{
+        const ra = rank[a.tls.key] ?? 0;
+        const rb = rank[b.tls.key] ?? 0;
+        if (rb !== ra) return rb - ra;
+        return b.totalSeconds - a.totalSeconds;
+      });
+
+      $("countPill").innerHTML = `Drivers: <strong>${rows.length}</strong>`;
+      $("rangePill").textContent = `Range: ${getSelectedRange().label}`;
+
+      for (const r of rows){
+        const act = actionsByDriver[r.canonicalKey] || null;
+
+        const actionCell = (r.tls.key === "red")
+          ? `<button class="primary" data-action="tlsAction" data-key="${escapeHtml(r.canonicalKey)}">Set action</button>`
+          : `<span class="muted">—</span>`;
+
+        const actText = act?.action ? `<b>${escapeHtml(act.action)}</b>` : `<span class="muted">—</span>`;
+        const noteText = act?.note ? escapeHtml(act.note) : `<span class="muted">—</span>`;
+        const updText = act
+          ? `${escapeHtml(act.updatedBy || "—")}<div class="muted">${escapeHtml(formatTimestamp(act.updatedAt) || "")}</div>`
+          : `<span class="muted">—</span>`;
+
+        const lastTicketText = r.lastTicketAt ? escapeHtml(formatTimestamp(r.lastTicketAt)) : "—";
+        const recentEvents = (r.recentEvents || []).slice(0,3);
+        const recentEventsHtml = recentEvents.length ? recentEvents.map(x => `<div>${escapeHtml(x)}</div>`).join("") : `<span class="muted">—</span>`;
+
+        const ticketCount = (ticketsByCanonical[r.canonicalKey] || []).length;
+
+        // Merge: show buttons only; implementation below
+        const hasRule = !!aliasMap[r.primaryAliasKey || ""];
+        const mergeButtons = `
+          <div class="row" style="gap:8px;">
+            <button data-action="merge" data-key="${escapeHtml(r.canonicalKey)}">Merge…</button>
+            ${hasRule ? `<button class="danger" data-action="clearMerge" data-alias="${escapeHtml(r.primaryAliasKey)}">Clear merge</button>` : ""}
+          </div>
+          <div class="muted" style="margin-top:6px;">
+            Key: <span class="mono">${escapeHtml(r.canonicalKey)}</span>
+            ${r.primaryAliasKey && r.primaryAliasKey !== r.canonicalKey ? `<div>Alias: <span class="mono">${escapeHtml(r.primaryAliasKey)}</span></div>` : ""}
+          </div>
+        `;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><span class="tag ${r.tls.className}">${r.tls.label}</span></td>
+          <td>
+            <span class="driverLink" data-action="viewTickets" data-key="${escapeHtml(r.canonicalKey)}">${escapeHtml(r.driverName)}</span>
+            <div class="muted" style="margin-top:6px;">${escapeHtml(r.canonicalKey)}</div>
+          </td>
+          <td><b>${escapeHtml(String(r.totalSeconds))}s</b></td>
+          <td>${escapeHtml(String(r.ticketCount))}</td>
+          <td>${escapeHtml(String(r.dqCount))}</td>
+          <td>${lastTicketText}</td>
+          <td>${recentEventsHtml}</td>
+          <td>
+            <button data-action="viewTickets" data-key="${escapeHtml(r.canonicalKey)}">View tickets</button>
+            <div class="muted" style="margin-top:6px;">Linked: ${escapeHtml(String(ticketCount))}</div>
+          </td>
+          <td>${mergeButtons}</td>
+          <td>${actionCell}<div class="muted" style="margin-top:6px;">${r.tls.key === "red" ? "Action required" : "No action required"}</div></td>
+          <td>${actText}<div class="muted" style="margin-top:6px;">${noteText}</div></td>
+          <td>${updText}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      tbody.querySelectorAll("[data-action]").forEach(el=>{
+        el.onclick = ()=>{
+          const action = el.getAttribute("data-action");
+          const key = el.getAttribute("data-key") || "";
+
+          if (action === "viewTickets"){
+            const row = driverRows.find(x => x.canonicalKey === key);
+            if (!row) return;
+            openTicketsModal(row);
+            return;
+          }
+          if (action === "tlsAction"){
+            const row = driverRows.find(x => x.canonicalKey === key);
+            if (!row) return;
+            openActionModal(row);
+            return;
+          }
+          if (action === "merge"){
+            const row = driverRows.find(x => x.canonicalKey === key);
+            if (!row) return;
+            openMergeModal(row);
+            return;
+          }
+          if (action === "clearMerge"){
+            const alias = el.getAttribute("data-alias") || "";
+            if (!alias) return;
+            clearAliasMerge(alias);
+            return;
+          }
+        };
+      });
+    }
+
+    // ---------- TLS Action Modal ----------
+    const actionModal = {
+      overlay: $("actionOverlay"),
+      meta: $("actionMeta"),
+      select: $("actionSelect"),
+      note: $("actionNote"),
+      cancel: $("actionCancelBtn"),
+      confirm: $("actionConfirmBtn"),
+      close: $("actionCloseBtn"),
+      pending: null
+    };
+
+    function closeActionModal(){
+      actionModal.pending = null;
+      actionModal.overlay.classList.remove("show");
+      actionModal.overlay.setAttribute("aria-hidden","true");
+      actionModal.confirm.disabled = false;
+      actionModal.select.value = "Series Ban";
+      actionModal.note.value = "";
+    }
+    function openActionModal(row){
+      const act = actionsByDriver[row.canonicalKey] || null;
+      const tls = tlsFromSeconds(row.totalSeconds);
+
+      actionModal.meta.innerHTML = `
+        <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
+        <div class="k">TLS</div><div class="v"><span class="tag ${tls.className}">${tls.label}</span></div>
+        <div class="k">Total seconds</div><div class="v"><b>${escapeHtml(String(row.totalSeconds))}s</b></div>
+        <div class="k">Tickets counted</div><div class="v">${escapeHtml(String(row.ticketCount))}</div>
+        <div class="k">DQ flags</div><div class="v">${escapeHtml(String(row.dqCount))}</div>
+      `;
+
+      if (act){
+        actionModal.select.value = act.action || "Series Ban";
+        actionModal.note.value = act.note || "";
+      }
+
+      actionModal.pending = async () => {
+        const ref = db.collection("tlsActions").doc(row.canonicalKey);
+        await ref.set({
+          canonicalKey: row.canonicalKey,
+          driverName: row.driverName,
+          action: (actionModal.select.value || "").trim(),
+          note: (actionModal.note.value || "").trim(),
+          updatedBy: currentEmail,
+          updatedAt: serverNow()
+        }, { merge: true });
+
+        toast("TLS action saved ✅");
+        await loadActions();
+        render();
+      };
+
+      actionModal.overlay.classList.add("show");
+      actionModal.overlay.setAttribute("aria-hidden","false");
+      actionModal.cancel.focus();
+    }
+
+    actionModal.cancel.onclick = closeActionModal;
+    actionModal.close.onclick = closeActionModal;
+    actionModal.overlay.addEventListener("click", (e)=>{ if (e.target === actionModal.overlay) closeActionModal(); });
+    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && actionModal.overlay.classList.contains("show")) closeActionModal(); });
+    actionModal.confirm.onclick = async ()=>{
+      if (!actionModal.pending) return closeActionModal();
       try{
-        $("tbody").innerHTML = "";
-        $("countPill").textContent = "Loading…";
-        $("hint").textContent = "Loading tickets, aliases, and TLS totals…";
+        actionModal.confirm.disabled = true;
+        await actionModal.pending();
+        closeActionModal();
+      }catch(err){
+        console.error(err);
+        toast("Save failed:\n" + (err?.message || err));
+        actionModal.confirm.disabled = false;
+      }
+    };
 
-        await Promise.all([ loadAliases(), loadActions() ]);
+    // ---------- Merge/Alias Modal ----------
+    const mergeModal = {
+      overlay: $("mergeOverlay"),
+      meta: $("mergeMeta"),
+      target: $("mergeTarget"),
+      canonicalName: $("mergeCanonicalName"),
+      cancel: $("mergeCancelBtn"),
+      confirm: $("mergeConfirmBtn"),
+      close: $("mergeCloseBtn"),
+      pending: null
+    };
 
-        // If you ever exceed 2000 tickets, we can add pagination.
-        const snap = await db.collection("tickets").limit(2000).get();
-        allTicketsCache = snap.docs.map(doc=>{
-          const x = doc.data() || {};
-          return {
-            id: doc.id,
-            status: x.status || "",
-            accused: x.accused || "",
-            event: x.event || "",
-            competition: x.competition || "",
-            timestamp: x.timestamp || null,
-            postRaceCode: x.postRaceCode || "",
-            ruleBreach: x.ruleBreach || ""
-          };
-        });
+    function closeMergeModal(){
+      mergeModal.pending = null;
+      mergeModal.overlay.classList.remove("show");
+      mergeModal.overlay.setAttribute("aria-hidden","true");
+      mergeModal.confirm.disabled = false;
+      mergeModal.canonicalName.value = "";
+      mergeModal.target.innerHTML = "";
+    }
 
+    function openMergeModal(row){
+      const aliasKey = row.primaryAliasKey || row.canonicalKey;
+
+      mergeModal.meta.innerHTML = `
+        <div class="k">Driver row</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
+        <div class="k">Canonical key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
+        <div class="k">Alias key (rule)</div><div class="v"><span class="mono">${escapeHtml(aliasKey)}</span></div>
+      `;
+
+      const options = driverRows.slice().sort((a,b)=> b.totalSeconds - a.totalSeconds)
+        .map(d => ({ canonicalKey: d.canonicalKey, name: d.driverName }));
+
+      mergeModal.target.innerHTML = options.map(o=>{
+        const label = `${o.name} — (${o.canonicalKey})`;
+        const selected = (o.canonicalKey === row.canonicalKey) ? "selected" : "";
+        return `<option value="${escapeHtml(o.canonicalKey)}" ${selected}>${escapeHtml(label)}</option>`;
+      }).join("");
+
+      mergeModal.pending = async () => {
+        const targetCanonicalKey = (mergeModal.target.value || "").trim();
+        if (!targetCanonicalKey) throw new Error("Pick a merge target.");
+
+        const customName = (mergeModal.canonicalName.value || "").trim();
+        const targetRow = driverRows.find(r => r.canonicalKey === targetCanonicalKey);
+        const canonicalName = customName || (targetRow ? targetRow.driverName : "");
+
+        const ref = db.collection("driverAliases").doc(aliasKey);
+        await ref.set({
+          aliasKey,
+          canonicalKey: targetCanonicalKey,
+          canonicalName: canonicalName || row.driverName || aliasKey,
+          updatedBy: currentEmail,
+          updatedAt: serverNow()
+        }, { merge: true });
+
+        toast("Merge saved ✅ Recomputing…");
+        await loadAliases();
         recomputeFromCache();
-        toast("TLS loaded ✅");
-      }catch(e){
-        console.error(e);
-        toast("Load failed:\n" + (e?.message || e));
+      };
+
+      mergeModal.overlay.classList.add("show");
+      mergeModal.overlay.setAttribute("aria-hidden","false");
+      mergeModal.cancel.focus();
+    }
+
+    async function clearAliasMerge(aliasKey){
+      try{
+        await db.collection("driverAliases").doc(aliasKey).delete();
+        toast("Merge cleared ✅ Recomputing…");
+        await loadAliases();
+        recomputeFromCache();
+      }catch(err){
+        console.error(err);
+        toast("Clear failed:\n" + (err?.message || err));
       }
     }
 
+    mergeModal.cancel.onclick = closeMergeModal;
+    mergeModal.close.onclick = closeMergeModal;
+    mergeModal.overlay.addEventListener("click",(e)=>{ if (e.target === mergeModal.overlay) closeMergeModal(); });
+    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && mergeModal.overlay.classList.contains("show")) closeMergeModal(); });
+    mergeModal.confirm.onclick = async ()=>{
+      if (!mergeModal.pending) return closeMergeModal();
+      try{
+        mergeModal.confirm.disabled = true;
+        await mergeModal.pending();
+        closeMergeModal();
+      }catch(err){
+        console.error(err);
+        toast("Merge failed:\n" + (err?.message || err));
+        mergeModal.confirm.disabled = false;
+      }
+    };
+
+    // ---------- Driver Tickets Modal ----------
+    const ticketsModal = {
+      overlay: $("ticketsOverlay"),
+      title: $("ticketsTitle"),
+      subtitle: $("ticketsSubtitle"),
+      meta: $("ticketsMeta"),
+      hint: $("ticketsHint"),
+      tbody: $("ticketsTbody"),
+      search: $("ticketsSearch"),
+      close: $("ticketsCloseBtn"),
+      close2: $("ticketsCloseBtn2"),
+      currentKey: null
+    };
+
+    function closeTicketsModal(){
+      ticketsModal.currentKey = null;
+      ticketsModal.search.value = "";
+      ticketsModal.tbody.innerHTML = "";
+      ticketsModal.overlay.classList.remove("show");
+      ticketsModal.overlay.setAttribute("aria-hidden","true");
+    }
+
+    function openTicketsModal(row){
+      const key = row.canonicalKey;
+      ticketsModal.currentKey = key;
+      const range = getSelectedRange();
+
+      ticketsModal.subtitle.textContent = `Range: ${range.label}`;
+      ticketsModal.meta.innerHTML = `
+        <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
+        <div class="k">Canonical key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
+        <div class="k">Known aliases</div><div class="v">${(row.aliasKeys || []).length ? row.aliasKeys.map(a=>`<span class="mono">${escapeHtml(a)}</span>`).join("<br>") : "—"}</div>
+        <div class="k">TLS</div><div class="v"><span class="tag ${row.tls.className}">${row.tls.label}</span> <span class="muted">(Total: ${escapeHtml(String(row.totalSeconds))}s)</span></div>
+      `;
+
+      ticketsModal.overlay.classList.add("show");
+      ticketsModal.overlay.setAttribute("aria-hidden","false");
+      renderTicketsList();
+      ticketsModal.search.focus();
+    }
+
+    function matchesTicketSearch(t, q){
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const hay = [t.id, t.status, t.event, t.competition, t.accusedRaw, t.penaltyLabel]
+        .map(x => String(x || "").toLowerCase()).join(" | ");
+      return hay.includes(s);
+    }
+
+    function renderTicketsList(){
+      const key = ticketsModal.currentKey;
+      if (!key) return;
+
+      const list = (ticketsByCanonical[key] || []).slice().sort((a,b)=> b.tsMs - a.tsMs);
+      const q = (ticketsModal.search.value || "").trim();
+      const filtered = list.filter(t => matchesTicketSearch(t, q));
+
+      ticketsModal.hint.textContent = `Tickets: ${filtered.length} (newest first)`;
+      ticketsModal.tbody.innerHTML = "";
+
+      for (const t of filtered){
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(t.timestampText || "")}</td>
+          <td class="mono">${escapeHtml(t.id)}</td>
+          <td><a href="${ticketViewUrl(t.id)}" target="_blank" rel="noopener">Open</a></td>
+          <td>${escapeHtml(t.status)}</td>
+          <td>${escapeHtml(t.event || "")}</td>
+          <td>${escapeHtml(t.competition || "")}</td>
+          <td>${escapeHtml(t.accusedRaw || "")}</td>
+          <td><b>${escapeHtml(t.penaltyLabel || "-")}</b>${t.dq ? `<div class="muted">DQ flag</div>` : ""}</td>
+        `;
+        ticketsModal.tbody.appendChild(tr);
+      }
+    }
+
+    ticketsModal.close.onclick = closeTicketsModal;
+    ticketsModal.close2.onclick = closeTicketsModal;
+    ticketsModal.overlay.addEventListener("click",(e)=>{ if (e.target === ticketsModal.overlay) closeTicketsModal(); });
+    ticketsModal.search.oninput = renderTicketsList;
+    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && ticketsModal.overlay.classList.contains("show")) closeTicketsModal(); });
+
+    // ---------- Discord publishing ----------
+    function groupForDiscordReport(rows){
+      const greens = [];
+      const ambers = [];
+      const reds = [];
+
+      // We include only drivers at/above 15s for the “traffic light” output,
+      // but you can include "none" as a fourth section later if desired.
+      for (const r of rows){
+        if (r.tls.key === "green") greens.push(r);
+        else if (r.tls.key === "amber") ambers.push(r);
+        else if (r.tls.key === "red") reds.push(r);
+      }
+
+      const sortDesc = (a,b)=> b.totalSeconds - a.totalSeconds;
+      greens.sort(sortDesc);
+      ambers.sort(sortDesc);
+      reds.sort(sortDesc);
+
+      return { greens, ambers, reds };
+    }
+
+    function formatDriverLine(r){
+      return `${r.driverName} — ${r.totalSeconds}s (${r.ticketCount} tickets)`;
+    }
+
+    async function publishTLSReportToDiscord(){
+      const webhook = DISCORD_WEBHOOK;
+      if (!webhook){
+        toast("No webhook set.\nPaste a Discord webhook URL and click Save.");
+        return;
+      }
+
+      // Use ALL computed drivers for current range, ignoring search/filter dropdown.
+      const rows = driverRows.slice();
+      const range = getSelectedRange();
+      const { greens, ambers, reds } = groupForDiscordReport(rows);
+
+      if (!greens.length && !ambers.length && !reds.length){
+        toast("Nothing to publish (no Green/Amber/Red drivers in this range).");
+        return;
+      }
+
+      // Build image report
+      try{
+        $("publishDiscordBtn").disabled = true;
+        toast("Generating report image…");
+
+        const blob = await buildTLSReportImageBlob({
+          rangeLabel: range.label,
+          generatedBy: currentEmail,
+          greens, ambers, reds
+        });
+
+        // Text summary (short)
+        const content =
+          `**IFWL TLS Report**\n` +
+          `Range: ${range.label}\n` +
+          `Green: ${greens.length} | Amber: ${ambers.length} | Red: ${reds.length}\n` +
+          `Generated by: ${currentEmail}`;
+
+        // Send multipart/form-data to webhook with attachment
+        const fd = new FormData();
+        fd.append("content", content);
+        fd.append("file", blob, `IFWL_TLS_${range.key}_${new Date().toISOString().slice(0,10)}.png`);
+
+        const res = await fetch(webhook, { method:"POST", body: fd });
+        if (!res.ok){
+          const txt = await res.text().catch(()=> "");
+          throw new Error(`Discord rejected upload (${res.status}). ${txt.slice(0,200)}`);
+        }
+
+        toast("Published to Discord ✅");
+      }catch(err){
+        console.error(err);
+        toast("Publish failed:\n" + (err?.message || err));
+      }finally{
+        $("publishDiscordBtn").disabled = false;
+      }
+    }
+
+    // Draw a clean “report card” PNG using canvas (Discord-friendly)
+    async function buildTLSReportImageBlob({ rangeLabel, generatedBy, greens, ambers, reds }){
+      const pad = 28;
+      const colGap = 24;
+      const sectionGap = 18;
+
+      const maxLines = (arr)=> Math.max(1, arr.length);
+      const lineH = 22;
+
+      // Limit very long lists to avoid giant files
+      const MAX_PER_SECTION = 60;
+      const gList = greens.slice(0, MAX_PER_SECTION);
+      const aList = ambers.slice(0, MAX_PER_SECTION);
+      const rList = reds.slice(0, MAX_PER_SECTION);
+
+      const headerH = 120;
+      const sectionHeaderH = 34;
+
+      const gH = sectionHeaderH + maxLines(gList)*lineH + 16;
+      const aH = sectionHeaderH + maxLines(aList)*lineH + 16;
+      const rH = sectionHeaderH + maxLines(rList)*lineH + 16;
+
+      const w = 1200;
+      const h = pad + headerH + sectionGap + gH + sectionGap + aH + sectionGap + rH + pad;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+
+      // Background
+      ctx.fillStyle = "#0b1220";
+      ctx.fillRect(0,0,w,h);
+
+      // Card background
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
+      roundRect(ctx, pad, pad, w - pad*2, h - pad*2, 18);
+      ctx.fill();
+
+      // Header
+      const cardX = pad, cardY = pad, cardW = w - pad*2;
+      ctx.fillStyle = "#111827";
+      roundRect(ctx, cardX, cardY, cardW, headerH, 18);
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "800 34px Arial";
+      ctx.fillText("IFWL TLS Report", cardX + 22, cardY + 46);
+
+      ctx.font = "400 18px Arial";
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.fillText(`Range: ${rangeLabel}`, cardX + 22, cardY + 78);
+
+      ctx.font = "400 15px Arial";
+      ctx.fillStyle = "rgba(255,255,255,0.80)";
+      ctx.fillText(`Generated by: ${generatedBy || "—"} • ${new Date().toLocaleString()}`, cardX + 22, cardY + 104);
+
+      // Sections
+      let y = cardY + headerH + sectionGap;
+
+      y = drawSection(ctx, cardX + 18, y, cardW - 36, "GREEN (≥ 15s) — Monitor", gList, "#065f46");
+      y += sectionGap;
+      y = drawSection(ctx, cardX + 18, y, cardW - 36, "AMBER (≥ 45s) — Stewards monitor", aList, "#92400e");
+      y += sectionGap;
+      y = drawSection(ctx, cardX + 18, y, cardW - 36, "RED (≥ 60s) — Action required", rList, "#991b1b");
+
+      // Footer note if truncated
+      const truncated =
+        (greens.length > MAX_PER_SECTION) ||
+        (ambers.length > MAX_PER_SECTION) ||
+        (reds.length > MAX_PER_SECTION);
+
+      if (truncated){
+        ctx.fillStyle = "#6b7280";
+        ctx.font = "400 14px Arial";
+        ctx.fillText(`Note: lists limited to ${MAX_PER_SECTION} drivers per section (for image size).`, cardX + 22, h - pad - 14);
+      }
+
+      // Convert to blob
+      return await new Promise((resolve, reject)=>{
+        canvas.toBlob((b)=>{
+          if (!b) return reject(new Error("Failed to create image blob."));
+          resolve(b);
+        }, "image/png", 1.0);
+      });
+    }
+
+    function roundRect(ctx, x, y, w, h, r){
+      const rr = Math.min(r, w/2, h/2);
+      ctx.beginPath();
+      ctx.moveTo(x+rr, y);
+      ctx.arcTo(x+w, y, x+w, y+h, rr);
+      ctx.arcTo(x+w, y+h, x, y+h, rr);
+      ctx.arcTo(x, y+h, x, y, rr);
+      ctx.arcTo(x, y, x+w, y, rr);
+      ctx.closePath();
+    }
+
+    function drawSection(ctx, x, y, w, title, list, accent){
+      // box
+      ctx.fillStyle = "#ffffff";
+      roundRect(ctx, x, y, w, 10, 14); // path only
+      // shadow-ish border
+      ctx.strokeStyle = "rgba(17,24,39,0.10)";
+      ctx.lineWidth = 2;
+
+      const headerH = 42;
+      const lineH = 22;
+      const minLines = 1;
+      const lines = Math.max(minLines, list.length);
+      const h = headerH + (lines * lineH) + 16;
+
+      // background
+      ctx.fillStyle = "#ffffff";
+      roundRect(ctx, x, y, w, h, 14);
+      ctx.fill();
+      ctx.stroke();
+
+      // accent bar
+      ctx.fillStyle = accent;
+      roundRect(ctx, x, y, w, headerH, 14);
+      ctx.fill();
+
+      // title
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "800 18px Arial";
+      ctx.fillText(title, x + 16, y + 26);
+
+      // count
+      ctx.font = "700 14px Arial";
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.fillText(`Count: ${list.length}`, x + w - 120, y + 26);
+
+      // body lines
+      let yy = y + headerH + 22;
+      ctx.font = "700 15px Arial";
+      ctx.fillStyle = "#111827";
+
+      if (!list.length){
+        ctx.font = "400 15px Arial";
+        ctx.fillStyle = "#6b7280";
+        ctx.fillText("— None —", x + 16, yy);
+      } else {
+        for (const r of list){
+          const line = `${r.driverName} — ${r.totalSeconds}s (${r.ticketCount} tickets)`;
+          ctx.fillStyle = "#111827";
+          ctx.fillText(truncateText(ctx, line, w - 32), x + 16, yy);
+          yy += lineH;
+        }
+      }
+
+      return y + h;
+    }
+
+    function truncateText(ctx, text, maxW){
+      if (ctx.measureText(text).width <= maxW) return text;
+      let t = text;
+      while (t.length > 0 && ctx.measureText(t + "…").width > maxW){
+        t = t.slice(0, -1);
+      }
+      return t + "…";
+    }
+
+    // ---------- Firebase ready ----------
     async function waitForFirebaseReady(maxMs = 8000){
       const start = Date.now();
       while (Date.now() - start < maxMs){
@@ -1290,6 +1535,10 @@
     }
 
     (async () => {
+      // load webhook from localStorage
+      const saved = localStorage.getItem(WEBHOOK_LS_KEY) || "";
+      if (saved) $("webhookInput").value = saved;
+
       const ok = await waitForFirebaseReady();
       if (!ok){
         toast("Firebase not ready.\nCheck firebase-init.js path + console.");
@@ -1327,7 +1576,7 @@
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
 
-          $("welcomeLine").textContent = `Welcome, ${niceName}. Click a driver to view all linked tickets.`;
+          $("welcomeLine").textContent = `Welcome, ${niceName}. You can publish a TLS report image to Discord.`;
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
           $("permPill").textContent = "Permissions: Steward";
 
