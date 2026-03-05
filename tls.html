@@ -55,6 +55,7 @@
 
     button{padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer;}
     button.primary{background:#111827;color:#fff;border-color:#111827;}
+    button.danger{background:#991b1b;color:#fff;border-color:#991b1b;}
     button:disabled{opacity:0.6;cursor:not-allowed;}
 
     select, input, textarea{
@@ -82,7 +83,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1400px;
+      min-width:1550px;
     }
     th, td{
       padding:10px;
@@ -147,7 +148,7 @@
     }
     .modalOverlay.show{display:flex;}
     .modal{
-      width:min(640px, 100%);
+      width:min(720px, 100%);
       background:#fff;
       border-radius:16px;
       border:1px solid #e5e7eb;
@@ -182,7 +183,7 @@
     }
     .miniGrid{
       display:grid;
-      grid-template-columns: 160px 1fr;
+      grid-template-columns: 180px 1fr;
       gap:8px 10px;
       margin-top:10px;
       font-size:13px;
@@ -190,12 +191,22 @@
     .miniGrid .k{color:#6b7280; font-size:12px;}
     .miniGrid .v{color:#111827;}
 
+    .hintBox{
+      margin-top:10px;
+      padding:10px 12px;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      font-size:12px;
+      color:#111827;
+    }
+
     @media (max-width: 980px){
       body{background-attachment:scroll;}
       header{flex-direction:column; align-items:stretch;}
       header .row{width:100%;}
       header button{width:100%;}
-      table{min-width:1200px;}
+      table{min-width:1300px;}
     }
   </style>
 </head>
@@ -237,6 +248,7 @@
             <strong>Red ≥60s</strong>
           </span>
           <span class="pill" id="rangePill">Range: …</span>
+          <span class="pill" id="aliasPill">Aliases: …</span>
         </div>
 
         <div class="row">
@@ -265,8 +277,9 @@
       </div>
 
       <div class="muted" style="margin-top:8px;">
-        TLS totals are calculated from tickets in Firestore inside the selected date range (based on ticket <span class="mono">timestamp</span>).
+        Totals are calculated from tickets within the selected date range (based on ticket <span class="mono">timestamp</span>).
         Only <b>finalised</b> tickets (Finalised/Finalized/Closed/Resolved) are counted.
+        Driver names are grouped using <b>auto-normalisation</b> + steward-managed <b>Merge/Alias</b> rules.
       </div>
 
       <div class="tableWrap">
@@ -280,6 +293,7 @@
               <th>DQ flags</th>
               <th>Last ticket</th>
               <th>Recent events (up to 3)</th>
+              <th>Merge</th>
               <th>Action (Red)</th>
               <th>Action note</th>
               <th>Last updated</th>
@@ -295,15 +309,15 @@
 
   <div class="toast" id="toast">Saved</div>
 
-  <!-- Action Modal -->
-  <div class="modalOverlay" id="modalOverlay" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <!-- TLS Action Modal -->
+  <div class="modalOverlay" id="actionOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="actionTitle">
       <div class="modalHeader">
         <div>
-          <div class="modalTitle" id="modalTitle">Record TLS action</div>
-          <div class="muted" id="modalSubtitle" style="color:rgba(255,255,255,0.85); margin-top:4px;"></div>
+          <div class="modalTitle" id="actionTitle">Record TLS action</div>
+          <div class="muted" style="color:rgba(255,255,255,0.85); margin-top:4px;">Required for RED drivers (≥ 60s).</div>
         </div>
-        <button id="modalCloseBtn" aria-label="Close">✕</button>
+        <button id="actionCloseBtn" aria-label="Close">✕</button>
       </div>
 
       <div class="modalBody">
@@ -311,11 +325,11 @@
           This records the steward action for this driver in Firestore collection <span class="mono">tlsActions</span>.
         </p>
 
-        <div class="miniGrid" id="modalMeta"></div>
+        <div class="miniGrid" id="actionMeta"></div>
 
         <div style="margin-top:12px;">
           <div class="muted" style="margin-bottom:6px;">Action</div>
-          <select id="modalAction">
+          <select id="actionSelect">
             <option value="Series Ban">Series Ban</option>
             <option value="NFA">NFA</option>
             <option value="Race DQ">Race DQ</option>
@@ -325,13 +339,55 @@
 
         <div style="margin-top:12px;">
           <div class="muted" style="margin-bottom:6px;">Note (optional)</div>
-          <textarea id="modalNote" placeholder="Add context (e.g. length of ban, reason, links)…"></textarea>
+          <textarea id="actionNote" placeholder="Add context (e.g. length of ban, reason, links)…"></textarea>
         </div>
       </div>
 
       <div class="modalFooter">
-        <button id="modalCancelBtn">Cancel</button>
-        <button id="modalConfirmBtn" class="primary">Save action</button>
+        <button id="actionCancelBtn">Cancel</button>
+        <button id="actionConfirmBtn" class="primary">Save action</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Merge/Alias Modal -->
+  <div class="modalOverlay" id="mergeOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mergeTitle">
+      <div class="modalHeader">
+        <div>
+          <div class="modalTitle" id="mergeTitle">Merge driver names</div>
+          <div class="muted" style="color:rgba(255,255,255,0.85); margin-top:4px;">Creates an alias rule so variants combine into one driver.</div>
+        </div>
+        <button id="mergeCloseBtn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modalBody">
+        <p class="muted" style="margin-top:0;">
+          This saves a rule in <span class="mono">driverAliases</span>: <b>aliasKey → canonicalKey</b>.
+          After saving, TLS totals will instantly recompute using the canonical driver.
+        </p>
+
+        <div class="miniGrid" id="mergeMeta"></div>
+
+        <div style="margin-top:12px;">
+          <div class="muted" style="margin-bottom:6px;">Merge this driver into…</div>
+          <select id="mergeTarget"></select>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div class="muted" style="margin-bottom:6px;">Canonical display name (optional override)</div>
+          <input id="mergeCanonicalName" placeholder="Leave blank to use the selected target name">
+        </div>
+
+        <div class="hintBox">
+          <b>Tip:</b> Use this when the same driver appears with different formats like
+          <span class="mono">"133 Morabito"</span> vs <span class="mono">"C. Morabito #133"</span>.
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <button id="mergeCancelBtn">Cancel</button>
+        <button id="mergeConfirmBtn" class="primary">Save merge</button>
       </div>
     </div>
   </div>
@@ -353,14 +409,6 @@
     }
 
     function escapeHtml(s){ return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
-    function normKey(s){
-      return String(s || "")
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, " ")
-        .replaceAll("/", "_")
-        .replaceAll("\\", "_");
-    }
 
     function isFinalised(status){
       const s = (status || "").trim().toUpperCase();
@@ -386,26 +434,18 @@
       }catch{ return 0; }
     }
 
-    // Build local date boundaries in the browser's local timezone (user is Europe/London).
-    function startOfDayLocal(yyyy, mm, dd){ // mm is 1-12
-      return new Date(yyyy, mm - 1, dd, 0, 0, 0, 0).getTime();
-    }
-    function endOfDayLocal(yyyy, mm, dd){
-      return new Date(yyyy, mm - 1, dd, 23, 59, 59, 999).getTime();
-    }
+    // ---------- Date range helpers ----------
+    function startOfDayLocal(yyyy, mm, dd){ return new Date(yyyy, mm - 1, dd, 0, 0, 0, 0).getTime(); }
+    function endOfDayLocal(yyyy, mm, dd){ return new Date(yyyy, mm - 1, dd, 23, 59, 59, 999).getTime(); }
     function fmtDateShort(ms){
       try{
         const d = new Date(ms);
         return d.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"2-digit" });
-      }catch{
-        return "";
-      }
+      }catch{ return ""; }
     }
-
     function getSelectedRange(){
       const v = $("dateRange").value;
 
-      // Seasons (inclusive)
       if (v === "season1"){
         const start = startOfDayLocal(2026, 1, 13);
         const end   = endOfDayLocal(2026, 3, 30);
@@ -417,7 +457,6 @@
         return { key: v, startMs: start, endMs: end, label: `Season 2 (${fmtDateShort(start)} → ${fmtDateShort(end)})` };
       }
 
-      // Rolling last N days (inclusive to now)
       const now = Date.now();
       if (v === "last10" || v === "last20" || v === "last30" || v === "last90"){
         const n = parseInt(v.replace("last",""), 10);
@@ -425,10 +464,8 @@
         return { key: v, startMs: start, endMs: now, label: `Last ${n} days (${fmtDateShort(start)} → ${fmtDateShort(now)})` };
       }
 
-      // All time
       return { key: "all", startMs: null, endMs: null, label: "All time" };
     }
-
     function inRange(tsValue, range){
       if (!range || range.key === "all") return true;
       const ms = timestampMs(tsValue);
@@ -436,7 +473,59 @@
       return ms >= range.startMs && ms <= range.endMs;
     }
 
-    // RP code -> penalty fallback
+    // ---------- Driver normalisation + aliasing ----------
+    // Goal: turn variants like "C. Morabito #133" and "133 Morabito" into the same key.
+    function normaliseAccusedToAliasKey(name){
+      const raw = String(name || "").trim().toLowerCase();
+
+      // Replace punctuation with spaces, kill #, collapse spaces
+      // Keep letters/numbers as tokens, then remove number-only tokens.
+      const cleaned = raw
+        .replaceAll("#", " ")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const parts = cleaned.split(" ").filter(Boolean);
+
+      // Remove pure numbers (car numbers etc.)
+      let tokens = parts.filter(t => !/^\d+$/.test(t));
+
+      // If it starts with a single-letter initial and has more tokens, drop it (C Morabito -> Morabito)
+      if (tokens.length >= 2 && tokens[0].length === 1){
+        tokens = tokens.slice(1);
+      }
+
+      // If everything got removed, fallback to cleaned
+      const key = (tokens.join(" ").trim() || cleaned).replace(/\s+/g, " ").trim();
+      return key;
+    }
+
+    function canonicalKeyFromName(name){
+      // canonical keys should be stable; use the same normaliser
+      return normaliseAccusedToAliasKey(name);
+    }
+
+    // Alias mapping:
+    // driverAliases/{aliasKey} => { canonicalKey, canonicalName, updatedBy, updatedAt }
+    let aliasMap = {}; // aliasKey -> { canonicalKey, canonicalName, updatedBy, updatedAt }
+
+    function resolveCanonical(aliasKey, fallbackDisplayName){
+      const rule = aliasMap[aliasKey];
+      if (rule && rule.canonicalKey){
+        return {
+          canonicalKey: rule.canonicalKey,
+          canonicalName: rule.canonicalName || fallbackDisplayName || aliasKey
+        };
+      }
+      // no rule - canonical is itself
+      return {
+        canonicalKey: aliasKey,
+        canonicalName: fallbackDisplayName || aliasKey
+      };
+    }
+
+    // ---------- Penalty parsing ----------
     const rpPenaltyMap = {
       "RP1MI":"10s","RP1ST":"30s","RP1SE":"SG30",
       "RP2MI":"10s","RP2ST":"30s","RP2SE":"SG30",
@@ -455,17 +544,16 @@
 
     function parsePenaltyFromText(text){
       const src = String(text || "").trim();
-      if (!src) return { raw: "-", seconds: 0, dq: false, nfa: false, unknown: false };
+      if (!src) return { seconds: 0, dq: false };
 
       const up = src.toUpperCase();
-
-      if (up.includes("NFA")) return { raw: "NFA", seconds: 0, dq: false, nfa: true, unknown: false };
-      if (up.includes("DQ")) return { raw: "DQ", seconds: 0, dq: true, nfa: false, unknown: false };
+      if (up.includes("NFA")) return { seconds: 0, dq: false };
+      if (up.includes("DQ")) return { seconds: 0, dq: true };
 
       const mSec = src.match(/\((\s*\d+\s*)(s|sec|secs|seconds)?\s*\)/i);
       if (mSec && mSec[1]) {
         const n = parseInt(String(mSec[1]).replace(/\D/g,""), 10);
-        if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false };
       }
 
       const mRp = src.match(/\b(RP[0-9A-Z]+)\b/i);
@@ -474,31 +562,31 @@
         const mapped = rpPenaltyMap[code] || code;
 
         if (String(mapped).toUpperCase().includes("DQ")){
-          return { raw: "DQ", seconds: 0, dq: true, nfa: false, unknown: false };
+          return { seconds: 0, dq: true };
         }
 
         if (String(mapped).toUpperCase() === "SG30"){
-          return { raw: "SG30", seconds: 30, dq: false, nfa: false, unknown: false };
+          return { seconds: 30, dq: false };
         }
 
         const m = String(mapped).match(/(\d+)\s*s/i);
         if (m && m[1]){
           const n = parseInt(m[1], 10);
-          if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
+          if (!isNaN(n) && n > 0) return { seconds: n, dq: false };
         }
 
-        return { raw: String(mapped).slice(0, 40), seconds: 0, dq: false, nfa: false, unknown: true };
+        return { seconds: 0, dq: false };
       }
 
       const mPlain = src.match(/\b(\d+)\s*s\b/i);
       if (mPlain && mPlain[1]){
         const n = parseInt(mPlain[1], 10);
-        if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false };
       }
 
-      if (up.includes("SG30")) return { raw: "SG30", seconds: 30, dq: false, nfa: false, unknown: false };
+      if (up.includes("SG30")) return { seconds: 30, dq: false };
 
-      return { raw: src.slice(0, 40), seconds: 0, dq: false, nfa: false, unknown: true };
+      return { seconds: 0, dq: false };
     }
 
     function ticketPenaltyInfo(ticket){
@@ -514,113 +602,96 @@
       return { key: "none", label: "UNDER 15s", className: "none" };
     }
 
-    // auth state
+    // ---------- Auth / page state ----------
     let currentEmail = "";
     let canSteward = false;
 
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
 
-    $("refreshBtn").onclick = () => loadEverything();  // reload from DB
+    $("refreshBtn").onclick = () => loadEverything(); // reload DB + aliases + actions
     $("filterMode").onchange = () => render();
     $("search").oninput = () => render();
-
-    // Range selector triggers recompute (no DB read)
     $("dateRange").onchange = () => recomputeFromCache();
 
     // cached
-    let allTicketsCache = [];  // raw ticket docs (finalised+timestamp etc)
-    let driverRows = [];       // computed drivers from cache + current range
+    let allTicketsCache = [];  // raw tickets
+    let driverRows = [];       // computed drivers
     let actionsByDriver = {};  // tlsActions cache
 
-    // modal helpers
-    const modal = {
-      overlay: $("modalOverlay"),
-      meta: $("modalMeta"),
-      action: $("modalAction"),
-      note: $("modalNote"),
-      cancelBtn: $("modalCancelBtn"),
-      confirmBtn: $("modalConfirmBtn"),
-      closeBtn: $("modalCloseBtn"),
+    // ---------- TLS actions modal ----------
+    const actionModal = {
+      overlay: $("actionOverlay"),
+      meta: $("actionMeta"),
+      select: $("actionSelect"),
+      note: $("actionNote"),
+      cancel: $("actionCancelBtn"),
+      confirm: $("actionConfirmBtn"),
+      close: $("actionCloseBtn"),
       pending: null
     };
 
-    function closeModal(){
-      modal.pending = null;
-      modal.overlay.classList.remove("show");
-      modal.overlay.setAttribute("aria-hidden", "true");
-      modal.confirmBtn.disabled = false;
-      modal.note.value = "";
-      modal.action.value = "Series Ban";
+    function closeActionModal(){
+      actionModal.pending = null;
+      actionModal.overlay.classList.remove("show");
+      actionModal.overlay.setAttribute("aria-hidden","true");
+      actionModal.confirm.disabled = false;
+      actionModal.select.value = "Series Ban";
+      actionModal.note.value = "";
     }
-
     function openActionModal(row){
-      const key = normKey(row.driverName);
-      const existing = actionsByDriver[key] || null;
+      const key = row.canonicalKey;
+      const act = actionsByDriver[key] || null;
 
       const tls = tlsFromSeconds(row.totalSeconds);
-      modal.meta.innerHTML = `
+      actionModal.meta.innerHTML = `
         <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
         <div class="k">TLS</div><div class="v"><span class="tag ${tls.className}">${tls.label}</span></div>
         <div class="k">Total seconds</div><div class="v"><b>${escapeHtml(String(row.totalSeconds))}s</b></div>
         <div class="k">Tickets counted</div><div class="v">${escapeHtml(String(row.ticketCount))}</div>
         <div class="k">DQ flags</div><div class="v">${escapeHtml(String(row.dqCount))}</div>
-        <div class="k">Existing action</div><div class="v">${existing ? `<b>${escapeHtml(existing.action || "—")}</b>` : "—"}</div>
       `;
 
-      if (existing){
-        modal.action.value = existing.action || "Series Ban";
-        modal.note.value = existing.note || "";
-      } else {
-        modal.action.value = "Series Ban";
-        modal.note.value = "";
+      if (act){
+        actionModal.select.value = act.action || "Series Ban";
+        actionModal.note.value = act.note || "";
       }
 
-      modal.pending = async () => saveTLSAction(row.driverName);
-
-      modal.overlay.classList.add("show");
-      modal.overlay.setAttribute("aria-hidden", "false");
-      modal.cancelBtn.focus();
+      actionModal.pending = async () => saveTLSAction(row);
+      actionModal.overlay.classList.add("show");
+      actionModal.overlay.setAttribute("aria-hidden","false");
+      actionModal.cancel.focus();
     }
 
-    modal.cancelBtn.onclick = closeModal;
-    modal.closeBtn.onclick = closeModal;
-    modal.overlay.addEventListener("click", (e) => { if (e.target === modal.overlay) closeModal(); });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modal.overlay.classList.contains("show")) closeModal(); });
+    actionModal.cancel.onclick = closeActionModal;
+    actionModal.close.onclick = closeActionModal;
+    actionModal.overlay.addEventListener("click", (e)=>{ if (e.target === actionModal.overlay) closeActionModal(); });
+    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && actionModal.overlay.classList.contains("show")) closeActionModal(); });
 
-    modal.confirmBtn.onclick = async () => {
-      if (!modal.pending) return closeModal();
+    actionModal.confirm.onclick = async ()=>{
+      if (!actionModal.pending) return closeActionModal();
       try{
-        modal.confirmBtn.disabled = true;
-        await modal.pending();
-        closeModal();
+        actionModal.confirm.disabled = true;
+        await actionModal.pending();
+        closeActionModal();
       }catch(err){
         console.error(err);
         toast("Save failed:\n" + (err?.message || err));
-        modal.confirmBtn.disabled = false;
+        actionModal.confirm.disabled = false;
       }
     };
 
-    function serverNow(){
-      return firebase.firestore.FieldValue.serverTimestamp();
-    }
+    function serverNow(){ return firebase.firestore.FieldValue.serverTimestamp(); }
 
-    async function saveTLSAction(driverName){
-      if (!canSteward){
-        toast("Access denied.");
-        return;
-      }
-      const key = normKey(driverName);
-      const ref = db.collection("tlsActions").doc(key);
-
-      const action = (modal.action.value || "").trim();
-      const note = (modal.note.value || "").trim();
+    async function saveTLSAction(row){
+      if (!canSteward) return toast("Access denied.");
+      const ref = db.collection("tlsActions").doc(row.canonicalKey);
 
       await ref.set({
-        driverKey: key,
-        driverName: String(driverName || "").trim(),
-        action,
-        note,
+        canonicalKey: row.canonicalKey,
+        driverName: row.driverName,
+        action: (actionModal.select.value || "").trim(),
+        note: (actionModal.note.value || "").trim(),
         updatedBy: currentEmail,
         updatedAt: serverNow()
       }, { merge: true });
@@ -634,7 +705,7 @@
       actionsByDriver = {};
       try{
         const snap = await db.collection("tlsActions").limit(2000).get();
-        snap.forEach(doc => {
+        snap.forEach(doc=>{
           const d = doc.data() || {};
           actionsByDriver[doc.id] = {
             action: d.action || "",
@@ -648,6 +719,140 @@
       }
     }
 
+    // ---------- Merge/Alias modal ----------
+    const mergeModal = {
+      overlay: $("mergeOverlay"),
+      meta: $("mergeMeta"),
+      target: $("mergeTarget"),
+      canonicalName: $("mergeCanonicalName"),
+      cancel: $("mergeCancelBtn"),
+      confirm: $("mergeConfirmBtn"),
+      close: $("mergeCloseBtn"),
+      pending: null
+    };
+
+    function closeMergeModal(){
+      mergeModal.pending = null;
+      mergeModal.overlay.classList.remove("show");
+      mergeModal.overlay.setAttribute("aria-hidden","true");
+      mergeModal.confirm.disabled = false;
+      mergeModal.canonicalName.value = "";
+      mergeModal.target.innerHTML = "";
+    }
+
+    function openMergeModal(row){
+      // row here is a visible TLS row (already canonical-resolved)
+      // But we merge starting from a *source variant key* we’ve observed: we store the row's observed aliasKeys list.
+      const sourceAliasKey = row.primaryAliasKey || row.canonicalKey;
+
+      mergeModal.meta.innerHTML = `
+        <div class="k">Current driver row</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
+        <div class="k">This row key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
+        <div class="k">Detected alias key</div><div class="v"><span class="mono">${escapeHtml(sourceAliasKey)}</span></div>
+      `;
+
+      // Fill dropdown with other canonical drivers (including itself)
+      const options = driverRows
+        .slice()
+        .sort((a,b)=> (b.totalSeconds - a.totalSeconds))
+        .map(d => ({
+          canonicalKey: d.canonicalKey,
+          name: d.driverName
+        }));
+
+      mergeModal.target.innerHTML = options.map(o => {
+        const label = `${o.name}  —  (${o.canonicalKey})`;
+        // default select itself? better: select itself, steward chooses the other one.
+        const selected = (o.canonicalKey === row.canonicalKey) ? "selected" : "";
+        return `<option value="${escapeHtml(o.canonicalKey)}" ${selected}>${escapeHtml(label)}</option>`;
+      }).join("");
+
+      mergeModal.pending = async () => saveAliasMerge(sourceAliasKey, row.driverName);
+      mergeModal.overlay.classList.add("show");
+      mergeModal.overlay.setAttribute("aria-hidden","false");
+      mergeModal.cancel.focus();
+    }
+
+    mergeModal.cancel.onclick = closeMergeModal;
+    mergeModal.close.onclick = closeMergeModal;
+    mergeModal.overlay.addEventListener("click",(e)=>{ if (e.target === mergeModal.overlay) closeMergeModal(); });
+    document.addEventListener("keydown",(e)=>{ if (e.key==="Escape" && mergeModal.overlay.classList.contains("show")) closeMergeModal(); });
+
+    mergeModal.confirm.onclick = async ()=>{
+      if (!mergeModal.pending) return closeMergeModal();
+      try{
+        mergeModal.confirm.disabled = true;
+        await mergeModal.pending();
+        closeMergeModal();
+      }catch(err){
+        console.error(err);
+        toast("Merge failed:\n" + (err?.message || err));
+        mergeModal.confirm.disabled = false;
+      }
+    };
+
+    async function saveAliasMerge(sourceAliasKey, sourceDisplayName){
+      if (!canSteward) return toast("Access denied.");
+      const targetCanonicalKey = (mergeModal.target.value || "").trim();
+      if (!targetCanonicalKey) return toast("Pick a merge target.");
+
+      // Prevent silly self-alias loop (aliasKey -> same canonicalKey is still okay, but pointless)
+      // We allow it, but warn.
+      const customName = (mergeModal.canonicalName.value || "").trim();
+
+      // Find target row for name
+      const targetRow = driverRows.find(r => r.canonicalKey === targetCanonicalKey);
+      const canonicalName = customName || (targetRow ? targetRow.driverName : "");
+
+      const ref = db.collection("driverAliases").doc(sourceAliasKey);
+      await ref.set({
+        aliasKey: sourceAliasKey,
+        canonicalKey: targetCanonicalKey,
+        canonicalName: canonicalName || sourceDisplayName || sourceAliasKey,
+        updatedBy: currentEmail,
+        updatedAt: serverNow()
+      }, { merge: true });
+
+      toast("Merge saved ✅ Recomputing…");
+      await loadAliases();
+      recomputeFromCache();
+    }
+
+    async function clearAliasMerge(aliasKey){
+      if (!canSteward) return toast("Access denied.");
+      if (!aliasKey) return;
+
+      try{
+        await db.collection("driverAliases").doc(aliasKey).delete();
+        toast("Merge cleared ✅ Recomputing…");
+        await loadAliases();
+        recomputeFromCache();
+      }catch(err){
+        console.error(err);
+        toast("Clear failed:\n" + (err?.message || err));
+      }
+    }
+
+    async function loadAliases(){
+      aliasMap = {};
+      try{
+        const snap = await db.collection("driverAliases").limit(2000).get();
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          aliasMap[doc.id] = {
+            canonicalKey: d.canonicalKey || "",
+            canonicalName: d.canonicalName || "",
+            updatedBy: d.updatedBy || "",
+            updatedAt: d.updatedAt || null
+          };
+        });
+      }catch(e){
+        console.warn("driverAliases load failed:", e);
+      }
+      $("aliasPill").textContent = `Aliases: ${Object.keys(aliasMap).length}`;
+    }
+
+    // ---------- Render / aggregation ----------
     function matchesSearchDriver(row, q){
       if (!q) return true;
       const s = q.toLowerCase().trim();
@@ -667,33 +872,28 @@
       const q = ($("search").value || "").trim();
 
       let rows = driverRows.slice();
-
-      if (mode !== "all"){
-        rows = rows.filter(r => r.tls.key === mode);
-      }
+      if (mode !== "all") rows = rows.filter(r => r.tls.key === mode);
       rows = rows.filter(r => matchesSearchDriver(r, q));
 
-      // sort: Red first, then seconds desc
       const rank = { red: 3, amber: 2, green: 1, none: 0 };
-      rows.sort((a,b) => {
+      rows.sort((a,b)=>{
         const ra = rank[a.tls.key] ?? 0;
         const rb = rank[b.tls.key] ?? 0;
         if (rb !== ra) return rb - ra;
-        return (b.totalSeconds - a.totalSeconds);
+        return b.totalSeconds - a.totalSeconds;
       });
 
       $("countPill").innerHTML = `Drivers: <strong>${rows.length}</strong>`;
-      $("hint").textContent = `Showing ${rows.length} driver(s). (Sorted by TLS severity, then total seconds)`;
 
       const range = getSelectedRange();
       $("rangePill").textContent = `Range: ${range.label}`;
+      $("hint").textContent = `Showing ${rows.length} driver(s). (Sorted by TLS severity, then total seconds)`;
 
       for (const r of rows){
-        const key = normKey(r.driverName);
-        const act = actionsByDriver[key] || null;
+        const act = actionsByDriver[r.canonicalKey] || null;
 
         const actionCell = (r.tls.key === "red")
-          ? `<button class="primary" data-action="setAction" data-driver="${escapeHtml(r.driverName)}">Set action</button>`
+          ? `<button class="primary" data-action="tlsAction" data-key="${escapeHtml(r.canonicalKey)}">Set action</button>`
           : `<span class="muted">—</span>`;
 
         const actText = act?.action ? `<b>${escapeHtml(act.action)}</b>` : `<span class="muted">—</span>`;
@@ -702,14 +902,23 @@
           ? `${escapeHtml(act.updatedBy || "—")}<div class="muted">${escapeHtml(formatTimestamp(act.updatedAt) || "")}</div>`
           : `<span class="muted">—</span>`;
 
-        const lastTicketText = r.lastTicketAt
-          ? `${escapeHtml(formatTimestamp(r.lastTicketAt))}`
-          : "—";
-
+        const lastTicketText = r.lastTicketAt ? escapeHtml(formatTimestamp(r.lastTicketAt)) : "—";
         const recentEvents = (r.recentEvents || []).slice(0,3);
-        const recentEventsHtml = recentEvents.length
-          ? recentEvents.map(x => `<div>${escapeHtml(x)}</div>`).join("")
-          : `<span class="muted">—</span>`;
+        const recentEventsHtml = recentEvents.length ? recentEvents.map(x => `<div>${escapeHtml(x)}</div>`).join("") : `<span class="muted">—</span>`;
+
+        // Merge UI:
+        // We show the "primaryAliasKey" that feeds into this row (helpful for clearing/merging).
+        const hasRule = !!aliasMap[r.primaryAliasKey || ""];
+        const mergeButtons = `
+          <div class="row" style="gap:8px;">
+            <button data-action="merge" data-key="${escapeHtml(r.canonicalKey)}">Merge…</button>
+            ${hasRule ? `<button class="danger" data-action="clearMerge" data-alias="${escapeHtml(r.primaryAliasKey)}">Clear merge</button>` : ""}
+          </div>
+          <div class="muted" style="margin-top:6px;">
+            Key: <span class="mono">${escapeHtml(r.canonicalKey)}</span>
+            ${r.primaryAliasKey && r.primaryAliasKey !== r.canonicalKey ? `<div>Alias: <span class="mono">${escapeHtml(r.primaryAliasKey)}</span></div>` : ""}
+          </div>
+        `;
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -720,6 +929,7 @@
           <td>${escapeHtml(String(r.dqCount))}</td>
           <td>${lastTicketText}</td>
           <td>${recentEventsHtml}</td>
+          <td>${mergeButtons}</td>
           <td>${actionCell}<div class="muted" style="margin-top:6px;">${r.tls.key === "red" ? "Action required" : "No action required"}</div></td>
           <td>${actText}<div class="muted" style="margin-top:6px;">${noteText}</div></td>
           <td>${updText}</td>
@@ -727,93 +937,118 @@
         tbody.appendChild(tr);
       }
 
-      tbody.querySelectorAll("button[data-action='setAction']").forEach(btn => {
-        btn.onclick = () => {
-          const driver = btn.getAttribute("data-driver") || "";
-          const row = driverRows.find(x => normKey(x.driverName) === normKey(driver));
-          if (!row) return;
-          openActionModal(row);
+      // Bind buttons
+      tbody.querySelectorAll("button[data-action]").forEach(btn=>{
+        btn.onclick = ()=>{
+          const action = btn.getAttribute("data-action");
+
+          if (action === "tlsAction"){
+            const key = btn.getAttribute("data-key");
+            const row = driverRows.find(x => x.canonicalKey === key);
+            if (!row) return;
+            openActionModal(row);
+            return;
+          }
+
+          if (action === "merge"){
+            const key = btn.getAttribute("data-key");
+            const row = driverRows.find(x => x.canonicalKey === key);
+            if (!row) return;
+            openMergeModal(row);
+            return;
+          }
+
+          if (action === "clearMerge"){
+            const alias = btn.getAttribute("data-alias");
+            if (!alias) return;
+            clearAliasMerge(alias);
+            return;
+          }
         };
       });
     }
 
     function recomputeFromCache(){
       const range = getSelectedRange();
+      const byCanonical = {};
+      let considered = 0;
 
-      const byDriver = {};
-      let consideredTickets = 0;
+      for (const t of allTicketsCache){
+        if (!isFinalised(t.status)) continue;
+        if (!inRange(t.timestamp, range)) continue;
 
-      for (const x of allTicketsCache){
-        // date filter
-        if (!inRange(x.timestamp, range)) continue;
+        const accusedRaw = String(t.accused || "").trim();
+        if (!accusedRaw) continue;
 
-        const status = x.status || "";
-        if (!isFinalised(status)) continue;
+        // Auto-normalise to aliasKey, then resolve via alias rules
+        const aliasKey = normaliseAccusedToAliasKey(accusedRaw);
+        const resolved = resolveCanonical(aliasKey, accusedRaw);
 
-        const accused = String(x.accused || "").trim();
-        if (!accused) continue;
+        const canonicalKey = resolved.canonicalKey;
+        const canonicalName = resolved.canonicalName;
 
-        const info = ticketPenaltyInfo({
-          postRaceCode: x.postRaceCode || "",
-          ruleBreach: x.ruleBreach || ""
-        });
-
-        const key = normKey(accused);
-        if (!byDriver[key]){
-          byDriver[key] = {
-            driverName: accused,
+        if (!byCanonical[canonicalKey]){
+          byCanonical[canonicalKey] = {
+            canonicalKey,
+            driverName: canonicalName,
+            // Keep the primary aliasKey we saw first (useful for steward merging/clearing)
+            primaryAliasKey: aliasKey,
             totalSeconds: 0,
             ticketCount: 0,
             dqCount: 0,
-            lastTicketAt: x.timestamp || null,
+            lastTicketAt: t.timestamp || null,
             recentEvents: [],
             recentCompetitions: []
           };
         }
 
-        byDriver[key].totalSeconds += (info.seconds || 0);
-        if (info.dq) byDriver[key].dqCount += 1;
-        byDriver[key].ticketCount += 1;
-
-        const cur = timestampMs(byDriver[key].lastTicketAt);
-        const nxt = timestampMs(x.timestamp);
-        if (nxt > cur) byDriver[key].lastTicketAt = x.timestamp || byDriver[key].lastTicketAt;
-
-        const ev = String(x.event || "").trim();
-        if (ev && !byDriver[key].recentEvents.includes(ev)){
-          byDriver[key].recentEvents.unshift(ev);
-          if (byDriver[key].recentEvents.length > 6) byDriver[key].recentEvents.length = 6;
+        // If we didn’t have a nicer name yet, update it
+        if (!byCanonical[canonicalKey].driverName && canonicalName){
+          byCanonical[canonicalKey].driverName = canonicalName;
         }
 
-        const comp = String(x.competition || "").trim();
-        if (comp && !byDriver[key].recentCompetitions.includes(comp)){
-          byDriver[key].recentCompetitions.unshift(comp);
-          if (byDriver[key].recentCompetitions.length > 6) byDriver[key].recentCompetitions.length = 6;
+        const info = ticketPenaltyInfo(t);
+        byCanonical[canonicalKey].totalSeconds += (info.seconds || 0);
+        if (info.dq) byCanonical[canonicalKey].dqCount += 1;
+        byCanonical[canonicalKey].ticketCount += 1;
+
+        const cur = timestampMs(byCanonical[canonicalKey].lastTicketAt);
+        const nxt = timestampMs(t.timestamp);
+        if (nxt > cur) byCanonical[canonicalKey].lastTicketAt = t.timestamp || byCanonical[canonicalKey].lastTicketAt;
+
+        const ev = String(t.event || "").trim();
+        if (ev && !byCanonical[canonicalKey].recentEvents.includes(ev)){
+          byCanonical[canonicalKey].recentEvents.unshift(ev);
+          if (byCanonical[canonicalKey].recentEvents.length > 6) byCanonical[canonicalKey].recentEvents.length = 6;
         }
 
-        consideredTickets += 1;
+        const comp = String(t.competition || "").trim();
+        if (comp && !byCanonical[canonicalKey].recentCompetitions.includes(comp)){
+          byCanonical[canonicalKey].recentCompetitions.unshift(comp);
+          if (byCanonical[canonicalKey].recentCompetitions.length > 6) byCanonical[canonicalKey].recentCompetitions.length = 6;
+        }
+
+        considered += 1;
       }
 
-      driverRows = Object.values(byDriver).map(r => ({ ...r, tls: tlsFromSeconds(r.totalSeconds) }));
+      driverRows = Object.values(byCanonical).map(r => ({ ...r, tls: tlsFromSeconds(r.totalSeconds) }));
 
-      const rangeLabel = range.label;
-      $("hint").textContent = `Computed TLS from ${consideredTickets} finalised ticket(s) within: ${rangeLabel}.`;
+      $("hint").textContent = `Computed TLS from ${considered} finalised ticket(s) within: ${range.label}.`;
       render();
-      toast("Range applied ✅");
+      toast("Recomputed ✅");
     }
 
     async function loadEverything(){
       try{
         $("tbody").innerHTML = "";
         $("countPill").textContent = "Loading…";
-        $("hint").textContent = "Loading tickets + TLS totals…";
+        $("hint").textContent = "Loading tickets, aliases, and TLS totals…";
 
-        await loadActions();
+        await Promise.all([ loadAliases(), loadActions() ]);
 
-        // NOTE: same as before; increase if needed, or we can add pagination.
+        // If you ever exceed 2000 tickets, we can add pagination (still single HTML).
         const snap = await db.collection("tickets").limit(2000).get();
-
-        allTicketsCache = snap.docs.map(doc => {
+        allTicketsCache = snap.docs.map(doc=>{
           const x = doc.data() || {};
           return {
             id: doc.id,
@@ -882,7 +1117,7 @@
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
 
-          $("welcomeLine").textContent = `Welcome, ${niceName}. Filter TLS by season or rolling date ranges.`;
+          $("welcomeLine").textContent = `Welcome, ${niceName}. Use Merge to combine duplicate driver name variants.`;
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
           $("permPill").textContent = "Permissions: Steward";
 
