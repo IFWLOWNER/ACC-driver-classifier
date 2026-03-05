@@ -82,7 +82,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1300px;
+      min-width:1400px;
     }
     th, td{
       padding:10px;
@@ -195,7 +195,7 @@
       header{flex-direction:column; align-items:stretch;}
       header .row{width:100%;}
       header button{width:100%;}
-      table{min-width:1100px;}
+      table{min-width:1200px;}
     }
   </style>
 </head>
@@ -236,10 +236,22 @@
             <strong>Amber ≥45s</strong>,
             <strong>Red ≥60s</strong>
           </span>
+          <span class="pill" id="rangePill">Range: …</span>
         </div>
 
         <div class="row">
-          <label class="muted" style="margin-right:6px;">Show</label>
+          <label class="muted" style="margin-right:6px;">Range</label>
+          <select id="dateRange">
+            <option value="all" selected>All time</option>
+            <option value="season1">Season 1 (Jan 13 2026 → Mar 30 2026)</option>
+            <option value="season2">Season 2 (Apr 14 2026 → Jun 29 2026)</option>
+            <option value="last10">Last 10 days</option>
+            <option value="last20">Last 20 days</option>
+            <option value="last30">Last 30 days</option>
+            <option value="last90">Last 90 days</option>
+          </select>
+
+          <label class="muted" style="margin-left:6px;margin-right:6px;">Show</label>
           <select id="filterMode">
             <option value="all" selected>All drivers</option>
             <option value="red">Red (Action required)</option>
@@ -253,10 +265,8 @@
       </div>
 
       <div class="muted" style="margin-top:8px;">
-        This page totals each driver’s penalty seconds across all tickets in Firestore.
-        Penalties are derived from your existing post-race code / rule breach parsing:
-        seconds in brackets like <span class="mono">(15s)</span>, then RP codes, with <span class="mono">SG30</span> treated as <b>30s</b>.
-        <b>NFA</b> counts as 0 seconds. <b>DQ</b> is flagged separately.
+        TLS totals are calculated from tickets in Firestore inside the selected date range (based on ticket <span class="mono">timestamp</span>).
+        Only <b>finalised</b> tickets (Finalised/Finalized/Closed/Resolved) are counted.
       </div>
 
       <div class="tableWrap">
@@ -315,7 +325,7 @@
 
         <div style="margin-top:12px;">
           <div class="muted" style="margin-bottom:6px;">Note (optional)</div>
-          <textarea id="modalNote" placeholder="Add context for the action (e.g. length of ban, reason, link to steward report)…"></textarea>
+          <textarea id="modalNote" placeholder="Add context (e.g. length of ban, reason, links)…"></textarea>
         </div>
       </div>
 
@@ -376,7 +386,57 @@
       }catch{ return 0; }
     }
 
-    // RP code -> penalty fallback (matches your existing page)
+    // Build local date boundaries in the browser's local timezone (user is Europe/London).
+    function startOfDayLocal(yyyy, mm, dd){ // mm is 1-12
+      return new Date(yyyy, mm - 1, dd, 0, 0, 0, 0).getTime();
+    }
+    function endOfDayLocal(yyyy, mm, dd){
+      return new Date(yyyy, mm - 1, dd, 23, 59, 59, 999).getTime();
+    }
+    function fmtDateShort(ms){
+      try{
+        const d = new Date(ms);
+        return d.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"2-digit" });
+      }catch{
+        return "";
+      }
+    }
+
+    function getSelectedRange(){
+      const v = $("dateRange").value;
+
+      // Seasons (inclusive)
+      if (v === "season1"){
+        const start = startOfDayLocal(2026, 1, 13);
+        const end   = endOfDayLocal(2026, 3, 30);
+        return { key: v, startMs: start, endMs: end, label: `Season 1 (${fmtDateShort(start)} → ${fmtDateShort(end)})` };
+      }
+      if (v === "season2"){
+        const start = startOfDayLocal(2026, 4, 14);
+        const end   = endOfDayLocal(2026, 6, 29);
+        return { key: v, startMs: start, endMs: end, label: `Season 2 (${fmtDateShort(start)} → ${fmtDateShort(end)})` };
+      }
+
+      // Rolling last N days (inclusive to now)
+      const now = Date.now();
+      if (v === "last10" || v === "last20" || v === "last30" || v === "last90"){
+        const n = parseInt(v.replace("last",""), 10);
+        const start = now - (n * 24 * 60 * 60 * 1000);
+        return { key: v, startMs: start, endMs: now, label: `Last ${n} days (${fmtDateShort(start)} → ${fmtDateShort(now)})` };
+      }
+
+      // All time
+      return { key: "all", startMs: null, endMs: null, label: "All time" };
+    }
+
+    function inRange(tsValue, range){
+      if (!range || range.key === "all") return true;
+      const ms = timestampMs(tsValue);
+      if (!ms) return false;
+      return ms >= range.startMs && ms <= range.endMs;
+    }
+
+    // RP code -> penalty fallback
     const rpPenaltyMap = {
       "RP1MI":"10s","RP1ST":"30s","RP1SE":"SG30",
       "RP2MI":"10s","RP2ST":"30s","RP2SE":"SG30",
@@ -399,18 +459,15 @@
 
       const up = src.toUpperCase();
 
-      // Explicit outcomes
       if (up.includes("NFA")) return { raw: "NFA", seconds: 0, dq: false, nfa: true, unknown: false };
       if (up.includes("DQ")) return { raw: "DQ", seconds: 0, dq: true, nfa: false, unknown: false };
 
-      // Seconds in brackets: (15s) / (15 s) / (15sec)
       const mSec = src.match(/\((\s*\d+\s*)(s|sec|secs|seconds)?\s*\)/i);
       if (mSec && mSec[1]) {
         const n = parseInt(String(mSec[1]).replace(/\D/g,""), 10);
         if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
       }
 
-      // RP code fallback
       const mRp = src.match(/\b(RP[0-9A-Z]+)\b/i);
       if (mRp && mRp[1]) {
         const code = String(mRp[1]).toUpperCase();
@@ -420,7 +477,6 @@
           return { raw: "DQ", seconds: 0, dq: true, nfa: false, unknown: false };
         }
 
-        // SG30 => 30 seconds
         if (String(mapped).toUpperCase() === "SG30"){
           return { raw: "SG30", seconds: 30, dq: false, nfa: false, unknown: false };
         }
@@ -431,18 +487,15 @@
           if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
         }
 
-        // If it's not a seconds value, treat as unknown (0s but visible in raw)
         return { raw: String(mapped).slice(0, 40), seconds: 0, dq: false, nfa: false, unknown: true };
       }
 
-      // Direct "10s" etc
       const mPlain = src.match(/\b(\d+)\s*s\b/i);
       if (mPlain && mPlain[1]){
         const n = parseInt(mPlain[1], 10);
         if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
       }
 
-      // SG30 anywhere
       if (up.includes("SG30")) return { raw: "SG30", seconds: 30, dq: false, nfa: false, unknown: false };
 
       return { raw: src.slice(0, 40), seconds: 0, dq: false, nfa: false, unknown: true };
@@ -467,19 +520,22 @@
 
     $("backBtn").onclick = () => window.location.href = "index.html";
     $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
-    $("refreshBtn").onclick = () => loadTLS();
+
+    $("refreshBtn").onclick = () => loadEverything();  // reload from DB
     $("filterMode").onchange = () => render();
     $("search").oninput = () => render();
 
+    // Range selector triggers recompute (no DB read)
+    $("dateRange").onchange = () => recomputeFromCache();
+
     // cached
-    let driverRows = [];      // computed drivers
-    let actionsByDriver = {}; // tlsActions cache
+    let allTicketsCache = [];  // raw ticket docs (finalised+timestamp etc)
+    let driverRows = [];       // computed drivers from cache + current range
+    let actionsByDriver = {};  // tlsActions cache
 
     // modal helpers
     const modal = {
       overlay: $("modalOverlay"),
-      title: $("modalTitle"),
-      subtitle: $("modalSubtitle"),
       meta: $("modalMeta"),
       action: $("modalAction"),
       note: $("modalNote"),
@@ -498,20 +554,17 @@
       modal.action.value = "Series Ban";
     }
 
-    function openActionModal({ driverName, totalSeconds, ticketCount, dqCount, tlsKey }){
-      const key = normKey(driverName);
+    function openActionModal(row){
+      const key = normKey(row.driverName);
       const existing = actionsByDriver[key] || null;
 
-      modal.title.textContent = "Record TLS action";
-      modal.subtitle.textContent = "Required for RED drivers (≥ 60s).";
-
-      const tls = tlsFromSeconds(totalSeconds);
+      const tls = tlsFromSeconds(row.totalSeconds);
       modal.meta.innerHTML = `
-        <div class="k">Driver</div><div class="v"><b>${escapeHtml(driverName)}</b></div>
+        <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
         <div class="k">TLS</div><div class="v"><span class="tag ${tls.className}">${tls.label}</span></div>
-        <div class="k">Total seconds</div><div class="v"><b>${escapeHtml(String(totalSeconds))}s</b></div>
-        <div class="k">Tickets counted</div><div class="v">${escapeHtml(String(ticketCount))}</div>
-        <div class="k">DQ flags</div><div class="v">${escapeHtml(String(dqCount))}</div>
+        <div class="k">Total seconds</div><div class="v"><b>${escapeHtml(String(row.totalSeconds))}s</b></div>
+        <div class="k">Tickets counted</div><div class="v">${escapeHtml(String(row.ticketCount))}</div>
+        <div class="k">DQ flags</div><div class="v">${escapeHtml(String(row.dqCount))}</div>
         <div class="k">Existing action</div><div class="v">${existing ? `<b>${escapeHtml(existing.action || "—")}</b>` : "—"}</div>
       `;
 
@@ -523,7 +576,7 @@
         modal.note.value = "";
       }
 
-      modal.pending = async () => saveTLSAction(driverName);
+      modal.pending = async () => saveTLSAction(row.driverName);
 
       modal.overlay.classList.add("show");
       modal.overlay.setAttribute("aria-hidden", "false");
@@ -573,7 +626,7 @@
       }, { merge: true });
 
       toast("TLS action saved ✅");
-      await loadActions(); // refresh cached actions
+      await loadActions();
       render();
     }
 
@@ -632,6 +685,9 @@
       $("countPill").innerHTML = `Drivers: <strong>${rows.length}</strong>`;
       $("hint").textContent = `Showing ${rows.length} driver(s). (Sorted by TLS severity, then total seconds)`;
 
+      const range = getSelectedRange();
+      $("rangePill").textContent = `Range: ${range.label}`;
+
       for (const r of rows){
         const key = normKey(r.driverName);
         const act = actionsByDriver[key] || null;
@@ -676,18 +732,77 @@
           const driver = btn.getAttribute("data-driver") || "";
           const row = driverRows.find(x => normKey(x.driverName) === normKey(driver));
           if (!row) return;
-          openActionModal({
-            driverName: row.driverName,
-            totalSeconds: row.totalSeconds,
-            ticketCount: row.ticketCount,
-            dqCount: row.dqCount,
-            tlsKey: row.tls.key
-          });
+          openActionModal(row);
         };
       });
     }
 
-    async function loadTLS(){
+    function recomputeFromCache(){
+      const range = getSelectedRange();
+
+      const byDriver = {};
+      let consideredTickets = 0;
+
+      for (const x of allTicketsCache){
+        // date filter
+        if (!inRange(x.timestamp, range)) continue;
+
+        const status = x.status || "";
+        if (!isFinalised(status)) continue;
+
+        const accused = String(x.accused || "").trim();
+        if (!accused) continue;
+
+        const info = ticketPenaltyInfo({
+          postRaceCode: x.postRaceCode || "",
+          ruleBreach: x.ruleBreach || ""
+        });
+
+        const key = normKey(accused);
+        if (!byDriver[key]){
+          byDriver[key] = {
+            driverName: accused,
+            totalSeconds: 0,
+            ticketCount: 0,
+            dqCount: 0,
+            lastTicketAt: x.timestamp || null,
+            recentEvents: [],
+            recentCompetitions: []
+          };
+        }
+
+        byDriver[key].totalSeconds += (info.seconds || 0);
+        if (info.dq) byDriver[key].dqCount += 1;
+        byDriver[key].ticketCount += 1;
+
+        const cur = timestampMs(byDriver[key].lastTicketAt);
+        const nxt = timestampMs(x.timestamp);
+        if (nxt > cur) byDriver[key].lastTicketAt = x.timestamp || byDriver[key].lastTicketAt;
+
+        const ev = String(x.event || "").trim();
+        if (ev && !byDriver[key].recentEvents.includes(ev)){
+          byDriver[key].recentEvents.unshift(ev);
+          if (byDriver[key].recentEvents.length > 6) byDriver[key].recentEvents.length = 6;
+        }
+
+        const comp = String(x.competition || "").trim();
+        if (comp && !byDriver[key].recentCompetitions.includes(comp)){
+          byDriver[key].recentCompetitions.unshift(comp);
+          if (byDriver[key].recentCompetitions.length > 6) byDriver[key].recentCompetitions.length = 6;
+        }
+
+        consideredTickets += 1;
+      }
+
+      driverRows = Object.values(byDriver).map(r => ({ ...r, tls: tlsFromSeconds(r.totalSeconds) }));
+
+      const rangeLabel = range.label;
+      $("hint").textContent = `Computed TLS from ${consideredTickets} finalised ticket(s) within: ${rangeLabel}.`;
+      render();
+      toast("Range applied ✅");
+    }
+
+    async function loadEverything(){
       try{
         $("tbody").innerHTML = "";
         $("countPill").textContent = "Loading…";
@@ -695,77 +810,24 @@
 
         await loadActions();
 
-        // NOTE: Firestore can require pagination beyond 500/1000 if you have loads of tickets.
-        // This uses a single read up to 2000. Increase if needed, but watch performance.
+        // NOTE: same as before; increase if needed, or we can add pagination.
         const snap = await db.collection("tickets").limit(2000).get();
 
-        // Aggregate
-        const byDriver = {}; // key -> aggregate
-        let consideredTickets = 0;
-
-        snap.forEach(doc => {
+        allTicketsCache = snap.docs.map(doc => {
           const x = doc.data() || {};
-          const status = x.status || "";
-          if (!isFinalised(status)) return;
-
-          const accused = String(x.accused || "").trim();
-          if (!accused) return;
-
-          const info = ticketPenaltyInfo({
+          return {
+            id: doc.id,
+            status: x.status || "",
+            accused: x.accused || "",
+            event: x.event || "",
+            competition: x.competition || "",
+            timestamp: x.timestamp || null,
             postRaceCode: x.postRaceCode || "",
             ruleBreach: x.ruleBreach || ""
-          });
-
-          const key = normKey(accused);
-          if (!byDriver[key]){
-            byDriver[key] = {
-              driverName: accused,
-              totalSeconds: 0,
-              ticketCount: 0,
-              dqCount: 0,
-              lastTicketAt: x.timestamp || null,
-              recentEvents: [],
-              recentCompetitions: []
-            };
-          }
-
-          // seconds sum
-          byDriver[key].totalSeconds += (info.seconds || 0);
-
-          // DQ count (flag only; does not add seconds)
-          if (info.dq) byDriver[key].dqCount += 1;
-
-          byDriver[key].ticketCount += 1;
-
-          // last ticket timestamp
-          const cur = timestampMs(byDriver[key].lastTicketAt);
-          const nxt = timestampMs(x.timestamp);
-          if (nxt > cur) byDriver[key].lastTicketAt = x.timestamp || byDriver[key].lastTicketAt;
-
-          // store recent events (unique-ish)
-          const ev = String(x.event || "").trim();
-          if (ev && !byDriver[key].recentEvents.includes(ev)){
-            byDriver[key].recentEvents.unshift(ev);
-            if (byDriver[key].recentEvents.length > 6) byDriver[key].recentEvents.length = 6;
-          }
-
-          const comp = String(x.competition || "").trim();
-          if (comp && !byDriver[key].recentCompetitions.includes(comp)){
-            byDriver[key].recentCompetitions.unshift(comp);
-            if (byDriver[key].recentCompetitions.length > 6) byDriver[key].recentCompetitions.length = 6;
-          }
-
-          consideredTickets += 1;
+          };
         });
 
-        // Build rows
-        driverRows = Object.values(byDriver).map(r => {
-          const tls = tlsFromSeconds(r.totalSeconds);
-          return { ...r, tls };
-        });
-
-        $("hint").textContent = `Computed TLS from ${consideredTickets} finalised ticket(s).`;
-        render();
+        recomputeFromCache();
         toast("TLS loaded ✅");
       }catch(e){
         console.error(e);
@@ -804,7 +866,6 @@
           const data = adminSnap.data() || {};
           const roleText = String(data.role || "").toLowerCase();
 
-          // Steward access: role contains "steward" or "head", or flags owner/headsteward.
           canSteward =
             roleText.includes("steward") ||
             roleText.includes("head") ||
@@ -821,11 +882,11 @@
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
 
-          $("welcomeLine").textContent = `Welcome, ${niceName}. This page flags drivers by total penalty seconds across all finalised tickets.`;
+          $("welcomeLine").textContent = `Welcome, ${niceName}. Filter TLS by season or rolling date ranges.`;
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
           $("permPill").textContent = "Permissions: Steward";
 
-          await loadTLS();
+          await loadEverything();
         }catch(e){
           console.error(e);
           toast("Auth/load error:\n" + (e?.message || e));
