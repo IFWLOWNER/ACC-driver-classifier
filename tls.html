@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IFWL TLS — Driver Traffic Light System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      margin:0;
+      background:
+        linear-gradient(rgba(2,6,23,0.72), rgba(2,6,23,0.72)),
+        url("./ifwl_bg.webp");
+      background-size:cover;
+      background-position:center;
+      background-attachment:fixed;
+    }
+
+    header{
+      padding:14px 18px;
+      background:#111827;
+      color:#fff;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .brand{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      min-width:0;
+    }
+    .brand img{
+      width:38px;height:38px;object-fit:contain;margin-top:2px;flex:0 0 auto;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+    }
+    .brandText{min-width:0;}
+    header .small{font-size:12px;opacity:0.85;margin-top:4px;line-height:1.2;word-break:break-word;}
+    .welcomeLine{font-size:12px;opacity:0.95;margin-top:6px;line-height:1.25;}
+
+    .wrap{padding:14px; display:grid; grid-template-columns: 1fr; gap:14px;}
+
+    .card{
+      background:rgba(255,255,255,0.92);
+      border:1px solid rgba(229,231,235,0.95);
+      border-radius:12px;
+      padding:12px;
+      box-shadow:0 10px 28px rgba(0,0,0,0.18);
+    }
+
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+    .title{font-weight:800; font-size:16px; margin:0;}
+    .muted{color:#6b7280; font-size:12px;}
+
+    button{padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer;}
+    button.primary{background:#111827;color:#fff;border-color:#111827;}
+    button:disabled{opacity:0.6;cursor:not-allowed;}
+
+    select, input, textarea{
+      padding:10px; border:1px solid #d1d5db; border-radius:12px;
+      box-sizing:border-box; font-size:16px; background:#fff;
+    }
+    textarea{min-height:84px; resize:vertical;}
+
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:4px 10px; border-radius:999px;
+      border:1px solid #e5e7eb; background:#fff;
+      font-size:12px; color:#111827; white-space:nowrap;
+    }
+    .pill strong{font-weight:900;}
+
+    .tableWrap{
+      overflow:auto;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      margin-top:10px;
+    }
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:1300px;
+    }
+    th, td{
+      padding:10px;
+      border-bottom:1px solid #f3f4f6;
+      font-size:13px;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      position:sticky;
+      top:0;
+      background:#f9fafb;
+      z-index:2;
+      font-size:12px;
+      color:#111827;
+      border-bottom:1px solid #e5e7eb;
+      white-space:nowrap;
+    }
+    tr:last-child td{border-bottom:0;}
+
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
+    a{color:#111827;}
+    a:hover{opacity:0.85;}
+
+    .tag{
+      display:inline-block;
+      padding:3px 10px;
+      border-radius:999px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .tag.green{border-color:#86efac;background:#ecfdf5;color:#065f46;}
+    .tag.amber{border-color:#fde68a;background:#fffbeb;color:#92400e;}
+    .tag.red{border-color:#fca5a5;background:#fef2f2;color:#991b1b;}
+    .tag.none{border-color:#d1d5db;background:#f9fafb;color:#111827;}
+
+    .toast{
+      position:fixed; right:16px; bottom:16px;
+      background:#111827; color:#fff;
+      padding:10px 12px; border-radius:12px;
+      opacity:0; transform: translateY(8px);
+      transition: all .18s ease;
+      z-index:9999;
+      max-width: min(520px, calc(100vw - 32px));
+      white-space: pre-wrap;
+    }
+    .toast.show{opacity:1; transform: translateY(0);}
+
+    /* Modal */
+    .modalOverlay{
+      position:fixed;
+      inset:0;
+      background:rgba(2,6,23,0.72);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      z-index:9998;
+    }
+    .modalOverlay.show{display:flex;}
+    .modal{
+      width:min(640px, 100%);
+      background:#fff;
+      border-radius:16px;
+      border:1px solid #e5e7eb;
+      box-shadow:0 18px 48px rgba(0,0,0,0.30);
+      overflow:hidden;
+    }
+    .modalHeader{
+      padding:12px 14px;
+      background:#111827;
+      color:#fff;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .modalTitle{
+      font-weight:900;
+      font-size:14px;
+      line-height:1.2;
+      margin:0;
+    }
+    .modalBody{padding:14px;}
+    .modalBody p{margin:0 0 10px 0; font-size:13px; color:#111827;}
+    .modalFooter{
+      padding:12px 14px;
+      background:#f9fafb;
+      border-top:1px solid #e5e7eb;
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .miniGrid{
+      display:grid;
+      grid-template-columns: 160px 1fr;
+      gap:8px 10px;
+      margin-top:10px;
+      font-size:13px;
+    }
+    .miniGrid .k{color:#6b7280; font-size:12px;}
+    .miniGrid .v{color:#111827;}
+
+    @media (max-width: 980px){
+      body{background-attachment:scroll;}
+      header{flex-direction:column; align-items:stretch;}
+      header .row{width:100%;}
+      header button{width:100%;}
+      table{min-width:1100px;}
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">
+      <img src="./ifwl_logo.png" alt="IFWL logo" />
+      <div class="brandText">
+        <div style="font-weight:800; font-size:18px;">IFWL TLS — Driver Traffic Light System</div>
+        <div class="welcomeLine" id="welcomeLine">Loading your profile…</div>
+        <div class="small" id="who">Loading…</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="backBtn">Back to Classifier</button>
+      <button id="logoutBtn">Sign out</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div class="title">Driver TLS Overview</div>
+        <div class="row">
+          <button id="refreshBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px; justify-content:space-between;">
+        <div class="row">
+          <span class="pill" id="countPill">Loading…</span>
+          <span class="pill" id="permPill">Permissions: …</span>
+          <span class="pill" id="rulesPill">
+            Rules:
+            <strong>Green ≥15s</strong>,
+            <strong>Amber ≥45s</strong>,
+            <strong>Red ≥60s</strong>
+          </span>
+        </div>
+
+        <div class="row">
+          <label class="muted" style="margin-right:6px;">Show</label>
+          <select id="filterMode">
+            <option value="all" selected>All drivers</option>
+            <option value="red">Red (Action required)</option>
+            <option value="amber">Amber</option>
+            <option value="green">Green</option>
+            <option value="none">Under 15s</option>
+          </select>
+
+          <input id="search" placeholder="Search driver / event / competition…" style="min-width:320px;">
+        </div>
+      </div>
+
+      <div class="muted" style="margin-top:8px;">
+        This page totals each driver’s penalty seconds across all tickets in Firestore.
+        Penalties are derived from your existing post-race code / rule breach parsing:
+        seconds in brackets like <span class="mono">(15s)</span>, then RP codes, with <span class="mono">SG30</span> treated as <b>30s</b>.
+        <b>NFA</b> counts as 0 seconds. <b>DQ</b> is flagged separately.
+      </div>
+
+      <div class="tableWrap">
+        <table aria-label="TLS drivers table">
+          <thead>
+            <tr>
+              <th>TLS</th>
+              <th>Driver</th>
+              <th>Total seconds</th>
+              <th>Tickets counted</th>
+              <th>DQ flags</th>
+              <th>Last ticket</th>
+              <th>Recent events (up to 3)</th>
+              <th>Action (Red)</th>
+              <th>Action note</th>
+              <th>Last updated</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="muted" style="margin-top:8px;" id="hint">—</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Saved</div>
+
+  <!-- Action Modal -->
+  <div class="modalOverlay" id="modalOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modalHeader">
+        <div>
+          <div class="modalTitle" id="modalTitle">Record TLS action</div>
+          <div class="muted" id="modalSubtitle" style="color:rgba(255,255,255,0.85); margin-top:4px;"></div>
+        </div>
+        <button id="modalCloseBtn" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modalBody">
+        <p class="muted" style="margin-top:0;">
+          This records the steward action for this driver in Firestore collection <span class="mono">tlsActions</span>.
+        </p>
+
+        <div class="miniGrid" id="modalMeta"></div>
+
+        <div style="margin-top:12px;">
+          <div class="muted" style="margin-bottom:6px;">Action</div>
+          <select id="modalAction">
+            <option value="Series Ban">Series Ban</option>
+            <option value="NFA">NFA</option>
+            <option value="Race DQ">Race DQ</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div class="muted" style="margin-bottom:6px;">Note (optional)</div>
+          <textarea id="modalNote" placeholder="Add context for the action (e.g. length of ban, reason, link to steward report)…"></textarea>
+        </div>
+      </div>
+
+      <div class="modalFooter">
+        <button id="modalCancelBtn">Cancel</button>
+        <button id="modalConfirmBtn" class="primary">Save action</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="./firebase-init.js"></script>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const toastEl = $("toast");
+    function toast(msg){
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 2200);
+    }
+
+    function escapeHtml(s){ return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+    function normKey(s){
+      return String(s || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replaceAll("/", "_")
+        .replaceAll("\\", "_");
+    }
+
+    function isFinalised(status){
+      const s = (status || "").trim().toUpperCase();
+      return s === "FINALISED" || s === "FINALIZED" || s === "CLOSED" || s === "RESOLVED";
+    }
+
+    function formatTimestamp(v){
+      try{
+        if (!v) return "";
+        if (v.toDate) return v.toDate().toLocaleString();
+        const d = new Date(v);
+        if (!isNaN(d.getTime())) return d.toLocaleString();
+      }catch{}
+      return "";
+    }
+    function timestampMs(v){
+      try{
+        if (!v) return 0;
+        if (v.toDate) return v.toDate().getTime();
+        const d = new Date(v);
+        const ms = d.getTime();
+        return isNaN(ms) ? 0 : ms;
+      }catch{ return 0; }
+    }
+
+    // RP code -> penalty fallback (matches your existing page)
+    const rpPenaltyMap = {
+      "RP1MI":"10s","RP1ST":"30s","RP1SE":"SG30",
+      "RP2MI":"10s","RP2ST":"30s","RP2SE":"SG30",
+      "RP3MI":"5s","RP3ST":"15s","RP3SE":"SG30",
+      "RP4MI":"30s","RP4ST":"SG30","RP4SE":"DQ",
+      "RP5MI":"5s","RP5ST":"15s","RP5SE":"30s",
+      "RP6MI":"5s","RP6ST":"30s","RP6SE":"SG30",
+      "RP7MI":"10s","RP7ST":"30s","RP7SE":"SG30",
+      "RP8MI":"5s","RP8ST":"15s","RP8SE":"SG30",
+      "RP9MI":"5s","RP9ST":"15s","RP9SE":"SG30",
+      "RP10MI":"10s","RP10ST":"10s","RP10SE":"10s",
+      "RP11MI":"DQ","RP11ST":"DQ","RP11SE":"DQ",
+      "RP12MI":"10s","RP12ST":"20s","RP12SV":"30s",
+      "RP13MI":"10s","RP13ST":"30s","RP13SV":"DQ"
+    };
+
+    function parsePenaltyFromText(text){
+      const src = String(text || "").trim();
+      if (!src) return { raw: "-", seconds: 0, dq: false, nfa: false, unknown: false };
+
+      const up = src.toUpperCase();
+
+      // Explicit outcomes
+      if (up.includes("NFA")) return { raw: "NFA", seconds: 0, dq: false, nfa: true, unknown: false };
+      if (up.includes("DQ")) return { raw: "DQ", seconds: 0, dq: true, nfa: false, unknown: false };
+
+      // Seconds in brackets: (15s) / (15 s) / (15sec)
+      const mSec = src.match(/\((\s*\d+\s*)(s|sec|secs|seconds)?\s*\)/i);
+      if (mSec && mSec[1]) {
+        const n = parseInt(String(mSec[1]).replace(/\D/g,""), 10);
+        if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
+      }
+
+      // RP code fallback
+      const mRp = src.match(/\b(RP[0-9A-Z]+)\b/i);
+      if (mRp && mRp[1]) {
+        const code = String(mRp[1]).toUpperCase();
+        const mapped = rpPenaltyMap[code] || code;
+
+        if (String(mapped).toUpperCase().includes("DQ")){
+          return { raw: "DQ", seconds: 0, dq: true, nfa: false, unknown: false };
+        }
+
+        // SG30 => 30 seconds
+        if (String(mapped).toUpperCase() === "SG30"){
+          return { raw: "SG30", seconds: 30, dq: false, nfa: false, unknown: false };
+        }
+
+        const m = String(mapped).match(/(\d+)\s*s/i);
+        if (m && m[1]){
+          const n = parseInt(m[1], 10);
+          if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
+        }
+
+        // If it's not a seconds value, treat as unknown (0s but visible in raw)
+        return { raw: String(mapped).slice(0, 40), seconds: 0, dq: false, nfa: false, unknown: true };
+      }
+
+      // Direct "10s" etc
+      const mPlain = src.match(/\b(\d+)\s*s\b/i);
+      if (mPlain && mPlain[1]){
+        const n = parseInt(mPlain[1], 10);
+        if (!isNaN(n) && n > 0) return { raw: `${n}s`, seconds: n, dq: false, nfa: false, unknown: false };
+      }
+
+      // SG30 anywhere
+      if (up.includes("SG30")) return { raw: "SG30", seconds: 30, dq: false, nfa: false, unknown: false };
+
+      return { raw: src.slice(0, 40), seconds: 0, dq: false, nfa: false, unknown: true };
+    }
+
+    function ticketPenaltyInfo(ticket){
+      const prc = ticket.postRaceCode || "";
+      const rb  = ticket.ruleBreach || "";
+      return parsePenaltyFromText(prc || rb);
+    }
+
+    function tlsFromSeconds(totalSeconds){
+      if (totalSeconds >= 60) return { key: "red", label: "RED", className: "red" };
+      if (totalSeconds >= 45) return { key: "amber", label: "AMBER", className: "amber" };
+      if (totalSeconds >= 15) return { key: "green", label: "GREEN", className: "green" };
+      return { key: "none", label: "UNDER 15s", className: "none" };
+    }
+
+    // auth state
+    let currentEmail = "";
+    let canSteward = false;
+
+    $("backBtn").onclick = () => window.location.href = "index.html";
+    $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
+    $("refreshBtn").onclick = () => loadTLS();
+    $("filterMode").onchange = () => render();
+    $("search").oninput = () => render();
+
+    // cached
+    let driverRows = [];      // computed drivers
+    let actionsByDriver = {}; // tlsActions cache
+
+    // modal helpers
+    const modal = {
+      overlay: $("modalOverlay"),
+      title: $("modalTitle"),
+      subtitle: $("modalSubtitle"),
+      meta: $("modalMeta"),
+      action: $("modalAction"),
+      note: $("modalNote"),
+      cancelBtn: $("modalCancelBtn"),
+      confirmBtn: $("modalConfirmBtn"),
+      closeBtn: $("modalCloseBtn"),
+      pending: null
+    };
+
+    function closeModal(){
+      modal.pending = null;
+      modal.overlay.classList.remove("show");
+      modal.overlay.setAttribute("aria-hidden", "true");
+      modal.confirmBtn.disabled = false;
+      modal.note.value = "";
+      modal.action.value = "Series Ban";
+    }
+
+    function openActionModal({ driverName, totalSeconds, ticketCount, dqCount, tlsKey }){
+      const key = normKey(driverName);
+      const existing = actionsByDriver[key] || null;
+
+      modal.title.textContent = "Record TLS action";
+      modal.subtitle.textContent = "Required for RED drivers (≥ 60s).";
+
+      const tls = tlsFromSeconds(totalSeconds);
+      modal.meta.innerHTML = `
+        <div class="k">Driver</div><div class="v"><b>${escapeHtml(driverName)}</b></div>
+        <div class="k">TLS</div><div class="v"><span class="tag ${tls.className}">${tls.label}</span></div>
+        <div class="k">Total seconds</div><div class="v"><b>${escapeHtml(String(totalSeconds))}s</b></div>
+        <div class="k">Tickets counted</div><div class="v">${escapeHtml(String(ticketCount))}</div>
+        <div class="k">DQ flags</div><div class="v">${escapeHtml(String(dqCount))}</div>
+        <div class="k">Existing action</div><div class="v">${existing ? `<b>${escapeHtml(existing.action || "—")}</b>` : "—"}</div>
+      `;
+
+      if (existing){
+        modal.action.value = existing.action || "Series Ban";
+        modal.note.value = existing.note || "";
+      } else {
+        modal.action.value = "Series Ban";
+        modal.note.value = "";
+      }
+
+      modal.pending = async () => saveTLSAction(driverName);
+
+      modal.overlay.classList.add("show");
+      modal.overlay.setAttribute("aria-hidden", "false");
+      modal.cancelBtn.focus();
+    }
+
+    modal.cancelBtn.onclick = closeModal;
+    modal.closeBtn.onclick = closeModal;
+    modal.overlay.addEventListener("click", (e) => { if (e.target === modal.overlay) closeModal(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modal.overlay.classList.contains("show")) closeModal(); });
+
+    modal.confirmBtn.onclick = async () => {
+      if (!modal.pending) return closeModal();
+      try{
+        modal.confirmBtn.disabled = true;
+        await modal.pending();
+        closeModal();
+      }catch(err){
+        console.error(err);
+        toast("Save failed:\n" + (err?.message || err));
+        modal.confirmBtn.disabled = false;
+      }
+    };
+
+    function serverNow(){
+      return firebase.firestore.FieldValue.serverTimestamp();
+    }
+
+    async function saveTLSAction(driverName){
+      if (!canSteward){
+        toast("Access denied.");
+        return;
+      }
+      const key = normKey(driverName);
+      const ref = db.collection("tlsActions").doc(key);
+
+      const action = (modal.action.value || "").trim();
+      const note = (modal.note.value || "").trim();
+
+      await ref.set({
+        driverKey: key,
+        driverName: String(driverName || "").trim(),
+        action,
+        note,
+        updatedBy: currentEmail,
+        updatedAt: serverNow()
+      }, { merge: true });
+
+      toast("TLS action saved ✅");
+      await loadActions(); // refresh cached actions
+      render();
+    }
+
+    async function loadActions(){
+      actionsByDriver = {};
+      try{
+        const snap = await db.collection("tlsActions").limit(2000).get();
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          actionsByDriver[doc.id] = {
+            action: d.action || "",
+            note: d.note || "",
+            updatedBy: d.updatedBy || "",
+            updatedAt: d.updatedAt || null
+          };
+        });
+      }catch(e){
+        console.warn("tlsActions load failed:", e);
+      }
+    }
+
+    function matchesSearchDriver(row, q){
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const hay = [
+        row.driverName,
+        ...(row.recentEvents || []),
+        ...(row.recentCompetitions || [])
+      ].map(x => String(x || "").toLowerCase()).join(" | ");
+      return hay.includes(s);
+    }
+
+    function render(){
+      const tbody = $("tbody");
+      tbody.innerHTML = "";
+
+      const mode = $("filterMode").value;
+      const q = ($("search").value || "").trim();
+
+      let rows = driverRows.slice();
+
+      if (mode !== "all"){
+        rows = rows.filter(r => r.tls.key === mode);
+      }
+      rows = rows.filter(r => matchesSearchDriver(r, q));
+
+      // sort: Red first, then seconds desc
+      const rank = { red: 3, amber: 2, green: 1, none: 0 };
+      rows.sort((a,b) => {
+        const ra = rank[a.tls.key] ?? 0;
+        const rb = rank[b.tls.key] ?? 0;
+        if (rb !== ra) return rb - ra;
+        return (b.totalSeconds - a.totalSeconds);
+      });
+
+      $("countPill").innerHTML = `Drivers: <strong>${rows.length}</strong>`;
+      $("hint").textContent = `Showing ${rows.length} driver(s). (Sorted by TLS severity, then total seconds)`;
+
+      for (const r of rows){
+        const key = normKey(r.driverName);
+        const act = actionsByDriver[key] || null;
+
+        const actionCell = (r.tls.key === "red")
+          ? `<button class="primary" data-action="setAction" data-driver="${escapeHtml(r.driverName)}">Set action</button>`
+          : `<span class="muted">—</span>`;
+
+        const actText = act?.action ? `<b>${escapeHtml(act.action)}</b>` : `<span class="muted">—</span>`;
+        const noteText = act?.note ? escapeHtml(act.note) : `<span class="muted">—</span>`;
+        const updText = act
+          ? `${escapeHtml(act.updatedBy || "—")}<div class="muted">${escapeHtml(formatTimestamp(act.updatedAt) || "")}</div>`
+          : `<span class="muted">—</span>`;
+
+        const lastTicketText = r.lastTicketAt
+          ? `${escapeHtml(formatTimestamp(r.lastTicketAt))}`
+          : "—";
+
+        const recentEvents = (r.recentEvents || []).slice(0,3);
+        const recentEventsHtml = recentEvents.length
+          ? recentEvents.map(x => `<div>${escapeHtml(x)}</div>`).join("")
+          : `<span class="muted">—</span>`;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><span class="tag ${r.tls.className}">${r.tls.label}</span></td>
+          <td><b>${escapeHtml(r.driverName)}</b></td>
+          <td><b>${escapeHtml(String(r.totalSeconds))}s</b></td>
+          <td>${escapeHtml(String(r.ticketCount))}</td>
+          <td>${escapeHtml(String(r.dqCount))}</td>
+          <td>${lastTicketText}</td>
+          <td>${recentEventsHtml}</td>
+          <td>${actionCell}<div class="muted" style="margin-top:6px;">${r.tls.key === "red" ? "Action required" : "No action required"}</div></td>
+          <td>${actText}<div class="muted" style="margin-top:6px;">${noteText}</div></td>
+          <td>${updText}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      tbody.querySelectorAll("button[data-action='setAction']").forEach(btn => {
+        btn.onclick = () => {
+          const driver = btn.getAttribute("data-driver") || "";
+          const row = driverRows.find(x => normKey(x.driverName) === normKey(driver));
+          if (!row) return;
+          openActionModal({
+            driverName: row.driverName,
+            totalSeconds: row.totalSeconds,
+            ticketCount: row.ticketCount,
+            dqCount: row.dqCount,
+            tlsKey: row.tls.key
+          });
+        };
+      });
+    }
+
+    async function loadTLS(){
+      try{
+        $("tbody").innerHTML = "";
+        $("countPill").textContent = "Loading…";
+        $("hint").textContent = "Loading tickets + TLS totals…";
+
+        await loadActions();
+
+        // NOTE: Firestore can require pagination beyond 500/1000 if you have loads of tickets.
+        // This uses a single read up to 2000. Increase if needed, but watch performance.
+        const snap = await db.collection("tickets").limit(2000).get();
+
+        // Aggregate
+        const byDriver = {}; // key -> aggregate
+        let consideredTickets = 0;
+
+        snap.forEach(doc => {
+          const x = doc.data() || {};
+          const status = x.status || "";
+          if (!isFinalised(status)) return;
+
+          const accused = String(x.accused || "").trim();
+          if (!accused) return;
+
+          const info = ticketPenaltyInfo({
+            postRaceCode: x.postRaceCode || "",
+            ruleBreach: x.ruleBreach || ""
+          });
+
+          const key = normKey(accused);
+          if (!byDriver[key]){
+            byDriver[key] = {
+              driverName: accused,
+              totalSeconds: 0,
+              ticketCount: 0,
+              dqCount: 0,
+              lastTicketAt: x.timestamp || null,
+              recentEvents: [],
+              recentCompetitions: []
+            };
+          }
+
+          // seconds sum
+          byDriver[key].totalSeconds += (info.seconds || 0);
+
+          // DQ count (flag only; does not add seconds)
+          if (info.dq) byDriver[key].dqCount += 1;
+
+          byDriver[key].ticketCount += 1;
+
+          // last ticket timestamp
+          const cur = timestampMs(byDriver[key].lastTicketAt);
+          const nxt = timestampMs(x.timestamp);
+          if (nxt > cur) byDriver[key].lastTicketAt = x.timestamp || byDriver[key].lastTicketAt;
+
+          // store recent events (unique-ish)
+          const ev = String(x.event || "").trim();
+          if (ev && !byDriver[key].recentEvents.includes(ev)){
+            byDriver[key].recentEvents.unshift(ev);
+            if (byDriver[key].recentEvents.length > 6) byDriver[key].recentEvents.length = 6;
+          }
+
+          const comp = String(x.competition || "").trim();
+          if (comp && !byDriver[key].recentCompetitions.includes(comp)){
+            byDriver[key].recentCompetitions.unshift(comp);
+            if (byDriver[key].recentCompetitions.length > 6) byDriver[key].recentCompetitions.length = 6;
+          }
+
+          consideredTickets += 1;
+        });
+
+        // Build rows
+        driverRows = Object.values(byDriver).map(r => {
+          const tls = tlsFromSeconds(r.totalSeconds);
+          return { ...r, tls };
+        });
+
+        $("hint").textContent = `Computed TLS from ${consideredTickets} finalised ticket(s).`;
+        render();
+        toast("TLS loaded ✅");
+      }catch(e){
+        console.error(e);
+        toast("Load failed:\n" + (e?.message || e));
+      }
+    }
+
+    async function waitForFirebaseReady(maxMs = 8000){
+      const start = Date.now();
+      while (Date.now() - start < maxMs){
+        if (typeof auth !== "undefined" && typeof db !== "undefined" && auth && db) return true;
+        await new Promise(r => setTimeout(r, 80));
+      }
+      return false;
+    }
+
+    (async () => {
+      const ok = await waitForFirebaseReady();
+      if (!ok){
+        toast("Firebase not ready.\nCheck firebase-init.js path + console.");
+        return;
+      }
+
+      auth.onAuthStateChanged(async (user) => {
+        try{
+          if (!user){ window.location.href = "admin.html"; return; }
+          currentEmail = (user.email || "").toLowerCase().trim();
+
+          const adminSnap = await db.collection("admins").doc(currentEmail).get();
+          if (!adminSnap.exists){
+            await auth.signOut();
+            window.location.href = "admin.html";
+            return;
+          }
+
+          const data = adminSnap.data() || {};
+          const roleText = String(data.role || "").toLowerCase();
+
+          // Steward access: role contains "steward" or "head", or flags owner/headsteward.
+          canSteward =
+            roleText.includes("steward") ||
+            roleText.includes("head") ||
+            data.headsteward === true ||
+            data.owner === true;
+
+          if (!canSteward){
+            toast("Access denied (stewards only).");
+            await auth.signOut();
+            window.location.href = "admin.html";
+            return;
+          }
+
+          const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+          const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
+
+          $("welcomeLine").textContent = `Welcome, ${niceName}. This page flags drivers by total penalty seconds across all finalised tickets.`;
+          $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
+          $("permPill").textContent = "Permissions: Steward";
+
+          await loadTLS();
+        }catch(e){
+          console.error(e);
+          toast("Auth/load error:\n" + (e?.message || e));
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
