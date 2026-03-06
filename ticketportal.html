@@ -332,6 +332,7 @@
       justify-content: center;
       padding: 20px;
       z-index: 9999;
+      pointer-events: auto;
     }
     .modal-card {
       width: 100%;
@@ -341,6 +342,10 @@
       box-shadow: 0 18px 48px rgba(0,0,0,0.35);
       overflow: hidden;
       animation: modalPopIn 0.18s ease-out;
+      pointer-events: auto;
+    }
+    .modal-card * {
+      pointer-events: auto;
     }
     @keyframes modalPopIn {
       from {
@@ -650,7 +655,7 @@
 <!-- SUBMIT GUIDANCE MODAL -->
 <div id="submitGuidanceModal" class="modal-overlay hidden" aria-hidden="true">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="submitGuidanceTitle">
-    <div class="modal-header" id="submitGuidanceTitle">Before You Submit Your Ticket</div>
+    <div class="modal-header" id="submitGuidanceTitle">BEFORE YOU SUBMIT YOUR TICKET</div>
     <div class="modal-body">
       <div class="modal-image-wrap">
         <img src="ideal.webp" alt="Ideal stewarding camera angle example">
@@ -680,8 +685,8 @@
       </div>
 
       <div class="modal-actions">
-        <button type="button" id="cancelSubmitModalBtn" class="modal-cancel-btn">Go Back</button>
-        <button type="button" id="confirmSubmitModalBtn" class="modal-confirm-btn">Continue to Submit</button>
+        <button type="button" id="cancelSubmitModalBtn" class="modal-cancel-btn" onclick="window.closeSubmitGuidanceModal()">Go Back</button>
+        <button type="button" id="confirmSubmitModalBtn" class="modal-confirm-btn" onclick="window.submitTicketNow()">Continue to Submit</button>
       </div>
     </div>
   </div>
@@ -904,29 +909,30 @@
   // ==========================================================
   // Submit modal helpers
   // ==========================================================
-  function openSubmitGuidanceModal() {
+  window.openSubmitGuidanceModal = function () {
     submitGuidanceModal.classList.remove("hidden");
     submitGuidanceModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
-  }
+  };
 
-  function closeSubmitGuidanceModal() {
+  window.closeSubmitGuidanceModal = function () {
     submitGuidanceModal.classList.add("hidden");
     submitGuidanceModal.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
-  }
-
-  cancelSubmitModalBtn.addEventListener("click", closeSubmitGuidanceModal);
+    submitBtn.disabled = false;
+    confirmSubmitModalBtn.disabled = false;
+    cancelSubmitModalBtn.disabled = false;
+  };
 
   submitGuidanceModal.addEventListener("click", (e) => {
     if (e.target === submitGuidanceModal) {
-      closeSubmitGuidanceModal();
+      window.closeSubmitGuidanceModal();
     }
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !submitGuidanceModal.classList.contains("hidden")) {
-      closeSubmitGuidanceModal();
+      window.closeSubmitGuidanceModal();
     }
   });
 
@@ -1014,7 +1020,6 @@
 
   discordLoginBtn.addEventListener("click", startDiscordLogin);
 
-
   discordLogoutBtn.addEventListener("click", () => {
     clearDiscordUser();
     renderDiscordUserUI();
@@ -1027,7 +1032,6 @@
   let DRIVERS_CACHE = [];
 
   function extractNumbers(text){
-    // ✅ FIXED (no double escaping)
     const nums = String(text || "").match(/\d+/g);
     return nums ? nums.join("") : "";
   }
@@ -1038,7 +1042,6 @@
     const number = safeStr(driver.number || "");
     const numericFromFull = extractNumbers(full);
     const combined = `${full} ${name} ${number} ${numericFromFull}`.toLowerCase();
-    // ✅ FIXED (no double escaping)
     return combined.replace(/\s+/g, " ").trim();
   }
 
@@ -1050,9 +1053,7 @@
     return nm;
   }
 
-  // ✅ MISSING FUNCTION RESTORED (this was the reason login stopped)
   async function loadDriversCache() {
-    // Prefer drivers_v2 if it exists, fall back to drivers
     const collectionsToTry = ["drivers_v2", "drivers"];
     let rows = [];
 
@@ -1088,7 +1089,6 @@
       return driverObj;
     });
 
-    // Sort: numbered first (numeric), then non-numbered (alpha)
     const numbered = [];
     const unnumbered = [];
 
@@ -1347,17 +1347,19 @@
   // ==========================================================
   // SUBMIT TICKET (reporter = Discord nick)
   // ==========================================================
-  async function submitTicketNow() {
+  window.submitTicketNow = async function () {
     const discordUser = getDiscordUser();
     if (!discordUser) {
       statusMsg.textContent = "You must log in with Discord before submitting a ticket.";
       statusMsg.className = "status error";
+      window.closeSubmitGuidanceModal();
       showSection(discordLoginSection);
       return;
     }
     if (!validateNick(discordUser.nick)) {
       statusMsg.textContent = "Your IFWL Discord nickname must be: [drivernumber] - driver name. Please update it and log in again.";
       statusMsg.className = "status error";
+      window.closeSubmitGuidanceModal();
       showSection(discordLoginSection);
       return;
     }
@@ -1374,16 +1376,6 @@
 
     const reporter = safeStr(discordUser.nick);
     const competition = competitionSelect.value;
-
-    if (!competition) {
-      statusMsg.textContent = "Please select a competition.";
-      statusMsg.className = "status error";
-      submitBtn.disabled = false;
-      confirmSubmitModalBtn.disabled = false;
-      cancelSubmitModalBtn.disabled = false;
-      return;
-    }
-
     const summary = safeStr(fullIncident.value);
     const eventVal = eventSelect.value;
     const proofUrl = safeStr(proofUrlInput.value);
@@ -1395,7 +1387,7 @@
     const ruleBreach = ruleBreachSelect.value;
 
     const accusedValid = (accused && accused !== "__ADD_NEW__") || (accused === "__ADD_NEW__" && accusedNameManual);
-    if (!accusedValid || !summary) {
+    if (!competition || !accusedValid || !summary) {
       statusMsg.textContent = "Please fill in all required fields: Accused, Competition, Full Incident Summary.";
       statusMsg.className = "status error";
       submitBtn.disabled = false;
@@ -1404,7 +1396,6 @@
       return;
     }
 
-    // If accused is manual, add to Firestore (drivers_v2)
     if (accused === "__ADD_NEW__") {
       const fullNameBuilt = buildFullNameFromParts(accusedNumberManual, accusedNameManual);
       accused = fullNameBuilt;
@@ -1442,7 +1433,6 @@
       }
     }
 
-    // If new track chosen, add de-duped
     if (track === "__ADD_NEW__") {
       track = newTrackName;
       try {
@@ -1494,9 +1484,8 @@
       statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
       statusMsg.className = "status success";
 
-      closeSubmitGuidanceModal();
+      window.closeSubmitGuidanceModal();
 
-      // Clear accused UI
       document.getElementById("accusedSearch").value = "";
       accusedSelect.value = "";
       newDriverContainer.classList.add("hidden");
@@ -1505,7 +1494,6 @@
       document.getElementById("accusedResults").classList.add("hidden");
       document.getElementById("accusedResults").innerHTML = "";
 
-      // Clear rest
       fullIncident.value = "";
       eventSelect.value = "Practice";
       proofUrlInput.value = "";
@@ -1524,7 +1512,7 @@
       confirmSubmitModalBtn.disabled = false;
       cancelSubmitModalBtn.disabled = false;
     }
-  }
+  };
 
   submitBtn.addEventListener("click", async () => {
     const discordUser = getDiscordUser();
@@ -1555,11 +1543,7 @@
 
     statusMsg.textContent = "";
     statusMsg.className = "status";
-    openSubmitGuidanceModal();
-  });
-
-  confirmSubmitModalBtn.addEventListener("click", async () => {
-    await submitTicketNow();
+    window.openSubmitGuidanceModal();
   });
 
   // ==========================================================
@@ -1977,10 +1961,8 @@
   populateTrackDropdown();
   populateRegulationsDropdown();
 
-  // If we arrived from Discord with ?code=..., finish login:
   await finishDiscordLoginFromCodeIfPresent();
 
-  // Default landing
   renderDiscordUserUI();
   if (requireDiscordOrShowLogin()) {
     showSection(menuSection);
