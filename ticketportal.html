@@ -321,6 +321,97 @@
       background: rgba(0,0,0,0.12);
       margin: 14px 0;
     }
+
+    /* SUBMIT POPUP MODAL */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 9999;
+    }
+    .modal-card {
+      width: 100%;
+      max-width: 760px;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 18px 48px rgba(0,0,0,0.35);
+      overflow: hidden;
+      animation: modalPopIn 0.18s ease-out;
+    }
+    @keyframes modalPopIn {
+      from {
+        opacity: 0;
+        transform: scale(0.96) translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+    .modal-header {
+      background: #2A9D8F;
+      color: #fff;
+      padding: 18px 20px;
+      font-family: 'GoodTimesRG', serif;
+      font-size: 1rem;
+      letter-spacing: 0.4px;
+      text-align: center;
+    }
+    .modal-body {
+      padding: 22px;
+    }
+    .modal-image-wrap {
+      text-align: center;
+      margin-bottom: 18px;
+    }
+    .modal-image-wrap img {
+      max-width: 100%;
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid #ddd;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+      background: #f4f4f4;
+    }
+    .modal-copy {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #222;
+    }
+    .modal-copy strong {
+      color: #111;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    .modal-actions button {
+      flex: 1 1 220px;
+      width: auto;
+    }
+    .modal-cancel-btn {
+      background: #777;
+    }
+    .modal-confirm-btn {
+      background: #2A9D8F;
+    }
+
+    @media (max-width: 640px) {
+      .modal-body {
+        padding: 16px;
+      }
+      .modal-copy {
+        font-size: 14px;
+      }
+      .modal-actions {
+        flex-direction: column;
+      }
+    }
   </style>
 
   <!-- jsPDF UMD build for PDF generation -->
@@ -556,6 +647,46 @@
   <div id="adminTicketsContainer" style="overflow-x:auto;"></div>
 </div>
 
+<!-- SUBMIT GUIDANCE MODAL -->
+<div id="submitGuidanceModal" class="modal-overlay hidden" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="submitGuidanceTitle">
+    <div class="modal-header" id="submitGuidanceTitle">Before You Submit Your Ticket</div>
+    <div class="modal-body">
+      <div class="modal-image-wrap">
+        <img src="ideal.webp" alt="Ideal stewarding camera angle example">
+      </div>
+
+      <div class="modal-copy">
+        <p>
+          <strong>IFWL does not enforce a mandatory camera angle requirement</strong>, as our championships run across both
+          <strong>console and PC</strong> and we appreciate that not every driver has the same capture options available.
+        </p>
+
+        <p>
+          That said, our stewarding team strongly encourages drivers to provide as much detail as possible in the
+          <strong>incident summary</strong>, the <strong>video footage submitted</strong>, and any <strong>statements provided</strong>.
+        </p>
+
+        <p>
+          The image above shows the <strong>ideal replay/camera style</strong> for steward reviews, as it helps our team clearly see
+          steering, throttle, brake and general driver input behaviour. Where possible, we would greatly appreciate both the
+          <strong>reporting driver</strong> and the <strong>accused driver</strong> sharing footage from this type of view.
+        </p>
+
+        <p>
+          We fully understand this may not always be possible for every user — but in general,
+          <strong>the more information our stewards have, the better equipped they are to review each incident fairly and accurately.</strong>
+        </p>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" id="cancelSubmitModalBtn" class="modal-cancel-btn">Go Back</button>
+        <button type="button" id="confirmSubmitModalBtn" class="modal-confirm-btn">Continue to Submit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Patreon template -->
 <template id="patreonCallout">
   <div class="patreon-box">
@@ -664,6 +795,11 @@
   const submitBtn          = document.getElementById("submitBtn");
   const statusMsg          = document.getElementById("statusMsg");
 
+  // Submit modal elements
+  const submitGuidanceModal   = document.getElementById("submitGuidanceModal");
+  const cancelSubmitModalBtn  = document.getElementById("cancelSubmitModalBtn");
+  const confirmSubmitModalBtn = document.getElementById("confirmSubmitModalBtn");
+
   // Public view section
   const backFromViewBtn      = document.getElementById("backFromViewBtn");
   const ticketsListContainer = document.getElementById("ticketsListContainer");
@@ -764,6 +900,35 @@
     sectionEl.appendChild(node);
   }
   [discordLoginSection, menuSection, submitSection, viewSection, loginSection, adminSection].forEach(addPatreonCallout);
+
+  // ==========================================================
+  // Submit modal helpers
+  // ==========================================================
+  function openSubmitGuidanceModal() {
+    submitGuidanceModal.classList.remove("hidden");
+    submitGuidanceModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeSubmitGuidanceModal() {
+    submitGuidanceModal.classList.add("hidden");
+    submitGuidanceModal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+
+  cancelSubmitModalBtn.addEventListener("click", closeSubmitGuidanceModal);
+
+  submitGuidanceModal.addEventListener("click", (e) => {
+    if (e.target === submitGuidanceModal) {
+      closeSubmitGuidanceModal();
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !submitGuidanceModal.classList.contains("hidden")) {
+      closeSubmitGuidanceModal();
+    }
+  });
 
   // ==========================================================
   // Discord login flow (rtGate)
@@ -1182,7 +1347,7 @@
   // ==========================================================
   // SUBMIT TICKET (reporter = Discord nick)
   // ==========================================================
-  submitBtn.addEventListener("click", async () => {
+  async function submitTicketNow() {
     const discordUser = getDiscordUser();
     if (!discordUser) {
       statusMsg.textContent = "You must log in with Discord before submitting a ticket.";
@@ -1198,6 +1363,8 @@
     }
 
     submitBtn.disabled = true;
+    confirmSubmitModalBtn.disabled = true;
+    cancelSubmitModalBtn.disabled = true;
     statusMsg.textContent = "Submitting…";
     statusMsg.className = "status";
 
@@ -1212,6 +1379,8 @@
       statusMsg.textContent = "Please select a competition.";
       statusMsg.className = "status error";
       submitBtn.disabled = false;
+      confirmSubmitModalBtn.disabled = false;
+      cancelSubmitModalBtn.disabled = false;
       return;
     }
 
@@ -1230,46 +1399,48 @@
       statusMsg.textContent = "Please fill in all required fields: Accused, Competition, Full Incident Summary.";
       statusMsg.className = "status error";
       submitBtn.disabled = false;
+      confirmSubmitModalBtn.disabled = false;
+      cancelSubmitModalBtn.disabled = false;
       return;
     }
 
     // If accused is manual, add to Firestore (drivers_v2)
-if (accused === "__ADD_NEW__") {
-  const fullNameBuilt = buildFullNameFromParts(accusedNumberManual, accusedNameManual);
-  accused = fullNameBuilt;
+    if (accused === "__ADD_NEW__") {
+      const fullNameBuilt = buildFullNameFromParts(accusedNumberManual, accusedNameManual);
+      accused = fullNameBuilt;
 
-  try {
-    const cleanNumber = safeStr(accusedNumberManual);
-    const cleanName   = safeStr(accusedNameManual);
+      try {
+        const cleanNumber = safeStr(accusedNumberManual);
+        const cleanName   = safeStr(accusedNameManual);
 
-    const rawId = `${cleanNumber}|${cleanName}`.toLowerCase();
-    const docId = rawId
-      .replace(/\s+/g, "_")
-      .replace(/[^\w\-]/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 150) || `manual_${Date.now()}`;
+        const rawId = `${cleanNumber}|${cleanName}`.toLowerCase();
+        const docId = rawId
+          .replace(/\s+/g, "_")
+          .replace(/[^\w\-]/g, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 150) || `manual_${Date.now()}`;
 
-    await setDoc(
-      doc(db, "drivers_v2", docId),
-      {
-        discordUser: "",
-        discordNameRaw: fullNameBuilt,
-        fullName: fullNameBuilt,
-        key: rawId,
-        name: cleanName,
-        number: cleanNumber,
-        source: "manual",
-        updatedAt: serverTimestamp()
-      },
-      { merge: true }
-    );
+        await setDoc(
+          doc(db, "drivers_v2", docId),
+          {
+            discordUser: "",
+            discordNameRaw: fullNameBuilt,
+            fullName: fullNameBuilt,
+            key: rawId,
+            name: cleanName,
+            number: cleanNumber,
+            source: "manual",
+            updatedAt: serverTimestamp()
+          },
+          { merge: true }
+        );
 
-    await loadDriversCache();
-    populateHiddenSelect(accusedSelect, "Select a driver…");
-  } catch (err) {
-    console.error("Error adding new driver:", err);
-  }
-}
+        await loadDriversCache();
+        populateHiddenSelect(accusedSelect, "Select a driver…");
+      } catch (err) {
+        console.error("Error adding new driver:", err);
+      }
+    }
 
     // If new track chosen, add de-duped
     if (track === "__ADD_NEW__") {
@@ -1323,6 +1494,8 @@ if (accused === "__ADD_NEW__") {
       statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
       statusMsg.className = "status success";
 
+      closeSubmitGuidanceModal();
+
       // Clear accused UI
       document.getElementById("accusedSearch").value = "";
       accusedSelect.value = "";
@@ -1348,7 +1521,45 @@ if (accused === "__ADD_NEW__") {
       statusMsg.className = "status error";
     } finally {
       submitBtn.disabled = false;
+      confirmSubmitModalBtn.disabled = false;
+      cancelSubmitModalBtn.disabled = false;
     }
+  }
+
+  submitBtn.addEventListener("click", async () => {
+    const discordUser = getDiscordUser();
+    if (!discordUser) {
+      statusMsg.textContent = "You must log in with Discord before submitting a ticket.";
+      statusMsg.className = "status error";
+      showSection(discordLoginSection);
+      return;
+    }
+    if (!validateNick(discordUser.nick)) {
+      statusMsg.textContent = "Your IFWL Discord nickname must be: [drivernumber] - driver name. Please update it and log in again.";
+      statusMsg.className = "status error";
+      showSection(discordLoginSection);
+      return;
+    }
+
+    const competition = competitionSelect.value;
+    const summary = safeStr(fullIncident.value);
+    let accused = accusedSelect.value;
+    const accusedNameManual = safeStr(newDriverInput.value);
+    const accusedValid = (accused && accused !== "__ADD_NEW__") || (accused === "__ADD_NEW__" && accusedNameManual);
+
+    if (!competition || !accusedValid || !summary) {
+      statusMsg.textContent = "Please fill in all required fields: Accused, Competition, Full Incident Summary.";
+      statusMsg.className = "status error";
+      return;
+    }
+
+    statusMsg.textContent = "";
+    statusMsg.className = "status";
+    openSubmitGuidanceModal();
+  });
+
+  confirmSubmitModalBtn.addEventListener("click", async () => {
+    await submitTicketNow();
   });
 
   // ==========================================================
