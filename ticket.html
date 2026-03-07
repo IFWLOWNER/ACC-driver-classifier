@@ -506,10 +506,14 @@
     let isHeadSteward = false;
     let isSimgrid = false;
     let isSimgridOnly = false;
+    let isSteward = false;
+    let canViewTicket = false;
+    let canComment = false;
 
     function setPermPill(){
       const permLabel =
         isHeadSteward ? "Head Steward" :
+        isSteward ? "Steward" :
         isSimgridOnly ? "SimGrid" :
         "Read-only";
       $("permPill").textContent = `Permissions: ${permLabel}`;
@@ -631,7 +635,7 @@
       const txt = ($("newComment").value || "").trim();
       if (!txt) return toast("Write a comment first.");
 
-      if (!isHeadSteward && !isSimgrid){
+      if (!canComment){
         return toast("Read-only account.");
       }
 
@@ -714,10 +718,14 @@
           roleText = String(data.role || "").toLowerCase();
 
           isSimgrid = roleText.includes("simgrid");
+          isSteward = roleText.includes("steward");
           isHeadSteward = roleText.includes("head") || data.headsteward === true || data.owner === true;
           isSimgridOnly = isSimgrid && !isHeadSteward;
 
-          if (!isSimgrid && !isHeadSteward){
+          canViewTicket = isSteward || isHeadSteward || isSimgrid;
+          canComment = isSteward || isHeadSteward || isSimgrid;
+
+          if (!canViewTicket){
             toast("Access denied.");
             await auth.signOut();
             window.location.href = "admin.html";
