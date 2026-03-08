@@ -102,6 +102,17 @@
     .tag.bad{border-color:#fca5a5;background:#fef2f2;color:#991b1b;}
     .tag.neutral{border-color:#d1d5db;background:#f9fafb;color:#111827;}
 
+    .tag.green{border-color:#86efac;background:#ecfdf5;color:#065f46;}
+    .tag.amber{border-color:#fde68a;background:#fffbeb;color:#92400e;}
+    .tag.red{border-color:#fca5a5;background:#fef2f2;color:#991b1b;}
+    .tag.none{border-color:#d1d5db;background:#f9fafb;color:#111827;}
+    .tag.mild{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8;}
+    .tag.standard{border-color:#d1d5db;background:#f9fafb;color:#111827;}
+    .tag.severe{border-color:#fca5a5;background:#fef2f2;color:#991b1b;}
+    .tag.beginner{border-color:#c4b5fd;background:#f5f3ff;color:#6d28d9;}
+    .tag.openclass{border-color:#a7f3d0;background:#ecfdf5;color:#065f46;}
+    .tag.discount{border-color:#fde68a;background:#fffbeb;color:#92400e;}
+
     .grid2{
       display:grid;
       grid-template-columns: 1fr 1fr;
@@ -225,6 +236,30 @@
             <div class="k">Proof</div><div class="v">—</div>
             <div class="k">Created</div><div class="v">—</div>
           </div>
+
+          <div class="hr"></div>
+
+          <!-- TLS integration start -->
+          <div class="title" style="font-size:14px;">TLS Impact</div>
+          <div class="muted" style="margin-top:6px;">Uses the same TLS logic as the main system, based on current saved TLS settings.</div>
+
+          <div class="hr"></div>
+
+          <div class="kv" id="tlsKv">
+            <div class="k">Series Type</div><div class="v">—</div>
+            <div class="k">Severity</div><div class="v">—</div>
+            <div class="k">Raw Penalty</div><div class="v">—</div>
+            <div class="k">Severity Multiplier</div><div class="v">—</div>
+            <div class="k">Beginner Leeway</div><div class="v">—</div>
+            <div class="k">TLS Contribution</div><div class="v">—</div>
+            <div class="k">Driver All-time TLS</div><div class="v">—</div>
+            <div class="k">Running Total After Ticket</div><div class="v">—</div>
+          </div>
+
+          <div class="item" style="margin-top:10px;">
+            <div class="itemBody" id="tlsExplainBody">Loading TLS impact…</div>
+          </div>
+          <!-- TLS integration end -->
 
           <div class="hr"></div>
 
@@ -378,6 +413,16 @@
       return "—";
     }
 
+    function timestampMs(v){
+      try{
+        if (!v) return 0;
+        if (v.toDate) return v.toDate().getTime();
+        const d = new Date(v);
+        const ms = d.getTime();
+        return isNaN(ms) ? 0 : ms;
+      }catch{ return 0; }
+    }
+
     function asNum(v){
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
@@ -402,53 +447,42 @@
         const local = s.slice(0, at).trim();
         return local ? `${local}@hidden` : "unknown@hidden";
       }
-      return `${s}@hidden`; // if non-email, still safe
+      return `${s}@hidden`;
     }
 
-    // Detect "this looks like a Firebase UID"
     function looksLikeUid(s){
       const x = (s || "").toString().trim();
       if (!x) return false;
       if (x.includes("@")) return false;
-      // Firebase UID is commonly 28 chars, but can vary.
       return x.length >= 20;
     }
 
-    // Pull an author identifier from any schema
     function getRawAuthor(obj){
+      if (typeof obj?.authorKey === "string" && obj.authorKey.trim()) {
+        return obj.authorKey.trim();
+      }
 
-  // ✅ YOUR ACTUAL FIELD (highest priority)
-  if (typeof obj?.authorKey === "string" && obj.authorKey.trim()) {
-    return obj.authorKey.trim();
-  }
+      const candidates = [
+        obj?.authorLabel,
+        obj?.authorEmail,
+        obj?.email,
+        obj?.author,
+        obj?.by,
+        obj?.createdBy,
+        obj?.userEmail,
+        obj?.user,
+        obj?.uid,
+        obj?.authorUid
+      ];
 
-  // backwards compatibility / future proofing
-  const candidates = [
-    obj?.authorLabel,
-    obj?.authorEmail,
-    obj?.email,
-    obj?.author,
-    obj?.by,
-    obj?.createdBy,
-    obj?.userEmail,
-    obj?.user,
-    obj?.uid,
-    obj?.authorUid
-  ];
+      for (const v of candidates){
+        if (typeof v === "string" && v.trim()) return v.trim();
+      }
 
-  for (const v of candidates){
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
+      return "";
+    }
 
-  return "";
-}
-
-    // ---------------------------
-    // UID -> email resolver (cached)
-    // Assumes /admins docs are keyed by email, and each admin doc has { uid: <firebase uid> }
-    // This page will also auto-write uid into the current admin doc on login (merge).
-    // ---------------------------
-    const uidToEmailCache = new Map(); // uid -> email
+    const uidToEmailCache = new Map();
 
     async function emailFromUid(uid){
       const key = (uid || "").toString().trim();
@@ -457,16 +491,13 @@
       if (uidToEmailCache.has(key)) return uidToEmailCache.get(key) || "";
 
       try{
-        // Query admins where uid matches. doc.id is the email (since admins are keyed by email)
         const snap = await db.collection("admins").where("uid", "==", key).limit(1).get();
         if (!snap.empty){
           const email = snap.docs[0].id;
           uidToEmailCache.set(key, email);
           return email;
         }
-      }catch(e){
-        // ignore
-      }
+      }catch(e){}
 
       uidToEmailCache.set(key, "");
       return "";
@@ -475,17 +506,13 @@
     async function resolveStewardDisplay(raw){
       const s = (raw || "").toString().trim();
       if (!s) return "unknown@hidden";
-
-      // Already an email or masked
       if (s.includes("@")) return gdprStewardLabel(s);
 
-      // If it's a UID, try to look up email
       if (looksLikeUid(s)){
         const email = await emailFromUid(s);
         if (email) return gdprStewardLabel(email);
       }
 
-      // fallback: treat as label
       return gdprStewardLabel(s);
     }
 
@@ -526,10 +553,400 @@
 
     let ticketDocData = null;
 
+    // ---------------------------
+    // TLS integration
+    // ---------------------------
+    let aliasMap = {};
+
+    const rpPenaltyMap = {
+      "RP1MI":"10s","RP1ST":"30s","RP1SE":"SG30",
+      "RP2MI":"10s","RP2ST":"30s","RP2SE":"SG30",
+      "RP3MI":"5s","RP3ST":"15s","RP3SE":"SG30",
+      "RP4MI":"30s","RP4ST":"SG30","RP4SE":"DQ",
+      "RP5MI":"5s","RP5ST":"15s","RP5SE":"30s",
+      "RP6MI":"5s","RP6ST":"30s","RP6SE":"SG30",
+      "RP7MI":"10s","RP7ST":"30s","RP7SE":"SG30",
+      "RP8MI":"5s","RP8ST":"15s","RP8SE":"SG30",
+      "RP9MI":"5s","RP9ST":"15s","RP9SE":"SG30",
+      "RP10MI":"10s","RP10ST":"10s","RP10SE":"10s",
+      "RP11MI":"DQ","RP11ST":"DQ","RP11SE":"DQ",
+      "RP12MI":"10s","RP12ST":"20s","RP12SV":"30s",
+      "RP13MI":"10s","RP13ST":"30s","RP13SV":"DQ"
+    };
+
+    const CFG_KEYS = {
+      beginnerCount: "IFWL_TLS_CFG_BEGINNER_COUNT",
+      beginnerDiscount: "IFWL_TLS_CFG_BEGINNER_DISCOUNT",
+      mild: "IFWL_TLS_CFG_MILD",
+      standard: "IFWL_TLS_CFG_STANDARD",
+      severe: "IFWL_TLS_CFG_SEVERE"
+    };
+
+    function tlsFromSeconds(totalSeconds){
+      if (totalSeconds >= 60) return { key: "red", label: "RED", className: "red" };
+      if (totalSeconds >= 45) return { key: "amber", label: "AMBER", className: "amber" };
+      if (totalSeconds >= 15) return { key: "green", label: "GREEN", className: "green" };
+      return { key: "none", label: "UNDER 15", className: "none" };
+    }
+
+    function isFinalised(status){
+      const s = (status || "").trim().toUpperCase();
+      return s === "FINALISED" || s === "FINALIZED" || s === "CLOSED" || s === "RESOLVED";
+    }
+
+    function normaliseAccusedToAliasKey(name){
+      const raw = String(name || "").trim().toLowerCase();
+      const cleaned = raw
+        .replaceAll("#", " ")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const parts = cleaned.split(" ").filter(Boolean);
+      let tokens = parts.filter(t => !/^\d+$/.test(t));
+
+      if (tokens.length >= 2 && tokens[0].length === 1){
+        tokens = tokens.slice(1);
+      }
+
+      const key = (tokens.join(" ").trim() || cleaned).replace(/\s+/g, " ").trim();
+      return key;
+    }
+
+    function resolveCanonical(aliasKey, fallbackDisplayName){
+      const rule = aliasMap[aliasKey];
+      if (rule && rule.canonicalKey){
+        return {
+          canonicalKey: rule.canonicalKey,
+          canonicalName: rule.canonicalName || fallbackDisplayName || aliasKey
+        };
+      }
+      return {
+        canonicalKey: aliasKey,
+        canonicalName: fallbackDisplayName || aliasKey
+      };
+    }
+
+    async function loadAliases(){
+      aliasMap = {};
+      try{
+        const snap = await db.collection("driverAliases").limit(2000).get();
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          aliasMap[doc.id] = {
+            canonicalKey: d.canonicalKey || "",
+            canonicalName: d.canonicalName || ""
+          };
+        });
+      }catch(e){}
+    }
+
+    function parseSeverityFromText(text){
+      const src = String(text || "").trim().toUpperCase();
+      if (!src) return { key:"standard", label:"STANDARD" };
+
+      const mCode = src.match(/\bRP[0-9A-Z]+(MI|ST|SE|SV)\b/);
+      if (mCode && mCode[1]){
+        const s = mCode[1];
+        if (s === "MI") return { key:"mild", label:"MILD" };
+        if (s === "ST") return { key:"standard", label:"STANDARD" };
+        if (s === "SE" || s === "SV") return { key:"severe", label:"SEVERE" };
+      }
+
+      if (src.includes("MILD")) return { key:"mild", label:"MILD" };
+      if (src.includes("SEVERE")) return { key:"severe", label:"SEVERE" };
+      if (src.includes("STANDARD")) return { key:"standard", label:"STANDARD" };
+
+      return { key:"standard", label:"STANDARD" };
+    }
+
+    function parsePenaltyFromText(text){
+      const src = String(text || "").trim();
+      const severity = parseSeverityFromText(src);
+
+      if (!src) return { seconds: 0, dq: false, label: "-", severity };
+
+      const up = src.toUpperCase();
+      if (up.includes("NFA")) return { seconds: 0, dq: false, label: "NFA", severity };
+      if (up.includes("DQ")) return { seconds: 0, dq: true, label: "DQ", severity };
+
+      const mSec = src.match(/\((\s*\d+\s*)(s|sec|secs|seconds)?\s*\)/i);
+      if (mSec && mSec[1]) {
+        const n = parseInt(String(mSec[1]).replace(/\D/g,""), 10);
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s`, severity };
+      }
+
+      const mRp = src.match(/\b(RP[0-9A-Z]+)\b/i);
+      if (mRp && mRp[1]) {
+        const code = String(mRp[1]).toUpperCase();
+        const mapped = rpPenaltyMap[code] || code;
+
+        if (String(mapped).toUpperCase().includes("DQ")){
+          return { seconds: 0, dq: true, label: "DQ", severity };
+        }
+        if (String(mapped).toUpperCase() === "SG30"){
+          return { seconds: 30, dq: false, label: "SG30 (30s)", severity };
+        }
+        const m = String(mapped).match(/(\d+)\s*s/i);
+        if (m && m[1]){
+          const n = parseInt(m[1], 10);
+          if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s`, severity };
+        }
+
+        return { seconds: 0, dq: false, label: String(mapped).slice(0, 30), severity };
+      }
+
+      const mPlain = src.match(/\b(\d+)\s*s\b/i);
+      if (mPlain && mPlain[1]){
+        const n = parseInt(mPlain[1], 10);
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s`, severity };
+      }
+
+      if (up.includes("SG30")) return { seconds: 30, dq: false, label: "SG30 (30s)", severity };
+
+      return { seconds: 0, dq: false, label: src.slice(0, 30), severity };
+    }
+
+    function ticketPenaltyInfo(ticket){
+      const prc = ticket.postRaceCode || "";
+      const rb  = ticket.ruleBreach || "";
+      return parsePenaltyFromText(prc || rb);
+    }
+
+    function isBeginnerTicket(ticket){
+      const hay = `${ticket.competition || ""} | ${ticket.event || ""}`.toUpperCase();
+      return hay.includes("BEGINNER");
+    }
+
+    function numOr(v, fallback){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function loadScoringConfig(){
+      const beginnerCount = Math.max(0, parseInt(localStorage.getItem(CFG_KEYS.beginnerCount) || "3", 10) || 0);
+      const beginnerDiscount = Math.max(0, numOr(localStorage.getItem(CFG_KEYS.beginnerDiscount) || "0.5", 0.5));
+      const mild = Math.max(0, numOr(localStorage.getItem(CFG_KEYS.mild) || "0.75", 0.75));
+      const standard = Math.max(0, numOr(localStorage.getItem(CFG_KEYS.standard) || "1", 1));
+      const severe = Math.max(0, numOr(localStorage.getItem(CFG_KEYS.severe) || "1.25", 1.25));
+
+      return {
+        beginnerCount,
+        beginnerDiscount,
+        severityMultiplier: {
+          mild,
+          standard,
+          severe
+        }
+      };
+    }
+
+    function severityMultiplierForKey(key, cfg){
+      if (key === "mild") return cfg.severityMultiplier.mild;
+      if (key === "severe") return cfg.severityMultiplier.severe;
+      return cfg.severityMultiplier.standard;
+    }
+
+    function renderTlsUnavailable(msg){
+      $("tlsKv").innerHTML = `
+        <div class="k">Series Type</div><div class="v">—</div>
+        <div class="k">Severity</div><div class="v">—</div>
+        <div class="k">Raw Penalty</div><div class="v">—</div>
+        <div class="k">Severity Multiplier</div><div class="v">—</div>
+        <div class="k">Beginner Leeway</div><div class="v">—</div>
+        <div class="k">TLS Contribution</div><div class="v">—</div>
+        <div class="k">Driver All-time TLS</div><div class="v">—</div>
+        <div class="k">Running Total After Ticket</div><div class="v">—</div>
+      `;
+      $("tlsExplainBody").textContent = msg || "TLS data unavailable.";
+    }
+
+    async function loadTlsInsight(){
+      try{
+        if (!ticketDocData){
+          renderTlsUnavailable("TLS data unavailable until the ticket loads.");
+          return;
+        }
+
+        const accusedRaw = String(ticketDocData.accused || "").trim();
+        if (!accusedRaw){
+          renderTlsUnavailable("No accused driver was found on this ticket, so TLS cannot be calculated.");
+          return;
+        }
+
+        await loadAliases();
+
+        const cfg = loadScoringConfig();
+        const targetPenalty = ticketPenaltyInfo(ticketDocData);
+        const targetBeginner = isBeginnerTicket(ticketDocData);
+        const targetSeverityKey = targetPenalty.severity?.key || "standard";
+        const targetSeverityLabel = targetPenalty.severity?.label || "STANDARD";
+        const targetSeverityMult = severityMultiplierForKey(targetSeverityKey, cfg);
+
+        const aliasKey = normaliseAccusedToAliasKey(accusedRaw);
+        const resolved = resolveCanonical(aliasKey, accusedRaw);
+
+        const snap = await db.collection("tickets").limit(2000).get();
+        const allTickets = snap.docs.map(doc=>{
+          const x = doc.data() || {};
+          return {
+            id: doc.id,
+            status: x.status || "",
+            accused: x.accused || "",
+            event: x.event || "",
+            competition: x.competition || "",
+            timestamp: x.timestamp || null,
+            postRaceCode: x.postRaceCode || "",
+            ruleBreach: x.ruleBreach || ""
+          };
+        });
+
+        const matching = [];
+
+        for (const t of allTickets){
+          if (!isFinalised(t.status)) continue;
+          const raw = String(t.accused || "").trim();
+          if (!raw) continue;
+
+          const aKey = normaliseAccusedToAliasKey(raw);
+          const res = resolveCanonical(aKey, raw);
+          if (res.canonicalKey !== resolved.canonicalKey) continue;
+
+          const info = ticketPenaltyInfo(t);
+          matching.push({
+            ...t,
+            rawSeconds: info.seconds || 0,
+            dq: !!info.dq,
+            penaltyLabel: info.label || "-",
+            severityKey: info.severity?.key || "standard",
+            severityLabel: info.severity?.label || "STANDARD",
+            beginner: isBeginnerTicket(t),
+            tsMs: timestampMs(t.timestamp)
+          });
+        }
+
+        matching.sort((a,b)=>{
+          const diff = a.tsMs - b.tsMs;
+          if (diff !== 0) return diff;
+          return String(a.id).localeCompare(String(b.id));
+        });
+
+        let beginnerSeen = 0;
+        let runningAdjusted = 0;
+        let allTimeAdjusted = 0;
+        let allTimeRaw = 0;
+        let targetComputed = null;
+
+        for (const t of matching){
+          allTimeRaw += t.rawSeconds || 0;
+
+          let beginnerFactor = 1;
+          let beginnerOrdinal = 0;
+          if (t.beginner){
+            beginnerSeen += 1;
+            beginnerOrdinal = beginnerSeen;
+            if (beginnerOrdinal <= cfg.beginnerCount){
+              beginnerFactor = cfg.beginnerDiscount;
+            }
+          }
+
+          const sevMult = severityMultiplierForKey(t.severityKey, cfg);
+          const adjusted = Number(((t.rawSeconds || 0) * sevMult * beginnerFactor).toFixed(2));
+
+          runningAdjusted = Number((runningAdjusted + adjusted).toFixed(2));
+          allTimeAdjusted = runningAdjusted;
+
+          if (t.id === ticketId){
+            targetComputed = {
+              ...t,
+              beginnerFactor,
+              beginnerOrdinal,
+              severityMultiplier: sevMult,
+              adjustedSeconds: adjusted,
+              runningAdjustedAfterTicket: runningAdjusted
+            };
+          }
+        }
+
+        if (!targetComputed){
+          const beginnerFactor = targetBeginner ? cfg.beginnerDiscount : 1;
+          const adjusted = Number(((targetPenalty.seconds || 0) * targetSeverityMult * beginnerFactor).toFixed(2));
+          targetComputed = {
+            rawSeconds: targetPenalty.seconds || 0,
+            penaltyLabel: targetPenalty.label || "-",
+            severityKey: targetSeverityKey,
+            severityLabel: targetSeverityLabel,
+            severityMultiplier: targetSeverityMult,
+            beginner: targetBeginner,
+            beginnerFactor: targetBeginner ? cfg.beginnerDiscount : 1,
+            beginnerOrdinal: targetBeginner ? "unknown" : 0,
+            adjustedSeconds: adjusted,
+            runningAdjustedAfterTicket: "unknown"
+          };
+        }
+
+        const tls = tlsFromSeconds(allTimeAdjusted);
+        const severityTagClass =
+          targetComputed.severityKey === "mild" ? "mild" :
+          targetComputed.severityKey === "severe" ? "severe" : "standard";
+
+        const seriesHtml = targetComputed.beginner
+          ? `<span class="tag beginner">BEGINNER</span>`
+          : `<span class="tag openclass">NON-BEGINNER</span>`;
+
+        const severityHtml = `<span class="tag ${severityTagClass}">${escapeHtml(targetComputed.severityLabel)}</span>`;
+
+        let beginnerLeewayHtml = `<span class="tag neutral">Not applied</span>`;
+        if (targetComputed.beginner){
+          if (targetComputed.beginnerFactor < 1){
+            beginnerLeewayHtml = `<span class="tag discount">Yes — ticket ${escapeHtml(String(targetComputed.beginnerOrdinal))} of first ${escapeHtml(String(cfg.beginnerCount))} beginner tickets at ${escapeHtml(String(Math.round(cfg.beginnerDiscount * 100)))}%</span>`;
+          } else {
+            beginnerLeewayHtml = `<span class="tag neutral">No — outside first ${escapeHtml(String(cfg.beginnerCount))} beginner tickets</span>`;
+          }
+        }
+
+        $("tlsKv").innerHTML = `
+          <div class="k">Series Type</div>
+          <div class="v">${seriesHtml}</div>
+
+          <div class="k">Severity</div>
+          <div class="v">${severityHtml}</div>
+
+          <div class="k">Raw Penalty</div>
+          <div class="v"><b>${escapeHtml(targetComputed.penaltyLabel || "-")}</b></div>
+
+          <div class="k">Severity Multiplier</div>
+          <div class="v">×${escapeHtml(String(targetComputed.severityMultiplier ?? 1))}</div>
+
+          <div class="k">Beginner Leeway</div>
+          <div class="v">${beginnerLeewayHtml}</div>
+
+          <div class="k">TLS Contribution</div>
+          <div class="v"><b>${escapeHtml(String(targetComputed.adjustedSeconds || 0))}</b></div>
+
+          <div class="k">Driver All-time TLS</div>
+          <div class="v"><span class="tag ${tls.className}">${escapeHtml(tls.label)}</span> <span class="muted">(Adjusted total: ${escapeHtml(String(allTimeAdjusted))} | Raw total: ${escapeHtml(String(Number(allTimeRaw.toFixed(2))))}s)</span></div>
+
+          <div class="k">Running Total After Ticket</div>
+          <div class="v">${typeof targetComputed.runningAdjustedAfterTicket === "number" ? `<b>${escapeHtml(String(targetComputed.runningAdjustedAfterTicket))}</b>` : "Unknown"}</div>
+        `;
+
+        $("tlsExplainBody").textContent =
+          `This ticket contributes ${targetComputed.adjustedSeconds} to TLS. ` +
+          `Calculation: raw penalty ${targetComputed.rawSeconds || 0}s × severity multiplier ${targetComputed.severityMultiplier || 1}` +
+          `${targetComputed.beginner ? ` × beginner factor ${targetComputed.beginnerFactor || 1}` : ""}. ` +
+          `This view uses the same saved TLS settings as the main TLS page and calculates the driver's all-time finalised-ticket total.`;
+      }catch(e){
+        console.error(e);
+        renderTlsUnavailable("TLS calculation failed for this ticket.");
+      }
+    }
+
     async function loadTicket(){
       if (!ticketId){
         $("ticketMetaLine").textContent = "Missing ticket id in URL. Use ?id=<ticketId>";
         toast("Missing ticket id.\nExample: ticket.html?id=YOUR_TICKET_ID");
+        renderTlsUnavailable("No ticket id was provided.");
         return;
       }
 
@@ -542,6 +959,7 @@
         $("ticketMetaLine").textContent = "Ticket not found.";
         toast("Ticket not found.");
         ticketDocData = null;
+        renderTlsUnavailable("Ticket not found.");
         return;
       }
 
@@ -605,7 +1023,6 @@
         return;
       }
 
-      // Resolve authors in parallel (cached)
       const rendered = await Promise.all(items.map(async (c) => {
         const rawAuthor = getRawAuthor(c);
         const author = await resolveStewardDisplay(rawAuthor);
@@ -646,8 +1063,8 @@
 
         await ref.add({
           text: txt,
-          authorEmail: currentEmail,     // internal
-          authorLabel: gdprLabel,        // UI safe
+          authorEmail: currentEmail,
+          authorLabel: gdprLabel,
           authorUid: auth.currentUser?.uid || null,
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -678,7 +1095,12 @@
       if (!ticketId) return;
       try{
         await loadTicket();
-        await Promise.allSettled([ loadComments(), loadStatements(), loadReviews() ]);
+        await Promise.allSettled([
+          loadTlsInsight(),
+          loadComments(),
+          loadStatements(),
+          loadReviews()
+        ]);
         toast("Refreshed ✅");
       }catch(e){
         console.error(e);
@@ -732,15 +1154,12 @@
             return;
           }
 
-          // ✅ IMPORTANT: ensure this admin doc has the UID stored (for backward compatibility lookups)
           try{
             await db.collection("admins").doc(currentEmail).set(
               { uid: user.uid },
               { merge: true }
             );
-          }catch(e){
-            // ignore
-          }
+          }catch(e){}
 
           setPermPill();
           setTopButtons();
