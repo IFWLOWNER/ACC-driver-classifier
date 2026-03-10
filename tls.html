@@ -52,6 +52,7 @@
     button.primary{background:#111827;color:#fff;border-color:#111827;}
     button.danger{background:#991b1b;color:#fff;border-color:#991b1b;}
     button.amberBtn{background:#b45309;color:#fff;border-color:#b45309;}
+    button.redPublishBtn{background:#991b1b;color:#fff;border-color:#991b1b;}
     button:disabled{opacity:0.6;cursor:not-allowed;}
 
     select, input, textarea{
@@ -549,7 +550,8 @@
 
       <div class="modalBody">
         <p class="muted" style="margin-top:0;">
-          This records the steward action for this driver in Firestore collection <span class="mono">tlsActions</span>.
+          Select the Red-stage outcome below. Publishing will post the preset notice to Discord and save the action to
+          <span class="mono">tlsActions</span>.
         </p>
 
         <div class="miniGrid" id="actionMeta"></div>
@@ -568,11 +570,15 @@
           <div class="muted" style="margin-bottom:6px;">Note (optional)</div>
           <textarea id="actionNote" placeholder="Add context (e.g. length of ban, reason, links)…"></textarea>
         </div>
+
+        <div class="hintBox" id="actionPresetHint">
+          The selected action will publish a preset Red notice to Discord. A race ban is included for all Red outcomes except NFA.
+        </div>
       </div>
 
       <div class="modalFooter">
         <button id="actionCancelBtn">Cancel</button>
-        <button id="actionConfirmBtn" class="primary">Save action</button>
+        <button id="actionConfirmBtn" class="redPublishBtn">Publish to Discord</button>
       </div>
     </div>
   </div>
@@ -982,7 +988,7 @@
 
     const WEBHOOK_LS_KEY = "IFWL_TLS_DISCORD_WEBHOOK";
     const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1479252355252748440/eidW0tMyQzvghRMctzbPB2xUPsmmKHkfYx5W5WafTGSKmRNBeYV7n9Z-DGL-NQKhxhXe";
-    const AMBER_DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1480839330091110443/E3vqPqZvajBEXW7tCNBGqXM04zTQY2xz6HfaCZhYKOfvlCN26N4sj7Fy1_rWkXyFSL4_";
+    const STEWARDS_OFFICE_WEBHOOK = "https://discord.com/api/webhooks/1480839330091110443/E3vqPqZvajBEXW7tCNBGqXM04zTQY2xz6HfaCZhYKOfvlCN26N4sj7Fy1_rWkXyFSL4_";
 
     $("saveWebhookBtn").onclick = () => {
       const val = ($("webhookInput").value || "").trim();
@@ -1265,7 +1271,7 @@
 
         if (r.tls.key === "red"){
           actionCell = `<button class="primary" data-action="tlsAction" data-key="${escapeHtml(r.canonicalKey)}">Set action</button>`;
-          actionHelper = "Action required";
+          actionHelper = "Publish Red outcome to Discord";
         } else if (r.tls.key === "amber"){
           actionCell = `<button class="amberBtn" data-action="amberPost" data-key="${escapeHtml(r.canonicalKey)}">Amber Discord Post</button>`;
           actionHelper = "Send Amber warning to New Stewards Office";
@@ -1375,17 +1381,120 @@
       cancel: $("actionCancelBtn"),
       confirm: $("actionConfirmBtn"),
       close: $("actionCloseBtn"),
+      presetHint: $("actionPresetHint"),
+      currentRow: null,
       pending: null
     };
 
+    function getRedActionPreset(actionValue){
+      const action = String(actionValue || "").trim();
+
+      if (action === "NFA"){
+        return {
+          titlePrefix: "Red TLS Notice — NFA",
+          color: 0x6B7280,
+          body: [
+            "Driver,",
+            "",
+            "You have been reviewed under the IFWL TLS system after reaching Red status through repeated stewarding penalties.",
+            "",
+            "Following steward review, this outcome has been recorded as NFA. In this specific case, no further action is being applied and no automatic race ban will be issued from this notice.",
+            "",
+            "This does not reset your underlying stewarding history. Future incidents may still lead to immediate and more severe action.",
+            "",
+            "IFWL remains committed to maintaining a safe, fair, and respectful racing environment for all competitors."
+          ].join("\n")
+        };
+      }
+
+      if (action === "Race DQ"){
+        return {
+          titlePrefix: "Red TLS Notice — Race DQ",
+          color: 0xDC2626,
+          body: [
+            "Driver,",
+            "",
+            "You have been flagged by the IFWL TLS system after repeated stewarding tickets have escalated your standing into the Red category.",
+            "",
+            "Red status automatically carries a race ban under IFWL policy. In addition, the selected steward outcome for this case is a Race DQ.",
+            "",
+            "This outcome reflects a serious breach threshold. Continued incidents may result in further sanctions, including exclusion from the remainder of the season where deemed necessary by the stewarding team.",
+            "",
+            "You may request further clarification from the stewarding team if required.",
+            "",
+            "IFWL focuses on fairness, accountability, and improvement, but driver conduct must now improve immediately."
+          ].join("\n")
+        };
+      }
+
+      if (action === "Other"){
+        return {
+          titlePrefix: "Red TLS Notice — Other Action",
+          color: 0xB91C1C,
+          body: [
+            "Driver,",
+            "",
+            "You have been flagged by the IFWL TLS system after repeated stewarding tickets have escalated your standing into the Red category.",
+            "",
+            "Red status automatically carries a race ban under IFWL policy. In this case, the stewarding team has also recorded an additional or alternative action under the 'Other' category.",
+            "",
+            "This is a formal escalation of your IFWL race record. Further issues may result in stronger sanctions, including removal from the remainder of the season.",
+            "",
+            "Please review the details below carefully and contact the stewarding team if clarification is required.",
+            "",
+            "Improvement is required moving forward."
+          ].join("\n")
+        };
+      }
+
+      return {
+        titlePrefix: "Red TLS Notice — Series Ban",
+        color: 0x991B1B,
+        body: [
+          "Driver,",
+          "",
+          "You have been flagged by the IFWL TLS system after repeated stewarding tickets have escalated your standing into the Red category.",
+          "",
+          "Red status automatically carries a race ban under IFWL policy. The selected steward outcome for this case is a Series Ban.",
+          "",
+          "This represents a formal and serious escalation in your IFWL record. Depending on future conduct and steward review, further action may also be considered, including removal from the remainder of the season where appropriate.",
+          "",
+          "You may contact the stewarding team if you require clarification regarding the scope or duration of the sanction.",
+          "",
+          "IFWL is committed to driver education and accountability, but maintaining a safe and fair environment for all competitors remains the priority."
+        ].join("\n")
+      };
+    }
+
+    function updateActionPresetHint(){
+      const action = (actionModal.select.value || "").trim();
+      if (action === "NFA"){
+        actionModal.presetHint.textContent = "NFA publishes a no-further-action Red review. This one does not include race ban wording.";
+        return;
+      }
+      if (action === "Race DQ"){
+        actionModal.presetHint.textContent = "Race DQ publishes a Red notice that includes the automatic race ban plus the Race DQ outcome.";
+        return;
+      }
+      if (action === "Other"){
+        actionModal.presetHint.textContent = "Other publishes a Red notice with the automatic race ban and any extra context you enter in the note.";
+        return;
+      }
+      actionModal.presetHint.textContent = "Series Ban publishes a Red notice with the automatic race ban and the selected Series Ban outcome.";
+    }
+
     function closeActionModal(){
       actionModal.pending = null;
+      actionModal.currentRow = null;
       actionModal.overlay.classList.remove("show");
       actionModal.overlay.setAttribute("aria-hidden","true");
       actionModal.confirm.disabled = false;
+      actionModal.confirm.textContent = "Publish to Discord";
       actionModal.select.value = "Series Ban";
       actionModal.note.value = "";
+      updateActionPresetHint();
     }
+
     function openActionModal(row){
       const act = actionsByDriver[row.canonicalKey] || null;
       const tls = tlsFromSeconds(row.adjustedSeconds);
@@ -1402,20 +1511,31 @@
       if (act){
         actionModal.select.value = act.action || "Series Ban";
         actionModal.note.value = act.note || "";
+      } else {
+        actionModal.select.value = "Series Ban";
+        actionModal.note.value = "";
       }
 
+      actionModal.currentRow = row;
+      updateActionPresetHint();
+
       actionModal.pending = async () => {
+        const selectedAction = (actionModal.select.value || "").trim();
+        const note = (actionModal.note.value || "").trim();
+
+        await publishRedActionToDiscord(row, selectedAction, note);
+
         const ref = db.collection("tlsActions").doc(row.canonicalKey);
         await ref.set({
           canonicalKey: row.canonicalKey,
           driverName: row.driverName,
-          action: (actionModal.select.value || "").trim(),
-          note: (actionModal.note.value || "").trim(),
+          action: selectedAction,
+          note,
           updatedBy: currentEmail,
           updatedAt: serverNow()
         }, { merge: true });
 
-        toast("TLS action saved ✅");
+        toast("Red action published and saved ✅");
         await loadActions();
         render();
       };
@@ -1425,6 +1545,7 @@
       actionModal.cancel.focus();
     }
 
+    actionModal.select.onchange = updateActionPresetHint;
     actionModal.cancel.onclick = closeActionModal;
     actionModal.close.onclick = closeActionModal;
     actionModal.overlay.addEventListener("click", (e)=>{ if (e.target === actionModal.overlay) closeActionModal(); });
@@ -1433,12 +1554,14 @@
       if (!actionModal.pending) return closeActionModal();
       try{
         actionModal.confirm.disabled = true;
+        actionModal.confirm.textContent = "Publishing…";
         await actionModal.pending();
         closeActionModal();
       }catch(err){
         console.error(err);
-        toast("Save failed:\n" + (err?.message || err));
+        toast("Publish failed:\n" + (err?.message || err));
         actionModal.confirm.disabled = false;
+        actionModal.confirm.textContent = "Publish to Discord";
       }
     };
 
@@ -1584,7 +1707,6 @@
     function renderTicketsStats(row){
       const list = (ticketsByCanonical[row.canonicalKey] || []).slice();
       const beginner = list.filter(t => t.beginner).length;
-      const nonBeginner = list.length - beginner;
       const discounted = list.filter(t => t.discounted).length;
       const mild = list.filter(t => t.severityKey === "mild").length;
       const standard = list.filter(t => t.severityKey === "standard").length;
@@ -1901,12 +2023,7 @@
         return;
       }
 
-      const webhook = AMBER_DISCORD_WEBHOOK;
-      if (!webhook){
-        toast("Amber webhook missing.");
-        return;
-      }
-
+      const webhook = STEWARDS_OFFICE_WEBHOOK;
       const range = getSelectedRange();
       const tickets = (ticketsByCanonical[row.canonicalKey] || []).slice().sort((a,b)=> b.tsMs - a.tsMs);
 
@@ -1986,6 +2103,87 @@
           buttonEl.disabled = false;
           buttonEl.textContent = oldText || "Amber Discord Post";
         }
+      }
+    }
+
+    async function publishRedActionToDiscord(row, selectedAction, note){
+      if (!row || row.tls.key !== "red"){
+        throw new Error("Red Discord publishing only applies to Red drivers.");
+      }
+
+      const webhook = STEWARDS_OFFICE_WEBHOOK;
+      const range = getSelectedRange();
+      const tickets = (ticketsByCanonical[row.canonicalKey] || []).slice().sort((a,b)=> b.tsMs - a.tsMs);
+      const preset = getRedActionPreset(selectedAction);
+
+      const ticketLines = tickets.map((t, i) => {
+        const when = t.timestampText || "No timestamp";
+        const sev = t.severityLabel || "STANDARD";
+        const beginnerText = t.beginner ? " | Beginner" : "";
+        const dqText = t.dq ? " | DQ" : "";
+        return `${i + 1}. ${t.id} | ${t.penaltyLabel} | adj ${t.adjustedSeconds} | raw ${t.rawSeconds}s | ${sev}${beginnerText}${dqText} | ${t.event || "—"} | ${t.competition || "—"} | ${when}`;
+      });
+
+      const ticketFieldChunks = chunkDiscordFieldLines(ticketLines.length ? ticketLines : ["No counted tickets found in current range."]);
+      const embedFields = [
+        {
+          name: "Driver Summary",
+          value:
+            `**Driver:** ${row.driverName}\n` +
+            `**TLS:** ${row.tls.label}\n` +
+            `**Selected action:** ${selectedAction}\n` +
+            `**Adjusted TLS score:** ${row.adjustedSeconds}\n` +
+            `**Raw time penalties:** ${row.rawSeconds}s\n` +
+            `**Tickets counted:** ${row.ticketCount}\n` +
+            `**Beginner tickets:** ${row.beginnerCount}\n` +
+            `**Discounted beginner tickets:** ${row.discountedBeginnerCount}\n` +
+            `**DQ flags:** ${row.dqCount}\n` +
+            `**Last ticket:** ${formatTimestamp(row.lastTicketAt) || "—"}\n` +
+            `**Date range:** ${range.label}`
+        }
+      ];
+
+      if (note){
+        embedFields.push({
+          name: "Steward Note",
+          value: note.length > 1000 ? (note.slice(0, 999) + "…") : note
+        });
+      }
+
+      ticketFieldChunks.forEach((chunk, idx) => {
+        if (embedFields.length < 25){
+          embedFields.push({
+            name: idx === 0 ? "Ticket Breakdown" : `Ticket Breakdown (cont. ${idx + 1})`,
+            value: chunk
+          });
+        }
+      });
+
+      const payload = {
+        content: `🚨 **IFWL TLS RED ACTION**`,
+        embeds: [
+          {
+            title: `${preset.titlePrefix} — ${row.driverName}`,
+            color: preset.color,
+            description: preset.body,
+            fields: embedFields.slice(0, 25),
+            footer: {
+              text: `Published by ${currentEmail || "IFWL TLS"}`
+            },
+            timestamp: new Date().toISOString()
+          }
+        ]
+      };
+
+      const res = await fetch(webhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok){
+        const txt = await res.text().catch(()=> "");
+        throw new Error(`Discord rejected upload (${res.status}). ${txt.slice(0,200)}`);
       }
     }
 
@@ -2141,6 +2339,7 @@
 
     (async () => {
       updateRulesPill();
+      updateActionPresetHint();
 
       const saved = localStorage.getItem(WEBHOOK_LS_KEY) || "";
       if (saved) $("webhookInput").value = saved;
