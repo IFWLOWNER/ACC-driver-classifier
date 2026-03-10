@@ -51,6 +51,7 @@
     button{padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer;}
     button.primary{background:#111827;color:#fff;border-color:#111827;}
     button.danger{background:#991b1b;color:#fff;border-color:#991b1b;}
+    button.amberBtn{background:#b45309;color:#fff;border-color:#b45309;}
     button:disabled{opacity:0.6;cursor:not-allowed;}
 
     select, input, textarea{
@@ -101,7 +102,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:2050px;
+      min-width:2150px;
     }
     th, td{
       padding:10px;
@@ -377,7 +378,7 @@
       header{flex-direction:column; align-items:stretch;}
       header .row{width:100%;}
       header button{width:100%;}
-      table{min-width:1700px;}
+      table{min-width:1800px;}
       .configGrid{grid-template-columns: 1fr 1fr;}
       .statsGrid{grid-template-columns: 1fr 1fr;}
     }
@@ -521,7 +522,7 @@
               <th>Recent events (up to 3)</th>
               <th>Tickets</th>
               <th>Merge</th>
-              <th>Action (Red)</th>
+              <th>Action</th>
               <th>Action note</th>
               <th>Last updated</th>
             </tr>
@@ -981,6 +982,8 @@
 
     const WEBHOOK_LS_KEY = "IFWL_TLS_DISCORD_WEBHOOK";
     const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1479252355252748440/eidW0tMyQzvghRMctzbPB2xUPsmmKHkfYx5W5WafTGSKmRNBeYV7n9Z-DGL-NQKhxhXe";
+    const AMBER_DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1480839330091110443/E3vqPqZvajBEXW7tCNBGqXM04zTQY2xz6HfaCZhYKOfvlCN26N4sj7Fy1_rWkXyFSL4_";
+
     $("saveWebhookBtn").onclick = () => {
       const val = ($("webhookInput").value || "").trim();
       if (!val) { localStorage.removeItem(WEBHOOK_LS_KEY); toast("Webhook cleared (local)"); return; }
@@ -1257,9 +1260,16 @@
       for (const r of rows){
         const act = actionsByDriver[r.canonicalKey] || null;
 
-        const actionCell = (r.tls.key === "red")
-          ? `<button class="primary" data-action="tlsAction" data-key="${escapeHtml(r.canonicalKey)}">Set action</button>`
-          : `<span class="muted">—</span>`;
+        let actionCell = `<span class="muted">—</span>`;
+        let actionHelper = "No action required";
+
+        if (r.tls.key === "red"){
+          actionCell = `<button class="primary" data-action="tlsAction" data-key="${escapeHtml(r.canonicalKey)}">Set action</button>`;
+          actionHelper = "Action required";
+        } else if (r.tls.key === "amber"){
+          actionCell = `<button class="amberBtn" data-action="amberPost" data-key="${escapeHtml(r.canonicalKey)}">Amber Discord Post</button>`;
+          actionHelper = "Send Amber warning to New Stewards Office";
+        }
 
         const actText = act?.action ? `<b>${escapeHtml(act.action)}</b>` : `<span class="muted">—</span>`;
         const noteText = act?.note ? escapeHtml(act.note) : `<span class="muted">—</span>`;
@@ -1311,7 +1321,7 @@
             <div class="muted" style="margin-top:6px;">Linked: ${escapeHtml(String(ticketCount))}</div>
           </td>
           <td>${mergeButtons}</td>
-          <td>${actionCell}<div class="muted" style="margin-top:6px;">${r.tls.key === "red" ? "Action required" : "No action required"}</div></td>
+          <td>${actionCell}<div class="muted" style="margin-top:6px;">${escapeHtml(actionHelper)}</div></td>
           <td>${actText}<div class="muted" style="margin-top:6px;">${noteText}</div></td>
           <td>${updText}</td>
         `;
@@ -1319,7 +1329,7 @@
       }
 
       tbody.querySelectorAll("[data-action]").forEach(el=>{
-        el.onclick = ()=>{
+        el.onclick = async ()=>{
           const action = el.getAttribute("data-action");
           const key = el.getAttribute("data-key") || "";
 
@@ -1333,6 +1343,12 @@
             const row = driverRows.find(x => x.canonicalKey === key);
             if (!row) return;
             openActionModal(row);
+            return;
+          }
+          if (action === "amberPost"){
+            const row = driverRows.find(x => x.canonicalKey === key);
+            if (!row) return;
+            await publishAmberDriverToDiscord(row, el);
             return;
           }
           if (action === "merge"){
@@ -1838,6 +1854,138 @@
         toast("Publish failed:\n" + (err?.message || err));
       }finally{
         $("publishDiscordBtn").disabled = false;
+      }
+    }
+
+    function amberDriverMessageBody(){
+      return [
+        "Driver,",
+        "",
+        "You have been flagged by the IFWL TLS system due to repeated stewarding tickets that have now accumulated more than 45 seconds of time penalties.",
+        "",
+        "The TLS system evaluates multiple data sources and has determined that your current standing has reached the Amber stage.",
+        "",
+        "This represents a serious escalation in your IFWL race record. A single additional standard ticket will move you into the Red category. At Red status, a race ban is automatically applied. In more severe circumstances, stewards may also decide to remove a driver from the remainder of the season.",
+        "",
+        "You now have the option to request a one-to-one meeting with the IFWL Head Steward and a steward from your platform. This can be arranged at any point within the next 7 days.",
+        "",
+        "IFWL focuses on awareness, accountability, and education, but we are equally committed to maintaining a safe and fair racing environment so that all drivers can enjoy competing in the league. Improvement is required moving forward."
+      ].join("\n");
+    }
+
+    function chunkDiscordFieldLines(lines, maxLen = 1000){
+      const out = [];
+      let current = "";
+
+      for (const line of lines){
+        const next = current ? current + "\n" + line : line;
+        if (next.length > maxLen){
+          if (current) out.push(current);
+          if (line.length > maxLen){
+            out.push(line.slice(0, maxLen - 1) + "…");
+            current = "";
+          }else{
+            current = line;
+          }
+        }else{
+          current = next;
+        }
+      }
+      if (current) out.push(current);
+      return out;
+    }
+
+    async function publishAmberDriverToDiscord(row, buttonEl){
+      if (!row || row.tls.key !== "amber"){
+        toast("This button only works for Amber drivers.");
+        return;
+      }
+
+      const webhook = AMBER_DISCORD_WEBHOOK;
+      if (!webhook){
+        toast("Amber webhook missing.");
+        return;
+      }
+
+      const range = getSelectedRange();
+      const tickets = (ticketsByCanonical[row.canonicalKey] || []).slice().sort((a,b)=> b.tsMs - a.tsMs);
+
+      const ticketLines = tickets.map((t, i) => {
+        const when = t.timestampText || "No timestamp";
+        const sev = t.severityLabel || "STANDARD";
+        const beginnerText = t.beginner ? " | Beginner" : "";
+        const dqText = t.dq ? " | DQ" : "";
+        return `${i + 1}. ${t.id} | ${t.penaltyLabel} | adj ${t.adjustedSeconds} | raw ${t.rawSeconds}s | ${sev}${beginnerText}${dqText} | ${t.event || "—"} | ${t.competition || "—"} | ${when}`;
+      });
+
+      const ticketFieldChunks = chunkDiscordFieldLines(ticketLines.length ? ticketLines : ["No counted tickets found in current range."]);
+      const embedFields = [
+        {
+          name: "Driver Summary",
+          value:
+            `**Driver:** ${row.driverName}\n` +
+            `**TLS:** ${row.tls.label}\n` +
+            `**Adjusted TLS score:** ${row.adjustedSeconds}\n` +
+            `**Raw time penalties:** ${row.rawSeconds}s\n` +
+            `**Tickets counted:** ${row.ticketCount}\n` +
+            `**Beginner tickets:** ${row.beginnerCount}\n` +
+            `**Discounted beginner tickets:** ${row.discountedBeginnerCount}\n` +
+            `**DQ flags:** ${row.dqCount}\n` +
+            `**Last ticket:** ${formatTimestamp(row.lastTicketAt) || "—"}\n` +
+            `**Date range:** ${range.label}`
+        }
+      ];
+
+      ticketFieldChunks.forEach((chunk, idx) => {
+        embedFields.push({
+          name: idx === 0 ? "Ticket Breakdown" : `Ticket Breakdown (cont. ${idx + 1})`,
+          value: chunk
+        });
+      });
+
+      const payload = {
+        content: `⚠️ **IFWL TLS AMBER ALERT**`,
+        embeds: [
+          {
+            title: `Amber TLS Notice — ${row.driverName}`,
+            color: 0xF59E0B,
+            description: amberDriverMessageBody(),
+            fields: embedFields.slice(0, 25),
+            footer: {
+              text: `Posted by ${currentEmail || "IFWL TLS"}`
+            },
+            timestamp: new Date().toISOString()
+          }
+        ]
+      };
+
+      const oldText = buttonEl ? buttonEl.textContent : "";
+      try{
+        if (buttonEl){
+          buttonEl.disabled = true;
+          buttonEl.textContent = "Posting…";
+        }
+
+        const res = await fetch(webhook, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok){
+          const txt = await res.text().catch(()=> "");
+          throw new Error(`Discord rejected upload (${res.status}). ${txt.slice(0,200)}`);
+        }
+
+        toast(`Amber Discord post sent for ${row.driverName} ✅`);
+      }catch(err){
+        console.error(err);
+        toast("Amber post failed:\n" + (err?.message || err));
+      }finally{
+        if (buttonEl){
+          buttonEl.disabled = false;
+          buttonEl.textContent = oldText || "Amber Discord Post";
+        }
       }
     }
 
