@@ -1,1 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>IFWL Login</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #0f172a;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
 
+        .card {
+            background: #111827;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            width: 400px;
+        }
+
+        h1 {
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #9ca3af;
+            font-size: 14px;
+        }
+
+        .loader {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>IFWL Login</h1>
+    <p id="status">Completing login...</p>
+    <div class="loader">⏳</div>
+</div>
+
+<script>
+(async () => {
+    try {
+        const status = document.getElementById("status");
+
+        // Get code from Discord
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code");
+
+        if (!code) {
+            status.innerText = "No login code received.";
+            return;
+        }
+
+        status.innerText = "Contacting IFWL servers...";
+
+        // Call your Firebase function
+        const response = await fetch(
+            "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate" +
+            "?code=" + encodeURIComponent(code) +
+            "&redirect=" + encodeURIComponent("https://ifwlowner.github.io/appcallback")
+        );
+
+        const data = await response.json();
+
+        if (!data || !data.username) {
+            status.innerText = "Login failed.";
+            return;
+        }
+
+        status.innerText = "Logging you into IFWL app...";
+
+        // Build custom protocol URL
+        const loginUrl = `ifwl://login?username=${encodeURIComponent(data.username)}&nick=${encodeURIComponent(data.nick || "")}&globalName=${encodeURIComponent(data.globalName || "")}`;
+
+        // Redirect to app
+        window.location.href = loginUrl;
+
+    } catch (err) {
+        console.error(err);
+        document.getElementById("status").innerText = "Error during login.";
+    }
+})();
+</script>
+
+</body>
+</html>
