@@ -61,27 +61,47 @@
 
         status.innerText = "Contacting IFWL servers...";
 
-        // Call your Firebase function
+        // ✅ MUST MATCH Firebase allowedPaths EXACTLY
+        const redirectUri = "https://ifwlowner.github.io/ACC-driver-classifier/appcallback.html";
+
+        // Call Firebase function
         const response = await fetch(
             "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate" +
             "?code=" + encodeURIComponent(code) +
-            "&redirect=" + encodeURIComponent("https://ifwlowner.github.io/appcallback")
+            "&redirect=" + encodeURIComponent(redirectUri)
         );
+
+        // ✅ Handle HTTP errors properly
+        if (!response.ok) {
+            const text = await response.text();
+            console.error("Server error:", text);
+            status.innerText = "Server error (login failed).";
+            return;
+        }
 
         const data = await response.json();
 
+        // Debug output (super useful)
+        console.log("Login response:", data);
+
         if (!data || !data.username) {
-            status.innerText = "Login failed.";
+            status.innerText = "Login failed (invalid response).";
             return;
         }
 
         status.innerText = "Logging you into IFWL app...";
 
         // Build custom protocol URL
-        const loginUrl = `ifwl://login?username=${encodeURIComponent(data.username)}&nick=${encodeURIComponent(data.nick || "")}&globalName=${encodeURIComponent(data.globalName || "")}`;
+        const loginUrl =
+            "ifwl://login?" +
+            "username=" + encodeURIComponent(data.username) +
+            "&nick=" + encodeURIComponent(data.nick || "") +
+            "&globalName=" + encodeURIComponent(data.globalName || "");
 
-        // Redirect to app
-        window.location.href = loginUrl;
+        // Small delay (helps browser trigger protocol reliably)
+        setTimeout(() => {
+            window.location.href = loginUrl;
+        }, 500);
 
     } catch (err) {
         console.error(err);
