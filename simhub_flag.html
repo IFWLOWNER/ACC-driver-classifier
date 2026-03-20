@@ -193,13 +193,29 @@ function unlockAudio(){
       }).catch(()=>{});
     } catch {}
   });
+
+  requestWakeLock();
 }
 
 // unlock on ANY interaction
 window.addEventListener("click", unlockAudio, { once:true });
 window.addEventListener("keydown", unlockAudio, { once:true });
 window.addEventListener("touchstart", unlockAudio, { once:true });
-  
+let wakeLock = null;
+
+async function requestWakeLock(){
+  try{
+    if('wakeLock' in navigator){
+      wakeLock = await navigator.wakeLock.request('screen');
+
+      wakeLock.addEventListener('release', () => {
+        console.log('Wake Lock released');
+      });
+    }
+  }catch(err){
+    console.log('Wake Lock error:', err);
+  }
+}  
   function fmt(ts){
     try { return new Date(ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"}); }
     catch { return "—"; }
@@ -721,7 +737,18 @@ let lastRtpTrigger = null;  // 👈 ADD THIS LINE
       showOffline();
     }
   }
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible'){
+    requestWakeLock();
+  }
+});
 
+// 👇 ADD THIS RIGHT HERE
+setInterval(() => {
+  window.scrollTo(0, 1);
+  window.scrollTo(0, 0);
+}, 20000);
+  
   poll();
   setInterval(poll, POLL_MS);
 </script>
