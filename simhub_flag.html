@@ -5,17 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>IFWL Flag</title>
 
-<!-- YOUR EXISTING HEAD STAYS IDENTICAL -->
 <style>
-/* (UNCHANGED — your entire CSS stays exactly as-is) */
 html,body{height:100%;margin:0;font-family:system-ui;overflow:hidden;background:transparent;}
-/* ... KEEP ALL YOUR CSS EXACTLY THE SAME ... */
+body.purple{
+  background: radial-gradient(circle at 25% 20%, #a78bfa 0%, #6d28d9 35%, #2e1065 75%, #120426 100%);
+  color:#fff;
+}
+
+#clearLayer{position:fixed;inset:0;display:none;pointer-events:none;background: rgba(0,0,0,0.001);}
+.wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:18px;}
+.panel{
+  width:min(520px, 96vw);
+  border-radius:24px;
+  border:2px solid rgba(255,255,255,.18);
+  background: rgba(0,0,0,.45);
+  backdrop-filter: blur(8px);
+  padding: 18px 16px;
+  text-align:center;
+  color:#fff;
+  box-shadow:0 18px 55px rgba(0,0,0,.55);
+}
+
+.big{font-weight:1000;letter-spacing:.6px;font-size: clamp(26px, 4.2vw, 40px);margin:0 0 8px}
+.sub{margin:0;opacity:.9;font-size: clamp(14px, 2.2vw, 18px);line-height:1.25}
+.stamp{margin-top:10px;font-family: ui-monospace, Menlo, Consolas, monospace;font-size: 12px;opacity:.85}
+
+@keyframes rfFlash { 0%,49%{background:#000;} 50%,100%{background:#b30000;} }
+@keyframes vscFlash { 0%,49%{background:#000;} 50%,100%{background:#8a5a00;} }
+body.red.flash { animation: rfFlash 1.2s infinite; }
+body.vsc.flash { animation: vscFlash 1.4s infinite; }
+body.red.solid { background:#b30000; }
+body.vsc.solid { background:#8a5a00; }
+body.rtp_solid{ background:#8a5a00; color:#fff; }
+
+.dot{display:inline-block;width:14px;height:14px;border-radius:999px;margin-right:10px;vertical-align:middle}
+.dot.green{background:#22c55e;}
+.dot.red{background:#ef4444;}
+.dot.yellow{background:#f59e0b;}
+.dot.blue{background:#3b82f6;}
 </style>
 </head>
 
 <body>
 
-<!-- 🔊 SOUND FILES (ADDED) -->
+<!-- 🔊 AUDIO FILES -->
 <audio id="sound_race_checkin" src="race check in final.mp3" preload="auto"></audio>
 <audio id="sound_server_reset" src="server restart final.mp3" preload="auto"></audio>
 <audio id="sound_vsc" src="VSC ENABLED. FORMATION.mp3" preload="auto"></audio>
@@ -34,59 +67,14 @@ html,body{height:100%;margin:0;font-family:system-ui;overflow:hidden;background:
 
 const WORKER_BASE = "https://ifwl-flag.benjamin-leahy1.workers.dev";
 const POLL_MS = 500;
-const FLASH_MS = 4000;
 
-const clearLayer = document.getElementById("clearLayer");
 const wrap = document.getElementById("wrap");
 const panel = document.getElementById("panel");
 const content = document.getElementById("content");
 
-function fmt(ts){
-  try { return new Date(ts).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"}); }
-  catch { return "—"; }
-}
+let lastKey = null;
 
-function escapeHtml(s){
-  return String(s)
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-
-function resetAll(){
-  document.body.className = "";
-  document.body.style.background = "";
-  document.body.style.color = "";
-}
-
-function showGreenBlank(){
-  resetAll();
-  wrap.style.display = "none";
-  clearLayer.style.display = "block";
-  clearLayer.style.opacity = "0.001";
-  requestAnimationFrame(() => { clearLayer.style.opacity = "0.001"; });
-}
-
-function showUI(){
-  clearLayer.style.display = "none";
-  wrap.style.display = "flex";
-}
-
-function ensurePanelTextColor(isDarkText){
-  if(isDarkText){
-    panel.style.color = "#111827";
-    panel.style.borderColor = "rgba(17,24,39,.20)";
-    panel.style.background = "rgba(255,255,255,.72)";
-  }else{
-    panel.style.color = "#fff";
-    panel.style.borderColor = "rgba(255,255,255,.18)";
-    panel.style.background = "rgba(0,0,0,.45)";
-  }
-}
-
-/* 🔊 SOUND SYSTEM */
+/* 🔊 SOUND */
 function playSound(id){
   const el = document.getElementById(id);
   if(!el) return;
@@ -96,88 +84,113 @@ function playSound(id){
   }catch{}
 }
 
-/* FLASH SYSTEM (UNCHANGED) */
-let flashTimer = null;
-function applyFlash(baseClass){
-  if(flashTimer){ clearTimeout(flashTimer); flashTimer = null; }
-  document.body.classList.remove("solid","flash");
-  document.body.classList.add(baseClass, "flash");
-  flashTimer = setTimeout(() => {
-    document.body.classList.remove("flash");
-    document.body.classList.add("solid");
-    flashTimer = null;
-  }, FLASH_MS);
-}
-function stopFlash(){
-  if(flashTimer){ clearTimeout(flashTimer); flashTimer = null; }
-  document.body.classList.remove("flash","solid");
+/* BASIC UI */
+function resetAll(){
+  document.body.className = "";
 }
 
-/* (ALL YOUR EXISTING FUNCTIONS REMAIN UNCHANGED HERE) */
+function showUI(){
+  wrap.style.display = "flex";
+}
 
-/* ========================= */
-/* 🔥 APPLY FUNCTION UPDATE  */
-/* ========================= */
+function showOffline(){
+  showUI();
+  resetAll();
+  content.innerHTML = `
+    <div class="big"><span class="dot red"></span>FLAG FEED OFFLINE</div>
+    <p class="sub">Cannot reach Race Control endpoint.</p>
+  `;
+  lastKey = "offline";
+}
 
-let lastKey = null;
+/* MODE DETECTION */
+function getMode(data){
+  const s = (data?.state || "").toLowerCase();
+  const c = (data?.lastCommand || "").toLowerCase();
 
+  if(s === "race_checkin") return "race_checkin";
+  if(c === "server_reset") return "server_reset";
+  if(s === "vsc_slow") return "vsc_slow";
+  if(s === "vsc_pit") return "vsc_pit";
+  if(s === "red") return "red";
+  if(c === "return_to_race_pace") return "return_to_race_pace";
+
+  return "green";
+}
+
+/* RENDER */
+function render(mode){
+
+  resetAll();
+
+  let text = "GREEN FLAG";
+  let sub = "Adhere to race flags.";
+  let dot = "green";
+
+  if(mode === "race_checkin"){
+    text = "RACE CHECK-IN";
+    sub = "Submit your name.";
+  }
+
+  if(mode === "server_reset"){
+    text = "SERVER RESET";
+    sub = "Rejoin server.";
+  }
+
+  if(mode === "vsc_slow"){
+    text = "VSC — FORMATION";
+    dot = "yellow";
+  }
+
+  if(mode === "vsc_pit"){
+    text = "VSC — PIT NOW";
+    dot = "yellow";
+  }
+
+  if(mode === "return_to_race_pace"){
+    text = "VSC ENDING";
+    dot = "yellow";
+  }
+
+  if(mode === "red"){
+    text = "RED FLAG";
+    dot = "red";
+  }
+
+  content.innerHTML = `
+    <div class="big">
+      <span class="dot ${dot}"></span>${text}
+    </div>
+    <p class="sub">${sub}</p>
+  `;
+}
+
+/* APPLY */
 function apply(data){
 
-  const mode = getEffectiveMode(data);
-  const updatedAt = data?.updatedAt || null;
+  const mode = getMode(data);
+  const key = mode + ":" + (data?.updatedAt || "");
 
-  if(mode === "green"){
-    lastKey = "green";
-    showGreenBlank();
-    return;
+  if(key === lastKey) return;
+
+  // 🔊 SOUND TRIGGERS
+  switch(mode){
+    case "race_checkin": playSound("sound_race_checkin"); break;
+    case "server_reset": playSound("sound_server_reset"); break;
+    case "vsc_slow": playSound("sound_vsc"); break;
+    case "vsc_pit": playSound("sound_vsc_pit"); break;
+    case "return_to_race_pace": playSound("sound_vsc_end"); break;
+    case "red": playSound("sound_red"); break;
   }
 
-  showUI();
-
-  const key = mode + ":" + String(updatedAt || "");
-
-  if(key !== lastKey){
-
-    /* 🔊 PLAY CORRECT SOUND */
-    switch(mode){
-
-      case "race_checkin":
-        playSound("sound_race_checkin");
-        break;
-
-      case "server_reset":
-        playSound("sound_server_reset");
-        break;
-
-      case "vsc_slow":
-        playSound("sound_vsc");
-        break;
-
-      case "vsc_pit":
-        playSound("sound_vsc_pit");
-        break;
-
-      case "return_to_race_pace":
-        playSound("sound_vsc_end");
-        break;
-
-      case "red":
-        playSound("sound_red");
-        break;
-    }
-
-    /* EXISTING RENDER */
-    if(mode === "race_checkin") renderCheckinUI(data);
-    else renderFlagUI(mode, updatedAt, data);
-
-    lastKey = key;
-  }
+  render(mode);
+  lastKey = key;
 }
 
+/* POLL */
 async function poll(){
   try{
-    const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`, { cache:"no-store" });
-    if(!res.ok) throw new Error("HTTP " + res.status);
+    const res = await fetch(`${WORKER_BASE}/state?t=${Date.now()}`);
     const data = await res.json();
     apply(data);
   }catch{
