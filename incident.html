@@ -44,7 +44,7 @@
   <div id="voteSection" class="bg-black bg-opacity-70 p-6 rounded-xl text-center mb-6">
     <h3 class="text-lg font-bold mb-4">Who is at fault?</h3>
 
-    <div class="grid grid-cols-1 gap-3">
+    <div class="grid gap-3">
       <button onclick="submitVote('accused')" class="bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold">
         Accused Driver
       </button>
@@ -93,52 +93,80 @@
     <p id="officialDecision"></p>
   </div>
 
-  <!-- PROMOTION -->
-  <div class="bg-black bg-opacity-70 p-6 rounded-xl text-center space-y-4">
-    
-    <div>
-      <p class="font-semibold">Join IFWL</p>
-      <a href="#" class="text-green-400 underline">Join our Discord</a>
-    </div>
-
-    <div>
-      <p class="font-semibold">Test Your Skill Level</p>
-      <a href="index.html" class="text-blue-400 underline">Driver Classification</a>
-    </div>
-
-    <div>
-      <p class="font-semibold">Upcoming Events</p>
-      <a href="#" class="text-purple-400 underline">View Events</a>
-    </div>
-
-  </div>
-
 </div>
 
-<script>
+<script type="module">
+
+// ✅ GOOGLE APPS SCRIPT (PASTE YOUR URL HERE)
 const API_URL = "https://script.google.com/macros/s/AKfycbzloWQL5Hr8Hyb8rFDj9Hvagrlc_V2GJeLF9DgBIAJu_-u-LX5VF-hhay9N2k8k4xqlig/exec";
 
-// Get ID from URL
+// ✅ FIREBASE IMPORTS
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+// ✅ YOUR FIREBASE CONFIG (DONE)
+const firebaseConfig = {
+  apiKey: "AIzaSyDw7lK1obLfMziXFr7gJr5R5huFGjfVcc8",
+  authDomain: "ifwl-591d8.firebaseapp.com",
+  projectId: "ifwl-591d8",
+  storageBucket: "ifwl-591d8.firebasestorage.app",
+  messagingSenderId: "703021152109",
+  appId: "1:703021152109:web:18e2f6a73e0521e4850c64",
+  measurementId: "G-974R4YE6L5"
+};
+
+// ✅ INIT FIREBASE
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ✅ GET INCIDENT ID FROM URL
 const params = new URLSearchParams(window.location.search);
 const incidentId = params.get("id");
 
-// Prevent duplicate voting
-if(localStorage.getItem("voted_" + incidentId)){
-  loadResults();
-}
+// 🔥 LOAD INCIDENT FROM FIREBASE
+async function loadIncident() {
+  try {
+    const docRef = doc(db, "tickets", incidentId);
+    const docSnap = await getDoc(docRef);
 
-// Load incident data (mock for now)
-function loadIncident(){
-  // Replace with backend later
-  document.getElementById("incidentTitle").innerText = "GMC Round 1 - Turn 1 Incident";
-  document.getElementById("incidentDescription").innerText = "Lap 1 contact between two drivers into Turn 1.";
-  document.getElementById("videoFrame").src = "https://www.youtube.com/embed/dQw4w9WgXcQ";
-}
+    if (docSnap.exists()) {
+      const data = docSnap.data();
 
-function submitVote(type){
-  if(localStorage.getItem("voted_" + incidentId)){
-    return;
+      // TITLE
+      document.getElementById("incidentTitle").innerText =
+        `${data.event} - ${data.track}`;
+
+      // DESCRIPTION
+      document.getElementById("incidentDescription").innerText =
+        data.fullIncident || "No description provided.";
+
+      // VIDEO (AUTO CONVERT YOUTUBE)
+      let videoUrl = data.proofUrl || "";
+
+      if (videoUrl.includes("watch?v=")) {
+        const videoId = videoUrl.split("v=")[1].split("&")[0];
+        videoUrl = `https://www.youtube.com/embed/${videoId}`;
+      }
+
+      document.getElementById("videoFrame").src = videoUrl;
+
+      // OFFICIAL DECISION
+      document.getElementById("officialDecision").innerText =
+        data.stewardDecision || "Pending";
+
+    } else {
+      document.getElementById("incidentTitle").innerText = "Incident Not Found";
+    }
+
+  } catch (err) {
+    console.error("Firebase error:", err);
+    document.getElementById("incidentTitle").innerText = "Error loading incident";
   }
+}
+
+// ✅ SUBMIT VOTE
+window.submitVote = function(type){
+  if(localStorage.getItem("voted_" + incidentId)) return;
 
   fetch(API_URL, {
     method: "POST",
@@ -146,17 +174,18 @@ function submitVote(type){
       incidentId: incidentId,
       vote: type
     })
-  })
-  .then(() => {
+  }).then(() => {
     localStorage.setItem("voted_" + incidentId, true);
     loadResults();
   });
 }
 
+// ✅ LOAD RESULTS
 function loadResults(){
   fetch(API_URL + "?id=" + incidentId)
   .then(res => res.json())
   .then(data => {
+
     const total = data.total || 1;
 
     const accusedPct = Math.round((data.accused / total) * 100);
@@ -176,13 +205,18 @@ function loadResults(){
     document.getElementById("racingBar").style.width = racingPct + "%";
     document.getElementById("racingBar").innerText = racingPct + "%";
 
-    document.getElementById("totalVotes").innerText = "Total Votes: " + total;
-
-    document.getElementById("officialDecision").innerText = data.official || "Not yet revealed";
+    document.getElementById("totalVotes").innerText =
+      "Total Votes: " + total;
   });
 }
 
+// 🚀 INIT
 loadIncident();
+
+if(localStorage.getItem("voted_" + incidentId)){
+  loadResults();
+}
+
 </script>
 
 </body>
