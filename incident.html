@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IFWL Incident Review</title>
+<script src="https://cdn.tailwindcss.com"></script>
+
+<style>
+  body {
+    background: url('ifwl_bg.webp') no-repeat center center fixed;
+    background-size: cover;
+  }
+</style>
+</head>
+
+<body class="text-white font-sans">
+
+<div class="max-w-4xl mx-auto p-4">
+
+  <!-- HEADER -->
+  <div class="flex items-center justify-between mb-6">
+    <img src="ifwl_logo.png" class="h-12">
+    <h1 class="text-2xl font-bold text-center flex-1">IFWL Incident Review</h1>
+    <img src="ifwl_logo.png" class="h-12">
+  </div>
+
+  <!-- INCIDENT TITLE -->
+  <div class="bg-black bg-opacity-70 p-4 rounded-xl mb-6 text-center">
+    <h2 id="incidentTitle" class="text-xl font-semibold">Loading Incident...</h2>
+  </div>
+
+  <!-- VIDEO -->
+  <div class="bg-black bg-opacity-70 p-4 rounded-xl mb-6">
+    <iframe id="videoFrame" class="w-full h-64 rounded-lg" src="" allowfullscreen></iframe>
+  </div>
+
+  <!-- DESCRIPTION -->
+  <div class="bg-black bg-opacity-70 p-4 rounded-xl mb-6">
+    <p id="incidentDescription">Loading description...</p>
+  </div>
+
+  <!-- VOTING -->
+  <div id="voteSection" class="bg-black bg-opacity-70 p-6 rounded-xl text-center mb-6">
+    <h3 class="text-lg font-bold mb-4">Who is at fault?</h3>
+
+    <div class="grid grid-cols-1 gap-3">
+      <button onclick="submitVote('accused')" class="bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold">
+        Accused Driver
+      </button>
+
+      <button onclick="submitVote('reporting')" class="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold">
+        Reporting Driver
+      </button>
+
+      <button onclick="submitVote('racing')" class="bg-gray-600 hover:bg-gray-700 p-3 rounded-lg font-semibold">
+        Racing Incident (NFA)
+      </button>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="resultsSection" class="hidden bg-black bg-opacity-70 p-6 rounded-xl mb-6">
+    <h3 class="text-lg font-bold mb-4 text-center">Results</h3>
+
+    <div class="mb-3">
+      <p>Accused</p>
+      <div class="w-full bg-gray-800 rounded">
+        <div id="accusedBar" class="bg-red-500 p-1 text-center"></div>
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <p>Reporting</p>
+      <div class="w-full bg-gray-800 rounded">
+        <div id="reportingBar" class="bg-blue-500 p-1 text-center"></div>
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <p>Racing Incident</p>
+      <div class="w-full bg-gray-800 rounded">
+        <div id="racingBar" class="bg-gray-500 p-1 text-center"></div>
+      </div>
+    </div>
+
+    <p class="text-center mt-4" id="totalVotes"></p>
+  </div>
+
+  <!-- OFFICIAL RESULT -->
+  <div id="officialSection" class="hidden bg-yellow-600 bg-opacity-90 p-4 rounded-xl mb-6 text-center">
+    <h3 class="font-bold">Official IFWL Decision</h3>
+    <p id="officialDecision"></p>
+  </div>
+
+  <!-- PROMOTION -->
+  <div class="bg-black bg-opacity-70 p-6 rounded-xl text-center space-y-4">
+    
+    <div>
+      <p class="font-semibold">Join IFWL</p>
+      <a href="#" class="text-green-400 underline">Join our Discord</a>
+    </div>
+
+    <div>
+      <p class="font-semibold">Test Your Skill Level</p>
+      <a href="index.html" class="text-blue-400 underline">Driver Classification</a>
+    </div>
+
+    <div>
+      <p class="font-semibold">Upcoming Events</p>
+      <a href="#" class="text-purple-400 underline">View Events</a>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbzloWQL5Hr8Hyb8rFDj9Hvagrlc_V2GJeLF9DgBIAJu_-u-LX5VF-hhay9N2k8k4xqlig/exec";
+
+// Get ID from URL
+const params = new URLSearchParams(window.location.search);
+const incidentId = params.get("id");
+
+// Prevent duplicate voting
+if(localStorage.getItem("voted_" + incidentId)){
+  loadResults();
+}
+
+// Load incident data (mock for now)
+function loadIncident(){
+  // Replace with backend later
+  document.getElementById("incidentTitle").innerText = "GMC Round 1 - Turn 1 Incident";
+  document.getElementById("incidentDescription").innerText = "Lap 1 contact between two drivers into Turn 1.";
+  document.getElementById("videoFrame").src = "https://www.youtube.com/embed/dQw4w9WgXcQ";
+}
+
+function submitVote(type){
+  if(localStorage.getItem("voted_" + incidentId)){
+    return;
+  }
+
+  fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({
+      incidentId: incidentId,
+      vote: type
+    })
+  })
+  .then(() => {
+    localStorage.setItem("voted_" + incidentId, true);
+    loadResults();
+  });
+}
+
+function loadResults(){
+  fetch(API_URL + "?id=" + incidentId)
+  .then(res => res.json())
+  .then(data => {
+    const total = data.total || 1;
+
+    const accusedPct = Math.round((data.accused / total) * 100);
+    const reportingPct = Math.round((data.reporting / total) * 100);
+    const racingPct = Math.round((data.racing / total) * 100);
+
+    document.getElementById("voteSection").classList.add("hidden");
+    document.getElementById("resultsSection").classList.remove("hidden");
+    document.getElementById("officialSection").classList.remove("hidden");
+
+    document.getElementById("accusedBar").style.width = accusedPct + "%";
+    document.getElementById("accusedBar").innerText = accusedPct + "%";
+
+    document.getElementById("reportingBar").style.width = reportingPct + "%";
+    document.getElementById("reportingBar").innerText = reportingPct + "%";
+
+    document.getElementById("racingBar").style.width = racingPct + "%";
+    document.getElementById("racingBar").innerText = racingPct + "%";
+
+    document.getElementById("totalVotes").innerText = "Total Votes: " + total;
+
+    document.getElementById("officialDecision").innerText = data.official || "Not yet revealed";
+  });
+}
+
+loadIncident();
+</script>
+
+</body>
+</html>
