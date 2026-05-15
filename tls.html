@@ -1024,28 +1024,79 @@
       $("aliasPill").textContent = `Aliases: ${Object.keys(aliasMap).length}`;
     }
 
+
+    function parseRedServedFromNote(note){
+      const out = {
+        redServed: false,
+        redServedCount: 0,
+        redServedAt: null,
+        resetScoreAfter: null,
+        lastServedScore: null,
+        lastServedRaw: null,
+        lastServedBy: "",
+        lastServedNote: ""
+      };
+
+      const src = String(note || "");
+      const marker = "[TLS_RED_SERVED_RESET]";
+      const idx = src.lastIndexOf(marker);
+      if (idx < 0) return out;
+
+      const after = src.slice(idx + marker.length).trim();
+      const firstLine = after.split(/\r?\n/)[0].trim();
+
+      try{
+        const data = JSON.parse(firstLine);
+        const resetIso = data.resetScoreAfter || data.redServedAt || "";
+        out.redServed = true;
+        out.redServedCount = Number(data.count || data.redServedCount || 1);
+        out.redServedAt = resetIso;
+        out.resetScoreAfter = resetIso;
+        out.lastServedScore = data.score ?? null;
+        out.lastServedRaw = data.raw ?? null;
+        out.lastServedBy = data.by || "";
+        out.lastServedNote = data.message || `Manual Red served/reset recorded. Served TLS Reds this season: ${out.redServedCount}.`;
+      }catch(e){
+        out.redServed = true;
+        out.redServedCount = 1;
+        out.lastServedNote = "Manual Red served/reset recorded.";
+      }
+
+      return out;
+    }
+
+    function stripRedServedMarkers(note){
+      return String(note || "")
+        .split(/\r?\n/)
+        .filter(line => !line.trim().startsWith("[TLS_RED_SERVED_RESET]"))
+        .join("\n")
+        .trim();
+    }
+
     async function loadActions(){
       actionsByDriver = {};
       try{
         const snap = await db.collection("tlsActions").limit(2000).get();
         snap.forEach(doc=>{
           const d = doc.data() || {};
+          const parsedServed = parseRedServedFromNote(d.note || "");
           actionsByDriver[doc.id] = {
             action: d.action || "",
             note: d.note || "",
+            displayNote: stripRedServedMarkers(d.note || ""),
             updatedBy: d.updatedBy || "",
             updatedAt: d.updatedAt || null,
 
-            // Red-served/reset fields are stored in the existing tlsActions document.
-            // No extra Firestore collection is required.
-            redServed: !!d.redServed,
-            redServedCount: Number(d.redServedCount || 0),
-            redServedAt: d.redServedAt || null,
-            resetScoreAfter: d.resetScoreAfter || null,
-            lastServedScore: d.lastServedScore || null,
-            lastServedRaw: d.lastServedRaw || null,
-            lastServedBy: d.lastServedBy || "",
-            lastServedNote: d.lastServedNote || ""
+            // Red-served/reset state is deliberately encoded inside the existing note field.
+            // This avoids adding any new Firestore fields/collections, which can be blocked by current rules.
+            redServed: parsedServed.redServed,
+            redServedCount: parsedServed.redServedCount,
+            redServedAt: parsedServed.redServedAt,
+            resetScoreAfter: parsedServed.resetScoreAfter,
+            lastServedScore: parsedServed.lastServedScore,
+            lastServedRaw: parsedServed.lastServedRaw,
+            lastServedBy: parsedServed.lastServedBy,
+            lastServedNote: parsedServed.lastServedNote
           };
         });
       }catch(e){
@@ -1349,7 +1400,7 @@
           : "";
         const coolText = r.cooledOff ? `<div><b>Amber cool-off:</b> 14 clean days reached</div>` : "";
         const actText = (act?.action || servedText || coolText) ? `${act?.action ? `<b>${escapeHtml(act.action)}</b>` : ""}${servedText}${coolText}` : `<span class="muted">—</span>`;
-        const noteText = act?.note ? escapeHtml(act.note) : `<span class="muted">—</span>`;
+        const noteText = (act?.displayNote || act?.lastServedNote) ? escapeHtml(act.displayNote || act.lastServedNote) : `<span class="muted">—</span>`;
         const updText = act
           ? `${escapeHtml(act.updatedBy || "—")}<div class="muted">${escapeHtml(formatTimestamp(act.updatedAt) || "")}</div>`
           : `<span class="muted">—</span>`;
@@ -1647,17 +1698,29 @@
           buttonEl.textContent = "Saving…";
         }
 
+        const resetIso = new Date().toISOString();
+        const cleanExistingNote = stripRedServedMarkers(act.note || "");
+        const markerPayload = {
+          count: nextCount,
+          resetScoreAfter: resetIso,
+          redServedAt: resetIso,
+          score: row.adjustedSeconds,
+          raw: row.rawSeconds,
+          by: currentEmail,
+          message: `Manual Red served/reset recorded. Served TLS Reds this season: ${nextCount}.`
+        };
+        const storedNote = [
+          cleanExistingNote,
+          `[TLS_RED_SERVED_RESET] ${JSON.stringify(markerPayload)}`
+        ].filter(Boolean).join("
+");
+
+        // Only existing tlsActions fields are written here. This avoids Firestore rule failures caused by new fields.
         await db.collection("tlsActions").doc(row.canonicalKey).set({
           canonicalKey: row.canonicalKey,
           driverName: row.driverName,
-          redServed: true,
-          redServedCount: nextCount,
-          redServedAt: serverNow(),
-          resetScoreAfter: new Date(),
-          lastServedScore: row.adjustedSeconds,
-          lastServedRaw: row.rawSeconds,
-          lastServedBy: currentEmail,
-          lastServedNote: `Manual Red served/reset recorded. Served TLS Reds this season: ${nextCount}.`,
+          action: act.action || "Other",
+          note: storedNote,
           updatedBy: currentEmail,
           updatedAt: serverNow()
         }, { merge: true });
@@ -2047,19 +2110,22 @@
       const greens = [];
       const ambers = [];
       const reds = [];
+      const servedResets = [];
 
       for (const r of rows){
         if (r.tls.key === "green") greens.push(r);
         else if (r.tls.key === "amber") ambers.push(r);
         else if (r.tls.key === "red") reds.push(r);
+        if ((r.redServedCount || 0) > 0) servedResets.push(r);
       }
 
       const sortDesc = (a,b)=> b.adjustedSeconds - a.adjustedSeconds;
       greens.sort(sortDesc);
       ambers.sort(sortDesc);
       reds.sort(sortDesc);
+      servedResets.sort((a,b)=> (b.redServedCount || 0) - (a.redServedCount || 0) || b.adjustedSeconds - a.adjustedSeconds);
 
-      return { greens, ambers, reds };
+      return { greens, ambers, reds, servedResets };
     }
 
     async function publishTLSReportToDiscord(){
@@ -2071,9 +2137,9 @@
 
       const rows = driverRows.slice();
       const range = getSelectedRange();
-      const { greens, ambers, reds } = groupForDiscordReport(rows);
+      const { greens, ambers, reds, servedResets } = groupForDiscordReport(rows);
 
-      if (!greens.length && !ambers.length && !reds.length){
+      if (!greens.length && !ambers.length && !reds.length && !servedResets.length){
         toast("Nothing to publish (no Green/Amber/Red drivers in this range).");
         return;
       }
@@ -2085,13 +2151,13 @@
         const blob = await buildTLSReportImageBlob({
           rangeLabel: range.label,
           generatedBy: currentEmail,
-          greens, ambers, reds
+          greens, ambers, reds, servedResets
         });
 
         const content =
           `**IFWL TLS Report**\n` +
           `Range: ${range.label}\n` +
-          `Green: ${greens.length} | Amber: ${ambers.length} | Red: ${reds.length}`;
+          `Green: ${greens.length} | Amber: ${ambers.length} | Red: ${reds.length} | Served resets: ${servedResets.length}`;
 
         const fd = new FormData();
         fd.append("content", content);
@@ -2320,7 +2386,7 @@
       }
     }
 
-    async function buildTLSReportImageBlob({ rangeLabel, generatedBy, greens, ambers, reds }){
+    async function buildTLSReportImageBlob({ rangeLabel, generatedBy, greens, ambers, reds, servedResets }){
       const pad = 28;
       const sectionGap = 18;
       const lineH = 22;
@@ -2329,6 +2395,7 @@
       const gList = greens.slice(0, MAX_PER_SECTION);
       const aList = ambers.slice(0, MAX_PER_SECTION);
       const rList = reds.slice(0, MAX_PER_SECTION);
+      const sList = (servedResets || []).slice(0, MAX_PER_SECTION);
 
       const headerH = 120;
       const sectionHeaderH = 34;
@@ -2336,9 +2403,10 @@
       const gH = sectionHeaderH + Math.max(1, gList.length)*lineH + 16;
       const aH = sectionHeaderH + Math.max(1, aList.length)*lineH + 16;
       const rH = sectionHeaderH + Math.max(1, rList.length)*lineH + 16;
+      const sH = sectionHeaderH + Math.max(1, sList.length)*lineH + 16;
 
       const w = 1300;
-      const h = pad + headerH + sectionGap + gH + sectionGap + aH + sectionGap + rH + pad;
+      const h = pad + headerH + sectionGap + gH + sectionGap + aH + sectionGap + rH + sectionGap + sH + pad;
 
       const canvas = document.createElement("canvas");
       canvas.width = w;
@@ -2375,11 +2443,14 @@
       y = drawSection(ctx, cardX + 18, y, cardW - 36, "AMBER (Adjusted ≥ 45)", aList, "#92400e");
       y += sectionGap;
       y = drawSection(ctx, cardX + 18, y, cardW - 36, "RED (Adjusted ≥ 60)", rList, "#991b1b");
+      y += sectionGap;
+      y = drawSection(ctx, cardX + 18, y, cardW - 36, "SERVED TLS REDS / ACTIVE RESET", sList, "#374151");
 
       const truncated =
         (greens.length > MAX_PER_SECTION) ||
         (ambers.length > MAX_PER_SECTION) ||
-        (reds.length > MAX_PER_SECTION);
+        (reds.length > MAX_PER_SECTION) ||
+        ((servedResets || []).length > MAX_PER_SECTION);
 
       if (truncated){
         ctx.fillStyle = "#6b7280";
