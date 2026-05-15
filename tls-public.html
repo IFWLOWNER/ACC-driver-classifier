@@ -151,6 +151,87 @@
       line-height:1.45;
     }
 
+
+
+    .driverCards{
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 574px));
+      gap:14px;
+      margin-top:14px;
+      align-items:start;
+      justify-content:center;
+    }
+    .driverCardItem{
+      display:grid;
+      gap:6px;
+    }
+    .driverCard{
+      position:relative;
+      width:100%;
+      aspect-ratio: 574 / 100;
+      background-image:url("./IFWL S2 - Standings Cards (2).png");
+      background-size:100% 100%;
+      background-repeat:no-repeat;
+      background-position:center;
+      border-radius:8px;
+      overflow:hidden;
+      box-shadow:0 8px 20px rgba(0,0,0,0.14);
+    }
+    .cardNumber{
+      position:absolute;
+      left:4.8%;
+      top:50%;
+      transform:translateY(-50%);
+      width:90px;
+      text-align:center;
+      font-size:clamp(24px, 4.2vw, 52px);
+      line-height:1;
+      font-weight:900;
+      color:#000;
+      letter-spacing:-0.04em;
+    }
+    .cardDriverName{
+      position:absolute;
+      left:42%;
+      right:21%;
+      top:50%;
+      transform:translateY(-50%);
+      text-align:center;
+      font-size:clamp(22px, 4.4vw, 54px);
+      line-height:.9;
+      font-weight:900;
+      color:#000;
+      text-transform:uppercase;
+      letter-spacing:.015em;
+      overflow:hidden;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+    }
+    .cardTlsBadge{
+      position:absolute;
+      right:4.8%;
+      top:7%;
+      width:15.6%;
+      height:23%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:clamp(9px, 1.25vw, 13px);
+      font-weight:900;
+      color:#000;
+      text-transform:uppercase;
+      white-space:nowrap;
+    }
+    .cardPublicNote{
+      padding:8px 10px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      border-radius:10px;
+      font-size:12px;
+      color:#111827;
+      line-height:1.35;
+    }
+
     .toast{
       position:fixed; right:16px; bottom:16px;
       background:#111827; color:#fff;
@@ -172,6 +253,10 @@
     @media (max-width: 640px){
       .summaryGrid{grid-template-columns: 1fr;}
       table{min-width:680px;}
+      .driverCards{grid-template-columns: 1fr;}
+      .cardNumber{font-size:clamp(24px, 10vw, 44px);}
+      .cardDriverName{font-size:clamp(20px, 9vw, 40px);}
+      .cardTlsBadge{font-size:clamp(8px, 2.3vw, 11px);}
     }
   </style>
 </head>
@@ -197,7 +282,7 @@
       <div class="row" style="justify-content:space-between;">
         <div>
           <div class="sectionTitle">Current TLS Standings</div>
-          <div class="muted">Showing driver number, name, and current TLS status only.</div>
+          <div class="muted">Showing public IFWL driver cards with driver number, name, and current TLS status only.</div>
         </div>
 
         <div class="row">
@@ -243,19 +328,7 @@
         <b>Public notice:</b> This page does not show ticket IDs, penalties, incidents, steward notes, raw scores, adjusted scores, or internal action records. Amber clearance countdowns are based on clean days since the latest counted finalised ticket.
       </div>
 
-      <div class="tableWrap">
-        <table aria-label="Public TLS table">
-          <thead>
-            <tr>
-              <th>Number</th>
-              <th>Driver</th>
-              <th>TLS Status</th>
-              <th>Public note</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
+      <div class="driverCards" id="cardGrid" aria-label="Public TLS driver cards"></div>
 
       <div class="muted" style="margin-top:8px;" id="hint">—</div>
     </div>
@@ -641,8 +714,8 @@
     }
 
     function render(){
-      const tbody = $("tbody");
-      tbody.innerHTML = "";
+      const grid = $("cardGrid");
+      grid.innerHTML = "";
 
       const mode = $("filterMode").value;
       const q = ($("search").value || "").trim();
@@ -680,21 +753,21 @@
         else if (r.baseTls.key === "amber") note = amberCountdownText(r);
         else if (r.cooledOff) note = "Amber cool-off complete.";
 
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><b>${escapeHtml(r.number)}</b></td>
-          <td>
-            <div class="driverName">${escapeHtml(r.name)}</div>
-            <div class="driverSub">IFWL driver</div>
-          </td>
-          <td><span class="tag ${r.tls.className}">${escapeHtml(r.tls.label)}</span></td>
-          <td>${escapeHtml(note)}</td>
+        const item = document.createElement("div");
+        item.className = "driverCardItem";
+        item.innerHTML = `
+          <div class="driverCard">
+            <div class="cardNumber">#${escapeHtml(r.number)}</div>
+            <div class="cardDriverName" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</div>
+            <div class="cardTlsBadge">${escapeHtml(r.tls.label)}</div>
+          </div>
+          <div class="cardPublicNote"><b>${escapeHtml(r.tls.label)}:</b> ${escapeHtml(note)}</div>
         `;
-        tbody.appendChild(tr);
+        grid.appendChild(item);
       }
 
       if (!rows.length){
-        tbody.innerHTML = `<tr><td colspan="4" class="muted">No drivers found for the selected range/filter.</td></tr>`;
+        grid.innerHTML = `<div class="muted">No drivers found for the selected range/filter.</div>`;
       }
     }
 
