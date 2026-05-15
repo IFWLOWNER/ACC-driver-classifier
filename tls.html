@@ -103,7 +103,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:2450px;
+      min-width:2150px;
     }
     th, td{
       padding:10px;
@@ -157,9 +157,6 @@
     .tag.beginner{border-color:#c4b5fd;background:#f5f3ff;color:#6d28d9;}
     .tag.openclass{border-color:#d1fae5;background:#ecfdf5;color:#065f46;}
     .tag.discount{border-color:#fde68a;background:#fffbeb;color:#92400e;}
-    .tag.served{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8;}
-    .tag.cooloff{border-color:#bbf7d0;background:#f0fdf4;color:#166534;}
-    .tag.escalation{border-color:#fca5a5;background:#fef2f2;color:#7f1d1d;}
 
     .toast{
       position:fixed; right:16px; bottom:16px;
@@ -496,7 +493,6 @@
         Adjusted score = <b>base penalty</b> × <b>severity multiplier</b> × <b>beginner leeway discount</b> (where applicable).
         Only <b>finalised</b> tickets (Finalised/Finalized/Closed/Resolved) are counted.
         Click a driver to view all linked tickets, beginner ticket counts, and the severity graph.
-        Red served resets are stored inside the existing <b>tlsActions</b> record, so no new Firestore collection is required. Amber drivers automatically cool off if they go 14 clean days without another finalised ticket.
       </div>
 
       <div class="discordBox">
@@ -523,8 +519,6 @@
               <th>Beginner tickets</th>
               <th>Discounted beginner tickets</th>
               <th>DQ flags</th>
-              <th>Served Reds</th>
-              <th>Reset / Cool-off</th>
               <th>Last ticket</th>
               <th>Recent events (up to 3)</th>
               <th>Tickets</th>
@@ -1041,43 +1035,22 @@
             note: d.note || "",
             updatedBy: d.updatedBy || "",
             updatedAt: d.updatedAt || null,
-            redServed: d.redServed === true,
+
+            // Red-served/reset fields are stored in the existing tlsActions document.
+            // No extra Firestore collection is required.
+            redServed: !!d.redServed,
             redServedCount: Number(d.redServedCount || 0),
             redServedAt: d.redServedAt || null,
-            redServedBy: d.redServedBy || "",
-            redServedNote: d.redServedNote || "",
             resetScoreAfter: d.resetScoreAfter || null,
-            resetScoreAfterMs: Number(d.resetScoreAfterMs || 0),
-            resetSeasonKey: d.resetSeasonKey || "",
-            resetSeasonLabel: d.resetSeasonLabel || ""
+            lastServedScore: d.lastServedScore || null,
+            lastServedRaw: d.lastServedRaw || null,
+            lastServedBy: d.lastServedBy || "",
+            lastServedNote: d.lastServedNote || ""
           };
         });
       }catch(e){
         console.warn("tlsActions load failed:", e);
       }
-    }
-
-    function actionResetMs(act){
-      if (!act) return 0;
-      if (Number.isFinite(Number(act.resetScoreAfterMs)) && Number(act.resetScoreAfterMs) > 0) return Number(act.resetScoreAfterMs);
-      return timestampMs(act.resetScoreAfter);
-    }
-
-    function redServedCountFor(row){
-      const act = actionsByDriver[row?.canonicalKey || ""] || null;
-      return Math.max(0, Number(act?.redServedCount || 0));
-    }
-
-    function msToDays(ms){
-      return ms / (24 * 60 * 60 * 1000);
-    }
-
-    function daysSinceText(ms){
-      if (!ms) return "—";
-      const days = Math.floor(msToDays(Date.now() - ms));
-      if (days <= 0) return "today";
-      if (days === 1) return "1 day ago";
-      return `${days} days ago`;
     }
 
     async function loadEverything(){
@@ -1115,6 +1088,66 @@
       if (key === "mild") return cfg.severityMultiplier.mild;
       if (key === "severe") return cfg.severityMultiplier.severe;
       return cfg.severityMultiplier.standard;
+    }
+
+    function computeTlsMetrics(orderedTickets, cfg){
+      // This is the original TLS scoring formula, kept intact:
+      // raw penalty × severity multiplier × beginner leeway where applicable.
+      let beginnerSeen = 0;
+      let rawTotal = 0;
+      let adjustedTotal = 0;
+      let beginnerCount = 0;
+      let discountedBeginnerCount = 0;
+      let dqCount = 0;
+      let ticketCount = 0;
+
+      for (const tk of orderedTickets){
+        ticketCount += 1;
+        rawTotal += tk.rawSeconds || 0;
+        if (tk.dq) dqCount += 1;
+        if (tk.beginner) beginnerCount += 1;
+
+        const sevMult = severityMultiplierForKey(tk.severityKey, cfg);
+        let beginnerFactor = 1;
+        let beginnerOrdinal = 0;
+        let discounted = false;
+
+        if (tk.beginner){
+          beginnerSeen += 1;
+          beginnerOrdinal = beginnerSeen;
+          if (beginnerOrdinal <= cfg.beginnerCount){
+            beginnerFactor = cfg.beginnerDiscount;
+            discounted = cfg.beginnerDiscount < 1;
+          }
+        }
+
+        const adjusted = Number(((tk.rawSeconds || 0) * sevMult * beginnerFactor).toFixed(2));
+        tk.severityMultiplier = sevMult;
+        tk.beginnerFactor = beginnerFactor;
+        tk.beginnerOrdinal = beginnerOrdinal;
+        tk.discounted = discounted;
+        tk.adjustedSeconds = adjusted;
+
+        adjustedTotal += adjusted;
+        if (discounted) discountedBeginnerCount += 1;
+      }
+
+      return {
+        rawSeconds: Number(rawTotal.toFixed(2)),
+        adjustedSeconds: Number(adjustedTotal.toFixed(2)),
+        ticketCount,
+        beginnerCount,
+        discountedBeginnerCount,
+        dqCount
+      };
+    }
+
+    function isAmberCooledOff(baseTls, lastTicketAt){
+      if (!baseTls || baseTls.key !== "amber") return false;
+      const lastMs = timestampMs(lastTicketAt);
+      if (!lastMs) return false;
+      const fourteenDays = 14 * 24 * 60 * 60 * 1000;
+      return (Date.now() - lastMs) >= fourteenDays;
     }
 
     function recomputeFromCache(){
@@ -1197,140 +1230,61 @@
       }
 
       driverRows = Object.values(grouped).map(r => {
-        const orderedAll = r.tickets.slice().sort((a,b) => a.tsMs - b.tsMs);
-        const act = actionsByDriver[r.canonicalKey] || null;
-        const resetMs = actionResetMs(act);
-        const servedReds = Math.max(0, Number(act?.redServedCount || 0));
-        const resetApplies = resetMs > 0;
+        const ordered = r.tickets.slice().sort((a,b) => a.tsMs - b.tsMs);
 
-        const historicalTickets = orderedAll.map(tk => ({
-          ...tk,
-          preReset: resetApplies && tk.tsMs > 0 && tk.tsMs <= resetMs
-        }));
+        // First calculate the historic total exactly as the original TLS system did.
+        // For drivers with no manual Red-served reset, the active total below is identical.
+        const historicMetrics = computeTlsMetrics(ordered, cfg);
 
-        let workingTickets = orderedAll.filter(tk => !resetApplies || !tk.tsMs || tk.tsMs > resetMs);
-        let coolOffCount = 0;
-        let lastCoolOffAtMs = 0;
-        let lastActiveTicketMs = 0;
+        const act = actionsByDriver[r.canonicalKey] || {};
+        const resetAfterMs = timestampMs(act.resetScoreAfter || act.redServedAt);
+        const hasManualReset = !!(act.redServed && resetAfterMs);
+        const activeOrdered = hasManualReset ? ordered.filter(t => (t.tsMs || 0) > resetAfterMs) : ordered;
 
-        function scoreTicketList(list){
-          let beginnerSeen = 0;
-          let rawTotal = 0;
-          let adjustedTotal = 0;
-          let beginnerCount = 0;
-          let discountedBeginnerCount = 0;
-          let dqCount = 0;
-          let ticketCount = 0;
+        // If a Red has been manually marked as served, only tickets after that point count
+        // towards the active TLS score. Historical tickets remain visible in the ticket modal.
+        const activeMetrics = hasManualReset ? computeTlsMetrics(activeOrdered, cfg) : historicMetrics;
 
-          for (const tk of list){
-            ticketCount += 1;
-            rawTotal += tk.rawSeconds || 0;
-            if (tk.dq) dqCount += 1;
-            if (tk.beginner) beginnerCount += 1;
-
-            const sevMult = severityMultiplierForKey(tk.severityKey, cfg);
-            let beginnerFactor = 1;
-            let beginnerOrdinal = 0;
-            let discounted = false;
-
-            if (tk.beginner){
-              beginnerSeen += 1;
-              beginnerOrdinal = beginnerSeen;
-              if (beginnerOrdinal <= cfg.beginnerCount){
-                beginnerFactor = cfg.beginnerDiscount;
-                discounted = cfg.beginnerDiscount < 1;
-              }
-            }
-
-            const adjusted = Number(((tk.rawSeconds || 0) * sevMult * beginnerFactor).toFixed(2));
-            tk.severityMultiplier = sevMult;
-            tk.beginnerFactor = beginnerFactor;
-            tk.beginnerOrdinal = beginnerOrdinal;
-            tk.discounted = discounted;
-            tk.adjustedSeconds = adjusted;
-
-            adjustedTotal += adjusted;
-            if (discounted) discountedBeginnerCount += 1;
-          }
-
-          return {
-            rawSeconds: Number(rawTotal.toFixed(2)),
-            adjustedSeconds: Number(adjustedTotal.toFixed(2)),
-            ticketCount,
-            beginnerCount,
-            discountedBeginnerCount,
-            dqCount,
-            tls: tlsFromSeconds(adjustedTotal)
-          };
-        }
-
-        // Score every historical ticket for the ticket modal, even if it no longer counts towards the active TLS total.
-        scoreTicketList(historicalTickets);
-
-        let activeTickets = [];
-        for (const tk of workingTickets){
-          if (activeTickets.length){
-            const activeScoreBefore = scoreTicketList(activeTickets);
-            const gapMs = (tk.tsMs || 0) - (lastActiveTicketMs || 0);
-            if (activeScoreBefore.tls.key === "amber" && gapMs >= (14 * 24 * 60 * 60 * 1000)){
-              activeTickets = [];
-              coolOffCount += 1;
-              lastCoolOffAtMs = lastActiveTicketMs;
-            }
-          }
-          activeTickets.push(tk);
-          lastActiveTicketMs = tk.tsMs || lastActiveTicketMs;
-        }
-
-        let activeScore = scoreTicketList(activeTickets);
-        let amberCooledOff = false;
-        if (activeScore.tls.key === "amber" && lastActiveTicketMs && (Date.now() - lastActiveTicketMs) >= (14 * 24 * 60 * 60 * 1000)){
-          amberCooledOff = true;
-          coolOffCount += 1;
-          lastCoolOffAtMs = lastActiveTicketMs;
-          activeTickets = [];
-          activeScore = scoreTicketList(activeTickets);
-        }
-
-        const sortedForDisplay = historicalTickets.slice().sort((a,b)=> b.tsMs - a.tsMs);
+        const sortedForDisplay = ordered.slice().sort((a,b)=> b.tsMs - a.tsMs);
         ticketsByCanonical[r.canonicalKey] = sortedForDisplay;
 
-        const latestActiveTicket = activeTickets.length ? activeTickets[activeTickets.length - 1] : null;
-        const activeLastTicketAt = latestActiveTicket ? latestActiveTicket.timestamp : null;
-        const displayTls = amberCooledOff ? { key:"green", label:"GREEN", className:"green" } : activeScore.tls;
+        const lastActiveTicket = activeOrdered.length ? activeOrdered[activeOrdered.length - 1] : null;
+        const lastActiveTicketAt = lastActiveTicket ? lastActiveTicket.timestamp : null;
+        const baseTls = tlsFromSeconds(activeMetrics.adjustedSeconds);
+        const cooledOff = isAmberCooledOff(baseTls, lastActiveTicketAt);
+        const displayedTls = cooledOff
+          ? { key: "green", label: "GREEN (COOLED OFF)", className: "green" }
+          : baseTls;
 
         return {
           canonicalKey: r.canonicalKey,
           driverName: r.driverName,
           primaryAliasKey: r.primaryAliasKey,
           aliasKeys: Array.from(r.aliasKeys || []),
-          rawSeconds: activeScore.rawSeconds,
-          adjustedSeconds: activeScore.adjustedSeconds,
-          ticketCount: activeScore.ticketCount,
-          beginnerCount: activeScore.beginnerCount,
-          discountedBeginnerCount: activeScore.discountedBeginnerCount,
-          dqCount: activeScore.dqCount,
-          historicTicketCount: orderedAll.length,
-          preResetTicketCount: historicalTickets.filter(t => t.preReset).length,
-          servedReds,
-          resetMs,
-          resetText: resetMs ? fmtDateShort(resetMs) : "",
-          resetSeasonLabel: act?.resetSeasonLabel || "",
-          lastTicketAt: activeLastTicketAt || r.lastTicketAt,
-          lastActiveTicketAt: activeLastTicketAt,
-          historicalLastTicketAt: r.lastTicketAt,
-          amberCooledOff,
-          coolOffCount,
-          lastCoolOffAtMs,
+          rawSeconds: activeMetrics.rawSeconds,
+          adjustedSeconds: activeMetrics.adjustedSeconds,
+          ticketCount: activeMetrics.ticketCount,
+          beginnerCount: activeMetrics.beginnerCount,
+          discountedBeginnerCount: activeMetrics.discountedBeginnerCount,
+          dqCount: activeMetrics.dqCount,
+          historicRawSeconds: historicMetrics.rawSeconds,
+          historicAdjustedSeconds: historicMetrics.adjustedSeconds,
+          historicTicketCount: historicMetrics.ticketCount,
+          hasManualReset,
+          resetAfterMs,
+          redServedCount: Number(act.redServedCount || 0),
+          redServedAt: act.redServedAt || null,
+          cooledOff,
+          baseTls,
+          lastTicketAt: lastActiveTicketAt || r.lastTicketAt,
+          historicLastTicketAt: r.lastTicketAt,
           recentEvents: r.recentEvents,
           recentCompetitions: r.recentCompetitions,
-          tls: displayTls
+          tls: displayedTls
         };
       });
 
-      const redServedTotal = driverRows.reduce((n,r)=> n + (r.servedReds || 0), 0);
-      const cooledTotal = driverRows.filter(r => r.amberCooledOff).length;
-      $("hint").textContent = `Computed TLS from ${considered} finalised ticket(s) within: ${range.label}. Adjusted score uses severity weighting, beginner leeway, Red-served resets, and Amber 14-day cool-offs. Recorded served Reds: ${redServedTotal}. Amber cooled off now: ${cooledTotal}.`;
+      $("hint").textContent = `Computed TLS from ${considered} finalised ticket(s) within: ${range.label}. Scoring formula is unchanged. Manual Red-served resets only affect drivers once marked served; Amber cool-off is display-only after 14 clean days.`;
       render();
 
       if (ticketsModal.overlay.classList.contains("show") && ticketsModal.currentKey){
@@ -1379,24 +1333,22 @@
         let actionHelper = "No action required";
 
         if (r.tls.key === "red"){
-          const escalationText = r.servedReds > 0 ? `<div class="muted" style="margin-top:6px;"><span class="tag escalation">Escalation: ${escapeHtml(String(r.servedReds + 1))}nd Red</span></div>` : "";
           actionCell = `
             <div class="row" style="gap:8px;">
               <button class="primary" data-action="tlsAction" data-key="${escapeHtml(r.canonicalKey)}">Set action</button>
               <button class="danger" data-action="markRedServed" data-key="${escapeHtml(r.canonicalKey)}">Mark Red Served / Reset</button>
-            </div>
-            ${escalationText}
-          `;
-          actionHelper = r.servedReds > 0 ? "Second Red escalation review required" : "Publish Red outcome, then reset after ban served";
+            </div>`;
+          actionHelper = r.redServedCount > 0 ? `Escalation: previous served Reds this season: ${r.redServedCount}` : "Publish Red outcome to Discord";
         } else if (r.tls.key === "amber"){
           actionCell = `<button class="amberBtn" data-action="amberPost" data-key="${escapeHtml(r.canonicalKey)}">Amber Discord Post</button>`;
           actionHelper = "Send Amber warning to New Stewards Office";
-        } else if (r.amberCooledOff){
-          actionCell = `<span class="tag cooloff">Amber cooled off</span>`;
-          actionHelper = "14 clean days reached; active score reset";
         }
 
-        const actText = act?.action ? `<b>${escapeHtml(act.action)}</b>` : `<span class="muted">—</span>`;
+        const servedText = r.redServedCount > 0
+          ? `<div><b>Served TLS Reds:</b> ${escapeHtml(String(r.redServedCount))}${r.hasManualReset ? ` <span class="muted">(active score reset)</span>` : ""}</div>`
+          : "";
+        const coolText = r.cooledOff ? `<div><b>Amber cool-off:</b> 14 clean days reached</div>` : "";
+        const actText = (act?.action || servedText || coolText) ? `${act?.action ? `<b>${escapeHtml(act.action)}</b>` : ""}${servedText}${coolText}` : `<span class="muted">—</span>`;
         const noteText = act?.note ? escapeHtml(act.note) : `<span class="muted">—</span>`;
         const updText = act
           ? `${escapeHtml(act.updatedBy || "—")}<div class="muted">${escapeHtml(formatTimestamp(act.updatedAt) || "")}</div>`
@@ -1429,30 +1381,23 @@
           </td>
           <td>
             <b>${escapeHtml(String(r.adjustedSeconds))}</b>
-            <div class="muted">TLS score</div>
+            <div class="muted">active TLS score</div>
+            ${r.hasManualReset ? `<div class="muted">Historic: ${escapeHtml(String(r.historicAdjustedSeconds))}</div>` : ""}
           </td>
           <td>
             <b>${escapeHtml(String(r.rawSeconds))}s</b>
-            <div class="muted">raw total</div>
+            <div class="muted">active raw total</div>
+            ${r.hasManualReset ? `<div class="muted">Historic: ${escapeHtml(String(r.historicRawSeconds))}s</div>` : ""}
           </td>
           <td>${escapeHtml(String(r.ticketCount))}</td>
           <td>${escapeHtml(String(r.beginnerCount))}</td>
           <td>${escapeHtml(String(r.discountedBeginnerCount))}</td>
           <td>${escapeHtml(String(r.dqCount))}</td>
-          <td>
-            <span class="tag served">${escapeHtml(String(r.servedReds || 0))}</span>
-            ${(r.servedReds || 0) > 0 ? `<div class="muted" style="margin-top:6px;">TLS Reds served this season</div>` : `<div class="muted" style="margin-top:6px;">None recorded</div>`}
-          </td>
-          <td>
-            ${r.resetMs ? `<span class="tag served">Reset after ${escapeHtml(r.resetText)}</span>` : (r.amberCooledOff ? `<span class="tag cooloff">14-day cool-off</span>` : `<span class="muted">—</span>`)}
-            ${r.preResetTicketCount ? `<div class="muted" style="margin-top:6px;">Historical tickets kept: ${escapeHtml(String(r.preResetTicketCount))}</div>` : ""}
-            ${r.amberCooledOff ? `<div class="muted" style="margin-top:6px;">Last ticket: ${escapeHtml(daysSinceText(r.lastCoolOffAtMs))}</div>` : ""}
-          </td>
           <td>${lastTicketText}</td>
           <td>${recentEventsHtml}</td>
           <td>
             <button data-action="viewTickets" data-key="${escapeHtml(r.canonicalKey)}">View tickets</button>
-            <div class="muted" style="margin-top:6px;">Active: ${escapeHtml(String(r.ticketCount))} | History: ${escapeHtml(String(r.historicTicketCount || ticketCount))}</div>
+            <div class="muted" style="margin-top:6px;">Linked: ${escapeHtml(String(ticketCount))}</div>
           </td>
           <td>${mergeButtons}</td>
           <td>${actionCell}<div class="muted" style="margin-top:6px;">${escapeHtml(actionHelper)}</div></td>
@@ -1488,7 +1433,7 @@
           if (action === "markRedServed"){
             const row = driverRows.find(x => x.canonicalKey === key);
             if (!row) return;
-            await markRedServedAndReset(row, el);
+            await markRedServed(row, el);
             return;
           }
           if (action === "merge"){
@@ -1640,7 +1585,7 @@
         <div class="k">Raw total</div><div class="v">${escapeHtml(String(row.rawSeconds))}s</div>
         <div class="k">Beginner tickets</div><div class="v">${escapeHtml(String(row.beginnerCount))} (${escapeHtml(String(row.discountedBeginnerCount))} discounted)</div>
         <div class="k">DQ flags</div><div class="v">${escapeHtml(String(row.dqCount))}</div>
-        <div class="k">Served TLS Reds</div><div class="v"><span class="tag served">${escapeHtml(String(row.servedReds || 0))}</span>${(row.servedReds || 0) > 0 ? ` <span class="tag escalation">Escalation if Red again</span>` : ""}</div>
+        <div class="k">Served TLS Reds</div><div class="v">${escapeHtml(String(row.redServedCount || 0))}</div>
       `;
 
       if (act){
@@ -1678,6 +1623,57 @@
       actionModal.overlay.classList.add("show");
       actionModal.overlay.setAttribute("aria-hidden","false");
       actionModal.cancel.focus();
+    }
+
+    async function markRedServed(row, buttonEl){
+      if (!row || row.tls.key !== "red"){
+        toast("Only active Red drivers can be marked as served.");
+        return;
+      }
+
+      const ok = window.confirm(
+        `Mark ${row.driverName} as having served this Red TLS penalty?\n\n` +
+        `This will reset their ACTIVE TLS score from now, but historical tickets stay visible and their served Red count is kept in tlsActions.`
+      );
+      if (!ok) return;
+
+      const act = actionsByDriver[row.canonicalKey] || {};
+      const nextCount = Number(act.redServedCount || 0) + 1;
+      const oldText = buttonEl ? buttonEl.textContent : "";
+
+      try{
+        if (buttonEl){
+          buttonEl.disabled = true;
+          buttonEl.textContent = "Saving…";
+        }
+
+        await db.collection("tlsActions").doc(row.canonicalKey).set({
+          canonicalKey: row.canonicalKey,
+          driverName: row.driverName,
+          redServed: true,
+          redServedCount: nextCount,
+          redServedAt: serverNow(),
+          resetScoreAfter: new Date(),
+          lastServedScore: row.adjustedSeconds,
+          lastServedRaw: row.rawSeconds,
+          lastServedBy: currentEmail,
+          lastServedNote: `Manual Red served/reset recorded. Served TLS Reds this season: ${nextCount}.`,
+          updatedBy: currentEmail,
+          updatedAt: serverNow()
+        }, { merge: true });
+
+        toast(`Red served recorded for ${row.driverName} ✅`);
+        await loadActions();
+        recomputeFromCache();
+      }catch(err){
+        console.error(err);
+        toast("Red served save failed:\n" + (err?.message || err));
+      }finally{
+        if (buttonEl){
+          buttonEl.disabled = false;
+          buttonEl.textContent = oldText || "Mark Red Served / Reset";
+        }
+      }
     }
 
     actionModal.select.onchange = updateActionPresetHint;
@@ -1828,7 +1824,9 @@
         <div class="k">Driver</div><div class="v"><b>${escapeHtml(row.driverName)}</b></div>
         <div class="k">Canonical key</div><div class="v"><span class="mono">${escapeHtml(row.canonicalKey)}</span></div>
         <div class="k">Known aliases</div><div class="v">${(row.aliasKeys || []).length ? row.aliasKeys.map(a=>`<span class="mono">${escapeHtml(a)}</span>`).join("<br>") : "—"}</div>
-        <div class="k">TLS</div><div class="v"><span class="tag ${row.tls.className}">${row.tls.label}</span> <span class="muted">(Adjusted: ${escapeHtml(String(row.adjustedSeconds))} | Raw: ${escapeHtml(String(row.rawSeconds))}s)</span></div>
+        <div class="k">TLS</div><div class="v"><span class="tag ${row.tls.className}">${row.tls.label}</span> <span class="muted">(Active adjusted: ${escapeHtml(String(row.adjustedSeconds))} | Active raw: ${escapeHtml(String(row.rawSeconds))}s)</span></div>
+        <div class="k">Historical total</div><div class="v">Adjusted: ${escapeHtml(String(row.historicAdjustedSeconds ?? row.adjustedSeconds))} | Raw: ${escapeHtml(String(row.historicRawSeconds ?? row.rawSeconds))}s | Tickets: ${escapeHtml(String(row.historicTicketCount ?? row.ticketCount))}</div>
+        <div class="k">Served TLS Reds</div><div class="v">${escapeHtml(String(row.redServedCount || 0))}${row.hasManualReset ? ` <span class="muted">(active score reset after served Red)</span>` : ""}${row.cooledOff ? ` <span class="muted">(Amber cooled off after 14 clean days)</span>` : ""}</div>
       `;
 
       renderTicketsStats(row);
@@ -1887,7 +1885,7 @@
       const q = (ticketsModal.search.value || "").trim();
       const filtered = list.filter(t => matchesTicketSearch(t, q));
 
-      ticketsModal.hint.textContent = `Tickets: ${filtered.length} (newest first). Historical pre-reset tickets are shown but no longer count towards the active TLS score.`;
+      ticketsModal.hint.textContent = `Tickets: ${filtered.length} (newest first)`;
       ticketsModal.tbody.innerHTML = "";
 
       for (const t of filtered){
@@ -1911,7 +1909,7 @@
             <div class="muted" style="margin-top:6px;">×${escapeHtml(String(t.severityMultiplier ?? 1))}</div>
           </td>
           <td>${escapeHtml(t.accusedRaw || "")}</td>
-          <td><b>${escapeHtml(t.penaltyLabel || "-")}</b>${t.dq ? `<div class="muted">DQ flag</div>` : ""}${t.preReset ? `<div class="muted"><span class="tag served">Historical / reset</span></div>` : ""}</td>
+          <td><b>${escapeHtml(t.penaltyLabel || "-")}</b>${t.dq ? `<div class="muted">DQ flag</div>` : ""}</td>
           <td>
             <b>${escapeHtml(String(t.adjustedSeconds || 0))}</b>
             <div class="muted">raw ${escapeHtml(String(t.rawSeconds || 0))}s × severity × beginner factor ${escapeHtml(String(t.beginnerFactor ?? 1))}</div>
@@ -2090,13 +2088,10 @@
           greens, ambers, reds
         });
 
-        const cooled = rows.filter(r => r.amberCooledOff).length;
-        const served = rows.reduce((n,r)=> n + (r.servedReds || 0), 0);
         const content =
           `**IFWL TLS Report**\n` +
           `Range: ${range.label}\n` +
-          `Green/Clear: ${greens.length} | Amber: ${ambers.length} | Red: ${reds.length}\n` +
-          `Amber cooled off: ${cooled} | Served TLS Reds recorded: ${served}`;
+          `Green: ${greens.length} | Amber: ${ambers.length} | Red: ${reds.length}`;
 
         const fd = new FormData();
         fd.append("content", content);
@@ -2325,64 +2320,6 @@
       }
     }
 
-
-    async function markRedServedAndReset(row, buttonEl){
-      if (!row || row.tls.key !== "red"){
-        toast("Only current Red drivers can be marked as served/reset.");
-        return;
-      }
-
-      const servedCount = redServedCountFor(row);
-      const range = getSelectedRange();
-      const msg =
-        `${row.driverName} will be marked as having served a TLS Red penalty.\n\n` +
-        `This will reset their ACTIVE TLS score from now, while keeping all historic tickets and recording the served Red count inside tlsActions.\n\n` +
-        `Current served Reds this season: ${servedCount}\n` +
-        `After saving: ${servedCount + 1}`;
-
-      if (!window.confirm(msg)) return;
-
-      const oldText = buttonEl ? buttonEl.textContent : "";
-      try{
-        if (buttonEl){
-          buttonEl.disabled = true;
-          buttonEl.textContent = "Resetting…";
-        }
-
-        const nowMs = Date.now();
-        const ref = db.collection("tlsActions").doc(row.canonicalKey);
-        await ref.set({
-          canonicalKey: row.canonicalKey,
-          driverName: row.driverName,
-          redServed: true,
-          redServedCount: firebase.firestore.FieldValue.increment(1),
-          redServedAt: serverNow(),
-          redServedBy: currentEmail,
-          resetScoreAfter: new Date(nowMs).toISOString(),
-          resetScoreAfterMs: nowMs,
-          resetSeasonKey: range.key,
-          resetSeasonLabel: range.label,
-          previousAdjustedScore: row.adjustedSeconds,
-          previousRawSeconds: row.rawSeconds,
-          previousTicketCount: row.ticketCount,
-          updatedBy: currentEmail,
-          updatedAt: serverNow()
-        }, { merge: true });
-
-        toast("Red served recorded. Active TLS score reset ✅");
-        await loadActions();
-        recomputeFromCache();
-      }catch(err){
-        console.error(err);
-        toast("Reset failed:\n" + (err?.message || err));
-      }finally{
-        if (buttonEl){
-          buttonEl.disabled = false;
-          buttonEl.textContent = oldText || "Mark Red Served / Reset";
-        }
-      }
-    }
-
     async function buildTLSReportImageBlob({ rangeLabel, generatedBy, greens, ambers, reds }){
       const pad = 28;
       const sectionGap = 18;
@@ -2433,7 +2370,7 @@
       ctx.fillText(`${new Date().toLocaleString()}`, cardX + 22, cardY + 104);
 
       let y = cardY + headerH + sectionGap;
-      y = drawSection(ctx, cardX + 18, y, cardW - 36, "GREEN / CLEAR (Adjusted < 45 or cooled off)", gList, "#065f46");
+      y = drawSection(ctx, cardX + 18, y, cardW - 36, "GREEN (Adjusted ≥ 15)", gList, "#065f46");
       y += sectionGap;
       y = drawSection(ctx, cardX + 18, y, cardW - 36, "AMBER (Adjusted ≥ 45)", aList, "#92400e");
       y += sectionGap;
@@ -2505,9 +2442,8 @@
         ctx.fillText("— None —", x + 16, yy);
       } else {
         for (const r of list){
-          const servedText = r.servedReds ? `, served Reds ${r.servedReds}` : "";
-          const coolText = r.amberCooledOff ? ", cooled off" : "";
-          const line = `${r.driverName} — adj ${r.adjustedSeconds} (raw ${r.rawSeconds}s, ${r.ticketCount} active tickets, beginners ${r.beginnerCount}${servedText}${coolText})`;
+          const extra = `${r.redServedCount > 0 ? `, served Reds ${r.redServedCount}` : ""}${r.cooledOff ? ", amber cooled off" : ""}`;
+          const line = `${r.driverName} — adj ${r.adjustedSeconds} (raw ${r.rawSeconds}s, ${r.ticketCount} tickets, beginners ${r.beginnerCount}${extra})`;
           ctx.fillStyle = "#111827";
           ctx.fillText(truncateText(ctx, line, w - 32), x + 16, yy);
           yy += lineH;
