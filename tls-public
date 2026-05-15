@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IFWL TLS — Public Driver View</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      margin:0;
+      background:
+        linear-gradient(rgba(2,6,23,0.72), rgba(2,6,23,0.72)),
+        url("./ifwl_bg.webp");
+      background-size:cover;
+      background-position:center;
+      background-attachment:fixed;
+      color:#111827;
+    }
+
+    header{
+      padding:16px 18px;
+      background:#111827;
+      color:#fff;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+
+    .brand{display:flex; gap:12px; align-items:flex-start; min-width:0;}
+    .brand img{
+      width:42px;height:42px;object-fit:contain;margin-top:2px;flex:0 0 auto;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+    }
+    .brandText{min-width:0;}
+    .small{font-size:12px;opacity:0.85;margin-top:4px;line-height:1.3;word-break:break-word;}
+    .titleLine{font-weight:900; font-size:20px; line-height:1.2;}
+
+    .wrap{padding:14px; display:grid; grid-template-columns: 1fr; gap:14px;}
+
+    .card{
+      background:rgba(255,255,255,0.94);
+      border:1px solid rgba(229,231,235,0.95);
+      border-radius:14px;
+      padding:14px;
+      box-shadow:0 10px 28px rgba(0,0,0,0.18);
+    }
+
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+    .sectionTitle{font-weight:900; font-size:16px; margin:0;}
+    .muted{color:#6b7280; font-size:12px; line-height:1.35;}
+
+    button{padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer;}
+    button.primary{background:#111827;color:#fff;border-color:#111827;}
+
+    select, input{
+      padding:10px; border:1px solid #d1d5db; border-radius:12px;
+      box-sizing:border-box; font-size:15px; background:#fff;
+    }
+
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:5px 10px; border-radius:999px;
+      border:1px solid #e5e7eb; background:#fff;
+      font-size:12px; color:#111827; white-space:nowrap;
+    }
+    .pill strong{font-weight:900;}
+
+    .summaryGrid{
+      display:grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap:10px;
+      margin-top:12px;
+    }
+    .summaryCard{
+      border:1px solid #e5e7eb;
+      background:#fff;
+      border-radius:12px;
+      padding:12px;
+    }
+    .summaryCard .label{
+      font-size:12px;
+      color:#6b7280;
+      font-weight:700;
+      margin-bottom:6px;
+    }
+    .summaryCard .value{
+      font-size:24px;
+      font-weight:900;
+    }
+
+    .tableWrap{
+      overflow:auto;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      margin-top:12px;
+    }
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:780px;
+    }
+    th, td{
+      padding:12px;
+      border-bottom:1px solid #f3f4f6;
+      font-size:14px;
+      text-align:left;
+      vertical-align:middle;
+    }
+    th{
+      position:sticky;
+      top:0;
+      background:#f9fafb;
+      z-index:2;
+      font-size:12px;
+      color:#111827;
+      border-bottom:1px solid #e5e7eb;
+      white-space:nowrap;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+    }
+    tr:last-child td{border-bottom:0;}
+
+    .tag{
+      display:inline-block;
+      padding:5px 11px;
+      border-radius:999px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .tag.green{border-color:#86efac;background:#ecfdf5;color:#065f46;}
+    .tag.amber{border-color:#fde68a;background:#fffbeb;color:#92400e;}
+    .tag.red{border-color:#fca5a5;background:#fef2f2;color:#991b1b;}
+    .tag.none{border-color:#d1d5db;background:#f9fafb;color:#111827;}
+
+    .driverName{font-weight:900;}
+    .driverSub{font-size:12px;color:#6b7280;margin-top:3px;}
+
+    .notice{
+      margin-top:10px;
+      padding:10px 12px;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      font-size:12px;
+      color:#111827;
+      line-height:1.45;
+    }
+
+    .toast{
+      position:fixed; right:16px; bottom:16px;
+      background:#111827; color:#fff;
+      padding:10px 12px; border-radius:12px;
+      opacity:0; transform: translateY(8px);
+      transition: all .18s ease;
+      z-index:9999;
+      max-width: min(520px, calc(100vw - 32px));
+      white-space: pre-wrap;
+    }
+    .toast.show{opacity:1; transform: translateY(0);}
+
+    @media (max-width: 980px){
+      body{background-attachment:scroll;}
+      header{flex-direction:column; align-items:stretch;}
+      .summaryGrid{grid-template-columns: 1fr 1fr;}
+    }
+
+    @media (max-width: 640px){
+      .summaryGrid{grid-template-columns: 1fr;}
+      table{min-width:680px;}
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">
+      <img src="./ifwl_logo.png" alt="IFWL logo" />
+      <div class="brandText">
+        <div class="titleLine">IFWL TLS — Public Driver View</div>
+        <div class="small">Active season Traffic Light System status. Ticket details are hidden from this public view.</div>
+        <div class="small" id="lastUpdated">Loading…</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="refreshBtn" class="primary">Refresh</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div class="sectionTitle">Current TLS Standings</div>
+          <div class="muted">Showing driver number, name, and current TLS status only.</div>
+        </div>
+
+        <div class="row">
+          <label class="muted">Range</label>
+          <select id="dateRange">
+            <option value="season1">Season 1 (Jan 13 2026 → Mar 30 2026)</option>
+            <option value="season2" selected>Season 2 (Apr 14 2026 → Jun 29 2026)</option>
+            <option value="all">All time</option>
+          </select>
+
+          <label class="muted">Show</label>
+          <select id="filterMode">
+            <option value="all" selected>All statuses</option>
+            <option value="red">Red</option>
+            <option value="amber">Amber</option>
+            <option value="green">Green</option>
+          </select>
+
+          <input id="search" placeholder="Search driver / number…" style="min-width:260px;">
+        </div>
+      </div>
+
+      <div class="summaryGrid">
+        <div class="summaryCard">
+          <div class="label">Drivers shown</div>
+          <div class="value" id="totalCount">—</div>
+        </div>
+        <div class="summaryCard">
+          <div class="label">Green</div>
+          <div class="value" id="greenCount">—</div>
+        </div>
+        <div class="summaryCard">
+          <div class="label">Amber</div>
+          <div class="value" id="amberCount">—</div>
+        </div>
+        <div class="summaryCard">
+          <div class="label">Red</div>
+          <div class="value" id="redCount">—</div>
+        </div>
+      </div>
+
+      <div class="notice">
+        <b>Public notice:</b> This page does not show ticket IDs, penalties, incidents, steward notes, raw scores, adjusted scores, or internal action records. Amber clearance countdowns are based on clean days since the latest counted finalised ticket.
+      </div>
+
+      <div class="tableWrap">
+        <table aria-label="Public TLS table">
+          <thead>
+            <tr>
+              <th>Number</th>
+              <th>Driver</th>
+              <th>TLS Status</th>
+              <th>Public note</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="muted" style="margin-top:8px;" id="hint">—</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Loaded</div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="./firebase-init.js"></script>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const toastEl = $("toast");
+    function toast(msg){
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      setTimeout(() => toastEl.classList.remove("show"), 2400);
+    }
+
+    function escapeHtml(s){ return String(s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+
+    function isFinalised(status){
+      const s = (status || "").trim().toUpperCase();
+      return s === "FINALISED" || s === "FINALIZED" || s === "CLOSED" || s === "RESOLVED";
+    }
+
+    function timestampMs(v){
+      try{
+        if (!v) return 0;
+        if (v.toDate) return v.toDate().getTime();
+        const d = new Date(v);
+        const ms = d.getTime();
+        return isNaN(ms) ? 0 : ms;
+      }catch{ return 0; }
+    }
+
+    function formatTimestamp(v){
+      try{
+        const ms = timestampMs(v);
+        if (!ms) return "";
+        return new Date(ms).toLocaleString();
+      }catch{ return ""; }
+    }
+
+    function startOfDayLocal(yyyy, mm, dd){ return new Date(yyyy, mm - 1, dd, 0, 0, 0, 0).getTime(); }
+    function endOfDayLocal(yyyy, mm, dd){ return new Date(yyyy, mm - 1, dd, 23, 59, 59, 999).getTime(); }
+    function fmtDateShort(ms){
+      try{
+        const d = new Date(ms);
+        return d.toLocaleDateString(undefined, { year:"numeric", month:"short", day:"2-digit" });
+      }catch{ return ""; }
+    }
+
+    function getSelectedRange(){
+      const v = $("dateRange").value;
+
+      if (v === "season1"){
+        const start = startOfDayLocal(2026, 1, 13);
+        const end   = endOfDayLocal(2026, 3, 30);
+        return { key: v, startMs: start, endMs: end, label: `Season 1 (${fmtDateShort(start)} → ${fmtDateShort(end)})` };
+      }
+      if (v === "season2"){
+        const start = startOfDayLocal(2026, 4, 14);
+        const end   = endOfDayLocal(2026, 6, 29);
+        return { key: v, startMs: start, endMs: end, label: `Season 2 (${fmtDateShort(start)} → ${fmtDateShort(end)})` };
+      }
+
+      return { key: "all", startMs: null, endMs: null, label: "All time" };
+    }
+
+    function inRange(tsValue, range){
+      if (!range || range.key === "all") return true;
+      const ms = timestampMs(tsValue);
+      if (!ms) return false;
+      return ms >= range.startMs && ms <= range.endMs;
+    }
+
+    function normaliseAccusedToAliasKey(name){
+      const raw = String(name || "").trim().toLowerCase();
+      const cleaned = raw
+        .replaceAll("#", " ")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const parts = cleaned.split(" ").filter(Boolean);
+      let tokens = parts.filter(t => !/^\d+$/.test(t));
+
+      if (tokens.length >= 2 && tokens[0].length === 1){
+        tokens = tokens.slice(1);
+      }
+
+      const key = (tokens.join(" ").trim() || cleaned).replace(/\s+/g, " ").trim();
+      return key;
+    }
+
+    const rpPenaltyMap = {
+      "RP1MI":"10s","RP1ST":"30s","RP1SE":"SG30",
+      "RP2MI":"10s","RP2ST":"30s","RP2SE":"SG30",
+      "RP3MI":"5s","RP3ST":"15s","RP3SE":"SG30",
+      "RP4MI":"30s","RP4ST":"SG30","RP4SE":"DQ",
+      "RP5MI":"5s","RP5ST":"15s","RP5SE":"30s",
+      "RP6MI":"5s","RP6ST":"30s","RP6SE":"SG30",
+      "RP7MI":"10s","RP7ST":"30s","RP7SE":"SG30",
+      "RP8MI":"5s","RP8ST":"15s","RP8SE":"SG30",
+      "RP9MI":"5s","RP9ST":"15s","RP9SE":"SG30",
+      "RP10MI":"10s","RP10ST":"10s","RP10SE":"10s",
+      "RP11MI":"DQ","RP11ST":"DQ","RP11SE":"DQ",
+      "RP12MI":"10s","RP12ST":"20s","RP12SV":"30s",
+      "RP13MI":"10s","RP13ST":"30s","RP13SV":"DQ"
+    };
+
+    function parseSeverityFromText(text){
+      const src = String(text || "").trim().toUpperCase();
+      if (!src) return { key:"standard", label:"STANDARD" };
+
+      const mCode = src.match(/\bRP[0-9A-Z]+(MI|ST|SE|SV)\b/);
+      if (mCode && mCode[1]){
+        const s = mCode[1];
+        if (s === "MI") return { key:"mild", label:"MILD" };
+        if (s === "ST") return { key:"standard", label:"STANDARD" };
+        if (s === "SE" || s === "SV") return { key:"severe", label:"SEVERE" };
+      }
+
+      if (src.includes("MILD")) return { key:"mild", label:"MILD" };
+      if (src.includes("SEVERE")) return { key:"severe", label:"SEVERE" };
+      if (src.includes("STANDARD")) return { key:"standard", label:"STANDARD" };
+
+      return { key:"standard", label:"STANDARD" };
+    }
+
+    function parsePenaltyFromText(text){
+      const src = String(text || "").trim();
+      if (!src) return { seconds: 0, dq: false, label: "-", severity: parseSeverityFromText(src) };
+
+      const severity = parseSeverityFromText(src);
+      const up = src.toUpperCase();
+
+      if (up.includes("NFA")) return { seconds: 0, dq: false, label: "NFA", severity };
+      if (up.includes("DQ")) return { seconds: 0, dq: true, label: "DQ", severity };
+
+      const mSec = src.match(/\((\s*\d+\s*)(s|sec|secs|seconds)?\s*\)/i);
+      if (mSec && mSec[1]) {
+        const n = parseInt(String(mSec[1]).replace(/\D/g,""), 10);
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s`, severity };
+      }
+
+      const mRp = src.match(/\b(RP[0-9A-Z]+)\b/i);
+      if (mRp && mRp[1]) {
+        const code = String(mRp[1]).toUpperCase();
+        const mapped = rpPenaltyMap[code] || code;
+
+        if (String(mapped).toUpperCase().includes("DQ")){
+          return { seconds: 0, dq: true, label: "DQ", severity };
+        }
+        if (String(mapped).toUpperCase() === "SG30"){
+          return { seconds: 30, dq: false, label: "SG30 (30s)", severity };
+        }
+        const m = String(mapped).match(/(\d+)\s*s/i);
+        if (m && m[1]){
+          const n = parseInt(m[1], 10);
+          if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s`, severity };
+        }
+
+        return { seconds: 0, dq: false, label: String(mapped).slice(0, 30), severity };
+      }
+
+      const mPlain = src.match(/\b(\d+)\s*s\b/i);
+      if (mPlain && mPlain[1]){
+        const n = parseInt(mPlain[1], 10);
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s`, severity };
+      }
+
+      if (up.includes("SG30")) return { seconds: 30, dq: false, label: "SG30 (30s)", severity };
+
+      return { seconds: 0, dq: false, label: src.slice(0, 30), severity };
+    }
+
+    function ticketPenaltyInfo(ticket){
+      const prc = ticket.postRaceCode || "";
+      const rb  = ticket.ruleBreach || "";
+      return parsePenaltyFromText(prc || rb);
+    }
+
+    function tlsFromSeconds(totalSeconds){
+      if (totalSeconds >= 60) return { key: "red", label: "RED", className: "red" };
+      if (totalSeconds >= 45) return { key: "amber", label: "AMBER", className: "amber" };
+      if (totalSeconds >= 15) return { key: "green", label: "GREEN", className: "green" };
+      return { key: "none", label: "CLEAR", className: "none" };
+    }
+
+    function isBeginnerTicket(ticket){
+      const hay = `${ticket.competition || ""} | ${ticket.event || ""}`.toUpperCase();
+      return hay.includes("BEGINNER");
+    }
+
+    const scoringConfig = {
+      beginnerCount: 3,
+      beginnerDiscount: 0.5,
+      severityMultiplier: {
+        mild: 0.75,
+        standard: 1,
+        severe: 1.25
+      }
+    };
+
+    function severityMultiplierForKey(key, cfg){
+      if (key === "mild") return cfg.severityMultiplier.mild;
+      if (key === "severe") return cfg.severityMultiplier.severe;
+      return cfg.severityMultiplier.standard;
+    }
+
+    function computeTlsMetrics(orderedTickets, cfg){
+      let beginnerSeen = 0;
+      let adjustedTotal = 0;
+
+      for (const tk of orderedTickets){
+        const sevMult = severityMultiplierForKey(tk.severityKey, cfg);
+        let beginnerFactor = 1;
+
+        if (tk.beginner){
+          beginnerSeen += 1;
+          if (beginnerSeen <= cfg.beginnerCount){
+            beginnerFactor = cfg.beginnerDiscount;
+          }
+        }
+
+        const adjusted = Number(((tk.rawSeconds || 0) * sevMult * beginnerFactor).toFixed(2));
+        adjustedTotal += adjusted;
+      }
+
+      return Number(adjustedTotal.toFixed(2));
+    }
+
+    function isAmberCooledOff(baseTls, lastTicketAt){
+      if (!baseTls || baseTls.key !== "amber") return false;
+      const lastMs = timestampMs(lastTicketAt);
+      if (!lastMs) return false;
+      const fourteenDays = 14 * 24 * 60 * 60 * 1000;
+      return (Date.now() - lastMs) >= fourteenDays;
+    }
+
+    function amberCountdownText(row){
+      if (!row || row.baseTls?.key !== "amber") return "";
+      const lastMs = timestampMs(row.lastTicketAt);
+      if (!lastMs) return "Amber status active.";
+
+      const oneDay = 24 * 60 * 60 * 1000;
+      const cleanDays = Math.max(0, Math.floor((Date.now() - lastMs) / oneDay));
+      const remaining = Math.max(0, 14 - cleanDays);
+
+      if (remaining <= 0) return "Amber cool-off reached after 14 clean days.";
+      return `${remaining} more day${remaining === 1 ? "" : "s"} of clean racing before Amber clearance review.`;
+    }
+
+    function parsePublicDriverName(displayName, canonicalKey){
+      const raw = String(displayName || canonicalKey || "").trim();
+      const m = raw.match(/^\s*\[?\s*(\d{1,4})\s*\]?\s*[-–—]?\s*(.+)$/);
+      if (m){
+        return { number: m[1], name: m[2].trim() || raw };
+      }
+
+      const mHash = raw.match(/#\s*(\d{1,4})/);
+      if (mHash){
+        return { number: mHash[1], name: raw.replace(/#\s*\d{1,4}/, "").replace(/\s+[-–—]\s*$/, "").trim() || raw };
+      }
+
+      return { number: "—", name: raw };
+    }
+
+    let allTicketsCache = [];
+    let driverRows = [];
+
+    async function loadEverything(){
+      try{
+        $("tbody").innerHTML = "";
+        $("hint").textContent = "Loading public TLS standings…";
+
+        const snap = await db.collection("tickets").limit(2000).get();
+        allTicketsCache = snap.docs.map(doc=>{
+          const x = doc.data() || {};
+          return {
+            id: doc.id,
+            status: x.status || "",
+            accused: x.accused || "",
+            event: x.event || "",
+            competition: x.competition || "",
+            timestamp: x.timestamp || null,
+            postRaceCode: x.postRaceCode || "",
+            ruleBreach: x.ruleBreach || ""
+          };
+        });
+
+        recomputeFromCache();
+        toast("Public TLS loaded ✅");
+      }catch(e){
+        console.error(e);
+        $("hint").textContent = "Unable to load TLS standings.";
+        toast("Load failed:\n" + (e?.message || e));
+      }
+    }
+
+    function recomputeFromCache(){
+      const range = getSelectedRange();
+      const grouped = {};
+      let considered = 0;
+
+      for (const t of allTicketsCache){
+        if (!isFinalised(t.status)) continue;
+        if (!inRange(t.timestamp, range)) continue;
+
+        const accusedRaw = String(t.accused || "").trim();
+        if (!accusedRaw) continue;
+
+        const canonicalKey = normaliseAccusedToAliasKey(accusedRaw);
+        const displayName = accusedRaw;
+
+        if (!grouped[canonicalKey]){
+          grouped[canonicalKey] = {
+            canonicalKey,
+            driverName: displayName,
+            lastTicketAt: t.timestamp || null,
+            tickets: []
+          };
+        }
+
+        if (displayName && (!grouped[canonicalKey].driverName || displayName.length > grouped[canonicalKey].driverName.length)){
+          grouped[canonicalKey].driverName = displayName;
+        }
+
+        const info = ticketPenaltyInfo(t);
+        const beginner = isBeginnerTicket(t);
+
+        grouped[canonicalKey].tickets.push({
+          timestamp: t.timestamp || null,
+          tsMs: timestampMs(t.timestamp),
+          rawSeconds: info.seconds || 0,
+          severityKey: info.severity?.key || "standard",
+          beginner
+        });
+
+        const cur = timestampMs(grouped[canonicalKey].lastTicketAt);
+        const nxt = timestampMs(t.timestamp);
+        if (nxt > cur) grouped[canonicalKey].lastTicketAt = t.timestamp || grouped[canonicalKey].lastTicketAt;
+
+        considered += 1;
+      }
+
+      driverRows = Object.values(grouped).map(r => {
+        const ordered = r.tickets.slice().sort((a,b) => a.tsMs - b.tsMs);
+        const adjustedSeconds = computeTlsMetrics(ordered, scoringConfig);
+        const baseTls = tlsFromSeconds(adjustedSeconds);
+        const cooledOff = isAmberCooledOff(baseTls, r.lastTicketAt);
+        const tls = cooledOff
+          ? { key: "green", label: "GREEN", className: "green" }
+          : baseTls;
+        const parsed = parsePublicDriverName(r.driverName, r.canonicalKey);
+
+        return {
+          canonicalKey: r.canonicalKey,
+          number: parsed.number,
+          name: parsed.name,
+          lastTicketAt: r.lastTicketAt,
+          baseTls,
+          cooledOff,
+          tls
+        };
+      });
+
+      $("lastUpdated").textContent = `Last updated: ${new Date().toLocaleString()}`;
+      $("hint").textContent = `Public TLS view computed from finalised tickets within: ${range.label}.`;
+      render();
+    }
+
+    function matchesSearch(row, q){
+      if (!q) return true;
+      const s = q.toLowerCase().trim();
+      const hay = `${row.number} ${row.name} ${row.canonicalKey}`.toLowerCase();
+      return hay.includes(s);
+    }
+
+    function render(){
+      const tbody = $("tbody");
+      tbody.innerHTML = "";
+
+      const mode = $("filterMode").value;
+      const q = ($("search").value || "").trim();
+
+      let rows = driverRows.slice();
+      if (mode !== "all") rows = rows.filter(r => r.tls.key === mode);
+      rows = rows.filter(r => matchesSearch(r, q));
+
+      const rank = { red: 3, amber: 2, green: 1, none: 0 };
+      rows.sort((a,b)=>{
+        const ra = rank[a.tls.key] ?? 0;
+        const rb = rank[b.tls.key] ?? 0;
+        if (rb !== ra) return rb - ra;
+        const na = parseInt(a.number, 10);
+        const nb = parseInt(b.number, 10);
+        if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+        return String(a.name).localeCompare(String(b.name));
+      });
+
+      const totals = driverRows.reduce((acc,r)=>{
+        if (r.tls.key === "red") acc.red += 1;
+        else if (r.tls.key === "amber") acc.amber += 1;
+        else if (r.tls.key === "green") acc.green += 1;
+        return acc;
+      }, { green:0, amber:0, red:0 });
+
+      $("totalCount").textContent = String(rows.length);
+      $("greenCount").textContent = String(totals.green);
+      $("amberCount").textContent = String(totals.amber);
+      $("redCount").textContent = String(totals.red);
+
+      for (const r of rows){
+        let note = "Racing standard currently clear.";
+        if (r.baseTls.key === "red") note = "Steward review required.";
+        else if (r.baseTls.key === "amber") note = amberCountdownText(r);
+        else if (r.cooledOff) note = "Amber cool-off complete.";
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><b>${escapeHtml(r.number)}</b></td>
+          <td>
+            <div class="driverName">${escapeHtml(r.name)}</div>
+            <div class="driverSub">IFWL driver</div>
+          </td>
+          <td><span class="tag ${r.tls.className}">${escapeHtml(r.tls.label)}</span></td>
+          <td>${escapeHtml(note)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      if (!rows.length){
+        tbody.innerHTML = `<tr><td colspan="4" class="muted">No drivers found for the selected range/filter.</td></tr>`;
+      }
+    }
+
+    $("refreshBtn").onclick = () => loadEverything();
+    $("dateRange").onchange = () => recomputeFromCache();
+    $("filterMode").onchange = () => render();
+    $("search").oninput = () => render();
+
+    loadEverything();
+  </script>
+</body>
+</html>
