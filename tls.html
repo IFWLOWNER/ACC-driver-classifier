@@ -1201,6 +1201,25 @@
       return (Date.now() - lastMs) >= fourteenDays;
     }
 
+    function getAmberClearanceCountdown(row){
+      const lastMs = timestampMs(row?.lastTicketAt);
+      if (!lastMs) return "Unable to calculate — no valid last ticket date found.";
+
+      const dayMs = 24 * 60 * 60 * 1000;
+      const cleanMs = Math.max(0, Date.now() - lastMs);
+      const daysClean = Math.floor(cleanMs / dayMs);
+      const daysRemaining = Math.max(0, 14 - daysClean);
+      const eligibleMs = lastMs + (14 * dayMs);
+      const eligibleText = fmtDateShort(eligibleMs) || "the 14-day mark";
+
+      if (daysRemaining <= 0){
+        return `Eligible for Amber removal now — 14 clean days reached. Good racing standard maintained since last counted ticket. Eligible date: ${eligibleText}.`;
+      }
+
+      const dayWord = daysRemaining === 1 ? "day" : "days";
+      return `${daysRemaining} more ${dayWord} before Amber is removed on good racing standard. Eligible date: ${eligibleText}.`;
+    }
+
     function recomputeFromCache(){
       const range = getSelectedRange();
       const cfg = loadScoringConfig();
@@ -2247,6 +2266,7 @@
             `**Discounted beginner tickets:** ${row.discountedBeginnerCount}\n` +
             `**DQ flags:** ${row.dqCount}\n` +
             `**Last ticket:** ${formatTimestamp(row.lastTicketAt) || "—"}\n` +
+            `**Amber clearance countdown:** ${getAmberClearanceCountdown(row)}\n` +
             `**Date range:** ${range.label}`
         }
       ];
