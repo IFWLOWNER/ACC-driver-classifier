@@ -330,7 +330,7 @@
     // Replace this after you deploy the Google Apps Script included with this file.
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrpih0CQnVBP_C3Th3YKzJno771LJueBLy6kf5WHX00ERIDvZkMsSLh_1Jd1-G-pJc/exec";
 
-    const EXPECTED_BACKEND_VERSION = "EVENT_SIGNUP_EVENTS_TAB_004";
+    const EXPECTED_BACKEND_VERSION = "EVENT_SIGNUP_EVENTS_TAB_005";
     const EXPECTED_EVENT_SOURCE_TAB = "EventSignupEvents";
 
     const REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -405,21 +405,25 @@
 
 
     function showBackendStatus(data) {
-      const version = data && data.version ? String(data.version) : "No version returned";
-      const sourceTab = data && data.eventSourceTab ? String(data.eventSourceTab) : "No source tab returned";
+      const version = data && data.version ? String(data.version) : "";
+      const sourceTab = data && data.eventSourceTab ? String(data.eventSourceTab) : "";
+
+      // This is now just a quiet diagnostics box. If the backend does not return
+      // debug fields, do not show a red warning as long as event data loads.
+      if (!version && !sourceTab) {
+        clearBackendStatus();
+        return;
+      }
 
       const isExpectedVersion = version === EXPECTED_BACKEND_VERSION;
       const isExpectedTab = sourceTab === EXPECTED_EVENT_SOURCE_TAB;
 
       backendStatus.style.display = "block";
-      backendStatus.className = "backend-status " + (isExpectedVersion && isExpectedTab ? "ok-backend" : "bad-backend");
+      backendStatus.className = "backend-status " + (isExpectedVersion && isExpectedTab ? "ok-backend" : "warn-backend");
       backendStatus.innerHTML = `
-        Backend: <code>${escapeHtml(version)}</code>
+        Backend: <code>${escapeHtml(version || "unknown")}</code>
         &nbsp;|&nbsp;
-        Source tab: <code>${escapeHtml(sourceTab)}</code>
-        ${isExpectedVersion && isExpectedTab
-          ? ""
-          : `<br><b>Warning:</b> this page is not receiving the expected backend/source tab. Check the Apps Script deployment URL in this HTML.`}
+        Source tab: <code>${escapeHtml(sourceTab || "unknown")}</code>
       `;
     }
 
@@ -669,6 +673,27 @@
     /**********************************************************************
      * EVENTS + SIGNUP
      **********************************************************************/
+    function renderEventsFromResponse(data) {
+      const events = Array.isArray(data && data.events) ? data.events : [];
+
+      eventList.innerHTML = "";
+
+      if (!events.length) {
+        eventsStatus.textContent = "No active events found in the EventSignupEvents sheet.";
+        return;
+      }
+
+      eventsStatus.textContent = "";
+      events
+        .map(event => ({
+          ...event,
+          __backendVersion: data.version || "",
+          __eventSourceTab: data.eventSourceTab || ""
+        }))
+        .map(normaliseEvent)
+        .forEach(event => renderEventCard(event));
+    }
+
     async function loadEvents() {
       if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("PASTE_YOUR")) {
         eventsStatus.innerHTML = "Google Apps Script URL not set yet. Paste your deployed Web App URL into <code>APPS_SCRIPT_URL</code>.";
@@ -680,26 +705,11 @@
       clearBackendStatus();
 
       try {
-       const cacheBuster = Date.now();
-const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events&_=${cacheBuster}`);
-console.log("IFWL Event Signup backend response:", data);
-
-const events = Array.isArray(data.events) ? data.events : [];
-
-        if (!events.length) {
-          eventsStatus.textContent = "No active events found in the EventSignupEvents sheet.";
-          return;
-        }
-
-        eventsStatus.textContent = "";
-        events
-          .map(event => ({
-            ...event,
-            __backendVersion: data.version || "",
-            __eventSourceTab: data.eventSourceTab || ""
-          }))
-          .map(normaliseEvent)
-          .forEach(event => renderEventCard(event));
+        const cacheBuster = Date.now();
+        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events&_=${cacheBuster}`);
+        console.log("IFWL Event Signup backend response:", data);
+        showBackendStatus(data);
+        renderEventsFromResponse(data);
       } catch (e) {
         clearBackendStatus();
         eventsStatus.innerHTML = `❌ Could not load events: <b>${escapeHtml(e.message || e)}</b>`;
@@ -759,6 +769,54 @@ const events = Array.isArray(data.events) ? data.events : [];
       eventList.appendChild(card);
     }
 
+    function updateEventCardAfterSignup(event, card) {
+      const previousSignedUp = toNumber(event.signedUp, 0);
+      const nextSignedUp = previousSignedUp + 1;
+
+      let nextAvailable = event.availableSeats;
+      if (nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
+        nextAvailable = Math.max(0, toNumber(nextAvailable, 0) - 1);
+      }
+
+      event.signedUp = nextSignedUp;
+      event.availableSeats = nextAvailable;
+      event.seatsAvailable = nextAvailable;
+      event.isFull = event.maxSeats !== null && nextAvailable !== null && nextAvailable <= 0;
+
+      const signedUpBox = card.querySelector(".slot-box:nth-child(2) .slot-value");
+      const availableBox = card.querySelector(".slot-box:nth-child(3) .slot-value");
+      const seatPill = card.querySelector(".event-seat-pill");
+      const button = card.querySelector(".signup-btn");
+
+      if (signedUpBox) signedUpBox.textContent = String(nextSignedUp);
+
+      if (availableBox && nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
+        availableBox.textContent = String(nextAvailable);
+        availableBox.classList.remove("available-good", "available-warn", "available-full");
+        if (nextAvailable <= 0) availableBox.classList.add("available-full");
+        else if (nextAvailable <= 3) availableBox.classList.add("available-warn");
+        else availableBox.classList.add("available-good");
+      }
+
+      if (seatPill && nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
+        seatPill.className = nextAvailable <= 0
+          ? "event-seat-pill full"
+          : nextAvailable <= 3
+            ? "event-seat-pill low"
+            : "event-seat-pill";
+        seatPill.textContent = nextAvailable <= 0 ? "Event full" : `${nextAvailable} seats left`;
+      }
+
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Signed up";
+      }
+
+      if (event.isFull) {
+        card.classList.add("full");
+      }
+    }
+
     async function submitSignup(event, card) {
       const profile = loadProfile();
       const gt3Car = carSelect.value;
@@ -807,15 +865,19 @@ const events = Array.isArray(data.events) ? data.events : [];
         });
 
         card.classList.add("active");
-button.textContent = "Signed up";
+        updateEventCardAfterSignup(event, card);
 
-show(`✅ Signup saved for <b>${escapeHtml(payload.eventName || payload.eventId)}</b> in the <b>${escapeHtml(gt3Car)}</b>.`, true);
+        show(`✅ Signup saved for <b>${escapeHtml(payload.eventName || payload.eventId)}</b> in the <b>${escapeHtml(gt3Car)}</b>.`, true);
 
-// Force a fresh pull from Google Apps Script after signup.
-// Small delay gives the Sheet write a moment to complete before rereading counts.
-setTimeout(() => {
-  loadEvents();
-}, 750);
+        // If Apps Script returned a fresh event list, render it immediately.
+        if (data && Array.isArray(data.events)) {
+          renderEventsFromResponse(data);
+        }
+
+        // Then do one delayed cache-busted refresh so the count definitely catches up.
+        setTimeout(() => {
+          loadEvents();
+        }, 1000);
       } catch (e) {
         button.disabled = false;
         button.textContent = "Sign up";
