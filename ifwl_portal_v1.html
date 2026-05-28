@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IFWL Event Control Portal</title>
+  <meta name="description" content="IFWL Discord-protected event portal for SimGrid series, ACC entrylists, rules, admin tools, and driver checks." />
+
+  <style>
+    :root{
+      --bg:#07101f;
+      --bg2:#0b1730;
+      --card:#101c33;
+      --card2:#13213d;
+      --ink:#eef5ff;
+      --muted:#93a4bd;
+      --line:rgba(148,163,184,.22);
+      --blue:#5865F2;
+      --cyan:#38bdf8;
+      --green:#22c55e;
+      --amber:#f59e0b;
+      --red:#ef4444;
+      --shadow:0 24px 70px rgba(0,0,0,.35);
+      --radius:22px;
+      --sans:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    }
+
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      min-height:100vh;
+      font-family:var(--sans);
+      color:var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(88,101,242,.35), transparent 34%),
+        radial-gradient(circle at 92% 8%, rgba(56,189,248,.22), transparent 30%),
+        linear-gradient(145deg,var(--bg),var(--bg2) 55%,#050914);
+      overflow-x:hidden;
+    }
+
+    body:before{
+      content:"";
+      position:fixed;
+      inset:0;
+      background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+      background-size:46px 46px;
+      mask-image:linear-gradient(to bottom,black,transparent 82%);
+      pointer-events:none;
+    }
+
+    a{color:inherit}
+    .wrap{max-width:1220px;margin:0 auto;padding:24px 18px 56px;position:relative;z-index:1}
+
+    .topbar{
+      display:flex;align-items:center;justify-content:space-between;gap:16px;
+      padding:14px 16px;border:1px solid var(--line);background:rgba(16,28,51,.72);
+      backdrop-filter:blur(14px);border-radius:999px;box-shadow:0 14px 40px rgba(0,0,0,.22);
+      position:sticky;top:14px;z-index:10;
+    }
+    .brand{display:flex;align-items:center;gap:12px;min-width:0}
+    .logo{
+      width:42px;height:42px;border-radius:14px;display:grid;place-items:center;
+      background:linear-gradient(135deg,var(--blue),var(--cyan));font-weight:950;letter-spacing:-1px;
+      box-shadow:0 12px 28px rgba(88,101,242,.35);
+    }
+    .brand-title{font-weight:900;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .brand-sub{font-size:12px;color:var(--muted);margin-top:1px}
+    .nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .nav a,.btn{
+      border:1px solid var(--line);background:rgba(255,255,255,.055);color:var(--ink);
+      padding:10px 13px;border-radius:999px;text-decoration:none;font-weight:800;font-size:13px;cursor:pointer;
+      transition:.18s transform,.18s border-color,.18s background;
+    }
+    .nav a:hover,.btn:hover{transform:translateY(-1px);border-color:rgba(148,163,184,.45);background:rgba(255,255,255,.085)}
+    .btn.primary{background:linear-gradient(135deg,var(--blue),#7c3aed);border-color:transparent;box-shadow:0 12px 30px rgba(88,101,242,.28)}
+    .btn.danger{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.35)}
+    .btn.ok{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.35)}
+    .btn.warn{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.35)}
+    .btn:active{transform:translateY(1px)}
+    .hidden{display:none!important}
+
+    .hero{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;align-items:stretch;margin-top:22px}
+    .panel{
+      border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,rgba(16,28,51,.86),rgba(12,22,42,.76));
+      box-shadow:var(--shadow);backdrop-filter:blur(12px);padding:22px;overflow:hidden;position:relative;
+    }
+    .panel:after{content:"";position:absolute;inset:auto -20% -60% 40%;height:220px;background:radial-gradient(circle,rgba(88,101,242,.20),transparent 70%);pointer-events:none}
+    .hero h1{margin:0;font-size:clamp(34px,5vw,64px);line-height:.97;letter-spacing:-2px}
+    .hero p{color:var(--muted);font-size:16px;line-height:1.6;max-width:720px}
+    .hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+
+    .statusBox{margin-top:16px;border:1px solid var(--line);background:rgba(255,255,255,.045);border-radius:18px;padding:14px;color:var(--muted)}
+    .statusBox.ok{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.11);color:#bbf7d0}
+    .statusBox.bad{border-color:rgba(239,68,68,.38);background:rgba(239,68,68,.11);color:#fecaca}
+
+    .profile-card{display:grid;gap:12px}
+    .avatar{width:72px;height:72px;border-radius:24px;background:linear-gradient(135deg,#1e293b,#334155);display:grid;place-items:center;font-size:30px;font-weight:950;border:1px solid var(--line)}
+    .pillrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.05);font-size:12px;font-weight:900;color:var(--muted)}
+    .pill.green{color:#bbf7d0;border-color:rgba(34,197,94,.34);background:rgba(34,197,94,.1)}
+    .pill.red{color:#fecaca;border-color:rgba(239,68,68,.34);background:rgba(239,68,68,.1)}
+    .pill.amber{color:#fde68a;border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.11)}
+    .mono{font-family:var(--mono)}
+
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin-top:18px}
+    .span-4{grid-column:span 4}.span-6{grid-column:span 6}.span-8{grid-column:span 8}.span-12{grid-column:span 12}
+    .section-title{display:flex;justify-content:space-between;gap:12px;align-items:end;margin:28px 0 12px}
+    .section-title h2{margin:0;font-size:24px;letter-spacing:-.5px}
+    .section-title p{margin:5px 0 0;color:var(--muted);font-size:14px}
+
+    .metric{display:flex;justify-content:space-between;gap:12px;align-items:center}
+    .metric strong{font-size:32px;letter-spacing:-1px}.metric span{color:var(--muted);font-size:13px;font-weight:800}
+
+    .event-card{padding:0;overflow:hidden}
+    .event-head{padding:18px;border-bottom:1px solid var(--line);background:linear-gradient(135deg,rgba(88,101,242,.19),rgba(56,189,248,.08))}
+    .event-head h3{margin:0;font-size:20px}.event-head p{margin:6px 0 0;color:var(--muted);font-size:13px}
+    .event-body{padding:16px;display:grid;gap:12px}
+    .event-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .meta{border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(255,255,255,.035)}
+    .meta b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.meta span{font-weight:900}
+    .issue-list{display:grid;gap:8px;margin-top:8px}
+    .issue{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid var(--line);background:rgba(255,255,255,.035);padding:10px;border-radius:14px;color:var(--muted);font-size:13px}
+
+    .admin-layout{display:grid;grid-template-columns:360px 1fr;gap:16px}
+    label{display:block;color:var(--muted);font-size:12px;font-weight:900;margin:0 0 7px;text-transform:uppercase;letter-spacing:.4px}
+    input,select,textarea{
+      width:100%;border:1px solid var(--line);background:rgba(7,16,31,.72);color:var(--ink);border-radius:14px;
+      padding:12px 13px;outline:none;font:inherit;
+    }
+    textarea{min-height:95px;resize:vertical}
+    .form-grid{display:grid;gap:12px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    table{width:100%;border-collapse:collapse;font-size:13px;overflow:hidden;border-radius:16px;border:1px solid var(--line)}
+    th,td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{text-align:left;color:#cbd5e1;background:rgba(255,255,255,.055)}tr:last-child td{border-bottom:none}td{color:var(--muted)}
+    .codebox{white-space:pre-wrap;background:#050914;border:1px solid var(--line);border-radius:16px;padding:14px;color:#dbeafe;font-family:var(--mono);font-size:12px;max-height:360px;overflow:auto}
+
+    .locked{filter:saturate(.7);opacity:.72}
+    .footer{margin-top:28px;color:var(--muted);font-size:12px;text-align:center}
+
+    @media(max-width:920px){
+      .hero,.admin-layout{grid-template-columns:1fr}.span-4,.span-6,.span-8{grid-column:span 12}.topbar{border-radius:24px;align-items:flex-start}.nav{display:none}.event-meta,.two{grid-template-columns:1fr}.wrap{padding-top:12px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">IF</div>
+        <div>
+          <div class="brand-title">IFWL Event Control Portal</div>
+          <div class="brand-sub">Discord protected • SimGrid import • ACC entrylists</div>
+        </div>
+      </div>
+      <div class="nav">
+        <a href="#dashboard">Dashboard</a>
+        <a href="#events">Events</a>
+        <a href="#admin">Admin</a>
+        <button class="btn primary" id="topLoginBtn">Login</button>
+        <button class="btn danger hidden" id="topLogoutBtn">Logout</button>
+      </div>
+    </div>
+
+    <section class="hero" id="dashboard">
+      <div class="panel">
+        <h1>Race ops, entrylists, and driver checks in one IFWL hub.</h1>
+        <p>
+          Login with Discord, pull the user’s roles/profile status, show their eligible series, and give IFWL staff a clean admin area to import SimGrid events, sync entrants, chase missing data, and download ACC entrylists.
+        </p>
+        <div class="hero-actions">
+          <button class="btn primary" id="loginBtn">Login with Discord</button>
+          <button class="btn danger hidden" id="logoutBtn">Logout</button>
+          <button class="btn ok" id="rulesBtn">Season 2 Rules</button>
+          <a class="btn" href="#events">View event tiles</a>
+          <a class="btn warn" href="#admin">Admin tools</a>
+        </div>
+        <div id="result" class="statusBox">Not logged in yet. This page expects your existing <span class="mono">rtGate</span> Discord auth backend.</div>
+      </div>
+
+      <aside class="panel profile-card">
+        <div style="display:flex;gap:14px;align-items:center;">
+          <div class="avatar" id="avatar">?</div>
+          <div>
+            <h2 id="profileName" style="margin:0;">Guest</h2>
+            <div id="profileSub" style="color:var(--muted);font-size:13px;margin-top:4px;">Login required</div>
+          </div>
+        </div>
+        <div class="pillrow" id="rolePills">
+          <span class="pill red">Rules: locked</span>
+          <span class="pill red">Series: locked</span>
+          <span class="pill red">Admin: locked</span>
+          <span class="pill red">Patreon: no</span>
+        </div>
+        <div class="statusBox" id="profileChecklist">
+          Profile checks will appear here after login: Discord roles, IFWL profile status, SimGrid link, race number, and Patreon car-change allowance.
+        </div>
+      </aside>
+    </section>
+
+    <div class="grid">
+      <div class="panel span-4">
+        <div class="metric"><div><span>Imported events</span><strong id="metricEvents">3</strong></div><span class="pill green">demo</span></div>
+      </div>
+      <div class="panel span-4">
+        <div class="metric"><div><span>Drivers to chase</span><strong id="metricChase">7</strong></div><span class="pill amber">needs admin</span></div>
+      </div>
+      <div class="panel span-4">
+        <div class="metric"><div><span>Entrylists ready</span><strong id="metricReady">1</strong></div><span class="pill green">ACC</span></div>
+      </div>
+    </div>
+
+    <div class="section-title" id="events">
+      <div><h2>Series events</h2><p>These tiles will be populated from SimGrid imports stored by the backend.</p></div>
+      <button class="btn" id="refreshEventsBtn">Refresh</button>
+    </div>
+
+    <div class="grid" id="eventGrid"></div>
+
+    <div class="section-title" id="admin">
+      <div><h2>Admin control</h2><p>Only visible/usable for Discord users with IFWL staff roles once hooked into the backend.</p></div>
+      <span class="pill amber" id="adminAccessPill">Admin check pending</span>
+    </div>
+
+    <section class="panel admin-layout" id="adminPanel">
+      <div>
+        <h3 style="margin-top:0;">Import SimGrid event</h3>
+        <div class="form-grid">
+          <div>
+            <label>SimGrid event URL or ID</label>
+            <input id="simgridInput" placeholder="https://www.thesimgrid.com/championships/..." />
+          </div>
+          <div class="two">
+            <div>
+              <label>Season</label>
+              <input id="seasonInput" value="Season 2" />
+            </div>
+            <div>
+              <label>Series</label>
+              <input id="seriesInput" placeholder="PC Pro-Am" />
+            </div>
+          </div>
+          <div class="two">
+            <button class="btn primary" id="importBtn">Import event</button>
+            <button class="btn" id="syncBtn">Sync entrants</button>
+          </div>
+          <button class="btn ok" id="downloadEntrylistBtn">Download demo entrylist.json</button>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin-top:0;">Driver chase list</h3>
+        <table>
+          <thead><tr><th>Driver</th><th>Issue</th><th>Action</th></tr></thead>
+          <tbody id="chaseTable"></tbody>
+        </table>
+        <h3>Backend response / generated output</h3>
+        <div class="codebox" id="outputBox">Waiting for action...</div>
+      </div>
+    </section>
+
+    <div class="footer">
+      GitHub Pages frontend. Secure actions should route through <span class="mono">rtGate</span>. Do not place Discord, Patreon, Firestore, or SimGrid secrets in this HTML.
+    </div>
+  </div>
+
+  <script>
+    const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
+    const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+    const DEMO_EVENTS = [
+      { id:"spa-s2-r1", name:"IFWL PC Pro-Am — Round 1", series:"PC Pro-Am", season:"Season 2", track:"Spa-Francorchamps", date:"2026-01-13 19:30 UK", entrants:42, issues:3, status:"Needs sync", ready:false },
+      { id:"watkins-s2-r2", name:"IFWL Open Track — Round 2", series:"Open Track", season:"Season 2", track:"Watkins Glen", date:"2026-01-20 19:30 UK", entrants:38, issues:1, status:"Entrylist ready", ready:true },
+      { id:"bathurst-enduro", name:"The Big 4 Team Enduro", series:"GTEAM3", season:"Season 2", track:"Bathurst", date:"2026-02-01 15:00 UTC", entrants:31, issues:3, status:"Chase required", ready:false }
+    ];
+
+    const DEMO_CHASE = [
+      { driver:"[ 81 ] - DriverName", issue:"Missing Steam ID", action:"Ask driver to update IFWL profile" },
+      { driver:"Racer_22", issue:"Discord name / SimGrid name mismatch", action:"Request Discord nickname correction" },
+      { driver:"Team Alpha #7", issue:"Duplicate race number", action:"Admin to assign replacement number" },
+      { driver:"PatreonDriver", issue:"Car change already used for event", action:"Reject or manually override" }
+    ];
+
+    const els = {
+      result: document.getElementById("result"),
+      loginBtn: document.getElementById("loginBtn"),
+      logoutBtn: document.getElementById("logoutBtn"),
+      topLoginBtn: document.getElementById("topLoginBtn"),
+      topLogoutBtn: document.getElementById("topLogoutBtn"),
+      rulesBtn: document.getElementById("rulesBtn"),
+      profileName: document.getElementById("profileName"),
+      profileSub: document.getElementById("profileSub"),
+      avatar: document.getElementById("avatar"),
+      rolePills: document.getElementById("rolePills"),
+      profileChecklist: document.getElementById("profileChecklist"),
+      adminAccessPill: document.getElementById("adminAccessPill"),
+      adminPanel: document.getElementById("adminPanel"),
+      eventGrid: document.getElementById("eventGrid"),
+      chaseTable: document.getElementById("chaseTable"),
+      outputBox: document.getElementById("outputBox")
+    };
+
+    function escapeHtml(s){
+      return String(s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    }
+
+    function show(msg, ok){
+      els.result.className = "statusBox " + (ok ? "ok" : "bad");
+      els.result.innerHTML = msg;
+    }
+
+    function setLoggedInUI(isLoggedIn){
+      [els.loginBtn, els.topLoginBtn].forEach(b => b.classList.toggle("hidden", isLoggedIn));
+      [els.logoutBtn, els.topLogoutBtn].forEach(b => b.classList.toggle("hidden", !isLoggedIn));
+    }
+
+    function renderRolePills(data){
+      const rules = !!data.rulesGranted;
+      const admin = !!data.adminGranted || !!data.isAdmin;
+      const patreon = !!data.patreonGranted || !!data.isPatreon;
+      const series = rules || !!data.accessGranted;
+      els.rolePills.innerHTML = `
+        <span class="pill ${rules ? "green" : "red"}">Rules: ${rules ? "granted" : "locked"}</span>
+        <span class="pill ${series ? "green" : "red"}">Series: ${series ? "visible" : "locked"}</span>
+        <span class="pill ${admin ? "green" : "red"}">Admin: ${admin ? "yes" : "locked"}</span>
+        <span class="pill ${patreon ? "green" : "red"}">Patreon: ${patreon ? "yes" : "no"}</span>
+      `;
+      els.adminAccessPill.className = "pill " + (admin ? "green" : "red");
+      els.adminAccessPill.textContent = admin ? "Admin access granted" : "Admin access locked";
+      els.adminPanel.classList.toggle("locked", !admin);
+    }
+
+    function renderProfile(data){
+      const name = data.username || data.global_name || data.discordName || "IFWL Driver";
+      els.profileName.textContent = name;
+      els.profileSub.textContent = data.discordId ? `Discord ID: ${data.discordId}` : "Discord login complete";
+      els.avatar.textContent = name.trim().slice(0,1).toUpperCase();
+      renderRolePills(data);
+      els.profileChecklist.innerHTML = `
+        <b>Login checks complete</b><br>
+        <span style="color:var(--muted)">Rules granted:</span> ${data.rulesGranted ? "Yes" : "No"}<br>
+        <span style="color:var(--muted)">Race Team Hub:</span> ${data.accessGranted ? "Yes" : "No"}<br>
+        <span style="color:var(--muted)">Session token:</span> ${data.sessionToken ? "Stored" : "Not issued"}<br>
+        <span style="color:var(--muted)">Next backend additions:</span> adminGranted, patreonGranted, IFWL profile, SimGrid entrant lookup.
+      `;
+    }
+
+    async function startLogin(){
+      const startUrl = FUNCTION + `?start=1&redirect=${encodeURIComponent(REDIRECT_URI)}`;
+      const r = await fetch(startUrl);
+      const data = await r.json();
+      if(!data.url) throw new Error(data.error || "No Discord login URL returned");
+      window.location.href = data.url;
+    }
+
+    async function handleCallback(){
+      const params = new URLSearchParams(location.search);
+      const code = params.get("code");
+      const error = params.get("error");
+      if(error){ show(`Discord login error: <b>${escapeHtml(error)}</b>`, false); return; }
+      if(!code){
+        const token = localStorage.getItem("IFWL_RT_SESSION");
+        if(token){
+          setLoggedInUI(true);
+          show("Session found. Backend profile refresh can be added with <span class='mono'>?portal=1&token=...</span>", true);
+        }
+        return;
+      }
+      show("Checking your Discord roles and issuing IFWL session...", true);
+      const checkUrl = FUNCTION + `?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(REDIRECT_URI)}&issue=1`;
+      const r = await fetch(checkUrl);
+      const data = await r.json();
+      history.replaceState({}, document.title, REDIRECT_URI);
+      if(data.sessionToken) localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
+      setLoggedInUI(true);
+      renderProfile(data);
+      show(`Logged in as <b>${escapeHtml(data.username || "IFWL user")}</b>.`, !!data.rulesGranted || !!data.accessGranted);
+    }
+
+    function openRulesViaBackend(){
+      const token = localStorage.getItem("IFWL_RT_SESSION") || "";
+      if(!token){ show("Missing session. Please login again.", false); return; }
+      window.open(FUNCTION + `?rules=1&token=${encodeURIComponent(token)}`, "_blank", "noopener,noreferrer");
+    }
+
+    function renderEvents(events = DEMO_EVENTS){
+      els.eventGrid.innerHTML = events.map(ev => `
+        <article class="panel event-card span-4">
+          <div class="event-head">
+            <span class="pill ${ev.ready ? "green" : ev.issues ? "amber" : "red"}">${escapeHtml(ev.status)}</span>
+            <h3>${escapeHtml(ev.name)}</h3>
+            <p>${escapeHtml(ev.series)} • ${escapeHtml(ev.season)}</p>
+          </div>
+          <div class="event-body">
+            <div class="event-meta">
+              <div class="meta"><b>Track</b><span>${escapeHtml(ev.track)}</span></div>
+              <div class="meta"><b>Date</b><span>${escapeHtml(ev.date)}</span></div>
+              <div class="meta"><b>Entrants</b><span>${ev.entrants}</span></div>
+              <div class="meta"><b>Issues</b><span>${ev.issues}</span></div>
+            </div>
+            <div class="hero-actions" style="margin-top:0">
+              <button class="btn">View</button>
+              <button class="btn">Sync</button>
+              <button class="btn ok">Entrylist</button>
+            </div>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderChase(){
+      els.chaseTable.innerHTML = DEMO_CHASE.map(row => `
+        <tr><td>${escapeHtml(row.driver)}</td><td>${escapeHtml(row.issue)}</td><td>${escapeHtml(row.action)}</td></tr>
+      `).join("");
+    }
+
+    function demoEntrylist(){
+      return {
+        entries: [
+          { drivers:[{ firstName:"Ben", lastName:"Leahy", shortName:"LEA", driverCategory:2, playerID:"S7656119_DEMO" }], raceNumber:81, forcedCarModel:-1, overrideDriverInfo:1, isServerAdmin:1 },
+          { drivers:[{ firstName:"IFWL", lastName:"Driver", shortName:"IFW", driverCategory:1, playerID:"S7656119_EXAMPLE" }], raceNumber:22, forcedCarModel:-1, overrideDriverInfo:1, isServerAdmin:0 }
+        ],
+        forceEntryList:1
+      };
+    }
+
+    function downloadJson(filename, data){
+      const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function backendPost(action, payload){
+      const token = localStorage.getItem("IFWL_RT_SESSION") || "";
+      const r = await fetch(FUNCTION + `?action=${encodeURIComponent(action)}&token=${encodeURIComponent(token)}`, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(payload)
+      });
+      return r.json();
+    }
+
+    document.getElementById("importBtn").addEventListener("click", async () => {
+      const payload = {
+        simgrid: document.getElementById("simgridInput").value.trim(),
+        season: document.getElementById("seasonInput").value.trim(),
+        series: document.getElementById("seriesInput").value.trim()
+      };
+      els.outputBox.textContent = "Demo import payload:\n" + JSON.stringify(payload,null,2) + "\n\nWhen rtGate is extended, this will POST action=importSimGrid.";
+      // const data = await backendPost("importSimGrid", payload); els.outputBox.textContent = JSON.stringify(data,null,2);
+    });
+
+    document.getElementById("syncBtn").addEventListener("click", () => {
+      els.outputBox.textContent = "Demo sync complete. Backend should fetch entrants, compare IFWL profile data, Discord roles, duplicate numbers, Steam IDs, and car-change ledger.";
+    });
+
+    document.getElementById("downloadEntrylistBtn").addEventListener("click", () => downloadJson("entrylist_demo.json", demoEntrylist()));
+    document.getElementById("refreshEventsBtn").addEventListener("click", () => renderEvents());
+    els.rulesBtn.addEventListener("click", openRulesViaBackend);
+    [els.loginBtn, els.topLoginBtn].forEach(b => b.addEventListener("click", () => startLogin().catch(e => show(escapeHtml(e.message || e), false))));
+    [els.logoutBtn, els.topLogoutBtn].forEach(b => b.addEventListener("click", () => { localStorage.removeItem("IFWL_RT_SESSION"); setLoggedInUI(false); show("Logged out.", true); }));
+
+    renderEvents();
+    renderChase();
+    handleCallback().catch(e => show(escapeHtml(e.message || e), false));
+  </script>
+</body>
+</html>
