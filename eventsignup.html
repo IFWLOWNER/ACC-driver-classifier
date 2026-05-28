@@ -226,6 +226,36 @@
     .event-title { font-weight: 900; font-size: 17px; }
     .event-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
+    .backend-status {
+      margin: 10px 0 12px 0;
+      padding: 9px 11px;
+      border: 1px solid #2b3b5e;
+      border-radius: 12px;
+      background: #0b1220;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      display: none;
+    }
+
+    .backend-status.ok-backend {
+      border-color: var(--good-line);
+      background: var(--good-bg);
+      color: #bbf7d0;
+    }
+
+    .backend-status.bad-backend {
+      border-color: var(--bad-line);
+      background: var(--bad-bg);
+      color: #fecaca;
+    }
+
+    .backend-status.warn-backend {
+      border-color: var(--warn-line);
+      background: var(--warn-bg);
+      color: var(--warn-text);
+    }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -282,9 +312,10 @@
       <section class="card">
         <h2>Available events</h2>
         <p class="muted" style="margin-top:-4px;">
-          These events are loaded from the <b>Events</b> tab in your Google Sheet.
+          These events are loaded from the <b>EventSignupEvents</b> tab in your Google Sheet.
         </p>
         <div id="eventsStatus" class="muted">Loading events…</div>
+        <div id="backendStatus" class="backend-status"></div>
         <div id="eventList" class="event-list"></div>
       </section>
     </main>
@@ -298,6 +329,9 @@
 
     // Replace this after you deploy the Google Apps Script included with this file.
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrpih0CQnVBP_C3Th3YKzJno771LJueBLy6kf5WHX00ERIDvZkMsSLh_1Jd1-G-pJc/exec";
+
+    const EXPECTED_BACKEND_VERSION = "EVENT_SIGNUP_EVENTS_TAB_004";
+    const EXPECTED_EVENT_SOURCE_TAB = "EventSignupEvents";
 
     const REDIRECT_URI = window.location.origin + window.location.pathname;
     const SESSION_KEY = "IFWL_EVENTSIGNUP_SESSION";
@@ -348,6 +382,7 @@
     const eventSignupPage = document.getElementById("eventSignupPage");
     const eventList = document.getElementById("eventList");
     const eventsStatus = document.getElementById("eventsStatus");
+    const backendStatus = document.getElementById("backendStatus");
     const carSelect = document.getElementById("carSelect");
 
     document.getElementById("endpointHint").textContent = DISCORD_FUNCTION;
@@ -366,6 +401,32 @@
       resultBox.style.display = "block";
       resultBox.className = "status " + (ok ? "ok" : "bad");
       resultBox.innerHTML = message;
+    }
+
+
+    function showBackendStatus(data) {
+      const version = data && data.version ? String(data.version) : "No version returned";
+      const sourceTab = data && data.eventSourceTab ? String(data.eventSourceTab) : "No source tab returned";
+
+      const isExpectedVersion = version === EXPECTED_BACKEND_VERSION;
+      const isExpectedTab = sourceTab === EXPECTED_EVENT_SOURCE_TAB;
+
+      backendStatus.style.display = "block";
+      backendStatus.className = "backend-status " + (isExpectedVersion && isExpectedTab ? "ok-backend" : "bad-backend");
+      backendStatus.innerHTML = `
+        Backend: <code>${escapeHtml(version)}</code>
+        &nbsp;|&nbsp;
+        Source tab: <code>${escapeHtml(sourceTab)}</code>
+        ${isExpectedVersion && isExpectedTab
+          ? ""
+          : `<br><b>Warning:</b> this page is not receiving the expected backend/source tab. Check the Apps Script deployment URL in this HTML.`}
+      `;
+    }
+
+    function clearBackendStatus() {
+      backendStatus.style.display = "none";
+      backendStatus.className = "backend-status";
+      backendStatus.innerHTML = "";
     }
 
     function setLoggedInUI(isLoggedIn) {
@@ -503,14 +564,24 @@
         "Available"
       ], "");
 
-      const maxSeats = maxSeatsRaw === "" ? null : toNumber(maxSeatsRaw, null);
+      let maxSeats = maxSeatsRaw === "" ? null : toNumber(maxSeatsRaw, null);
       const signedUp = toNumber(signedUpRaw, 0);
+
+      // Safety fallback: if an old backend accidentally sends the seat number in "notes",
+      // use it as Max Seats so the page does not show unlimited slots.
+      let notes = event.notes || "";
+      if (maxSeats === null && notes !== "" && /^\d+$/.test(String(notes).trim())) {
+        maxSeats = toNumber(notes, null);
+        notes = "";
+      }
+
       const availableSeats = availableRaw === ""
         ? (maxSeats === null ? null : Math.max(maxSeats - signedUp, 0))
         : toNumber(availableRaw, maxSeats === null ? null : Math.max(maxSeats - signedUp, 0));
 
       return {
         ...event,
+        notes,
         maxSeats,
         signedUp,
         availableSeats,
@@ -606,19 +677,32 @@
 
       eventsStatus.textContent = "Loading events…";
       eventList.innerHTML = "";
+      clearBackendStatus();
 
       try {
-        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events`);
+        const cacheBuster = Date.now();
+        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events&_=${cacheBuster}`);
+        console.log("IFWL Event Signup backend response:", data);
+        showBackendStatus(data);
+
         const events = Array.isArray(data.events) ? data.events : [];
 
         if (!events.length) {
-          eventsStatus.textContent = "No active events found in the Events sheet.";
+          eventsStatus.textContent = "No active events found in the EventSignupEvents sheet.";
           return;
         }
 
         eventsStatus.textContent = "";
-        events.map(normaliseEvent).forEach(event => renderEventCard(event));
+        events
+          .map(event => ({
+            ...event,
+            __backendVersion: data.version || "",
+            __eventSourceTab: data.eventSourceTab || ""
+          }))
+          .map(normaliseEvent)
+          .forEach(event => renderEventCard(event));
       } catch (e) {
+        clearBackendStatus();
         eventsStatus.innerHTML = `❌ Could not load events: <b>${escapeHtml(e.message || e)}</b>`;
       }
     }
@@ -749,6 +833,7 @@
       setLoggedInUI(false);
       eventList.innerHTML = "";
       eventsStatus.textContent = "";
+      clearBackendStatus();
       show("Logged out.", true);
     });
 
