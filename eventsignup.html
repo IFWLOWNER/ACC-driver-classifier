@@ -226,34 +226,42 @@
     .event-title { font-weight: 900; font-size: 17px; }
     .event-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
-    .backend-status {
-      margin: 10px 0 12px 0;
-      padding: 9px 11px;
-      border: 1px solid #2b3b5e;
+    .staff-note {
+      margin-top: 12px;
+      padding: 10px 12px;
       border-radius: 12px;
-      background: #0b1220;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      display: none;
-    }
-
-    .backend-status.ok-backend {
-      border-color: var(--good-line);
+      border: 1px solid var(--good-line);
       background: var(--good-bg);
       color: #bbf7d0;
+      font-size: 13px;
+      line-height: 1.45;
     }
 
-    .backend-status.bad-backend {
-      border-color: var(--bad-line);
-      background: var(--bad-bg);
-      color: #fecaca;
+    .staff-post-btn {
+      background: #475569;
     }
 
-    .backend-status.warn-backend {
-      border-color: var(--warn-line);
-      background: var(--warn-bg);
-      color: var(--warn-text);
+    .staff-post-btn:hover {
+      filter: brightness(1.08);
+    }
+
+    .staff-post-btn.posting {
+      opacity: .75;
+      cursor: wait;
+    }
+
+    .staff-only-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 900;
+      border: 1px solid var(--good-line);
+      background: var(--good-bg);
+      color: #bbf7d0;
+      margin-top: 8px;
     }
 
     .hidden { display: none !important; }
@@ -304,6 +312,10 @@
           </select>
         </div>
 
+        <div id="staffAccessNote" class="staff-note hidden">
+          Staff controls enabled. You can post the current signup list to Discord for events on this page.
+        </div>
+
         <p class="muted" style="margin-bottom:0;">
           Your guild nickname should be in the format <b>[number] - name</b>, for example <code>[81] - Ben</code>.
         </p>
@@ -312,10 +324,9 @@
       <section class="card">
         <h2>Available events</h2>
         <p class="muted" style="margin-top:-4px;">
-          These events are loaded from the <b>EventSignupEvents</b> tab in your Google Sheet.
+          These events are loaded from the <b>Events</b> tab in your Google Sheet.
         </p>
         <div id="eventsStatus" class="muted">Loading events…</div>
-        <div id="backendStatus" class="backend-status"></div>
         <div id="eventList" class="event-list"></div>
       </section>
     </main>
@@ -328,10 +339,7 @@
     const DISCORD_FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
 
     // Replace this after you deploy the Google Apps Script included with this file.
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHDy8cKohVFSVXm2HHHD8s8FctZEL30iVLHbTKc_2G8wvE3TavjKpsH0tyIETKFLs7/exec";
-
-    const EXPECTED_BACKEND_VERSION = "EVENT_SIGNUP_EVENTS_TAB_005";
-    const EXPECTED_EVENT_SOURCE_TAB = "EventSignupEvents";
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyrpih0CQnVBP_C3Th3YKzJno771LJueBLy6kf5WHX00ERIDvZkMsSLh_1Jd1-G-pJc/exec";
 
     const REDIRECT_URI = window.location.origin + window.location.pathname;
     const SESSION_KEY = "IFWL_EVENTSIGNUP_SESSION";
@@ -382,7 +390,6 @@
     const eventSignupPage = document.getElementById("eventSignupPage");
     const eventList = document.getElementById("eventList");
     const eventsStatus = document.getElementById("eventsStatus");
-    const backendStatus = document.getElementById("backendStatus");
     const carSelect = document.getElementById("carSelect");
 
     document.getElementById("endpointHint").textContent = DISCORD_FUNCTION;
@@ -401,36 +408,6 @@
       resultBox.style.display = "block";
       resultBox.className = "status " + (ok ? "ok" : "bad");
       resultBox.innerHTML = message;
-    }
-
-
-    function showBackendStatus(data) {
-      const version = data && data.version ? String(data.version) : "";
-      const sourceTab = data && data.eventSourceTab ? String(data.eventSourceTab) : "";
-
-      // This is now just a quiet diagnostics box. If the backend does not return
-      // debug fields, do not show a red warning as long as event data loads.
-      if (!version && !sourceTab) {
-        clearBackendStatus();
-        return;
-      }
-
-      const isExpectedVersion = version === EXPECTED_BACKEND_VERSION;
-      const isExpectedTab = sourceTab === EXPECTED_EVENT_SOURCE_TAB;
-
-      backendStatus.style.display = "block";
-      backendStatus.className = "backend-status " + (isExpectedVersion && isExpectedTab ? "ok-backend" : "warn-backend");
-      backendStatus.innerHTML = `
-        Backend: <code>${escapeHtml(version || "unknown")}</code>
-        &nbsp;|&nbsp;
-        Source tab: <code>${escapeHtml(sourceTab || "unknown")}</code>
-      `;
-    }
-
-    function clearBackendStatus() {
-      backendStatus.style.display = "none";
-      backendStatus.className = "backend-status";
-      backendStatus.innerHTML = "";
     }
 
     function setLoggedInUI(isLoggedIn) {
@@ -468,10 +445,47 @@
       return "https://cdn.discordapp.com/embed/avatars/0.png";
     }
 
+    function normaliseRoles(data) {
+      const rawRoles =
+        data.memberRoleIds ||
+        data.roles ||
+        data.roleIds ||
+        data.memberRoles ||
+        [];
+
+      return Array.isArray(rawRoles)
+        ? rawRoles.map(roleId => String(roleId))
+        : [];
+    }
+
+    function hasAnyStaffRole(roleIds) {
+      return Array.isArray(roleIds) &&
+        roleIds.some(roleId => STAFF_ROLE_IDS.includes(String(roleId)));
+    }
+
+
     function normaliseProfile(data) {
-      const discordName = data.username || data.discordName || data.global_name || data.name || "Discord user";
-      const guildNickname = data.guildNickname || data.guildNick || data.nickname || data.nick || data.displayName || discordName;
+      const discordName =
+        data.username ||
+        data.discordName ||
+        data.globalName ||
+        data.global_name ||
+        data.name ||
+        "Discord user";
+
+      const guildNickname =
+        data.guildNickname ||
+        data.guildNick ||
+        data.nickname ||
+        data.nick ||
+        data.displayName ||
+        discordName;
+
       const parsed = parseGuildNickname(guildNickname);
+      const roleIds = normaliseRoles(data);
+      const canPostDiscordSignupList =
+        !!data.canPostDiscordSignupList ||
+        hasAnyStaffRole(roleIds);
 
       return {
         discordId: data.discordId || data.userId || data.id || "",
@@ -480,7 +494,10 @@
         driverNumber: parsed.driverNumber,
         driverName: parsed.driverName,
         avatarUrl: buildDiscordAvatarUrl(data),
-        sessionToken: data.sessionToken || localStorage.getItem(SESSION_KEY) || ""
+        sessionToken: data.sessionToken || localStorage.getItem(SESSION_KEY) || "",
+        roles: roleIds,
+        memberRoleIds: roleIds,
+        canPostDiscordSignupList
       };
     }
 
@@ -499,6 +516,11 @@
       document.getElementById("guildNickname").textContent = profile.guildNickname || "No guild nickname found";
       document.getElementById("driverNumber").textContent = profile.driverNumber || "Unknown";
       document.getElementById("driverName").textContent = profile.driverName || "Unknown";
+
+      const staffAccessNote = document.getElementById("staffAccessNote");
+      if (staffAccessNote) {
+        staffAccessNote.classList.toggle("hidden", !profile.canPostDiscordSignupList);
+      }
     }
 
     function populateCars() {
@@ -568,24 +590,14 @@
         "Available"
       ], "");
 
-      let maxSeats = maxSeatsRaw === "" ? null : toNumber(maxSeatsRaw, null);
+      const maxSeats = maxSeatsRaw === "" ? null : toNumber(maxSeatsRaw, null);
       const signedUp = toNumber(signedUpRaw, 0);
-
-      // Safety fallback: if an old backend accidentally sends the seat number in "notes",
-      // use it as Max Seats so the page does not show unlimited slots.
-      let notes = event.notes || "";
-      if (maxSeats === null && notes !== "" && /^\d+$/.test(String(notes).trim())) {
-        maxSeats = toNumber(notes, null);
-        notes = "";
-      }
-
       const availableSeats = availableRaw === ""
         ? (maxSeats === null ? null : Math.max(maxSeats - signedUp, 0))
         : toNumber(availableRaw, maxSeats === null ? null : Math.max(maxSeats - signedUp, 0));
 
       return {
         ...event,
-        notes,
         maxSeats,
         signedUp,
         availableSeats,
@@ -673,27 +685,6 @@
     /**********************************************************************
      * EVENTS + SIGNUP
      **********************************************************************/
-    function renderEventsFromResponse(data) {
-      const events = Array.isArray(data && data.events) ? data.events : [];
-
-      eventList.innerHTML = "";
-
-      if (!events.length) {
-        eventsStatus.textContent = "No active events found in the EventSignupEvents sheet.";
-        return;
-      }
-
-      eventsStatus.textContent = "";
-      events
-        .map(event => ({
-          ...event,
-          __backendVersion: data.version || "",
-          __eventSourceTab: data.eventSourceTab || ""
-        }))
-        .map(normaliseEvent)
-        .forEach(event => renderEventCard(event));
-    }
-
     async function loadEvents() {
       if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("PASTE_YOUR")) {
         eventsStatus.innerHTML = "Google Apps Script URL not set yet. Paste your deployed Web App URL into <code>APPS_SCRIPT_URL</code>.";
@@ -702,16 +693,19 @@
 
       eventsStatus.textContent = "Loading events…";
       eventList.innerHTML = "";
-      clearBackendStatus();
 
       try {
-        const cacheBuster = Date.now();
-        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events&_=${cacheBuster}`);
-        console.log("IFWL Event Signup backend response:", data);
-        showBackendStatus(data);
-        renderEventsFromResponse(data);
+        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events`);
+        const events = Array.isArray(data.events) ? data.events : [];
+
+        if (!events.length) {
+          eventsStatus.textContent = "No active events found in the Events sheet.";
+          return;
+        }
+
+        eventsStatus.textContent = "";
+        events.map(normaliseEvent).forEach(event => renderEventCard(event));
       } catch (e) {
-        clearBackendStatus();
         eventsStatus.innerHTML = `❌ Could not load events: <b>${escapeHtml(e.message || e)}</b>`;
       }
     }
@@ -758,6 +752,7 @@
         <div class="event-actions">
           ${eventUrl ? `<a class="button-like secondary" href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer">Open event</a>` : ""}
           <button class="success signup-btn" ${event.isFull ? "disabled" : ""}>${buttonText}</button>
+          <button class="secondary staff-post-btn hidden" type="button">Post signup list to Discord</button>
         </div>
       `;
 
@@ -766,54 +761,72 @@
         signupButton.addEventListener("click", () => submitSignup(event, card));
       }
 
+      const profile = loadProfile();
+      const staffPostButton = card.querySelector(".staff-post-btn");
+      if (staffPostButton && profile && profile.canPostDiscordSignupList) {
+        staffPostButton.classList.remove("hidden");
+        staffPostButton.addEventListener("click", () => postDiscordSignupList(event, card));
+      }
+
       eventList.appendChild(card);
     }
 
-    function updateEventCardAfterSignup(event, card) {
-      const previousSignedUp = toNumber(event.signedUp, 0);
-      const nextSignedUp = previousSignedUp + 1;
+    async function postDiscordSignupList(event, card) {
+      const profile = loadProfile();
 
-      let nextAvailable = event.availableSeats;
-      if (nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
-        nextAvailable = Math.max(0, toNumber(nextAvailable, 0) - 1);
+      if (!profile) {
+        show("❌ Missing Discord profile. Please log out and log in again.", false);
+        return;
       }
 
-      event.signedUp = nextSignedUp;
-      event.availableSeats = nextAvailable;
-      event.seatsAvailable = nextAvailable;
-      event.isFull = event.maxSeats !== null && nextAvailable !== null && nextAvailable <= 0;
-
-      const signedUpBox = card.querySelector(".slot-box:nth-child(2) .slot-value");
-      const availableBox = card.querySelector(".slot-box:nth-child(3) .slot-value");
-      const seatPill = card.querySelector(".event-seat-pill");
-      const button = card.querySelector(".signup-btn");
-
-      if (signedUpBox) signedUpBox.textContent = String(nextSignedUp);
-
-      if (availableBox && nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
-        availableBox.textContent = String(nextAvailable);
-        availableBox.classList.remove("available-good", "available-warn", "available-full");
-        if (nextAvailable <= 0) availableBox.classList.add("available-full");
-        else if (nextAvailable <= 3) availableBox.classList.add("available-warn");
-        else availableBox.classList.add("available-good");
+      if (!profile.canPostDiscordSignupList) {
+        show("❌ You do not have permission to post the signup list to Discord.", false);
+        return;
       }
 
-      if (seatPill && nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
-        seatPill.className = nextAvailable <= 0
-          ? "event-seat-pill full"
-          : nextAvailable <= 3
-            ? "event-seat-pill low"
-            : "event-seat-pill";
-        seatPill.textContent = nextAvailable <= 0 ? "Event full" : `${nextAvailable} seats left`;
+      if (!event || !(event.eventId || event.id)) {
+        show("❌ Missing event ID, so the signup list cannot be posted.", false);
+        return;
       }
 
+      const button = card.querySelector(".staff-post-btn");
       if (button) {
         button.disabled = true;
-        button.textContent = "Signed up";
+        button.classList.add("posting");
+        button.textContent = "Posting to Discord…";
       }
 
-      if (event.isFull) {
-        card.classList.add("full");
+      const payload = {
+        action: "postDiscordSignupList",
+        eventId: event.eventId || event.id || "",
+        eventName: event.eventName || event.name || "",
+        sessionToken: profile.sessionToken || localStorage.getItem(SESSION_KEY) || "",
+        requestedByDiscordId: profile.discordId || "",
+        requestedByDiscordName: profile.discordName || "",
+        requestedByGuildNickname: profile.guildNickname || ""
+      };
+
+      try {
+        const data = await fetchJson(APPS_SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+
+        console.log("IFWL Discord signup list post response:", data);
+        show(`✅ Signup list posted to Discord for <b>${escapeHtml(payload.eventName || payload.eventId)}</b>.`, true);
+
+        if (button) {
+          button.textContent = "Posted to Discord";
+        }
+      } catch (e) {
+        if (button) {
+          button.disabled = false;
+          button.classList.remove("posting");
+          button.textContent = "Post signup list to Discord";
+        }
+
+        show(`❌ Discord post failed: <b>${escapeHtml(e.message || e)}</b>`, false);
       }
     }
 
@@ -865,19 +878,9 @@
         });
 
         card.classList.add("active");
-        updateEventCardAfterSignup(event, card);
-
+        button.textContent = "Signed up";
         show(`✅ Signup saved for <b>${escapeHtml(payload.eventName || payload.eventId)}</b> in the <b>${escapeHtml(gt3Car)}</b>.`, true);
-
-        // If Apps Script returned a fresh event list, render it immediately.
-        if (data && Array.isArray(data.events)) {
-          renderEventsFromResponse(data);
-        }
-
-        // Then do one delayed cache-busted refresh so the count definitely catches up.
-        setTimeout(() => {
-          loadEvents();
-        }, 1000);
+        await loadEvents();
       } catch (e) {
         button.disabled = false;
         button.textContent = "Sign up";
@@ -900,7 +903,6 @@
       setLoggedInUI(false);
       eventList.innerHTML = "";
       eventsStatus.textContent = "";
-      clearBackendStatus();
       show("Logged out.", true);
     });
 
