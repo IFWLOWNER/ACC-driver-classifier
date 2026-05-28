@@ -17,6 +17,13 @@
       --good-line: #1f6b3b;
       --bad-bg: #2a1414;
       --bad-line: #7a2a2a;
+      --warn-bg: #2a2211;
+      --warn-line: #8a641f;
+      --warn-text: #facc15;
+      --full-bg: #2a1414;
+      --full-line: #7a2a2a;
+      --available-bg: #0f2a1b;
+      --available-line: #1f6b3b;
     }
 
     * { box-sizing: border-box; }
@@ -127,6 +134,72 @@
       margin: 4px 6px 0 0;
     }
 
+    .slot-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin: 13px 0 4px 0;
+    }
+
+    .slot-box {
+      border: 1px solid #2b3b5e;
+      background: #0b1220;
+      border-radius: 14px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .slot-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 4px;
+    }
+
+    .slot-value {
+      font-size: 20px;
+      font-weight: 950;
+      line-height: 1;
+    }
+
+    .slot-value.available-good { color: #86efac; }
+    .slot-value.available-warn { color: #facc15; }
+    .slot-value.available-full { color: #fca5a5; }
+
+    .event-seat-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+      border: 1px solid var(--available-line);
+      background: var(--available-bg);
+      color: #bbf7d0;
+    }
+
+    .event-seat-pill.low {
+      border-color: var(--warn-line);
+      background: var(--warn-bg);
+      color: var(--warn-text);
+    }
+
+    .event-seat-pill.full {
+      border-color: var(--full-line);
+      background: var(--full-bg);
+      color: #fecaca;
+    }
+
+    .event-seat-pill.unlimited {
+      border-color: #2b3b5e;
+      background: #0b1220;
+      color: var(--muted);
+    }
+
     label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
     select, input {
       width: 100%;
@@ -148,6 +221,7 @@
       background: rgba(15, 23, 42, .76);
     }
     .event-card.active { border-color: #60a5fa; box-shadow: 0 0 0 1px rgba(96,165,250,.35); }
+    .event-card.full { border-color: var(--full-line); }
     .event-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
     .event-title { font-weight: 900; font-size: 17px; }
     .event-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -381,6 +455,94 @@
       return data;
     }
 
+    function toNumber(value, fallback = 0) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function firstPresentObjectValue(object, keys, fallback = "") {
+      for (const key of keys) {
+        if (object && object[key] !== undefined && object[key] !== null && object[key] !== "") {
+          return object[key];
+        }
+      }
+      return fallback;
+    }
+
+    function normaliseEvent(event) {
+      const maxSeatsRaw = firstPresentObjectValue(event, [
+        "maxSeats",
+        "max_seats",
+        "Max Seats",
+        "totalSlots",
+        "total_slots",
+        "Total Slots",
+        "slots",
+        "Slots"
+      ], "");
+
+      const signedUpRaw = firstPresentObjectValue(event, [
+        "signedUp",
+        "signed_up",
+        "Signed Up",
+        "signupCount",
+        "signup_count",
+        "Signup Count",
+        "currentSignups",
+        "current_signups"
+      ], 0);
+
+      const availableRaw = firstPresentObjectValue(event, [
+        "availableSeats",
+        "available_seats",
+        "Available Seats",
+        "seatsAvailable",
+        "seats_available",
+        "Seats Available",
+        "available",
+        "Available"
+      ], "");
+
+      const maxSeats = maxSeatsRaw === "" ? null : toNumber(maxSeatsRaw, null);
+      const signedUp = toNumber(signedUpRaw, 0);
+      const availableSeats = availableRaw === ""
+        ? (maxSeats === null ? null : Math.max(maxSeats - signedUp, 0))
+        : toNumber(availableRaw, maxSeats === null ? null : Math.max(maxSeats - signedUp, 0));
+
+      return {
+        ...event,
+        maxSeats,
+        signedUp,
+        availableSeats,
+        isUnlimited: maxSeats === null,
+        isFull: maxSeats !== null && availableSeats <= 0
+      };
+    }
+
+    function seatPillClass(event) {
+      if (event.isUnlimited) return "event-seat-pill unlimited";
+      if (event.isFull) return "event-seat-pill full";
+      if (event.availableSeats <= 3) return "event-seat-pill low";
+      return "event-seat-pill";
+    }
+
+    function seatPillText(event) {
+      if (event.isUnlimited) return "Unlimited slots";
+      if (event.isFull) return "Event full";
+      return `${event.availableSeats} seats left`;
+    }
+
+    function availableValueClass(event) {
+      if (event.isUnlimited) return "";
+      if (event.isFull) return "available-full";
+      if (event.availableSeats <= 3) return "available-warn";
+      return "available-good";
+    }
+
+    function slotValue(value, fallbackText) {
+      return value === null || value === undefined || value === "" ? fallbackText : escapeHtml(value);
+    }
+
     /**********************************************************************
      * DISCORD LOGIN
      **********************************************************************/
@@ -455,7 +617,7 @@
         }
 
         eventsStatus.textContent = "";
-        events.forEach(event => renderEventCard(event));
+        events.map(normaliseEvent).forEach(event => renderEventCard(event));
       } catch (e) {
         eventsStatus.innerHTML = `❌ Could not load events: <b>${escapeHtml(e.message || e)}</b>`;
       }
@@ -463,13 +625,14 @@
 
     function renderEventCard(event) {
       const card = document.createElement("div");
-      card.className = "event-card";
+      card.className = "event-card" + (event.isFull ? " full" : "");
       card.dataset.eventId = event.eventId || event.id || "";
 
       const title = event.eventName || event.name || "Untitled event";
       const eventUrl = event.eventUrl || event.url || "";
       const date = event.eventDate || event.date || "";
       const notes = event.notes || "";
+      const buttonText = event.isFull ? "Event full" : "Sign up";
 
       card.innerHTML = `
         <div class="event-top">
@@ -477,16 +640,39 @@
             <div class="event-title">${escapeHtml(title)}</div>
             ${date ? `<div class="muted">${escapeHtml(date)}</div>` : ""}
           </div>
-          <span class="pill">${escapeHtml(event.eventId || event.id || "Event")}</span>
+          <div style="display:flex; flex-direction:column; gap:7px; align-items:flex-end;">
+            <span class="pill">${escapeHtml(event.eventId || event.id || "Event")}</span>
+            <span class="${seatPillClass(event)}">${escapeHtml(seatPillText(event))}</span>
+          </div>
         </div>
+
+        <div class="slot-summary" aria-label="Event slot summary">
+          <div class="slot-box">
+            <div class="slot-label">Total slots</div>
+            <div class="slot-value">${slotValue(event.maxSeats, "∞")}</div>
+          </div>
+          <div class="slot-box">
+            <div class="slot-label">Signed up</div>
+            <div class="slot-value">${slotValue(event.signedUp, "0")}</div>
+          </div>
+          <div class="slot-box">
+            <div class="slot-label">Available</div>
+            <div class="slot-value ${availableValueClass(event)}">${slotValue(event.availableSeats, "∞")}</div>
+          </div>
+        </div>
+
         ${notes ? `<p class="muted">${escapeHtml(notes)}</p>` : ""}
         <div class="event-actions">
           ${eventUrl ? `<a class="button-like secondary" href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer">Open event</a>` : ""}
-          <button class="success signup-btn">Sign up</button>
+          <button class="success signup-btn" ${event.isFull ? "disabled" : ""}>${buttonText}</button>
         </div>
       `;
 
-      card.querySelector(".signup-btn").addEventListener("click", () => submitSignup(event, card));
+      const signupButton = card.querySelector(".signup-btn");
+      if (signupButton && !event.isFull) {
+        signupButton.addEventListener("click", () => submitSignup(event, card));
+      }
+
       eventList.appendChild(card);
     }
 
@@ -504,6 +690,10 @@
       }
       if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.includes("PASTE_YOUR")) {
         show("❌ Google Apps Script URL has not been added to this page yet.", false);
+        return;
+      }
+      if (event.isFull) {
+        show("❌ This event is already full.", false);
         return;
       }
 
@@ -536,6 +726,7 @@
         card.classList.add("active");
         button.textContent = "Signed up";
         show(`✅ Signup saved for <b>${escapeHtml(payload.eventName || payload.eventId)}</b> in the <b>${escapeHtml(gt3Car)}</b>.`, true);
+        await loadEvents();
       } catch (e) {
         button.disabled = false;
         button.textContent = "Sign up";
