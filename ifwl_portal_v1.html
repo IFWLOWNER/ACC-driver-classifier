@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>IFWL Event Control Portal</title>
+  <title>IFWL Event Control Portal — Discord Driver Sync</title>
   <meta name="description" content="IFWL Discord-protected event portal for SimGrid series, ACC entrylists, rules, admin tools, and driver checks." />
 
   <style>
@@ -268,6 +268,19 @@
     const FUNCTION = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
     const REDIRECT_URI = window.location.origin + window.location.pathname;
 
+    const REQUIRED_NICK_FORMAT = /^\[\s*\d+\s*\]\s*-\s*.+$/;
+    // Backend now saves/updates drivers collection with: fullName, discordId, discordMention, driverNumber, cleanName.
+
+    function parseIFWLNickname(nick){
+      const raw = String(nick || "").trim();
+      const m = raw.match(/^\[\s*(\d+)\s*\]\s*-\s*(.+)$/);
+      if(!m) return { valid:false, raw, driverNumber:"", raceNumber:"", cleanName:"", driverName:"", fullName:raw, formatted:raw };
+      const driverNumber = String(parseInt(m[1],10));
+      const cleanName = m[2].trim().replace(/\s+/g," ");
+      const fullName = `[${driverNumber}] - ${cleanName}`;
+      return { valid:true, raw, driverNumber, raceNumber:driverNumber, cleanName, driverName:cleanName, fullName, formatted:fullName };
+    }
+
     const DEMO_EVENTS = [
       { id:"spa-s2-r1", name:"IFWL PC Pro-Am — Round 1", series:"PC Pro-Am", season:"Season 2", track:"Spa-Francorchamps", date:"2026-01-13 19:30 UK", entrants:42, issues:3, status:"Needs sync", ready:false },
       { id:"watkins-s2-r2", name:"IFWL Open Track — Round 2", series:"Open Track", season:"Season 2", track:"Watkins Glen", date:"2026-01-20 19:30 UK", entrants:38, issues:1, status:"Entrylist ready", ready:true },
@@ -331,7 +344,9 @@
     }
 
     function renderProfile(data){
-      const name = data.username || data.global_name || data.discordName || "IFWL Driver";
+      const nick = data.guildNickname || data.nickname || data.memberNick || data.nick || data.username || data.global_name || data.discordName || "IFWL Driver";
+      const parsedNick = data.driverProfile || parseIFWLNickname(nick);
+      const name = parsedNick.valid ? parsedNick.formatted : nick;
       els.profileName.textContent = name;
       els.profileSub.textContent = data.discordId ? `Discord ID: ${data.discordId}` : "Discord login complete";
       els.avatar.textContent = name.trim().slice(0,1).toUpperCase();
@@ -340,8 +355,14 @@
         <b>Login checks complete</b><br>
         <span style="color:var(--muted)">Rules granted:</span> ${data.rulesGranted ? "Yes" : "No"}<br>
         <span style="color:var(--muted)">Race Team Hub:</span> ${data.accessGranted ? "Yes" : "No"}<br>
+        <span style="color:var(--muted)">Discord nickname:</span> ${escapeHtml(nick)}<br>
+        <span style="color:var(--muted)">IFWL format:</span> ${parsedNick.valid ? escapeHtml(parsedNick.formatted) : "Missing / invalid — expected [number] - name"}<br>
+        <span style="color:var(--muted)">Race number:</span> ${parsedNick.raceNumber ? escapeHtml(parsedNick.raceNumber) : "Not detected"}<br>
+        <span style="color:var(--muted)">Clean name:</span> ${parsedNick.cleanName || parsedNick.driverName ? escapeHtml(parsedNick.cleanName || parsedNick.driverName) : "Not detected"}<br>
+        <span style="color:var(--muted)">Discord mention:</span> ${data.discordId ? `&lt;@${escapeHtml(data.discordId)}&gt;` : "Not available"}<br>
+        <span style="color:var(--muted)">Firestore driver sync:</span> ${data.driverSaved ? `Saved / updated${data.driverDocPath ? " — " + escapeHtml(data.driverDocPath) : ""}` : "Needs backend save response"}<br>
         <span style="color:var(--muted)">Session token:</span> ${data.sessionToken ? "Stored" : "Not issued"}<br>
-        <span style="color:var(--muted)">Next backend additions:</span> adminGranted, patreonGranted, IFWL profile, SimGrid entrant lookup.
+        <span style="color:var(--muted)">Next backend additions:</span> SimGrid entrant lookup, event import, entrylist generation.
       `;
     }
 
@@ -374,7 +395,7 @@
       if(data.sessionToken) localStorage.setItem("IFWL_RT_SESSION", data.sessionToken);
       setLoggedInUI(true);
       renderProfile(data);
-      show(`Logged in as <b>${escapeHtml(data.username || "IFWL user")}</b>.`, !!data.rulesGranted || !!data.accessGranted);
+      show(`Logged in as <b>${escapeHtml(data.driverProfile?.formatted || data.guildNickname || data.nickname || data.username || "IFWL user")}</b>. ${data.driverSaved ? "Driver list updated in Firestore with Discord ID." : "Awaiting driver sync confirmation."}`, !!data.rulesGranted || !!data.accessGranted);
     }
 
     function openRulesViaBackend(){
