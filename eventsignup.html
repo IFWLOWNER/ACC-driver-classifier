@@ -324,7 +324,7 @@
       <section class="card">
         <h2>Available events</h2>
         <p class="muted" style="margin-top:-4px;">
-          These events are loaded from the <b>Events</b> tab in your Google Sheet.
+          These events are loaded from the <b>EventSignupEvents</b> tab in your Google Sheet.
         </p>
         <div id="eventsStatus" class="muted">Loading events…</div>
         <div id="eventList" class="event-list"></div>
@@ -340,6 +340,10 @@
 
     // Replace this after you deploy the Google Apps Script included with this file.
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHDy8cKohVFSVXm2HHHD8s8FctZEL30iVLHbTKc_2G8wvE3TavjKpsH0tyIETKFLs7/exec";
+
+    // TESTING ONLY: this webhook is visible to anyone who can view this page source.
+    // Move it into Apps Script/backend before using this page publicly.
+    const DISCORD_SIGNUP_WEBHOOK_URL = "https://discord.com/api/webhooks/1509684674996207706/I_UonsQ7DRmXHeVJswS-9rmuwmqV1HUyAiqRegjOHv4s4fnW4B9HHJyE9TNoEv67VOKh";
 
     const REDIRECT_URI = window.location.origin + window.location.pathname;
     const SESSION_KEY = "IFWL_EVENTSIGNUP_SESSION";
@@ -695,11 +699,11 @@
       eventList.innerHTML = "";
 
       try {
-        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events`);
+        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events&_=${Date.now()}`);
         const events = Array.isArray(data.events) ? data.events : [];
 
         if (!events.length) {
-          eventsStatus.textContent = "No active events found in the Events sheet.";
+          eventsStatus.textContent = "No active events found in the EventSignupEvents sheet.";
           return;
         }
 
@@ -771,6 +775,149 @@
       eventList.appendChild(card);
     }
 
+    function updateEventCardAfterSignup(event, card) {
+      const previousSignedUp = toNumber(event.signedUp, 0);
+      const nextSignedUp = previousSignedUp + 1;
+
+      let nextAvailable = event.availableSeats;
+      if (nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
+        nextAvailable = Math.max(0, toNumber(nextAvailable, 0) - 1);
+      }
+
+      event.signedUp = nextSignedUp;
+      event.availableSeats = nextAvailable;
+      event.seatsAvailable = nextAvailable;
+      event.isFull = event.maxSeats !== null && nextAvailable !== null && nextAvailable <= 0;
+
+      const signedUpBox = card.querySelector(".slot-box:nth-child(2) .slot-value");
+      const availableBox = card.querySelector(".slot-box:nth-child(3) .slot-value");
+      const seatPill = card.querySelector(".event-seat-pill");
+      const button = card.querySelector(".signup-btn");
+
+      if (signedUpBox) signedUpBox.textContent = String(nextSignedUp);
+
+      if (availableBox && nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
+        availableBox.textContent = String(nextAvailable);
+        availableBox.classList.remove("available-good", "available-warn", "available-full");
+        if (nextAvailable <= 0) availableBox.classList.add("available-full");
+        else if (nextAvailable <= 3) availableBox.classList.add("available-warn");
+        else availableBox.classList.add("available-good");
+      }
+
+      if (seatPill && nextAvailable !== null && nextAvailable !== undefined && nextAvailable !== "") {
+        seatPill.className = nextAvailable <= 0
+          ? "event-seat-pill full"
+          : nextAvailable <= 3
+            ? "event-seat-pill low"
+            : "event-seat-pill";
+        seatPill.textContent = nextAvailable <= 0 ? "Event full" : `${nextAvailable} seats left`;
+      }
+
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Signed up";
+      }
+
+      if (event.isFull) {
+        card.classList.add("full");
+      }
+    }
+
+    async function getFreshEventForDiscord(event) {
+      const eventId = event.eventId || event.id || "";
+      try {
+        const data = await fetchJson(`${APPS_SCRIPT_URL}?action=events&_=${Date.now()}`);
+        const events = Array.isArray(data.events) ? data.events.map(normaliseEvent) : [];
+        return events.find(item => String(item.eventId || item.id || "") === String(eventId)) || event;
+      } catch (e) {
+        console.warn("Could not fetch fresh event data for Discord post:", e);
+        return event;
+      }
+    }
+
+    async function fetchSignupRowsForEvent(eventId) {
+      const encodedEventId = encodeURIComponent(eventId || "");
+      const urls = [
+        `${APPS_SCRIPT_URL}?action=signups&eventId=${encodedEventId}&_=${Date.now()}`,
+        `${APPS_SCRIPT_URL}?action=eventSignups&eventId=${encodedEventId}&_=${Date.now()}`,
+        `${APPS_SCRIPT_URL}?action=drivers&eventId=${encodedEventId}&_=${Date.now()}`
+      ];
+
+      for (const url of urls) {
+        try {
+          const data = await fetchJson(url);
+          if (Array.isArray(data.signups)) return data.signups;
+          if (Array.isArray(data.drivers)) return data.drivers;
+          if (Array.isArray(data.entries)) return data.entries;
+        } catch (e) {
+          console.warn("Signup list endpoint attempt failed:", e);
+        }
+      }
+
+      return [];
+    }
+
+    function signupValue(row, keys, fallback = "") {
+      for (const key of keys) {
+        if (row && row[key] !== undefined && row[key] !== null && row[key] !== "") {
+          return row[key];
+        }
+      }
+      return fallback;
+    }
+
+    function formatDriverLine(row, index) {
+      const discordId = String(signupValue(row, ["discordId", "Discord ID", "userId", "User ID", "id"], "")).trim();
+      const mention = discordId ? `<@${discordId}>` : "No Discord mention";
+      const number = signupValue(row, ["driverNumber", "Driver Number", "raceNumber", "Race Number"], "?");
+      const driverName = signupValue(row, ["driverName", "Driver Name", "name", "Name"], "Unknown driver");
+      const guildNickname = signupValue(row, ["guildNickname", "Guild Nickname", "nick", "nickname"], "");
+      const discordName = signupValue(row, ["discordName", "Discord Name", "username"], "");
+      const gt3Car = signupValue(row, ["gt3Car", "GT3 Car", "car", "Car"], "No car selected");
+      const displayName = guildNickname || `[${number}] - ${driverName}`;
+
+      return `${index + 1}. ${mention} — ${displayName} — ${gt3Car}${discordName ? ` — Discord: ${discordName}` : ""}`;
+    }
+
+    function chunkDiscordContent(lines, maxLength = 1850) {
+      const chunks = [];
+      let current = "";
+
+      lines.forEach(line => {
+        const next = current ? `${current}\n${line}` : line;
+        if (next.length > maxLength) {
+          if (current) chunks.push(current);
+          current = line;
+        } else {
+          current = next;
+        }
+      });
+
+      if (current) chunks.push(current);
+      return chunks;
+    }
+
+    async function sendDiscordWebhookMessage(content) {
+      const response = await fetch(DISCORD_SIGNUP_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          username: "IFWL Event Signup",
+          content,
+          allowed_mentions: {
+            parse: ["users"]
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Discord webhook failed with HTTP ${response.status}`);
+      }
+    }
+
     async function postDiscordSignupList(event, card) {
       const profile = loadProfile();
 
@@ -781,6 +928,11 @@
 
       if (!profile.canPostDiscordSignupList) {
         show("❌ You do not have permission to post the signup list to Discord.", false);
+        return;
+      }
+
+      if (!DISCORD_SIGNUP_WEBHOOK_URL || DISCORD_SIGNUP_WEBHOOK_URL.includes("PASTE_YOUR")) {
+        show("❌ Discord webhook URL has not been added yet.", false);
         return;
       }
 
@@ -796,28 +948,53 @@
         button.textContent = "Posting to Discord…";
       }
 
-      const payload = {
-        action: "postDiscordSignupList",
-        eventId: event.eventId || event.id || "",
-        eventName: event.eventName || event.name || "",
-        sessionToken: profile.sessionToken || localStorage.getItem(SESSION_KEY) || "",
-        requestedByDiscordId: profile.discordId || "",
-        requestedByDiscordName: profile.discordName || "",
-        requestedByGuildNickname: profile.guildNickname || ""
-      };
+      const eventId = event.eventId || event.id || "";
 
       try {
-        const data = await fetchJson(APPS_SCRIPT_URL, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(payload)
-        });
+        const freshEvent = await getFreshEventForDiscord(event);
+        const signups = await fetchSignupRowsForEvent(eventId);
 
-        console.log("IFWL Discord signup list post response:", data);
-        show(`✅ Signup list posted to Discord for <b>${escapeHtml(payload.eventName || payload.eventId)}</b>.`, true);
+        const eventName = freshEvent.eventName || freshEvent.name || event.eventName || event.name || eventId;
+        const totalSlots = freshEvent.maxSeats === null || freshEvent.maxSeats === undefined ? "Unlimited" : freshEvent.maxSeats;
+        const signedUp = freshEvent.signedUp === null || freshEvent.signedUp === undefined ? signups.length : freshEvent.signedUp;
+        const available = freshEvent.availableSeats === null || freshEvent.availableSeats === undefined ? "Unlimited" : freshEvent.availableSeats;
+
+        const headerLines = [
+          `🏁 **${eventName} - Signup List**`,
+          "",
+          "The following drivers are signed up for this race.",
+          "",
+          "All driver signup details are now logged on the IFWL database for post-race stewarding.",
+          "",
+          "The following drivers will receive Discord @mentions if they are involved in stewarding tickets.",
+          "",
+          `**Event ID:** ${eventId}`,
+          `**Signed up:** ${signedUp} / ${totalSlots}`,
+          `**Seats available:** ${available}`,
+          ""
+        ];
+
+        const driverLines = signups.length
+          ? signups.map(formatDriverLine)
+          : ["Driver-by-driver list was not returned by the current Google Apps Script endpoint. Counts are shown above; full signup details remain logged in the sheet."];
+
+        const footerLines = [
+          "",
+          `_Posted by ${profile.guildNickname || profile.discordName || "IFWL staff"} from IFWL Event Signup._`,
+          "_Testing mode: Discord webhook is currently stored in the webpage._"
+        ];
+
+        const chunks = chunkDiscordContent([...headerLines, ...driverLines, ...footerLines]);
+
+        for (const chunk of chunks) {
+          await sendDiscordWebhookMessage(chunk);
+        }
+
+        show(`✅ Signup list posted to Discord for <b>${escapeHtml(eventName)}</b>.`, true);
 
         if (button) {
           button.textContent = "Posted to Discord";
+          button.classList.remove("posting");
         }
       } catch (e) {
         if (button) {
@@ -878,9 +1055,12 @@
         });
 
         card.classList.add("active");
-        button.textContent = "Signed up";
+        updateEventCardAfterSignup(event, card);
         show(`✅ Signup saved for <b>${escapeHtml(payload.eventName || payload.eventId)}</b> in the <b>${escapeHtml(gt3Car)}</b>.`, true);
-        await loadEvents();
+
+        setTimeout(() => {
+          loadEvents();
+        }, 1000);
       } catch (e) {
         button.disabled = false;
         button.textContent = "Sign up";
@@ -913,5 +1093,12 @@
       show(`❌ ${escapeHtml(e.message || e)}`, false);
     });
   </script>
+
+  <!--
+    IFWL TESTING SECURITY NOTE
+    The Discord webhook is included directly in this HTML only because testing was requested.
+    Before this page is used publicly, move DISCORD_SIGNUP_WEBHOOK_URL into Apps Script
+    or another backend service so the webhook cannot be copied from View Source / DevTools.
+  -->
 </body>
 </html>
