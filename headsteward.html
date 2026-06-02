@@ -857,8 +857,11 @@
 
   <script>
     // ---------- CONFIG ----------
-    // UPDATED to your provided webhook
+    // Patreon / audit webhook used by existing dashboard publishing features
     const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1469289068130074675/Ic3VC8dpmNpV6bZOdIEXPSGSwdAauQ1WMcEy8YAimcYraAHcivJYK3e10GR5iR-3FJJP";
+
+    // Finalisation webhook used ONLY when a ticket is marked as Finalised
+    const FINALISATION_DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1404722639393521674/ERUhfriaB-UGIqYLyTBAsa2OnFzmLXfQWiRGTSPiVFTuWsM4o1v6E1BSMP2Wpv9Iett2";
 
     // ==========================================================
     // NEW: EFFECT OPTIONS (micro-values, stacks, clamped -1..+1)
@@ -1422,6 +1425,22 @@
       }
     }
 
+    // ---------- NEW: Finalisation Result (separate Discord webhook post) ----------
+    async function discordPostFinalisation(content) {
+      if (!FINALISATION_DISCORD_WEBHOOK_URL.startsWith("https://discord.com/api/webhooks/")) {
+        throw new Error("Finalisation webhook invalid");
+      }
+      const resp = await fetch(FINALISATION_DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content })
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(`Finalisation Discord publish failed: ${resp.status} ${resp.statusText} ${txt}`);
+      }
+    }
+
     function splitDiscordMessages(fullText, maxLen = 1900) {
       // keep a bit under 2000 to be safe
       const lines = String(fullText || "").split("\n");
@@ -1750,7 +1769,7 @@ No reviews submitted yet.`;
           decision: finalDecision,
           stewardTag: finalStewardTag
         });
-        await discordPost(discordMessage);
+        await discordPostFinalisation(discordMessage);
 
         selectedTicketSnap = await ref.get();
         prefillFinalisationFromTicket();
