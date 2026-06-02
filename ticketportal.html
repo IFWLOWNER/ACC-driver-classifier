@@ -1298,6 +1298,82 @@
     const OPEN_STATEMENTS_URL = "https://ifwlowner.github.io/ACC-driver-classifier/openstatements.html";
 
     function safeStr(v){ return (typeof v === "string" ? v : "").trim(); }
+ 
+    // ---------- Discord live ticket publishing ----------
+    // Paste the Discord webhook you want NEW TICKETS posted to here.
+    // This is separate from any Head Steward dashboard statement/audit webhook.
+    const DISCORD_NEW_TICKET_WEBHOOK_URL = "PASTE_YOUR_DISCORD_WEBHOOK_URL_HERE";
+
+    function discordSafe(v) {
+      return String(v ?? "")
+        .trim()
+        .replaceAll("@everyone", "@\u200beveryone")
+        .replaceAll("@here", "@\u200bhere") || "—";
+    }
+
+    function discordClip(v, maxLen = 900) {
+      const text = discordSafe(v);
+      if (text.length <= maxLen) return text;
+      return text.slice(0, maxLen - 1) + "…";
+    }
+
+    function buildStatementLink(ticketId, role, name) {
+      const url = new URL(OPEN_STATEMENTS_URL);
+      url.searchParams.set("ticket", ticketId);
+      url.searchParams.set("ticketId", ticketId);
+      url.searchParams.set("role", role);
+      if (name) url.searchParams.set("name", name);
+      return url.toString();
+    }
+
+    async function publishNewTicketToDiscord(ticketId, ticket) {
+      const webhook = safeStr(DISCORD_NEW_TICKET_WEBHOOK_URL);
+      if (!webhook || !webhook.startsWith("https://discord.com/api/webhooks/")) {
+        console.warn("New-ticket Discord webhook is not configured. Ticket was still saved.");
+        return;
+      }
+
+      const accusedStatementLink = buildStatementLink(ticketId, "accused", ticket.accused || "");
+      const reporterStatementLink = buildStatementLink(ticketId, "reporter", ticket.reporter || "");
+      const witnessStatementLink = buildStatementLink(ticketId, "witness", "");
+
+      const content =
+`🎫 **New IFWL Steward Ticket Submitted**
+
+**Ticket ID:** \`${discordSafe(ticketId)}\`
+**Competition:** ${discordSafe(ticket.competition)}
+**Season:** ${discordSafe(ticket.season)}
+**Event:** ${discordSafe(ticket.event)}
+**Track:** ${discordSafe(ticket.track)}
+
+**Reporter:** ${discordSafe(ticket.reporter)}
+**Accused:** ${discordSafe(ticket.accused)}
+**Rule Breach:** ${discordSafe(ticket.ruleBreach)}
+
+**Incident Summary:**
+${discordClip(ticket.fullIncident, 950)}
+
+**Proof URL:** ${discordSafe(ticket.proofUrl || "Not provided")}
+
+**Statement Links**
+Accused: ${accusedStatementLink}
+Reporter: ${reporterStatementLink}
+Witness: ${witnessStatementLink}`;
+
+      const resp = await fetch(webhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          allowed_mentions: { parse: [] }
+        })
+      });
+
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(`Discord new-ticket publish failed: ${resp.status} ${resp.statusText} ${txt}`);
+      }
+    }
 
     const LS_KEY = "ifwl_discord_user";
 
@@ -1930,6 +2006,13 @@
 
       try {
         const docRef = await addDoc(collection(db, "tickets"), newTicket);
+
+        try {
+          await publishNewTicketToDiscord(docRef.id, newTicket);
+        } catch (discordError) {
+          console.warn("Ticket saved, but Discord live publish failed:", discordError);
+        }
+
         statusMsg.textContent = `Ticket submitted (ID: ${docRef.id}). Thank you!`;
         statusMsg.className = "status success";
 
