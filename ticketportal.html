@@ -1304,6 +1304,11 @@
     // This is separate from any Head Steward dashboard statement/audit webhook.
     const DISCORD_NEW_TICKET_WEBHOOK_URL = "https://discord.com/api/webhooks/1404722639393521674/ERUhfriaB-UGIqYLyTBAsa2OnFzmLXfQWiRGTSPiVFTuWsM4o1v6E1BSMP2Wpv9Iett2";
 
+    // These are the two clean links shown at the bottom of the Discord ticket post.
+    // They are intentionally posted as Discord markdown links so Discord shows the text,
+    // not the full URL.
+    const HEAD_STEWARD_DASHBOARD_URL = "https://ifwlowner.github.io/ACC-driver-classifier/headsteward.html";
+
     function discordSafe(v) {
       return String(v ?? "")
         .trim()
@@ -1311,18 +1316,23 @@
         .replaceAll("@here", "@\u200bhere") || "—";
     }
 
-    function discordClip(v, maxLen = 900) {
+    function discordClip(v, maxLen = 1200) {
       const text = discordSafe(v);
       if (text.length <= maxLen) return text;
       return text.slice(0, maxLen - 1) + "…";
     }
 
-    function buildStatementLink(ticketId, role, name) {
+    function buildStatementHubLink(ticketId) {
       const url = new URL(OPEN_STATEMENTS_URL);
       url.searchParams.set("ticket", ticketId);
       url.searchParams.set("ticketId", ticketId);
-      url.searchParams.set("role", role);
-      if (name) url.searchParams.set("name", name);
+      return url.toString();
+    }
+
+    function buildStewardDeliberationLink(ticketId) {
+      const url = new URL(HEAD_STEWARD_DASHBOARD_URL);
+      url.searchParams.set("ticket", ticketId);
+      url.searchParams.set("ticketId", ticketId);
       return url.toString();
     }
 
@@ -1333,37 +1343,25 @@
         return;
       }
 
-      const accusedStatementLink = buildStatementLink(ticketId, "accused", ticket.accused || "");
-      const reporterStatementLink = buildStatementLink(ticketId, "reporter", ticket.reporter || "");
-      const witnessStatementLink = buildStatementLink(ticketId, "witness", "");
-
-      // Discord supports markdown links in normal message content.
-      // This keeps the post tidy instead of showing the full openstatements URL.
-      const accusedStatementMarkdown = `[Accused statement](${accusedStatementLink})`;
-      const reporterStatementMarkdown = `[Reporter statement](${reporterStatementLink})`;
-      const witnessStatementMarkdown = `[Witness statement](${witnessStatementLink})`;
-      const driverStatementsMarkdown = `[Driver and witness statements](${witnessStatementLink})`;
+      const stewardLink = buildStewardDeliberationLink(ticketId);
+      const driverStatementLink = buildStatementHubLink(ticketId);
 
       const content =
-`🎫 **New IFWL Steward Ticket Submitted**
+`🎟️ **New IFWL Steward Ticket Submitted**
 
 **Ticket ID:** \`${discordSafe(ticketId)}\`
+**Driver Accused:** ${discordSafe(ticket.accused)}
+**Driver Reporting:** ${discordSafe(ticket.reporter)}
 **Competition:** ${discordSafe(ticket.competition)}
-**Season:** ${discordSafe(ticket.season)}
 **Event:** ${discordSafe(ticket.event)}
-**Track:** ${discordSafe(ticket.track)}
-
-**Reporter:** ${discordSafe(ticket.reporter)}
-**Accused:** ${discordSafe(ticket.accused)}
 **Rule Breach:** ${discordSafe(ticket.ruleBreach)}
+**Incident Details:** ${discordClip(ticket.fullIncident, 1200)}
+**Evidence:** ${discordSafe(ticket.proofUrl || "Not provided")}
+**Status:** Under Review
+**Steward Decision:**
 
-**Incident Summary:**
-${discordClip(ticket.fullIncident, 950)}
-
-**Evidence:** ${ticket.proofUrl ? `[Open evidence](${discordSafe(ticket.proofUrl)})` : "Not provided"}
-
-👷 **Drivers:** ${driverStatementsMarkdown}
-**Statement Links:** ${accusedStatementMarkdown} • ${reporterStatementMarkdown} • ${witnessStatementMarkdown}`;
+🧑‍⚖️ **Stewards:** [Stewards deliberation](${stewardLink})
+🏁 **Drivers:** [Driver and witness statements](${driverStatementLink})`;
 
       const resp = await fetch(webhook, {
         method: "POST",
