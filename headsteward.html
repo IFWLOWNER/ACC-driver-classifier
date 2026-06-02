@@ -422,6 +422,56 @@
       margin-top:6px;
     }
 
+
+
+    /* NEW: finalisation panel */
+    .finaliseBox {
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      padding:12px;
+      background:#fff;
+      margin-top:10px;
+    }
+    .finaliseWarn {
+      border:1px solid #fca5a5;
+      background:#fef2f2;
+      color:#991b1b;
+      border-radius:12px;
+      padding:10px 12px;
+      margin-top:10px;
+      font-size:13px;
+      line-height:1.35;
+      font-weight:800;
+    }
+    .finalisePreview {
+      margin-top:10px;
+      border:1px solid #e5e7eb;
+      background:#f9fafb;
+      border-radius:12px;
+      padding:10px 12px;
+      font-size:13px;
+      line-height:1.35;
+      display:none;
+    }
+    .finaliseActions {
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .finaliseActions button {
+      width:auto;
+    }
+    button.danger {
+      background:#991b1b;
+      color:#fff;
+      border-color:#991b1b;
+    }
+    button.danger:hover {
+      filter:brightness(1.05);
+    }
+
     @media (max-width: 980px) {
       body { background-attachment:scroll; }
       header { flex-direction:column; align-items:stretch; }
@@ -638,6 +688,60 @@
 
           <!-- NEW: Most common effects -->
           <div class="calcBox" id="aggEffectsBox" style="display:none;"></div>
+        </div>
+
+        <!-- NEW: Finalisation controls -->
+        <div class="sec" id="finaliseSec">
+          <div class="row" style="justify-content:space-between; align-items:flex-start;">
+            <div>
+              <h3 style="margin:0;">Finalise Ticket</h3>
+              <div class="muted" style="margin-top:6px;">
+                Select the final stewarding code/penalty, enter the official decision, then publish the result to Discord and mark the ticket as finalised.
+              </div>
+            </div>
+            <div id="finaliseStatusBadge" class="badge">Select a ticket</div>
+          </div>
+
+          <div class="finaliseWarn">
+            Finalisation updates the Firestore ticket status to <b>Finalised</b> and posts the official result to Discord. Use this only when the Head Steward decision is ready.
+          </div>
+
+          <div class="grid2" style="margin-top:10px;">
+            <div>
+              <label class="muted">Final Stewarding Code</label>
+              <select id="finalPenaltyCode"></select>
+              <div class="finalisePreview" id="finalPenaltyPreview">
+                <div><b>Penalty:</b> <span id="fpPenalty">—</span></div>
+                <div style="margin-top:4px;"><b>Who:</b> <span id="fpWho">—</span></div>
+                <pre id="fpDesc"></pre>
+                <pre id="fpExample"></pre>
+              </div>
+            </div>
+
+            <div>
+              <label class="muted">Penalty Applied / Result</label>
+              <input type="text" id="finalPenaltyText" placeholder="e.g. 10 second penalty, warning, no further action" />
+
+              <label class="muted" style="margin-top:8px; display:block;">Assigned / Finalising Steward</label>
+              <input type="text" id="finalStewardTag" placeholder="e.g. Head Steward – Ben" />
+            </div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <label class="muted">Official Steward Decision</label>
+            <textarea id="finalDecisionText" placeholder="Write the final steward decision that should be saved to the ticket and published to Discord…"></textarea>
+          </div>
+
+          <div class="finalisePreview" id="finalDiscordPreview"></div>
+
+          <div class="finaliseActions">
+            <button id="previewFinaliseBtn">Preview Discord Result</button>
+            <button class="danger" id="finaliseTicketBtn">Finalise & Publish to Discord</button>
+          </div>
+
+          <div class="muted" style="margin-top:8px;" id="finaliseHint">
+            Select a ticket to enable finalisation.
+          </div>
         </div>
 
         <div class="sec" id="reviewSec">
@@ -1285,10 +1389,11 @@
       try {
         await fillSelect("penaltyCode");             // CAUSE dropdown (Head Steward)
         await fillSelect("discussionPenaltyCode");   // Discussion dropdown (Head Steward)
+        await fillSelect("finalPenaltyCode");        // Finalisation dropdown (Head Steward)
       } catch (e) {
         console.error("Penalty code load failed:", e);
 
-        for (const id of ["penaltyCode", "discussionPenaltyCode"]) {
+        for (const id of ["penaltyCode", "discussionPenaltyCode", "finalPenaltyCode"]) {
           const sel = $(id);
           if (!sel) continue;
           sel.innerHTML = "";
@@ -1453,6 +1558,214 @@ No reviews submitted yet.`;
       }
     }
 
+
+
+    // ---------- NEW: finalisation helpers ----------
+    const IFWL_PORTAL_BASE_URL = "https://ifwlowner.github.io/ACC-driver-classifier/";
+    const OPEN_STATEMENTS_URL = IFWL_PORTAL_BASE_URL + "openstatements.html";
+    const STEWARD_DELIBERATION_URL = IFWL_PORTAL_BASE_URL + "steward.html";
+
+    function discordLink(label, url) {
+      const safeLabel = String(label || "Open link").replace(/[\[\]]/g, "");
+      const safeUrl = String(url || "").trim();
+      if (!safeUrl) return safeLabel;
+      return `[${safeLabel}](${safeUrl})`;
+    }
+
+    function ticketParamUrl(base, ticketId, extra = {}) {
+      const params = new URLSearchParams({ ticket: ticketId, ticketId: ticketId, ...extra });
+      return `${base}?${params.toString()}`;
+    }
+
+    function getFinalPenaltyOption() {
+      const sel = $("finalPenaltyCode");
+      if (!sel || !sel.selectedOptions || !sel.selectedOptions[0]) return null;
+      return sel.selectedOptions[0];
+    }
+
+    function setFinalPenaltyPreviewFromSelected() {
+      const opt = getFinalPenaltyOption();
+      const box = $("finalPenaltyPreview");
+      if (!box) return;
+
+      if (!opt || !opt.value) {
+        box.style.display = "none";
+        return;
+      }
+
+      const pen = (opt.dataset.penalty || "").trim();
+      const who = (opt.dataset.who || "").trim();
+      const desc = (opt.dataset.desc || "").trim();
+      const ex = (opt.dataset.example || "").trim();
+
+      $("fpPenalty").textContent = pen || "—";
+      $("fpWho").textContent = who || "—";
+      $("fpDesc").textContent = desc ? `Description:\n${desc}` : "";
+      $("fpExample").textContent = ex ? `\nExample:\n${ex}` : "";
+      box.style.display = "block";
+
+      const finalPenaltyText = $("finalPenaltyText");
+      if (finalPenaltyText && !finalPenaltyText.value.trim() && pen) {
+        finalPenaltyText.value = pen;
+      }
+    }
+
+    function getSelectedTicketData() {
+      if (!selectedTicketSnap || !selectedTicketSnap.exists) return null;
+      return selectedTicketSnap.data() || {};
+    }
+
+    function buildFinalDiscordMessage(ticketId, ticket, finalData) {
+      const evidence = (ticket.proofUrl || "").trim()
+        ? discordLink("Open evidence", ticket.proofUrl)
+        : "Not provided";
+
+      const stewardsUrl = ticketParamUrl(STEWARD_DELIBERATION_URL, ticketId);
+      const driversUrl = ticketParamUrl(OPEN_STATEMENTS_URL, ticketId);
+
+      const finalCodeLine = finalData.code ? `\n**Final Code:** ${finalData.code}` : "";
+      const finalPenaltyLine = finalData.penalty ? `\n**Penalty / Result:** ${finalData.penalty}` : "";
+
+      return `✅ **IFWL Steward Ticket Finalised**
+
+**Ticket ID:** \`${ticketId}\`
+**Driver Accused:** ${ticket.accused || "—"}
+**Driver Reporting:** ${ticket.reporter || "—"}
+**Competition:** ${ticket.competition || "—"}
+**Event:** ${ticket.event || "—"}
+**Rule Breach:** ${ticket.ruleBreach || "ticket submission without assumed breach"}
+**Incident Details:** ${ticket.fullIncident || "—"}
+**Evidence:** ${evidence}
+**Status:** Finalised
+**Steward Decision:** ${finalData.decision || "—"}${finalCodeLine}${finalPenaltyLine}
+**Finalised By:** ${finalData.stewardTag || currentEmail || "Head Steward"}
+
+🧑‍⚖️ **Stewards:** ${discordLink("Stewards deliberation", stewardsUrl)}
+🏁 **Drivers:** ${discordLink("Driver and witness statements", driversUrl)}`;
+    }
+
+    function updateFinalDiscordPreview() {
+      const box = $("finalDiscordPreview");
+      if (!box) return;
+
+      if (!selectedTicketId || !selectedTicketSnap || !selectedTicketSnap.exists) {
+        box.style.display = "none";
+        return;
+      }
+
+      const opt = getFinalPenaltyOption();
+      const code = opt && opt.value ? opt.value : "";
+      const decision = ($("finalDecisionText")?.value || "").trim();
+      const penalty = ($("finalPenaltyText")?.value || "").trim();
+      const stewardTag = ($("finalStewardTag")?.value || "").trim();
+      const msg = buildFinalDiscordMessage(selectedTicketId, getSelectedTicketData(), { code, decision, penalty, stewardTag });
+
+      box.innerHTML = `<div><b>Discord Preview</b></div><pre>${escapeHtml(msg)}</pre>`;
+      box.style.display = "block";
+    }
+
+    function prefillFinalisationFromTicket() {
+      const t = getSelectedTicketData();
+      const badge = $("finaliseStatusBadge");
+      const hint = $("finaliseHint");
+      const btn = $("finaliseTicketBtn");
+      const previewBtn = $("previewFinaliseBtn");
+
+      if (!t || !selectedTicketId) {
+        if (badge) { badge.textContent = "Select a ticket"; badge.className = "badge"; }
+        if (hint) hint.textContent = "Select a ticket to enable finalisation.";
+        if (btn) btn.disabled = true;
+        if (previewBtn) previewBtn.disabled = true;
+        return;
+      }
+
+      const alreadyFinal = isFinalised(t.status);
+      if (badge) {
+        badge.textContent = alreadyFinal ? "Already finalised" : "Ready";
+        badge.className = alreadyFinal ? "badge ok" : "badge";
+      }
+      if (hint) hint.textContent = alreadyFinal
+        ? "This ticket is already marked as finalised. You can still republish only by changing the status manually first."
+        : `Finalising selected ticket: ${selectedTicketId}`;
+      if (btn) btn.disabled = alreadyFinal;
+      if (previewBtn) previewBtn.disabled = false;
+
+      if ($("finalDecisionText")) $("finalDecisionText").value = t.stewardDecision || "";
+      if ($("finalPenaltyText")) $("finalPenaltyText").value = t.finalPenalty || t.penaltyApplied || "";
+      if ($("finalStewardTag")) $("finalStewardTag").value = t.stewardTag || currentEmail || "Head Steward";
+
+      const finalSel = $("finalPenaltyCode");
+      if (finalSel && (t.finalPenaltyCode || t.postRaceCode)) {
+        const existing = t.finalPenaltyCode || t.postRaceCode;
+        const match = [...finalSel.options].find(o => o.value === existing || o.dataset.code === existing);
+        if (match) finalSel.value = match.value;
+      }
+      setFinalPenaltyPreviewFromSelected();
+      updateFinalDiscordPreview();
+    }
+
+    async function finaliseSelectedTicket() {
+      if (!selectedTicketId) { toast("Select a ticket first"); return; }
+      const t = getSelectedTicketData();
+      if (!t) { toast("Ticket not loaded"); return; }
+      if (isFinalised(t.status)) { toast("Ticket already finalised"); return; }
+
+      const opt = getFinalPenaltyOption();
+      const finalCode = opt && opt.value ? opt.value.trim() : "";
+      const finalPenalty = ($("finalPenaltyText")?.value || "").trim();
+      const finalDecision = ($("finalDecisionText")?.value || "").trim();
+      const finalStewardTag = ($("finalStewardTag")?.value || "").trim();
+
+      if (!finalCode) { toast("Select a final stewarding code"); return; }
+      if (!finalPenalty) { toast("Enter the penalty/result"); return; }
+      if (!finalDecision) { toast("Enter the official steward decision"); return; }
+      if (!finalStewardTag) { toast("Enter the finalising steward"); return; }
+
+      const ok = confirm(`Finalise ticket ${selectedTicketId} and publish the result to Discord?`);
+      if (!ok) return;
+
+      const btn = $("finaliseTicketBtn");
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Finalising…";
+
+      try {
+        const ref = db.collection("tickets").doc(selectedTicketId);
+        const updatePayload = {
+          status: "Finalised",
+          stewardDecision: finalDecision,
+          stewardTag: finalStewardTag,
+          postRaceCode: finalCode,
+          finalPenaltyCode: finalCode,
+          finalPenalty: finalPenalty,
+          finalisedBy: currentEmail || finalStewardTag,
+          finalisedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        await ref.update(updatePayload);
+
+        const discordMessage = buildFinalDiscordMessage(selectedTicketId, t, {
+          code: finalCode,
+          penalty: finalPenalty,
+          decision: finalDecision,
+          stewardTag: finalStewardTag
+        });
+        await discordPost(discordMessage);
+
+        selectedTicketSnap = await ref.get();
+        prefillFinalisationFromTicket();
+        toast("Ticket finalised and posted ✅");
+        await loadTickets();
+        await refreshAggregate();
+      } catch (e) {
+        console.error("Finalisation failed:", e);
+        toast("Finalisation failed:\n" + (e?.message || e));
+        if (btn) btn.disabled = false;
+      } finally {
+        if (btn) btn.textContent = original;
+      }
+    }
+
     // ---------- state ----------
     let currentUser = null;
     let currentEmail = "";
@@ -1475,6 +1788,8 @@ No reviews submitted yet.`;
     const refreshDiscussionBtn = $("refreshDiscussionBtn");
     const postDiscussionBtn = $("postDiscussionBtn");
     const postPenaltyOpinionBtn = $("postPenaltyOpinionBtn");
+    const finaliseTicketBtn = $("finaliseTicketBtn");
+    const previewFinaliseBtn = $("previewFinaliseBtn");
 
     // ---------- navigation ----------
     $("backBtn").onclick = () => window.location.href = "index.html";
@@ -1492,6 +1807,8 @@ No reviews submitted yet.`;
     publishAllBtn.onclick = () => publishAllStatements();
     if (postDiscussionBtn) postDiscussionBtn.onclick = () => postDiscussion();
     if (postPenaltyOpinionBtn) postPenaltyOpinionBtn.onclick = () => postPenaltyOpinion();
+    if (finaliseTicketBtn) finaliseTicketBtn.onclick = () => finaliseSelectedTicket();
+    if (previewFinaliseBtn) previewFinaliseBtn.onclick = () => updateFinalDiscordPreview();
 
     function passesFilter(status) {
       const f = filterEl.value;
@@ -1552,8 +1869,9 @@ No reviews submitted yet.`;
           <div class="stmtTag" id="stmt_${escapeHtml(t.id)}">Statements: Checking…<small>Accused + Reporter</small></div>
           ${needsMyInput ? `<div class="needTag">Needs your CAUSE input (optional)</div>` : ""}
 
-          <!-- NEW: Patreon Audit button on every ticket -->
+          <!-- NEW: Patreon Audit + Finalise buttons on every ticket -->
           <div class="row" style="justify-content:flex-end; margin-top:10px;">
+            <button class="finaliseListBtn" data-ticket="${escapeHtml(t.id)}">Finalise</button>
             <button class="primary patreonAuditBtn" data-ticket="${escapeHtml(t.id)}">Patreon Audit</button>
           </div>
         `;
@@ -1564,6 +1882,23 @@ No reviews submitted yet.`;
           [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
           div.classList.add("active");
         };
+
+        // Wire Finalise button (selects the ticket and jumps to finalisation controls)
+        const finaliseListBtn = div.querySelector(".finaliseListBtn");
+        if (finaliseListBtn) {
+          finaliseListBtn.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const ticketId = finaliseListBtn.getAttribute("data-ticket");
+            if (!ticketId) return;
+            selectedTicketId = ticketId;
+            await selectTicket(ticketId);
+            [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
+            div.classList.add("active");
+            const sec = $("finaliseSec");
+            if (sec) sec.scrollIntoView({ behavior:"smooth", block:"start" });
+          });
+        }
 
         // Wire Patreon Audit button (stop it triggering ticket select)
         const auditBtn = div.querySelector(".patreonAuditBtn");
@@ -1643,10 +1978,12 @@ No reviews submitted yet.`;
       $("sumIncident").value = t.fullIncident || "";
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
 
+      prefillFinalisationFromTicket();
       await loadStatements();
       await loadDiscussion();
       await loadMyReview();
       await refreshAggregate();
+      updateFinalDiscordPreview();
     }
 
     async function loadStatements() {
@@ -2322,6 +2659,14 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
           const dSel = $("discussionPenaltyCode");
           if (dSel) dSel.onchange = () => setDiscussionPenaltyPreviewFromSelected();
           setDiscussionPenaltyPreviewFromSelected();
+
+          const fSel = $("finalPenaltyCode");
+          if (fSel) fSel.onchange = () => { setFinalPenaltyPreviewFromSelected(); updateFinalDiscordPreview(); };
+          for (const id of ["finalPenaltyText", "finalStewardTag", "finalDecisionText"]) {
+            const el = $(id);
+            if (el) el.addEventListener("input", () => updateFinalDiscordPreview());
+          }
+          prefillFinalisationFromTicket();
 
           // NEW: render Effect UI
           renderEffectsUI();
