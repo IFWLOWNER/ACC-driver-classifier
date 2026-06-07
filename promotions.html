@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>IFWL Mid-Season Promotion & Demotion Calculator</title>
+
+  <style>
+    :root {
+      --bg: #050816;
+      --panel: rgba(15, 23, 42, 0.94);
+      --panel-light: rgba(30, 41, 59, 0.96);
+      --text: #ffffff;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #facc15;
+      --border: rgba(148, 163, 184, 0.25);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        linear-gradient(rgba(5, 8, 22, 0.92), rgba(5, 8, 22, 0.97)),
+        url("ifwl_bg.webp") center / cover fixed;
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .version {
+      position: fixed;
+      top: 10px;
+      left: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      z-index: 10;
+    }
+
+    .container {
+      max-width: 1150px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .logo-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .logo-row img {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(26px, 5vw, 46px);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-top: 10px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+      margin-bottom: 22px;
+    }
+
+    .rules-box {
+      background: rgba(2, 6, 23, 0.72);
+      border: 1px solid var(--border);
+      border-left: 5px solid var(--accent);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 20px;
+      line-height: 1.6;
+      color: var(--text);
+    }
+
+    .rules-box h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    .rules-box p {
+      margin: 8px 0;
+      color: var(--muted);
+    }
+
+    .rules-box strong {
+      color: var(--text);
+    }
+
+    .rules-highlight {
+      color: var(--warning);
+      font-weight: 800;
+    }
+
+    .driver-table-wrapper {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    th,
+    td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      background: rgba(2, 6, 23, 0.55);
+    }
+
+    td {
+      vertical-align: middle;
+    }
+
+    .check-cell {
+      text-align: center;
+      width: 90px;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      background: #020617;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 11px 12px;
+      border-radius: 10px;
+      font-size: 15px;
+      outline: none;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.18);
+    }
+
+    input[type="checkbox"] {
+      width: 22px;
+      height: 22px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      justify-content: center;
+      margin-top: 24px;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 14px 24px;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 15px;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      opacity: 0.9;
+    }
+
+    .promote-btn {
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+    }
+
+    .demote-btn {
+      background: linear-gradient(135deg, #dc2626, #ef4444);
+    }
+
+    .clear-btn {
+      background: linear-gradient(135deg, #334155, #64748b);
+    }
+
+    .results-title {
+      font-size: 24px;
+      margin: 0 0 14px;
+    }
+
+    .result-box {
+      background: var(--panel-light);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+
+    .result-name {
+      font-size: 20px;
+      font-weight: 900;
+      margin-bottom: 6px;
+    }
+
+    .result-meta {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+
+    .result-points {
+      font-size: 19px;
+      font-weight: 900;
+      margin-top: 8px;
+    }
+
+    .promote-text {
+      color: var(--success);
+    }
+
+    .demote-text {
+      color: var(--danger);
+    }
+
+    .cap-text {
+      color: var(--warning);
+      font-weight: 800;
+    }
+
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 20px;
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      line-height: 1.5;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 14px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 20px;
+      padding-bottom: 10px;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 18px;
+      }
+
+      .card {
+        padding: 16px;
+      }
+
+      button {
+        width: 100%;
+      }
+
+      .logo-row img {
+        width: 56px;
+        height: 56px;
+      }
+
+      .rules-box {
+        padding: 15px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="version">Beta 0.0.0002</div>
+
+  <div class="container">
+    <header>
+      <div class="logo-row">
+        <img src="ifwl_logo.png" alt="IFWL Logo" onerror="this.style.display='none'">
+        <h1>IFWL Mid-Season Review</h1>
+        <img src="ifwl_logo.png" alt="IFWL Logo" onerror="this.style.display='none'">
+      </div>
+
+      <div class="subtitle">
+        PC Open Track & Pro-Am Promotion / Demotion Points Calculator
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="rules-box">
+        <h2>IFWL Mid-Season Review Explained</h2>
+
+        <p>
+          At <strong>Race 5</strong>, IFWL reviews all accumulated points from each driver.
+        </p>
+
+        <p>
+          For drivers who were <strong>AM</strong> and are now moving to <strong>Pro</strong>,
+          IFWL will <strong>deduct 15%</strong> of their accumulated points.
+        </p>
+
+        <p>
+          For drivers who are moved down from <strong>Pro</strong> to <strong>AM</strong>,
+          IFWL will <strong>add 15%</strong> of their accumulated points.
+        </p>
+
+        <p class="rules-highlight">
+          IFWL has an add / deduct cap limit of 30 points maximum either way at Race 5.
+        </p>
+      </div>
+
+      <div class="driver-table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Include</th>
+              <th>Driver Name</th>
+              <th>Driver Number</th>
+              <th>Current Points at Race 5</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr>
+              <td class="check-cell">
+                <input type="checkbox" class="include">
+              </td>
+              <td>
+                <input type="text" class="driver-name" placeholder="Driver 1">
+              </td>
+              <td>
+                <input type="number" class="driver-number" placeholder="Number">
+              </td>
+              <td>
+                <input type="number" class="driver-points" placeholder="Points">
+              </td>
+            </tr>
+
+            <tr>
+              <td class="check-cell">
+                <input type="checkbox" class="include">
+              </td>
+              <td>
+                <input type="text" class="driver-name" placeholder="Driver 2">
+              </td>
+              <td>
+                <input type="number" class="driver-number" placeholder="Number">
+              </td>
+              <td>
+                <input type="number" class="driver-points" placeholder="Points">
+              </td>
+            </tr>
+
+            <tr>
+              <td class="check-cell">
+                <input type="checkbox" class="include">
+              </td>
+              <td>
+                <input type="text" class="driver-name" placeholder="Driver 3">
+              </td>
+              <td>
+                <input type="number" class="driver-number" placeholder="Number">
+              </td>
+              <td>
+                <input type="number" class="driver-points" placeholder="Points">
+              </td>
+            </tr>
+
+            <tr>
+              <td class="check-cell">
+                <input type="checkbox" class="include">
+              </td>
+              <td>
+                <input type="text" class="driver-name" placeholder="Driver 4">
+              </td>
+              <td>
+                <input type="number" class="driver-number" placeholder="Number">
+              </td>
+              <td>
+                <input type="number" class="driver-points" placeholder="Points">
+              </td>
+            </tr>
+
+            <tr>
+              <td class="check-cell">
+                <input type="checkbox" class="include">
+              </td>
+              <td>
+                <input type="text" class="driver-name" placeholder="Driver 5">
+              </td>
+              <td>
+                <input type="number" class="driver-number" placeholder="Number">
+              </td>
+              <td>
+                <input type="number" class="driver-points" placeholder="Points">
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="buttons">
+        <button class="demote-btn" onclick="calculatePoints('demote')">
+          Move Down & Calculate Points
+        </button>
+
+        <button class="promote-btn" onclick="calculatePoints('promote')">
+          Move Up & Calculate Points
+        </button>
+
+        <button class="clear-btn" onclick="clearAll()">
+          Clear
+        </button>
+      </div>
+
+      <div class="note">
+        Only ticked drivers will be included in the calculation.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="results-title">Results</h2>
+
+      <div id="results">
+        <div class="empty">
+          No calculation has been run yet.
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      IFWL.net Mid-Season Review Calculator
+    </div>
+  </div>
+
+  <script>
+    const ADJUSTMENT_PERCENT = 15;
+    const ADJUSTMENT_CAP = 30;
+
+    function calculateAdjustment(points) {
+      const rawAdjustment = points * (ADJUSTMENT_PERCENT / 100);
+      const cappedAdjustment = Math.min(rawAdjustment, ADJUSTMENT_CAP);
+
+      return Math.round(cappedAdjustment);
+    }
+
+    function calculatePoints(type) {
+      const rows = document.querySelectorAll("tbody tr");
+      const results = document.getElementById("results");
+
+      const selectedDrivers = [];
+
+      rows.forEach(row => {
+        const included = row.querySelector(".include").checked;
+        const name = row.querySelector(".driver-name").value.trim();
+        const number = row.querySelector(".driver-number").value.trim();
+        const points = Number(row.querySelector(".driver-points").value);
+
+        if (included && name && !isNaN(points)) {
+          const adjustment = calculateAdjustment(points);
+
+          let newPoints;
+
+          if (type === "promote") {
+            newPoints = Math.max(0, points - adjustment);
+          } else {
+            newPoints = points + adjustment;
+          }
+
+          selectedDrivers.push({
+            name,
+            number,
+            currentPoints: points,
+            adjustment,
+            newPoints,
+            capApplied: points * (ADJUSTMENT_PERCENT / 100) > ADJUSTMENT_CAP
+          });
+        }
+      });
+
+      if (selectedDrivers.length === 0) {
+        results.innerHTML = `
+          <div class="empty">
+            Please tick at least one driver and make sure they have a name and points entered.
+          </div>
+        `;
+        return;
+      }
+
+      const actionLabel = type === "promote"
+        ? "Moved Up / Promotion"
+        : "Moved Down / Demotion";
+
+      const actionClass = type === "promote"
+        ? "promote-text"
+        : "demote-text";
+
+      const symbol = type === "promote" ? "-" : "+";
+
+      results.innerHTML = selectedDrivers.map(driver => `
+        <div class="result-box">
+          <div class="result-name">${escapeHTML(driver.name)}</div>
+
+          <div class="result-meta">
+            ${driver.number ? "Driver #" + escapeHTML(driver.number) + " • " : ""}
+            Current Points at Race 5: ${driver.currentPoints}
+          </div>
+
+          <div class="result-meta">
+            15% Adjustment: ${symbol}${driver.adjustment} points
+            ${driver.capApplied ? '<span class="cap-text"> — 30 point cap applied</span>' : ""}
+          </div>
+
+          <div class="result-points ${actionClass}">
+            ${actionLabel} New Points: ${driver.newPoints}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function clearAll() {
+      document.querySelectorAll("input").forEach(input => {
+        if (input.type === "checkbox") {
+          input.checked = false;
+        } else {
+          input.value = "";
+        }
+      });
+
+      document.getElementById("results").innerHTML = `
+        <div class="empty">
+          No calculation has been run yet.
+        </div>
+      `;
+    }
+
+    function escapeHTML(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+  </script>
+</body>
+</html>
