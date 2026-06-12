@@ -330,6 +330,68 @@
 
 
 
+    /* Linked incident awareness panel (Steward view only - no merge authority) */
+    .linkedMiniTag{
+      display:inline-block;
+      margin-top:8px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid #c7d2fe;
+      background:#eef2ff;
+      color:#3730a3;
+      font-size:12px;
+      font-weight:900;
+      word-break:break-word;
+    }
+    .linkedIncidentBox{
+      border:1px solid #c7d2fe;
+      border-radius:12px;
+      background:#eef2ff;
+      padding:12px;
+      margin-top:10px;
+    }
+    .linkedIncidentTitle{
+      font-size:14px;
+      font-weight:900;
+      color:#111827;
+      margin-bottom:6px;
+    }
+    .linkedTicketGrid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      margin-top:10px;
+    }
+    .linkedTicketCard{
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      padding:10px 12px;
+      font-size:13px;
+      line-height:1.35;
+      cursor:pointer;
+    }
+    .linkedTicketCard:hover{ background:#f9fafb; }
+    .linkedTicketCard .mono{
+      word-break:break-all;
+      font-size:12px;
+    }
+    .linkedDriverList{
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      padding:10px 12px;
+      margin-top:10px;
+      font-size:13px;
+      line-height:1.35;
+    }
+    .linkedDriverList ol{
+      margin:6px 0 0 20px;
+      padding:0;
+    }
+    .linkedDriverList li{ margin:3px 0; }
+
+
     /* Penalty time voting + steward recommendation summary */
     .timePenaltyRow{
       margin-top:10px;
@@ -395,6 +457,7 @@
     }
     @media (max-width: 980px) {
       .voteSummaryGrid{ grid-template-columns:1fr; }
+      .linkedTicketGrid{ grid-template-columns:1fr; }
     }
 
     @media (max-width: 980px) {
@@ -513,6 +576,44 @@
             <textarea id="sumIncident" readonly></textarea>
           </div>
         </div>
+
+
+        <!-- Linked Incident Notice (Steward view - read only) -->
+        <div class="sec" id="linkedIncidentSec" style="display:none;">
+          <div class="row" style="justify-content:space-between; align-items:flex-start;">
+            <div>
+              <h3 style="margin:0;">Linked Incident Group</h3>
+              <div class="muted" style="margin-top:6px;" id="linkedIncidentHint">
+                This ticket has been linked by the Head Steward to other tickets under the same incident.
+              </div>
+            </div>
+            <div id="linkedIncidentBadge" class="badge">Not linked</div>
+          </div>
+
+          <div class="linkedIncidentBox" id="linkedIncidentDetails" style="display:none;">
+            <div class="linkedIncidentTitle" id="linkedIncidentTitle">Linked incident</div>
+            <div class="muted" id="linkedIncidentSub">—</div>
+            <div class="muted" style="margin-top:8px; font-weight:800;">
+              Please ensure you examine all linked tickets before submitting your stewarding view. Stewards cannot link or unlink tickets from this page.
+            </div>
+            <div class="linkedTicketGrid" id="linkedTicketGrid"></div>
+
+            <div class="linkedDriverList">
+              <b>Drivers included in this linked incident</b>
+              <div class="grid2" style="margin-top:8px;">
+                <div>
+                  <div class="muted">Accused Drivers</div>
+                  <ol id="linkedAccusedList"><li>—</li></ol>
+                </div>
+                <div>
+                  <div class="muted">Reporting Drivers</div>
+                  <ol id="linkedReporterList"><li>—</li></ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
 
         <div class="sec" id="statementsSec">
           <div class="row" style="justify-content:space-between;">
@@ -1354,6 +1455,117 @@
     let selectedTicketId = "";
     let selectedTicketSnap = null;
 
+
+    // ---------- linked incident display (Steward view only) ----------
+    let currentLinkedIncidentRows = [];
+
+    function uniqueNonEmpty(values) {
+      const seen = new Set();
+      const out = [];
+      for (const v of values || []) {
+        const s = String(v || "").trim();
+        if (!s || seen.has(s.toLowerCase())) continue;
+        seen.add(s.toLowerCase());
+        out.push(s);
+      }
+      return out;
+    }
+
+    function getLinkedIdsFromTicketData(ticketId, data) {
+      const ids = Array.isArray(data?.linkedTicketIds) ? data.linkedTicketIds.map(String) : [];
+      if (ticketId) ids.push(String(ticketId));
+      return uniqueNonEmpty(ids);
+    }
+
+    async function fetchTicketRowsByIds(ids) {
+      const rows = [];
+      for (const id of ids || []) {
+        const ticketId = String(id || "").trim();
+        if (!ticketId) continue;
+        try {
+          const snap = await db.collection("tickets").doc(ticketId).get();
+          if (!snap.exists) {
+            rows.push({ id: ticketId, exists:false, data:{} });
+            continue;
+          }
+          rows.push({ id: ticketId, exists:true, data: snap.data() || {} });
+        } catch (e) {
+          console.warn("Failed to fetch linked ticket", ticketId, e);
+          rows.push({ id: ticketId, exists:false, data:{} });
+        }
+      }
+      return rows;
+    }
+
+    function renderOrderedList(el, values) {
+      if (!el) return;
+      const vals = uniqueNonEmpty(values);
+      if (!vals.length) {
+        el.innerHTML = `<li>—</li>`;
+        return;
+      }
+      el.innerHTML = vals.map(v => `<li>${escapeHtml(v)}</li>`).join("");
+    }
+
+    async function loadLinkedIncidentForSelectedTicket() {
+      const sec = $("linkedIncidentSec");
+      const details = $("linkedIncidentDetails");
+      const badge = $("linkedIncidentBadge");
+      const hint = $("linkedIncidentHint");
+      if (!sec || !details || !badge || !hint) return;
+
+      currentLinkedIncidentRows = [];
+      details.style.display = "none";
+      sec.style.display = "none";
+      badge.textContent = "Not linked";
+      badge.className = "badge";
+
+      if (!selectedTicketId || !selectedTicketSnap || !selectedTicketSnap.exists) return;
+
+      const data = selectedTicketSnap.data() || {};
+      const ids = getLinkedIdsFromTicketData(selectedTicketId, data);
+      if (!data.linkedIncidentId || ids.length < 2) return;
+
+      sec.style.display = "block";
+      hint.textContent = "This ticket is linked with other tickets as the same incident.";
+      badge.textContent = `${ids.length} linked tickets`;
+      badge.className = "badge ok";
+
+      const rows = await fetchTicketRowsByIds(ids);
+      currentLinkedIncidentRows = rows.filter(r => r.exists);
+
+      $("linkedIncidentTitle").textContent = `Linked Incident: ${data.linkedIncidentId}`;
+      $("linkedIncidentSub").textContent = `Linked by: ${data.linkedBy || "Head Steward"} | Tickets: ${ids.join(", ")}`;
+
+      const grid = $("linkedTicketGrid");
+      if (grid) {
+        grid.innerHTML = "";
+        for (const r of rows) {
+          const t = r.data || {};
+          const card = document.createElement("div");
+          card.className = "linkedTicketCard";
+          card.innerHTML = `
+            <div class="mono"><b>${escapeHtml(r.id)}</b></div>
+            <div style="margin-top:6px;"><b>Status:</b> ${escapeHtml(t.status || (r.exists ? "Under Review" : "Missing"))}</div>
+            <div><b>Event:</b> ${escapeHtml(t.event || "—")}</div>
+            <div><b>Accused:</b> ${escapeHtml(t.accused || "—")}</div>
+            <div><b>Reporter:</b> ${escapeHtml(t.reporter || "—")}</div>
+          `;
+          card.onclick = async () => {
+            if (!r.exists) return;
+            selectedTicketId = r.id;
+            await selectTicket(r.id);
+          };
+          grid.appendChild(card);
+        }
+      }
+
+      renderOrderedList($("linkedAccusedList"), currentLinkedIncidentRows.map(r => r.data?.accused || ""));
+      renderOrderedList($("linkedReporterList"), currentLinkedIncidentRows.map(r => r.data?.reporter || ""));
+
+      details.style.display = "block";
+    }
+
     // ---------- UI refs ----------
     const ticketListEl = $("ticketList");
     const ticketHintEl = $("ticketHint");
@@ -1882,6 +2094,7 @@
           <div class="stmtTag" id="stmt_${escapeHtml(t.id)}">Statements: Checking…<small>Accused + Reporter</small></div>
           <div class="delibTag" id="delib_${escapeHtml(t.id)}">Deliberation: Checking…<small>Your comment status</small></div>
 
+          ${t.data.linkedIncidentId ? `<div class="linkedMiniTag">Linked incident: ${escapeHtml(t.data.linkedIncidentId)}</div>` : ""}
           ${needsMyInput ? `<div class="needTag">Cause not required</div>` : ""}
         `;
 
@@ -1956,6 +2169,8 @@
       if ($("discussionPenaltyTime")) $("discussionPenaltyTime").value = "";
       if ($("penaltyTime")) $("penaltyTime").value = "";
       renderStewardVoteSummary([]);
+      if ($("linkedIncidentSec")) $("linkedIncidentSec").style.display = "none";
+      if ($("linkedIncidentDetails")) $("linkedIncidentDetails").style.display = "none";
 
       // clear effects when switching tickets
       applySelectedEffects([]);
@@ -1974,6 +2189,7 @@
       $("sumIncident").value = t.fullIncident || "";
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
 
+      await loadLinkedIncidentForSelectedTicket();
       await loadStatements();
       await loadDiscussion();
       await loadMyReview();
