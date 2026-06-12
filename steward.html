@@ -800,6 +800,108 @@
       padding-left:4px;
     }
 
+    /* Ticket list readability upgrade */
+    .wrap > .card{
+      height:calc(100vh - 116px);
+      max-height:calc(100vh - 116px);
+      min-height:560px;
+    }
+
+    .list{
+      overflow-y:auto !important;
+      overflow-x:hidden;
+      min-height:0;
+      overscroll-behavior:contain;
+      padding-bottom:12px;
+    }
+
+    .ticket{
+      padding:14px 14px 13px 17px !important;
+    }
+
+    .ticketTop{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+      padding-left:4px;
+    }
+
+    .ticketStatusPill{
+      flex:0 0 auto;
+      display:inline-flex;
+      align-items:center;
+      border:1px solid rgba(203,213,225,.9);
+      background:#fff;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:11px;
+      font-weight:950;
+      color:#334155;
+      white-space:nowrap;
+      box-shadow:0 4px 10px rgba(15,23,42,.05);
+    }
+
+    .ticketMainLine{
+      margin-top:9px;
+      padding-left:4px;
+      font-size:13px;
+      line-height:1.35;
+      color:#0f172a;
+    }
+
+    .ticketMainLine strong{
+      font-weight:950;
+    }
+
+    .ticketSubGrid{
+      margin-top:10px;
+      padding-left:4px;
+      display:grid;
+      grid-template-columns:1fr;
+      gap:6px;
+      font-size:12px;
+      line-height:1.3;
+      color:#475569;
+    }
+
+    .ticketSubGrid span{
+      display:block;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .ticketFooterRow{
+      margin-top:10px;
+      padding-left:4px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .ticketTinyPill{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid rgba(219,227,239,.95);
+      background:rgba(255,255,255,.82);
+      color:#475569;
+      font-size:11px;
+      font-weight:900;
+    }
+
+    .ticketOpenHint{
+      margin-left:auto;
+      color:#2563eb;
+      background:#eff6ff;
+      border-color:#bfdbfe;
+    }
+
     .stmtTag,
     .delibTag,
     .needTag,
@@ -1099,11 +1201,16 @@
       .wrap > .card{
         position:relative;
         top:auto;
+        height:auto;
         max-height:none;
+        min-height:0;
       }
 
       .list{
-        max-height:58vh;
+        max-height:70vh;
+        min-height:420px;
+        overflow-y:auto !important;
+        padding-right:6px;
       }
 
       .card{
@@ -2732,6 +2839,23 @@
       }
     }
 
+    function formatTicketListDate(data) {
+      const ts = data?.timestamp || data?.createdAt || data?.submittedAt || data?.finalisedAt || null;
+      try {
+        if (ts && ts.toDate) return ts.toDate().toLocaleString();
+        if (typeof ts === "string") {
+          const d = new Date(ts);
+          if (!isNaN(d.getTime())) return d.toLocaleString();
+        }
+      } catch {}
+      return "No timestamp";
+    }
+
+    function shortTicketText(v, fallback = "—") {
+      const s = String(v || "").trim();
+      return s || fallback;
+    }
+
     async function loadTickets() {
       ticketListEl.innerHTML = "";
       ticketHintEl.textContent = "Loading tickets…";
@@ -2782,19 +2906,41 @@
         const div = document.createElement("div");
         div.className = "ticket" + (t.id === selectedTicketId ? " active" : "");
 
+        const eventName = shortTicketText(t.data.event, "Unknown event");
+        const competitionName = shortTicketText(t.data.competition, "Unknown competition");
+        const accusedName = shortTicketText(t.data.accused, "No accused listed");
+        const reporterName = shortTicketText(t.data.reporter, "No reporter listed");
+        const ruleName = shortTicketText(t.data.ruleBreach || t.data.postRaceCode, "No rule/code listed");
+        const submittedWhen = formatTicketListDate(t.data);
+        const proofState = shortTicketText(t.data.proofUrl, "");
+
         div.innerHTML = `
-          <div class="id">${escapeHtml(t.id)}</div>
-          <div class="status"><b>Status:</b> ${escapeHtml(t.status || "Under Review")}</div>
-          <div class="muted" style="margin-top:4px;">
-            ${t.data.event ? `<b>Event:</b> ${escapeHtml(t.data.event)}` : ""}
-            ${t.data.accused ? ` | <b>Accused:</b> ${escapeHtml(t.data.accused)}` : ""}
+          <div class="ticketTop">
+            <div class="id">${escapeHtml(t.id)}</div>
+            <div class="ticketStatusPill">${escapeHtml(t.status || "Under Review")}</div>
+          </div>
+
+          <div class="ticketMainLine">
+            <strong>${escapeHtml(eventName)}</strong><br>
+            <span class="muted">${escapeHtml(competitionName)}</span>
+          </div>
+
+          <div class="ticketSubGrid">
+            <span><b>Accused:</b> ${escapeHtml(accusedName)}</span>
+            <span><b>Reporter:</b> ${escapeHtml(reporterName)}</span>
+            <span><b>Rule / Code:</b> ${escapeHtml(ruleName)}</span>
+            <span><b>Submitted:</b> ${escapeHtml(submittedWhen)}</span>
+          </div>
+
+          <div class="ticketFooterRow">
+            ${proofState ? `<span class="ticketTinyPill">Evidence attached</span>` : `<span class="ticketTinyPill">No proof link</span>`}
+            ${t.data.linkedIncidentId ? `<span class="linkedMiniTag">Linked: ${escapeHtml(t.data.linkedIncidentId)}</span>` : ""}
+            ${needsMyInput ? `<span class="needTag">Cause not required</span>` : ""}
+            <span class="ticketTinyPill ticketOpenHint">Open</span>
           </div>
 
           <div class="stmtTag" id="stmt_${escapeHtml(t.id)}">Statements: Checking…<small>Accused + Reporter</small></div>
           <div class="delibTag" id="delib_${escapeHtml(t.id)}">Deliberation: Checking…<small>Your comment status</small></div>
-
-          ${t.data.linkedIncidentId ? `<div class="linkedMiniTag">Linked incident: ${escapeHtml(t.data.linkedIncidentId)}</div>` : ""}
-          ${needsMyInput ? `<div class="needTag">Cause not required</div>` : ""}
         `;
 
         div.onclick = async () => {
