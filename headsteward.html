@@ -800,6 +800,7 @@
       <div class="row" style="justify-content:space-between;">
         <div class="title" style="margin:0;">Live Workload</div>
         <button id="refreshTicketsBtn">Refresh</button>
+        <button id="jumpRecentTicketsBtn">Recent Tickets</button>
       </div>
 
       <div class="workloadBox" aria-label="Workload summary">
@@ -1246,6 +1247,66 @@
             Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmailKey&gt;</code>.
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==========================================================
+       WEB-ONLY HEAD STEWARD RECENT TICKET STATUS MANAGER
+       ========================================================== -->
+  <div class="recentTicketsFullWidth" id="recentTicketsManager">
+    <div class="recentTicketsCard" id="recentTicketsManagerCard">
+      <div class="row" style="justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div class="title" style="margin:0;">Recent Ticket Status Manager — Last 7 Days</div>
+          <div class="muted" id="recentTicketsHint" style="margin-top:6px;">
+            Loading recent tickets… This allows Head Stewards to manage recent ticket statuses directly from the web, without the PC app.
+          </div>
+        </div>
+        <div class="row" style="gap:10px;">
+          <div class="pill" id="recentTicketsPill">Loading…</div>
+          <button id="refreshRecentTicketsBtn">Refresh Recent Tickets</button>
+        </div>
+      </div>
+
+      <div class="recentTicketsToolbar">
+        <div style="flex:1; min-width:260px;">
+          <label class="muted">Search recent tickets</label>
+          <input id="recentTicketsSearch" placeholder="Search ticket ID, accused, reporter, event, competition, status…" />
+        </div>
+        <div style="min-width:220px;">
+          <label class="muted">Status filter</label>
+          <select id="recentTicketsStatusFilter">
+            <option value="all">All statuses</option>
+            <option value="finalised">Finalised</option>
+            <option value="under review">Under Review</option>
+            <option value="appealed">Appealed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="recentTicketsTableWrap">
+        <table class="recentTicketsTable" aria-label="Recent tickets status manager table">
+          <thead>
+            <tr>
+              <th>Ticket</th>
+              <th>Created / Submitted</th>
+              <th>Drivers</th>
+              <th>Event</th>
+              <th>Current Status</th>
+              <th>Change Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="recentTicketsTbody">
+            <tr><td colspan="7" class="muted">Loading recent tickets…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="muted" style="margin-top:10px;">
+        Status changes write directly to Firestore and add an automatic steward audit comment to the ticket.
       </div>
     </div>
   </div>
@@ -2331,6 +2392,12 @@ No reviews submitted yet.`;
     if (refreshDiscussionBtn) refreshDiscussionBtn.onclick = () => loadDiscussion();
     $("refreshAuditBtn").onclick = () => loadStewardAudit7d();
     filterEl.onchange = () => loadTickets();
+    const jumpRecentTicketsBtn = $("jumpRecentTicketsBtn");
+    if (jumpRecentTicketsBtn) jumpRecentTicketsBtn.onclick = () => {
+      const sec = $("recentTicketsManager");
+      if (sec) sec.scrollIntoView({ behavior:"smooth", block:"start" });
+    };
+
     loadMyReviewBtn.onclick = () => loadMyReview();
     submitReviewBtn.onclick = () => submitMyReview();
     publishAllBtn.onclick = () => publishAllStatements();
@@ -3792,7 +3859,7 @@ Selected effects: ${effectLine}`;
       return d ? d.toLocaleString() : "No timestamp found";
     }
 
-    async function loadRecentTickets10d() {
+    async function loadRecentTickets7d() {
       const tbody = $("recentTicketsTbody");
       const hint = $("recentTicketsHint");
       const pill = $("recentTicketsPill");
@@ -3800,9 +3867,9 @@ Selected effects: ${effectLine}`;
 
       tbody.innerHTML = `<tr><td colspan="7" class="muted">Loading recent tickets…</td></tr>`;
       pill.innerHTML = `Rows: <strong>0</strong>`;
-      hint.textContent = "Loading tickets from the last 10 days…";
+      hint.textContent = "Loading tickets from the last 7 days…";
 
-      const cutoffMs = Date.now() - (10 * 24 * 60 * 60 * 1000);
+      const cutoffMs = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
       try {
         let snap = null;
@@ -3830,10 +3897,10 @@ Selected effects: ${effectLine}`;
           .sort((a,b) => b.dateMs - a.dateMs);
 
         recentTicketRowsCache = filtered;
-        hint.textContent = `Loaded ${filtered.length} ticket(s) from the last 10 days. Use this panel to manage status from the web.`;
+        hint.textContent = `Loaded ${filtered.length} ticket(s) from the last 7 days. Use this panel to manage status from the web.`;
         renderRecentTicketsTable();
       } catch (e) {
-        console.error("loadRecentTickets10d failed:", e);
+        console.error("loadRecentTickets7d failed:", e);
         hint.textContent = "Failed to load recent tickets. Check console / Firestore rules.";
         tbody.innerHTML = `<tr><td colspan="7" class="muted">Failed to load recent tickets.</td></tr>`;
       }
@@ -3971,7 +4038,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
         });
 
         toast("Ticket status updated ✅");
-        await loadRecentTickets10d();
+        await loadRecentTickets7d();
         await loadTickets();
 
         if (selectedTicketId === ticketId) {
@@ -4059,7 +4126,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           renderEffectsUI();
 
           const recentRefreshBtn = $("refreshRecentTicketsBtn");
-          if (recentRefreshBtn) recentRefreshBtn.onclick = () => loadRecentTickets10d();
+          if (recentRefreshBtn) recentRefreshBtn.onclick = () => loadRecentTickets7d();
           const recentSearchEl = $("recentTicketsSearch");
           if (recentSearchEl) recentSearchEl.oninput = () => renderRecentTicketsTable();
           const recentStatusFilterEl = $("recentTicketsStatusFilter");
@@ -4067,7 +4134,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
 
           await loadTickets();
           await loadStewardAudit7d(); // auto-load audit panel
-          await loadRecentTickets10d(); // web-only recent ticket manager
+          await loadRecentTickets7d(); // web-only recent ticket manager
         } catch (e) {
           toast("Auth/load error: " + (e?.message || e));
         }
