@@ -65,6 +65,7 @@
   .hiddenCanvas{display:none}.status{font-size:12px;color:#9fe59f;min-height:18px;margin-top:8px;}.danger{color:#ff8a8a}.manualRows{display:none;}.manualRows.show{display:grid;gap:8px;}.toolbarNote{margin:-4px 0 14px;color:#bfbfbf;font-size:12px;line-height:1.45;}.toolbarNote b{color:#fff;}.panel.flash{border-color:#2f8fff;box-shadow:0 0 0 2px #2f8fff,0 0 18px #2f8fff55 inset;}
   @media(max-width:1100px){.grid{grid-template-columns:1fr}.side{position:relative}.sheet{transform-origin:top left}.sectionNav{font-size:15px;gap:7px}.topbar{display:block}.toolbar{justify-content:flex-start;margin-top:14px}}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -72,10 +73,10 @@
     <div class="brand"><div class="mark">IFWL</div><div><h1>ACC Tune Image Builder</h1><div class="subtitle">Drop ACC setup JSON files, edit anything, then copy/export one clean Discord-ready image.</div></div></div>
     <div class="toolbar">
       <label class="file-label primary" for="setupFiles">Add tune JSON</label><input id="setupFiles" type="file" accept=".json,application/json" multiple>
-      <button id="addManual" class="ghost">Blank console tune</button>
-      <button id="copyPng" class="primary">Copy tune image</button>
-      <button id="downloadPng">Download tune PNG</button>
-      <button id="downloadFullPng" class="ghost">Download full page PNG</button>
+      <button id="addManual" class="ghost" type="button">Blank console tune</button>
+      <button id="copyPng" class="primary" type="button">Copy tune image</button>
+      <button id="downloadPng" type="button">Download tune PNG</button>
+      <button id="downloadFullPng" class="ghost" type="button">Download full page PNG</button>
     </div>
   </div>
   <div class="toolbarNote"><b>Note:</b> the blue section tabs inside the tune sheet are now clickable. <b>Download tune PNG</b> exports the tune sheet on the right. <b>Download full page PNG</b> exports the whole builder screen.</div>
@@ -84,7 +85,7 @@
       <div class="box">
         <h2>1. Add files</h2>
         <div id="dropZone" class="drop"><div><strong>Drop setup JSON files here</strong><br><span class="small">You can add multiple tunes, for example Q Dry, Race Dry, Q Wet and Race Wet.</span></div></div>
-        <div class="warning">Console screenshots cannot be read perfectly in a plain offline HTML page. Use <b>Blank console tune</b>, then type/copy the values from the image into the editable cards. The main export is the tune sheet on the right, or you can now export the full builder page too.</div>
+        <div class="warning">Console screenshots cannot be read perfectly in a plain offline HTML page. Use <b>Blank console tune</b>, then type/copy the values from the image into the editable cards. The main export is the tune sheet on the right, or you can now export the full builder page too. Exports render as long PNG files for Discord posting.</div>
       </div>
       <div class="box">
         <h2>2. Tunes loaded</h2>
@@ -227,7 +228,7 @@
       });
     });
   }
-  function serializeNodeToCanvas(node){
+  async function fallbackSerializeNodeToCanvas(node){
     return new Promise((resolve,reject)=>{
       const w=Math.ceil(Math.max(node.offsetWidth, node.scrollWidth));
       const h=Math.ceil(Math.max(node.offsetHeight, node.scrollHeight));
@@ -250,32 +251,74 @@
       img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
     });
   }
-  async function nodeBlob(node){ const c=await serializeNodeToCanvas(node); return new Promise(res=>c.toBlob(res,'image/png',1)); }
+  async function serializeNodeToCanvas(node){
+    const w=Math.ceil(Math.max(node.offsetWidth, node.scrollWidth));
+    const h=Math.ceil(Math.max(node.offsetHeight, node.scrollHeight));
+    if(window.html2canvas){
+      const canvas = await window.html2canvas(node, {
+        backgroundColor:'#000000',
+        scale:2,
+        useCORS:true,
+        allowTaint:true,
+        logging:false,
+        width:w,
+        height:h,
+        windowWidth:w,
+        windowHeight:h,
+        scrollX:0,
+        scrollY:-window.scrollY
+      });
+      const out=$('workCanvas');
+      out.width=canvas.width;
+      out.height=canvas.height;
+      const ctx=out.getContext('2d');
+      ctx.fillStyle='#000';
+      ctx.fillRect(0,0,out.width,out.height);
+      ctx.drawImage(canvas,0,0);
+      return out;
+    }
+    return fallbackSerializeNodeToCanvas(node);
+  }
+  async function nodeBlob(node){
+    const c=await serializeNodeToCanvas(node);
+    return new Promise((res,rej)=>c.toBlob(blob=>blob?res(blob):rej(new Error('PNG blob failed')),'image/png',1));
+  }
+  function triggerBlobDownload(blob, filename){
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
+  }
   $('downloadPng').addEventListener('click',async()=>{
     if(active<0) return;
-    const blob=await nodeBlob($('sheet'));
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download=(tunes[active].title||'IFWL_ACC_Tune').replace(/[^a-z0-9]+/gi,'_')+'.png';
-    a.click();
-    $('status').textContent='Tune PNG downloaded.';
+    try{
+      $('status').textContent='Rendering tune PNG...';
+      const blob=await nodeBlob($('sheet'));
+      triggerBlobDownload(blob, (tunes[active].title||'IFWL_ACC_Tune').replace(/[^a-z0-9]+/gi,'_')+'.png');
+      $('status').textContent='Tune PNG downloaded.';
+    }catch(err){
+      console.error(err);
+      $('status').innerHTML='<span class="danger">Tune PNG export failed in this browser.</span>';
+    }
   });
   $('downloadFullPng').addEventListener('click',async()=>{
     try{
+      $('status').textContent='Rendering full page PNG...';
       const blob=await nodeBlob(document.querySelector('.app'));
-      const a=document.createElement('a');
-      a.href=URL.createObjectURL(blob);
-      a.download=((tunes[active]?.title)||'IFWL_ACC_Tune_Builder').replace(/[^a-z0-9]+/gi,'_')+'_full_builder.png';
-      a.click();
+      triggerBlobDownload(blob, ((tunes[active]?.title)||'IFWL_ACC_Tune_Builder').replace(/[^a-z0-9]+/gi,'_')+'_full_builder.png');
       $('status').textContent='Full builder PNG downloaded.';
     }catch(err){
       console.error(err);
-      $('status').innerHTML='<span class="danger">Full page export failed. Try Download tune PNG instead.</span>';
+      $('status').innerHTML='<span class="danger">Full page export failed in this browser.</span>';
     }
   });
   $('copyPng').addEventListener('click',async()=>{
     if(active<0) return;
     try{
+      $('status').textContent='Rendering image for clipboard...';
       const blob=await nodeBlob($('sheet'));
       await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
       $('status').textContent='Tune image copied to clipboard.';
