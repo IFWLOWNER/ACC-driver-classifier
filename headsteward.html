@@ -2,7 +2,7 @@
 <html>
 <head>
   <title>IFWL Head Steward Dashboard</title>
-  <!-- HS WEB STATUS FIX BUILD 4077 - syntax hard fix -->
+  <!-- HS WEB STATUS FIX BUILD 4078 - recent manager capped to 12 + linked ticket sequential writes -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
@@ -800,7 +800,6 @@
       <div class="row" style="justify-content:space-between;">
         <div class="title" style="margin:0;">Live Workload</div>
         <button id="refreshTicketsBtn">Refresh</button>
-        <button id="jumpRecentTicketsBtn">Recent Tickets</button>
       </div>
 
       <div class="workloadBox" aria-label="Workload summary">
@@ -1247,66 +1246,6 @@
             Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmailKey&gt;</code>.
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ==========================================================
-       WEB-ONLY HEAD STEWARD RECENT TICKET STATUS MANAGER
-       ========================================================== -->
-  <div class="recentTicketsFullWidth" id="recentTicketsManager">
-    <div class="recentTicketsCard" id="recentTicketsManagerCard">
-      <div class="row" style="justify-content:space-between; align-items:flex-start;">
-        <div>
-          <div class="title" style="margin:0;">Recent Ticket Status Manager — Last 10 Days</div>
-          <div class="muted" id="recentTicketsHint" style="margin-top:6px;">
-            Loading recent tickets… This allows Head Stewards to manage recent ticket statuses directly from the web, without the PC app.
-          </div>
-        </div>
-        <div class="row" style="gap:10px;">
-          <div class="pill" id="recentTicketsPill">Loading…</div>
-          <button id="refreshRecentTicketsBtn">Refresh Recent Tickets</button>
-        </div>
-      </div>
-
-      <div class="recentTicketsToolbar">
-        <div style="flex:1; min-width:260px;">
-          <label class="muted">Search recent tickets</label>
-          <input id="recentTicketsSearch" placeholder="Search ticket ID, accused, reporter, event, competition, status…" />
-        </div>
-        <div style="min-width:220px;">
-          <label class="muted">Status filter</label>
-          <select id="recentTicketsStatusFilter">
-            <option value="all">All statuses</option>
-            <option value="finalised">Finalised</option>
-            <option value="under review">Under Review</option>
-            <option value="appealed">Appealed</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="recentTicketsTableWrap">
-        <table class="recentTicketsTable" aria-label="Recent tickets status manager table">
-          <thead>
-            <tr>
-              <th>Ticket</th>
-              <th>Created / Submitted</th>
-              <th>Drivers</th>
-              <th>Event</th>
-              <th>Current Status</th>
-              <th>Change Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="recentTicketsTbody">
-            <tr><td colspan="7" class="muted">Loading recent tickets…</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="muted" style="margin-top:10px;">
-        Status changes write directly to Firestore and add an automatic steward audit comment to the ticket.
       </div>
     </div>
   </div>
@@ -2392,12 +2331,6 @@ No reviews submitted yet.`;
     if (refreshDiscussionBtn) refreshDiscussionBtn.onclick = () => loadDiscussion();
     $("refreshAuditBtn").onclick = () => loadStewardAudit7d();
     filterEl.onchange = () => loadTickets();
-    const jumpRecentTicketsBtn = $("jumpRecentTicketsBtn");
-    if (jumpRecentTicketsBtn) jumpRecentTicketsBtn.onclick = () => {
-      const sec = $("recentTicketsManager");
-      if (sec) sec.scrollIntoView({ behavior:"smooth", block:"start" });
-    };
-
     loadMyReviewBtn.onclick = () => loadMyReview();
     submitReviewBtn.onclick = () => submitMyReview();
     publishAllBtn.onclick = () => publishAllStatements();
@@ -2517,30 +2450,44 @@ Please ensure you examine all linked tickets before submitting or finalising you
         const groupId = makeLinkedIncidentId();
         const authorKey = safeKey(currentEmail);
         const notice = buildLinkedNoticeComment(groupId, ids);
-        const batch = db.batch();
+        const failures = [];
 
+        // Do this sequentially rather than as one batch. If a steward_comment write is denied,
+        // the ticket-link fields can still save and the exact failing ticket is reported.
         for (const id of ids) {
           const ticketRef = db.collection("tickets").doc(id);
-          batch.set(ticketRef, {
-            linkedIncidentId: groupId,
-            linkedTicketIds: ids,
-            linkedBy: currentEmail,
-            linkedAt: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge:true });
+          try {
+            await ticketRef.update({
+              linkedIncidentId: groupId,
+              linkedTicketIds: ids,
+              linkedBy: currentEmail,
+              linkedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (updateErr) {
+            failures.push(`${id}: ticket update failed - ${updateErr?.message || updateErr}`);
+            continue;
+          }
 
-          const commentRef = ticketRef.collection("steward_comments").doc(`linked_incident_${groupId}`);
-          batch.set(commentRef, {
-            text: notice,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            authorKey,
-            kind: "linked_incident_notice",
-            linkedIncidentId: groupId,
-            linkedTicketIds: ids
-          }, { merge:true });
+          try {
+            await ticketRef.collection("steward_comments").add({
+              text: notice,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              authorKey,
+              kind: "linked_incident_notice",
+              linkedIncidentId: groupId,
+              linkedTicketIds: ids
+            });
+          } catch (commentErr) {
+            failures.push(`${id}: steward comment failed - ${commentErr?.message || commentErr}`);
+          }
         }
 
-        await batch.commit();
-        toast(`Linked ${ids.length} tickets ✅`);
+        if (failures.length) {
+          console.warn("Linked incident partial failures:", failures);
+          toast(`Linked incident saved with ${failures.length} warning(s). Check console.`);
+        } else {
+          toast(`Linked ${ids.length} tickets ✅`);
+        }
 
         if (!selectedTicketId || !ids.includes(selectedTicketId)) selectedTicketId = ids[0];
         clearLinkedTicketSelection();
@@ -3859,7 +3806,7 @@ Selected effects: ${effectLine}`;
       return d ? d.toLocaleString() : "No timestamp found";
     }
 
-    async function loadRecentTickets7d() {
+    async function loadRecentTickets10d() {
       const tbody = $("recentTicketsTbody");
       const hint = $("recentTicketsHint");
       const pill = $("recentTicketsPill");
@@ -3867,56 +3814,69 @@ Selected effects: ${effectLine}`;
 
       tbody.innerHTML = `<tr><td colspan="7" class="muted">Loading recent tickets…</td></tr>`;
       pill.innerHTML = `Rows: <strong>0</strong>`;
-      hint.textContent = "Loading tickets from the last 10 days…";
+      hint.textContent = "Loading a maximum of 12 recent tickets from the last 10 days…";
 
-      const windowDays = 10;
-      const cutoffMs = Date.now() - (windowDays * 24 * 60 * 60 * 1000);
+      const cutoffMs = Date.now() - (10 * 24 * 60 * 60 * 1000);
+      const MAX_RECENT_TICKETS = 12;
 
       try {
-        // IMPORTANT: do not orderBy createdAt here.
-        // Some older ticket documents do not have createdAt/submittedAt fields, and Firestore orderBy excludes docs missing that field.
-        // A plain fetch keeps the web dashboard useful as the PC-app replacement.
-        const snap = await db.collection("tickets").limit(1000).get();
+        const seen = new Map();
+        const timestampFields = ["createdAt", "submittedAt", "ticketCreatedAt", "reportedAt", "updatedAt", "statusUpdatedAt", "finalisedAt"];
 
-        const rows = snap.docs.map(doc => {
-          const data = doc.data() || {};
-          const date = bestTicketDate(data);
-          return {
-            id: doc.id,
-            data,
-            date,
-            dateMs: date ? date.getTime() : 0,
-            hasDate: !!date,
-            status: normaliseTicketStatus(data.status || "Under Review")
-          };
-        });
-
-        const inWindow = [];
-        const missingDate = [];
-
-        for (const r of rows) {
-          if (!r.hasDate) {
-            missingDate.push(r);
-            continue;
+        for (const field of timestampFields) {
+          if (seen.size >= MAX_RECENT_TICKETS) break;
+          try {
+            const snap = await db.collection("tickets").orderBy(field, "desc").limit(MAX_RECENT_TICKETS).get();
+            snap.forEach(doc => {
+              if (seen.size >= MAX_RECENT_TICKETS || seen.has(doc.id)) return;
+              const data = doc.data() || {};
+              const date = bestTicketDate(data);
+              const dateMs = date ? date.getTime() : 0;
+              if (dateMs >= cutoffMs) {
+                seen.set(doc.id, {
+                  id: doc.id,
+                  data,
+                  date,
+                  dateMs,
+                  status: normaliseTicketStatus(data.status || "Under Review")
+                });
+              }
+            });
+          } catch (fieldErr) {
+            console.warn(`Recent tickets query skipped for ${field}:`, fieldErr);
           }
-          if (r.dateMs >= cutoffMs) inWindow.push(r);
         }
 
-        inWindow.sort((a,b) => b.dateMs - a.dateMs);
-        missingDate.sort((a,b) => String(b.id).localeCompare(String(a.id)));
+        // Small fallback only: never pull the whole tickets collection for this panel.
+        if (seen.size === 0) {
+          try {
+            const fallbackSnap = await db.collection("tickets").limit(MAX_RECENT_TICKETS).get();
+            fallbackSnap.forEach(doc => {
+              if (seen.size >= MAX_RECENT_TICKETS || seen.has(doc.id)) return;
+              const data = doc.data() || {};
+              const date = bestTicketDate(data);
+              seen.set(doc.id, {
+                id: doc.id,
+                data,
+                date,
+                dateMs: date ? date.getTime() : 0,
+                status: normaliseTicketStatus(data.status || "Under Review")
+              });
+            });
+          } catch (fallbackErr) {
+            console.warn("Recent tickets fallback query failed:", fallbackErr);
+          }
+        }
 
-        // If documents are missing timestamp fields, include them after the dated recent rows.
-        // This prevents the table showing blank just because historical PC-app tickets lack createdAt.
-        recentTicketRowsCache = [...inWindow, ...missingDate];
+        const rows = [...seen.values()]
+          .sort((a,b) => b.dateMs - a.dateMs)
+          .slice(0, MAX_RECENT_TICKETS);
 
-        const missingNote = missingDate.length
-          ? ` ${missingDate.length} ticket(s) had no usable timestamp and are shown after dated tickets.`
-          : "";
-
-        hint.textContent = `Loaded ${recentTicketRowsCache.length} ticket(s). ${inWindow.length} dated ticket(s) are within the last ${windowDays} days.${missingNote} Use this panel to manage status from the web.`;
+        recentTicketRowsCache = rows;
+        hint.textContent = `Loaded ${rows.length} ticket(s). This panel is capped at ${MAX_RECENT_TICKETS} to stop the page freezing.`;
         renderRecentTicketsTable();
       } catch (e) {
-        console.error("loadRecentTickets7d failed:", e);
+        console.error("loadRecentTickets10d failed:", e);
         hint.textContent = "Failed to load recent tickets. Check console / Firestore rules.";
         tbody.innerHTML = `<tr><td colspan="7" class="muted">Failed to load recent tickets.</td></tr>`;
       }
@@ -3928,12 +3888,11 @@ Selected effects: ${effectLine}`;
       if (!tbody || !pill) return;
 
       const q = String($("recentTicketsSearch")?.value || "").toLowerCase().trim();
-      const statusFilter = String($("recentTicketsStatusFilter")?.value || "all").toLowerCase().trim();
+      const statusFilter = String($("recentTicketsStatusFilter")?.value || "all");
 
       const rows = recentTicketRowsCache.filter(r => {
         const status = normaliseTicketStatus(r.status);
-        const statusLow = status.toLowerCase().trim();
-        if (statusFilter !== "all" && statusLow !== statusFilter) return false;
+        if (statusFilter !== "all" && status.toLowerCase() !== statusFilter) return false;
 
         const hay = [
           r.id,
@@ -3943,8 +3902,7 @@ Selected effects: ${effectLine}`;
           r.data.competition,
           r.data.event,
           r.data.ruleBreach,
-          r.data.fullIncident,
-          r.data.linkedIncidentId
+          r.data.fullIncident
         ].map(x => String(x || "").toLowerCase()).join(" | ");
 
         return !q || hay.includes(q);
@@ -3967,6 +3925,7 @@ Selected effects: ${effectLine}`;
             ${r.data.linkedIncidentId ? `<div class="recentTicketMeta">Linked: ${escapeHtml(r.data.linkedIncidentId)}</div>` : ""}
           </td>
           <td>${escapeHtml(formatRecentTicketDate(r.date))}</td>
+          <td><span class="${recentStatusClass(status)}">${escapeHtml(status)}</span></td>
           <td>
             <div><b>Accused:</b> ${escapeHtml(r.data.accused || "—")}</div>
             <div class="recentTicketMeta"><b>Reporter:</b> ${escapeHtml(r.data.reporter || "—")}</div>
@@ -3975,7 +3934,6 @@ Selected effects: ${effectLine}`;
             <div>${escapeHtml(r.data.event || "—")}</div>
             <div class="recentTicketMeta">${escapeHtml(r.data.competition || "")}</div>
           </td>
-          <td><span class="${recentStatusClass(status)}">${escapeHtml(status)}</span></td>
           <td>
             <select class="recentTicketStatusSelect" data-ticket="${escapeHtml(r.id)}">
               ${RECENT_TICKET_STATUSES.map(st => `<option value="${escapeHtml(st)}" ${st === status ? "selected" : ""}>${escapeHtml(st)}</option>`).join("")}
@@ -4056,7 +4014,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
         });
 
         toast("Ticket status updated ✅");
-        await loadRecentTickets7d();
+        await loadRecentTickets10d();
         await loadTickets();
 
         if (selectedTicketId === ticketId) {
@@ -4144,7 +4102,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           renderEffectsUI();
 
           const recentRefreshBtn = $("refreshRecentTicketsBtn");
-          if (recentRefreshBtn) recentRefreshBtn.onclick = () => loadRecentTickets7d();
+          if (recentRefreshBtn) recentRefreshBtn.onclick = () => loadRecentTickets10d();
           const recentSearchEl = $("recentTicketsSearch");
           if (recentSearchEl) recentSearchEl.oninput = () => renderRecentTicketsTable();
           const recentStatusFilterEl = $("recentTicketsStatusFilter");
@@ -4152,7 +4110,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
 
           await loadTickets();
           await loadStewardAudit7d(); // auto-load audit panel
-          await loadRecentTickets7d(); // web-only recent ticket manager
+          await loadRecentTickets10d(); // web-only recent ticket manager
         } catch (e) {
           toast("Auth/load error: " + (e?.message || e));
         }
