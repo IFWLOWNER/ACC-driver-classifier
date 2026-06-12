@@ -1259,7 +1259,7 @@
     <div class="recentTicketsCard" id="recentTicketsManagerCard">
       <div class="row" style="justify-content:space-between; align-items:flex-start;">
         <div>
-          <div class="title" style="margin:0;">Recent Ticket Status Manager — Last 7 Days</div>
+          <div class="title" style="margin:0;">Recent Ticket Status Manager — Last 10 Days</div>
           <div class="muted" id="recentTicketsHint" style="margin-top:6px;">
             Loading recent tickets… This allows Head Stewards to manage recent ticket statuses directly from the web, without the PC app.
           </div>
@@ -3867,18 +3867,16 @@ Selected effects: ${effectLine}`;
 
       tbody.innerHTML = `<tr><td colspan="7" class="muted">Loading recent tickets…</td></tr>`;
       pill.innerHTML = `Rows: <strong>0</strong>`;
-      hint.textContent = "Loading tickets from the last 7 days…";
+      hint.textContent = "Loading tickets from the last 10 days…";
 
-      const cutoffMs = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      const windowDays = 10;
+      const cutoffMs = Date.now() - (windowDays * 24 * 60 * 60 * 1000);
 
       try {
-        let snap = null;
-        try {
-          snap = await db.collection("tickets").orderBy("createdAt", "desc").limit(1000).get();
-        } catch (orderedErr) {
-          console.warn("Recent tickets ordered query failed; falling back to plain fetch:", orderedErr);
-          snap = await db.collection("tickets").limit(1000).get();
-        }
+        // IMPORTANT: do not orderBy createdAt here.
+        // Some older ticket documents do not have createdAt/submittedAt fields, and Firestore orderBy excludes docs missing that field.
+        // A plain fetch keeps the web dashboard useful as the PC-app replacement.
+        const snap = await db.collection("tickets").limit(1000).get();
 
         const rows = snap.docs.map(doc => {
           const data = doc.data() || {};
@@ -3888,16 +3886,34 @@ Selected effects: ${effectLine}`;
             data,
             date,
             dateMs: date ? date.getTime() : 0,
+            hasDate: !!date,
             status: normaliseTicketStatus(data.status || "Under Review")
           };
         });
 
-        const filtered = rows
-          .filter(r => r.dateMs >= cutoffMs)
-          .sort((a,b) => b.dateMs - a.dateMs);
+        const inWindow = [];
+        const missingDate = [];
 
-        recentTicketRowsCache = filtered;
-        hint.textContent = `Loaded ${filtered.length} ticket(s) from the last 7 days. Use this panel to manage status from the web.`;
+        for (const r of rows) {
+          if (!r.hasDate) {
+            missingDate.push(r);
+            continue;
+          }
+          if (r.dateMs >= cutoffMs) inWindow.push(r);
+        }
+
+        inWindow.sort((a,b) => b.dateMs - a.dateMs);
+        missingDate.sort((a,b) => String(b.id).localeCompare(String(a.id)));
+
+        // If documents are missing timestamp fields, include them after the dated recent rows.
+        // This prevents the table showing blank just because historical PC-app tickets lack createdAt.
+        recentTicketRowsCache = [...inWindow, ...missingDate];
+
+        const missingNote = missingDate.length
+          ? ` ${missingDate.length} ticket(s) had no usable timestamp and are shown after dated tickets.`
+          : "";
+
+        hint.textContent = `Loaded ${recentTicketRowsCache.length} ticket(s). ${inWindow.length} dated ticket(s) are within the last ${windowDays} days.${missingNote} Use this panel to manage status from the web.`;
         renderRecentTicketsTable();
       } catch (e) {
         console.error("loadRecentTickets7d failed:", e);
@@ -3912,11 +3928,12 @@ Selected effects: ${effectLine}`;
       if (!tbody || !pill) return;
 
       const q = String($("recentTicketsSearch")?.value || "").toLowerCase().trim();
-      const statusFilter = String($("recentTicketsStatusFilter")?.value || "all");
+      const statusFilter = String($("recentTicketsStatusFilter")?.value || "all").toLowerCase().trim();
 
       const rows = recentTicketRowsCache.filter(r => {
         const status = normaliseTicketStatus(r.status);
-        if (statusFilter !== "all" && status !== statusFilter) return false;
+        const statusLow = status.toLowerCase().trim();
+        if (statusFilter !== "all" && statusLow !== statusFilter) return false;
 
         const hay = [
           r.id,
@@ -3926,7 +3943,8 @@ Selected effects: ${effectLine}`;
           r.data.competition,
           r.data.event,
           r.data.ruleBreach,
-          r.data.fullIncident
+          r.data.fullIncident,
+          r.data.linkedIncidentId
         ].map(x => String(x || "").toLowerCase()).join(" | ");
 
         return !q || hay.includes(q);
@@ -3949,7 +3967,6 @@ Selected effects: ${effectLine}`;
             ${r.data.linkedIncidentId ? `<div class="recentTicketMeta">Linked: ${escapeHtml(r.data.linkedIncidentId)}</div>` : ""}
           </td>
           <td>${escapeHtml(formatRecentTicketDate(r.date))}</td>
-          <td><span class="${recentStatusClass(status)}">${escapeHtml(status)}</span></td>
           <td>
             <div><b>Accused:</b> ${escapeHtml(r.data.accused || "—")}</div>
             <div class="recentTicketMeta"><b>Reporter:</b> ${escapeHtml(r.data.reporter || "—")}</div>
@@ -3958,6 +3975,7 @@ Selected effects: ${effectLine}`;
             <div>${escapeHtml(r.data.event || "—")}</div>
             <div class="recentTicketMeta">${escapeHtml(r.data.competition || "")}</div>
           </td>
+          <td><span class="${recentStatusClass(status)}">${escapeHtml(status)}</span></td>
           <td>
             <select class="recentTicketStatusSelect" data-ticket="${escapeHtml(r.id)}">
               ${RECENT_TICKET_STATUSES.map(st => `<option value="${escapeHtml(st)}" ${st === status ? "selected" : ""}>${escapeHtml(st)}</option>`).join("")}
