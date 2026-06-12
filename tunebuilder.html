@@ -79,13 +79,13 @@
       <button id="downloadFullPng" class="ghost" type="button">Download long tune PNG</button>
     </div>
   </div>
-  <div class="toolbarNote"><b>Note:</b> the blue section tabs inside the tune sheet are now clickable. <b>Download tune PNG</b> exports the tune sheet only. <b>Download long tune PNG</b> exports the full long tune sheet only, cropped tightly with no left-side controls and no extra right-side space.</div>
+  <div class="toolbarNote"><b>Note:</b> the blue section tabs inside the tune sheet are now clickable. <b>Download tune PNG</b> exports the tune sheet only. <b>Download long tune PNG</b> exports the full long tune sheet only, using an auto-tight crop so there is no left-side controls and no wasted right-side space.</div>
   <div class="grid">
     <aside class="side">
       <div class="box">
         <h2>1. Add files</h2>
         <div id="dropZone" class="drop"><div><strong>Drop setup JSON files here</strong><br><span class="small">You can add multiple tunes, for example Q Dry, Race Dry, Q Wet and Race Wet.</span></div></div>
-        <div class="warning">Console screenshots cannot be read perfectly in a plain offline HTML page. Use <b>Blank console tune</b>, then type/copy the values from the image into the editable cards. The main export is the tune sheet on the right. Exports render as long PNG files for Discord posting, and the long tune export excludes the left-side controls and crops tightly to the tune sheet width.</div>
+        <div class="warning">Console screenshots cannot be read perfectly in a plain offline HTML page. Use <b>Blank console tune</b>, then type/copy the values from the image into the editable cards. The main export is the tune sheet on the right. Exports render as long PNG files for Discord posting, and the long tune export excludes the left-side controls and uses an auto-tight crop to the tune sheet width.</div>
       </div>
       <div class="box">
         <h2>2. Tunes loaded</h2>
@@ -283,6 +283,39 @@
     const c=await serializeNodeToCanvas(node);
     return new Promise((res,rej)=>c.toBlob(blob=>blob?res(blob):rej(new Error('PNG blob failed')),'image/png',1));
   }
+  async function longTuneBlob(){
+    const original = $('sheet');
+    const clone = original.cloneNode(true);
+    clone.id = 'sheetExportClone';
+    clone.style.width = 'auto';
+    clone.style.maxWidth = 'none';
+    clone.style.display = 'inline-block';
+    clone.style.margin = '0';
+    clone.style.overflow = 'visible';
+    clone.style.height = 'auto';
+    clone.style.minHeight = '0';
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'fixed';
+    wrapper.style.left = '-100000px';
+    wrapper.style.top = '0';
+    wrapper.style.background = '#000';
+    wrapper.style.padding = '0';
+    wrapper.style.margin = '0';
+    wrapper.style.zIndex = '-1';
+    wrapper.style.width = 'auto';
+    wrapper.style.display = 'inline-block';
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const inner = clone.querySelector('.sheet-inner');
+    const targetWidth = Math.ceil((inner ? inner.scrollWidth : clone.scrollWidth) + 2);
+    clone.style.width = targetWidth + 'px';
+    clone.style.maxWidth = targetWidth + 'px';
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const blob = await nodeBlob(clone);
+    wrapper.remove();
+    return blob;
+  }
   function triggerBlobDownload(blob, filename){
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -307,7 +340,7 @@
   $('downloadFullPng').addEventListener('click',async()=>{
     try{
       $('status').textContent='Rendering long tune PNG...';
-      const blob=await nodeBlob($('sheet'));
+      const blob=await longTuneBlob();
       triggerBlobDownload(blob, ((tunes[active]?.title)||'IFWL_ACC_Tune').replace(/[^a-z0-9]+/gi,'_')+'_long_tune.png');
       $('status').textContent='Long tune PNG downloaded.';
     }catch(err){
