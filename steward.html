@@ -328,6 +328,75 @@
       line-height:1.25;
     }
 
+
+
+    /* Penalty time voting + steward recommendation summary */
+    .timePenaltyRow{
+      margin-top:10px;
+    }
+    .voteSummaryBox{
+      margin-top:12px;
+      border:1px solid #d1d5db;
+      border-radius:12px;
+      background:#f9fafb;
+      padding:12px;
+    }
+    .voteSummaryTitle{
+      font-weight:900;
+      font-size:14px;
+      margin-bottom:8px;
+      color:#111827;
+    }
+    .voteSummaryGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      margin-top:8px;
+    }
+    .voteSummaryPanel{
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      padding:10px 12px;
+    }
+    .voteSummaryPanelTitle{
+      font-size:12px;
+      font-weight:900;
+      color:#111827;
+      margin-bottom:6px;
+    }
+    .voteLine{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      border-top:1px solid #f3f4f6;
+      padding:6px 0;
+      font-size:12px;
+      line-height:1.25;
+    }
+    .voteLine:first-of-type{ border-top:0; }
+    .voteLine strong{ font-weight:900; }
+    .recommendationBox{
+      margin-top:10px;
+      border:1px solid #86efac;
+      background:#ecfdf5;
+      color:#065f46;
+      border-radius:12px;
+      padding:10px 12px;
+      font-size:13px;
+      font-weight:900;
+      line-height:1.25;
+    }
+    .recommendationBox small{
+      display:block;
+      margin-top:5px;
+      font-weight:800;
+      opacity:.95;
+    }
+    @media (max-width: 980px) {
+      .voteSummaryGrid{ grid-template-columns:1fr; }
+    }
+
     @media (max-width: 980px) {
       header { flex-direction:column; align-items:stretch; }
       header .row { width:100%; }
@@ -472,6 +541,14 @@
             <label class="muted">Penalty opinion (posts to stewards discussion)</label>
             <select id="discussionPenaltyCode"></select>
 
+            <div class="timePenaltyRow">
+              <label class="muted">Recommended time penalty / DQ (posts with your penalty opinion)</label>
+              <select id="discussionPenaltyTime"></select>
+              <div class="muted" style="margin-top:6px;">
+                Choose from 5s to 60s in 5-second steps, or DQ. This feeds the shared steward recommendation summary.
+              </div>
+            </div>
+
             <div class="penPreview" id="discussionPenaltyPreview" style="display:none;">
               <div><span class="k">Penalty:</span> <span id="dppPenalty">—</span></div>
               <div class="mutedLine"><span class="k">Who:</span> <span id="dppWho">—</span></div>
@@ -493,6 +570,25 @@
             </div>
 
             <div id="discussionList" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;"></div>
+
+            <div class="voteSummaryBox" id="stewardVoteSummaryBox" style="display:none;">
+              <div class="voteSummaryTitle">Steward Voting Recommendation</div>
+              <div class="muted" id="stewardVoteSummarySub">Calculated from submitted steward penalty opinions on this ticket.</div>
+              <div class="voteSummaryGrid">
+                <div class="voteSummaryPanel">
+                  <div class="voteSummaryPanelTitle">Penalty code votes</div>
+                  <div id="penaltyCodeVoteLines" class="muted">No penalty code votes yet.</div>
+                </div>
+                <div class="voteSummaryPanel">
+                  <div class="voteSummaryPanelTitle">Time penalty votes</div>
+                  <div id="penaltyTimeVoteLines" class="muted">No time penalty votes yet.</div>
+                </div>
+              </div>
+              <div class="recommendationBox" id="penaltyRecommendationLine">
+                Recommendation: —
+                <small>Head Steward remains free to finalise or override this recommendation.</small>
+              </div>
+            </div>
 
             <div style="margin-top:10px;">
               <label class="muted">Add a comment</label>
@@ -554,6 +650,15 @@
             <div>
               <label class="muted">What penalty best fits this incident? (required)</label>
               <select id="penaltyCode"></select>
+
+              <div class="timePenaltyRow">
+                <label class="muted">Recommended time penalty / DQ (required)</label>
+                <select id="penaltyTime"></select>
+                <div class="muted" style="margin-top:6px;">
+                  Choose from 5s to 60s in 5-second steps, or DQ. This is stored with your review and copied into the steward comments audit entry.
+                </div>
+              </div>
+
               <div class="muted" style="margin-top:8px;">Head Steward-only notes are not shown here.</div>
 
               <!-- NEW: guidance preview (Description + Example from JSON) -->
@@ -866,6 +971,59 @@
       }
     }
     fillScores();
+
+    function fillPenaltyTimeSelects() {
+      const ids = ["penaltyTime", "discussionPenaltyTime"];
+      for (const id of ids) {
+        const sel = $(id);
+        if (!sel) continue;
+        sel.innerHTML = "";
+
+        const ph = document.createElement("option");
+        ph.value = "";
+        ph.textContent = "Select time penalty / DQ…";
+        ph.disabled = true;
+        ph.selected = true;
+        sel.appendChild(ph);
+
+        for (let sec = 5; sec <= 60; sec += 5) {
+          const opt = document.createElement("option");
+          opt.value = String(sec);
+          opt.textContent = `${sec} seconds`;
+          sel.appendChild(opt);
+        }
+
+        const dq = document.createElement("option");
+        dq.value = "DQ";
+        dq.textContent = "DQ";
+        sel.appendChild(dq);
+      }
+    }
+    fillPenaltyTimeSelects();
+
+    function normalisePenaltyTimeValue(v) {
+      const raw = String(v || "").trim();
+      if (!raw) return "";
+      if (raw.toUpperCase() === "DQ") return "DQ";
+      const n = parseInt(raw.replace(/[^0-9]/g, ""), 10);
+      if (isNaN(n)) return "";
+      if (n < 5 || n > 60) return "";
+      const rounded = Math.round(n / 5) * 5;
+      return String(Math.min(60, Math.max(5, rounded)));
+    }
+
+    function formatPenaltyTime(v) {
+      const norm = normalisePenaltyTimeValue(v);
+      if (!norm) return "—";
+      if (norm === "DQ") return "DQ";
+      return `${norm} seconds`;
+    }
+
+    function roundToNearestFive(n) {
+      const x = Number(n);
+      if (isNaN(x)) return 0;
+      return Math.min(60, Math.max(5, Math.round(x / 5) * 5));
+    }
 
     function escapeHtml(s) {
       return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
@@ -1795,6 +1953,9 @@
 
       $("discussionList").innerHTML = `<div class="muted">Loading comments…</div>`;
       $("discussionInput").value = "";
+      if ($("discussionPenaltyTime")) $("discussionPenaltyTime").value = "";
+      if ($("penaltyTime")) $("penaltyTime").value = "";
+      renderStewardVoteSummary([]);
 
       // clear effects when switching tickets
       applySelectedEffects([]);
@@ -1867,6 +2028,113 @@
       await loadTickets();
     }
 
+    // ---------- steward vote summary ----------
+    function readPenaltyCodeFromCommentData(d, text) {
+      const direct = String(d.penaltyCode || d.codeVote || "").trim();
+      if (direct) return direct;
+
+      const m = String(text || "").match(/Code:\s*([^
+]+)/i);
+      return m ? m[1].trim() : "";
+    }
+
+    function readPenaltyTimeFromCommentData(d, text) {
+      const direct = normalisePenaltyTimeValue(d.penaltyTime || d.timePenalty || d.recommendedPenaltyTime || "");
+      if (direct) return direct;
+
+      const m = String(text || "").match(/(?:Recommended time penalty|Time penalty|Penalty time):\s*([^
+]+)/i);
+      return m ? normalisePenaltyTimeValue(m[1]) : "";
+    }
+
+    function countVotes(values) {
+      const map = new Map();
+      for (const v of values) {
+        const key = String(v || "").trim();
+        if (!key) continue;
+        map.set(key, (map.get(key) || 0) + 1);
+      }
+      return [...map.entries()].sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    }
+
+    function renderVoteLines(el, entries, total, formatter) {
+      if (!el) return;
+      if (!entries.length || !total) {
+        el.className = "muted";
+        el.textContent = "No votes yet.";
+        return;
+      }
+
+      el.className = "";
+      el.innerHTML = "";
+      for (const [value, count] of entries) {
+        const pct = total ? ((count / total) * 100).toFixed(1) : "0.0";
+        const row = document.createElement("div");
+        row.className = "voteLine";
+        row.innerHTML = `<span>${escapeHtml(formatter ? formatter(value) : value)}</span><strong>${count}/${total} (${pct}%)</strong>`;
+        el.appendChild(row);
+      }
+    }
+
+    function renderStewardVoteSummary(commentRows) {
+      const box = $("stewardVoteSummaryBox");
+      const sub = $("stewardVoteSummarySub");
+      const codeLines = $("penaltyCodeVoteLines");
+      const timeLines = $("penaltyTimeVoteLines");
+      const recLine = $("penaltyRecommendationLine");
+      if (!box) return;
+
+      const rows = Array.isArray(commentRows) ? commentRows : [];
+      const penaltyRows = rows.filter(r => r && (r.kind === "penalty_opinion" || r.penaltyCode || r.penaltyTime || /PENALTY OPINION/i.test(r.text || "")));
+
+      const codeVotes = [];
+      const timeVotes = [];
+      for (const r of penaltyRows) {
+        const code = readPenaltyCodeFromCommentData(r, r.text);
+        const time = readPenaltyTimeFromCommentData(r, r.text);
+        if (code) codeVotes.push(code);
+        if (time) timeVotes.push(time);
+      }
+
+      const codeEntries = countVotes(codeVotes);
+      const timeEntries = countVotes(timeVotes);
+      const codeTotal = codeVotes.length;
+      const timeTotal = timeVotes.length;
+
+      box.style.display = "block";
+      if (sub) sub.textContent = `Calculated from ${penaltyRows.length} steward penalty opinion(s) on this ticket.`;
+
+      renderVoteLines(codeLines, codeEntries, codeTotal, (v) => v);
+      renderVoteLines(timeLines, timeEntries, timeTotal, (v) => formatPenaltyTime(v));
+
+      let recommendedCode = codeEntries.length ? codeEntries[0][0] : "—";
+      let recommendedTime = "—";
+      let recommendationReason = "No time penalty votes submitted yet.";
+
+      if (timeVotes.length) {
+        const dqCount = timeVotes.filter(v => v === "DQ").length;
+        const numeric = timeVotes.map(v => parseInt(v, 10)).filter(n => !isNaN(n));
+
+        if (dqCount > numeric.length) {
+          recommendedTime = "DQ";
+          recommendationReason = `DQ has the strongest time-penalty support (${dqCount}/${timeVotes.length}).`;
+        } else if (numeric.length) {
+          const avg = numeric.reduce((a,b)=>a+b,0) / numeric.length;
+          const rounded = roundToNearestFive(avg);
+          recommendedTime = `${rounded} seconds`;
+          const mode = timeEntries.length ? formatPenaltyTime(timeEntries[0][0]) : "—";
+          recommendationReason = `Numeric average is ${avg.toFixed(1)}s, rounded to the nearest 5s. Most common time vote: ${mode}. DQ votes: ${dqCount}/${timeVotes.length}.`;
+        } else if (dqCount) {
+          recommendedTime = "DQ";
+          recommendationReason = `Only DQ votes have been submitted (${dqCount}/${timeVotes.length}).`;
+        }
+      }
+
+      if (recLine) {
+        recLine.innerHTML = `Recommended code: ${escapeHtml(recommendedCode)}<br>Recommended time penalty: ${escapeHtml(recommendedTime)}<small>${escapeHtml(recommendationReason)} Head Steward remains free to finalise or override this recommendation.</small>`;
+      }
+    }
+
     // ---------- discussion ----------
     async function loadDiscussion() {
       const list = $("discussionList");
@@ -1884,10 +2152,12 @@
 
         if (snap.empty) {
           list.innerHTML = `<div class="muted">No steward comments yet.</div>`;
+          renderStewardVoteSummary([]);
           await loadTickets();
           return;
         }
 
+        const commentRows = [];
         list.innerHTML = "";
         snap.forEach(doc => {
           const d = doc.data() || {};
@@ -1899,6 +2169,14 @@
 
           const authorKey = String(d.authorKey || "").trim();
           const who = authorKey ? maskEmail(authorKey) : "Unknown";
+
+          commentRows.push({
+            text,
+            authorKey,
+            kind: String(d.kind || "").trim(),
+            penaltyCode: String(d.penaltyCode || "").trim(),
+            penaltyTime: normalisePenaltyTimeValue(d.penaltyTime || d.timePenalty || d.recommendedPenaltyTime || "")
+          });
 
           const box = document.createElement("div");
           box.className = "commentBox";
@@ -1916,6 +2194,7 @@
           list.appendChild(box);
         });
 
+        renderStewardVoteSummary(commentRows);
         await loadTickets();
       } catch (e) {
         console.error("loadDiscussion failed:", e);
@@ -2004,6 +2283,9 @@ This steward has declared they are involved in this incident and has recused the
       const value = (sel.value || "").trim();
       if (!opt || !value) { toast("Select a penalty code first"); return; }
 
+      const timePenalty = normalisePenaltyTimeValue($("discussionPenaltyTime")?.value || "");
+      if (!timePenalty) { toast("Select a time penalty or DQ first"); return; }
+
       const code = (opt.dataset.code || "").trim();
       const title = (opt.dataset.title || "").trim();
       const pen = (opt.dataset.penalty || "").trim();
@@ -2035,7 +2317,8 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           authorKey,
           kind: "penalty_opinion",
-          penaltyCode: value
+          penaltyCode: value,
+          penaltyTime: timePenalty
         });
 
         toast("Penalty opinion posted ✅");
@@ -2087,6 +2370,7 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
       setFreeText("eText", cause.environment?.text || "");
 
       $("penaltyCode").value = d.penaltyCode || "";
+      if ($("penaltyTime")) $("penaltyTime").value = normalisePenaltyTimeValue(d.penaltyTime || "");
 
       // restore effects
       const eff = d.EFFECT || d.effect || {};
@@ -2105,6 +2389,9 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
 
       const pen = ($("penaltyCode").value || "").trim();
       if (!pen) { toast("Penalty code required"); return; }
+
+      const timePenalty = normalisePenaltyTimeValue($("penaltyTime")?.value || "");
+      if (!timePenalty) { toast("Time penalty / DQ required"); return; }
 
       submitReviewBtn.disabled = true;
       const original = submitReviewBtn.textContent;
@@ -2142,7 +2429,8 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
             firstLapSelected: !!eff.hasFirstLap,
             model: "stacking_micro_values_v2_headsteward_match"
           },
-          penaltyCode: pen
+          penaltyCode: pen,
+          penaltyTime: timePenalty
         };
 
         await ref.set(review, { merge: true });
@@ -2160,6 +2448,7 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
 `CAUSE + EFFECT REVIEW (INITIAL)
 Steward: ${maskEmail(currentEmail) || "Unknown"}
 Penalty selected: ${pen}
+Recommended time penalty: ${formatPenaltyTime(timePenalty)}
 
 Raw CAUSE (this steward): ${fmt2(eff.rawCause)}
 EFFECT total (stacked): ${(eff.total >= 0 ? "+" : "")}${fmt2(eff.total)}
@@ -2174,6 +2463,7 @@ Selected effects: ${effectsLine}`;
             authorKey,
             kind: "cause_effect_review",
             penaltyCode: pen,
+            penaltyTime: timePenalty,
             effect: {
               selectedKeys: eff.selectedKeys,
               total: Number(eff.total),
