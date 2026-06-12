@@ -799,6 +799,7 @@
     <div class="card">
       <div class="row" style="justify-content:space-between;">
         <div class="title" style="margin:0;">Live Workload</div>
+        <button id="recentTicketsJumpBtn">Recent Tickets</button>
         <button id="refreshTicketsBtn">Refresh</button>
       </div>
 
@@ -1246,6 +1247,64 @@
             Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmailKey&gt;</code>.
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Web-only Head Steward Recent Ticket Status Manager -->
+  <div class="recentTicketsFullWidth" id="recentTicketsManagerSec">
+    <div class="recentTicketsCard">
+      <div class="row" style="justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div class="title" style="margin:0;">Recent Ticket Status Manager — 12 Ticket Web View</div>
+          <div class="muted" id="recentTicketsHint">
+            Loads a maximum of 12 tickets so the Head Steward can manage ticket status from the web without the PC app.
+          </div>
+        </div>
+        <div class="row" style="gap:10px;">
+          <div class="pill" id="recentTicketsPill">Rows: <strong>0</strong></div>
+          <button id="refreshRecentTicketsBtn">Refresh Recent Tickets</button>
+        </div>
+      </div>
+
+      <div class="recentTicketsToolbar">
+        <div style="flex:1; min-width:260px;">
+          <label class="muted">Search loaded tickets</label>
+          <input id="recentTicketsSearch" placeholder="Search ticket ID, accused, reporter, event, competition, status…" />
+        </div>
+        <div style="width:250px; max-width:100%;">
+          <label class="muted">Status filter</label>
+          <select id="recentTicketsStatusFilter">
+            <option value="all" selected>All statuses</option>
+            <option value="finalised">Finalised</option>
+            <option value="under review">Under Review</option>
+            <option value="appealed">Appealed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="recentTicketsTableWrap">
+        <table class="recentTicketsTable" aria-label="Recent ticket status manager table">
+          <thead>
+            <tr>
+              <th>Ticket</th>
+              <th>Best Date</th>
+              <th>Current Status</th>
+              <th>Drivers</th>
+              <th>Event</th>
+              <th>Change Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="recentTicketsTbody">
+            <tr><td colspan="7" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="muted" style="margin-top:10px;">
+        This panel is capped at 12 tickets. Status changes write directly to Firestore and add an automatic steward audit comment to the ticket.
       </div>
     </div>
   </div>
@@ -3814,66 +3873,92 @@ Selected effects: ${effectLine}`;
 
       tbody.innerHTML = `<tr><td colspan="7" class="muted">Loading recent tickets…</td></tr>`;
       pill.innerHTML = `Rows: <strong>0</strong>`;
-      hint.textContent = "Loading a maximum of 12 recent tickets from the last 10 days…";
 
       const cutoffMs = Date.now() - (10 * 24 * 60 * 60 * 1000);
       const MAX_RECENT_TICKETS = 12;
+      const selectedFilter = String($("recentTicketsStatusFilter")?.value || "all").toLowerCase().trim();
+
+      hint.textContent = `Loading up to ${MAX_RECENT_TICKETS} tickets only. No full-ticket scan will be performed.`;
 
       try {
         const seen = new Map();
-        const timestampFields = ["createdAt", "submittedAt", "ticketCreatedAt", "reportedAt", "updatedAt", "statusUpdatedAt", "finalisedAt"];
 
-        for (const field of timestampFields) {
-          if (seen.size >= MAX_RECENT_TICKETS) break;
-          try {
-            const snap = await db.collection("tickets").orderBy(field, "desc").limit(MAX_RECENT_TICKETS).get();
-            snap.forEach(doc => {
-              if (seen.size >= MAX_RECENT_TICKETS || seen.has(doc.id)) return;
-              const data = doc.data() || {};
-              const date = bestTicketDate(data);
-              const dateMs = date ? date.getTime() : 0;
-              if (dateMs >= cutoffMs) {
-                seen.set(doc.id, {
-                  id: doc.id,
-                  data,
-                  date,
-                  dateMs,
-                  status: normaliseTicketStatus(data.status || "Under Review")
-                });
-              }
-            });
-          } catch (fieldErr) {
-            console.warn(`Recent tickets query skipped for ${field}:`, fieldErr);
+        function addDoc(doc, includeEvenIfOldOrUndated) {
+          if (!doc || seen.size >= MAX_RECENT_TICKETS || seen.has(doc.id)) return;
+          const data = doc.data() || {};
+          const status = normaliseTicketStatus(data.status || "Under Review");
+          const date = bestTicketDate(data);
+          const dateMs = date ? date.getTime() : 0;
+
+          if (!includeEvenIfOldOrUndated && dateMs && dateMs < cutoffMs) return;
+
+          seen.set(doc.id, {
+            id: doc.id,
+            data,
+            date,
+            dateMs,
+            status
+          });
+        }
+
+        const variantsByFilter = {
+          "finalised": ["Finalised", "finalised", "Finalized", "finalized"],
+          "under review": ["Under Review", "under review", "Awaiting Review", "awaiting review", "In Review", "in review"],
+          "appealed": ["Appealed", "appealed", "Appeal", "appeal"]
+        };
+
+        // Status-first loading: this is what the Head Steward needs for replacing the PC app.
+        // It is capped and avoids reading all tickets.
+        const statusValues = selectedFilter === "all"
+          ? ["Finalised", "finalised", "Under Review", "under review", "Appealed", "appealed", "Awaiting Review", "In Review"]
+          : (variantsByFilter[selectedFilter] || []);
+
+        if (statusValues.length) {
+          for (let i = 0; i < statusValues.length && seen.size < MAX_RECENT_TICKETS; i += 10) {
+            const chunk = statusValues.slice(i, i + 10);
+            try {
+              const snap = await db.collection("tickets")
+                .where("status", "in", chunk)
+                .limit(MAX_RECENT_TICKETS)
+                .get();
+              snap.forEach(doc => addDoc(doc, true));
+            } catch (statusErr) {
+              console.warn("Recent tickets status query skipped:", chunk, statusErr);
+            }
           }
         }
 
-        // Small fallback only: never pull the whole tickets collection for this panel.
+        // Timestamp top-up: only small queries, only if we still have space.
+        const timestampFields = ["createdAt", "submittedAt", "ticketCreatedAt", "reportedAt", "updatedAt", "statusUpdatedAt", "finalisedAt"];
+        for (const field of timestampFields) {
+          if (seen.size >= MAX_RECENT_TICKETS) break;
+          try {
+            const snap = await db.collection("tickets")
+              .orderBy(field, "desc")
+              .limit(MAX_RECENT_TICKETS)
+              .get();
+            snap.forEach(doc => addDoc(doc, false));
+          } catch (fieldErr) {
+            console.warn(`Recent tickets timestamp query skipped for ${field}:`, fieldErr);
+          }
+        }
+
+        // Tiny final fallback only. This is capped at 12 and will never scan the full collection.
         if (seen.size === 0) {
           try {
             const fallbackSnap = await db.collection("tickets").limit(MAX_RECENT_TICKETS).get();
-            fallbackSnap.forEach(doc => {
-              if (seen.size >= MAX_RECENT_TICKETS || seen.has(doc.id)) return;
-              const data = doc.data() || {};
-              const date = bestTicketDate(data);
-              seen.set(doc.id, {
-                id: doc.id,
-                data,
-                date,
-                dateMs: date ? date.getTime() : 0,
-                status: normaliseTicketStatus(data.status || "Under Review")
-              });
-            });
+            fallbackSnap.forEach(doc => addDoc(doc, true));
           } catch (fallbackErr) {
             console.warn("Recent tickets fallback query failed:", fallbackErr);
           }
         }
 
         const rows = [...seen.values()]
-          .sort((a,b) => b.dateMs - a.dateMs)
+          .sort((a,b) => (b.dateMs || 0) - (a.dateMs || 0))
           .slice(0, MAX_RECENT_TICKETS);
 
         recentTicketRowsCache = rows;
-        hint.textContent = `Loaded ${rows.length} ticket(s). This panel is capped at ${MAX_RECENT_TICKETS} to stop the page freezing.`;
+        hint.textContent = `Loaded ${rows.length} ticket(s). This panel is capped at ${MAX_RECENT_TICKETS} and does not load the full ticket collection.`;
         renderRecentTicketsTable();
       } catch (e) {
         console.error("loadRecentTickets10d failed:", e);
@@ -4101,12 +4186,14 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           // NEW: render Effect UI
           renderEffectsUI();
 
+          const recentJumpBtn = $("recentTicketsJumpBtn");
+          if (recentJumpBtn) recentJumpBtn.onclick = () => { const sec = $("recentTicketsManagerSec"); if (sec) sec.scrollIntoView({ behavior:"smooth", block:"start" }); };
           const recentRefreshBtn = $("refreshRecentTicketsBtn");
           if (recentRefreshBtn) recentRefreshBtn.onclick = () => loadRecentTickets10d();
           const recentSearchEl = $("recentTicketsSearch");
           if (recentSearchEl) recentSearchEl.oninput = () => renderRecentTicketsTable();
           const recentStatusFilterEl = $("recentTicketsStatusFilter");
-          if (recentStatusFilterEl) recentStatusFilterEl.onchange = () => renderRecentTicketsTable();
+          if (recentStatusFilterEl) recentStatusFilterEl.onchange = () => loadRecentTickets10d();
 
           await loadTickets();
           await loadStewardAudit7d(); // auto-load audit panel
