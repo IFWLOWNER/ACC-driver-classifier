@@ -575,6 +575,58 @@
     box-shadow:0 6px 12px rgba(42,157,143,.24)!important;
   }
 
+
+
+  /* v4.9 fixes: tune sheet tyre summary alignment + ownership checkbox text */
+  .sheet .miniTable{
+    width:100%!important;
+    table-layout:fixed!important;
+    border-collapse:collapse!important;
+  }
+  .sheet .miniTable th,
+  .sheet .miniTable td{
+    padding:6px 3px!important;
+    font-size:12px!important;
+    line-height:1.2!important;
+    text-align:center!important;
+    white-space:normal!important;
+    overflow:hidden!important;
+    word-break:normal!important;
+  }
+  .sheet .miniTable th:first-child,
+  .sheet .miniTable td:first-child{
+    width:30%!important;
+    text-align:left!important;
+    padding-left:4px!important;
+  }
+  .sheet .miniTable th:not(:first-child),
+  .sheet .miniTable td:not(:first-child){
+    width:17.5%!important;
+  }
+  .sheet .panelBody:has(.miniTable){
+    overflow:hidden!important;
+    padding-left:10px!important;
+    padding-right:10px!important;
+  }
+  .sheet .panel:has(.miniTable){
+    max-width:100%!important;
+  }
+  label.confirmRow,
+  label.confirmRow span{
+    color:#1c1f24!important;
+  }
+  label.confirmRow{
+    background:rgba(42,157,143,.08)!important;
+    border:1px solid rgba(42,157,143,.20)!important;
+    border-radius:12px!important;
+    padding:12px!important;
+    font-weight:700!important;
+  }
+  label.confirmRow input{
+    accent-color:var(--ifwl-teal)!important;
+    flex:0 0 auto!important;
+  }
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -914,13 +966,23 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     const btn = document.getElementById('adminDb');
     if(btn) btn.style.display = canModerateTunes() ? 'inline-flex' : 'none';
   }
+  async function fetchJsonSafe(url, opts){
+    const r = await fetch(url, opts || {});
+    const text = await r.text();
+    let data = null;
+    try { data = JSON.parse(text); }
+    catch {
+      throw new Error(`Backend returned non-JSON response (${r.status}). ${text.slice(0,120)}`);
+    }
+    if(!r.ok) throw new Error(data?.error || `Backend error ${r.status}`);
+    return data;
+  }
   async function loadDatabaseTuneCount(){
     const el = document.getElementById('databaseCountQuote');
     if(!el) return;
     try{
       // Reuse the public stats endpoint so we are not calling a separate count endpoint.
-      const r = await fetch(IFWL_PATREON_GATE.FUNCTION + '?patreonTuneStats=1', {cache:'no-store'});
-      const data = await r.json();
+      const data = await fetchJsonSafe(IFWL_PATREON_GATE.FUNCTION + '?patreonTuneStats=1', {cache:'no-store'});
       if(data && data.ok){
         const rawCount = Number(data.tuneCount || 0);
         const count = rawCount.toLocaleString();
@@ -952,8 +1014,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     if(!el) return;
     const grid = el.querySelector('.spotGrid') || el;
     try{
-      const r = await fetch(IFWL_PATREON_GATE.FUNCTION + '?patreonTuneStats=1', {cache:'no-store'});
-      const data = await r.json();
+      const data = await fetchJsonSafe(IFWL_PATREON_GATE.FUNCTION + '?patreonTuneStats=1', {cache:'no-store'});
       if(!data || !data.ok) throw new Error(data?.error || 'Stats unavailable');
       const topRated = (data.topRated || []).map((x,i) => tuneButtonForStats(x, 'rating', i+1)).join('') || '<div class="statMeta">No ratings yet.</div>';
       const topDownloaded = (data.topDownloaded || []).map((x,i) => tuneButtonForStats(x, 'downloads', i+1)).join('') || '<div class="statMeta">No downloads yet.</div>';
@@ -971,7 +1032,6 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
         if(window.IFWL_openContributorUploads) window.IFWL_openContributorUploads(btn.dataset.authorName || '', btn.dataset.userId || '');
       }));
     }catch(e){
-      console.warn('Tune stats unavailable', e);
       grid.innerHTML = `
         <div class="statCard"><h3>Top rated tunes</h3><div class="statMeta">Stats unavailable.</div></div>
         <div class="statCard"><h3>Most downloaded</h3><div class="statMeta">Stats unavailable.</div></div>
