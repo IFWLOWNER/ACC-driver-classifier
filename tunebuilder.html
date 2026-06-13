@@ -85,6 +85,10 @@
   .dbPanel{width:min(920px,100%);max-height:86vh;overflow:auto;background:#0b0b0b;border:2px solid #666;box-shadow:0 30px 90px #000;padding:18px;}
   .dbHead{display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid #333;padding-bottom:12px;margin-bottom:12px;}
   .dbHead h2{margin:0;text-transform:uppercase;font-size:22px;letter-spacing:.04em;}
+  .dbFilters{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-bottom:12px;border-bottom:1px solid #222;padding-bottom:12px;}
+  .dbFilterField{display:grid;gap:5px;}
+  .dbFilterField label{font-size:11px;color:#aaa;text-transform:uppercase;font-weight:900;letter-spacing:.04em;}
+  .dbFilterField select{width:100%;background:#050505;border:1px solid #555;color:#fff;padding:10px;font-weight:800;}
   .dbList{display:grid;gap:10px;}
   .dbRow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;border:1px solid #444;background:#111;padding:12px;}
   .dbTitle{font-weight:900;text-transform:uppercase;letter-spacing:.03em;}
@@ -171,6 +175,17 @@
     <div class="dbHead">
       <h2>IFWL Tune Database</h2>
       <button id="closeDb" class="ghost" type="button">Close</button>
+    </div>
+    <div class="dbFilters">
+      <div class="dbFilterField">
+        <label for="dbTrackFilter">Track</label>
+        <select id="dbTrackFilter"><option value="">All tracks</option></select>
+      </div>
+      <div class="dbFilterField">
+        <label for="dbCarFilter">Car</label>
+        <select id="dbCarFilter"><option value="">All cars</option></select>
+      </div>
+      <button id="clearDbFilters" class="ghost" type="button">Clear filters</button>
     </div>
     <div id="dbList" class="dbList"><div class="dbEmpty">Loading tunes...</div></div>
   </div>
@@ -389,6 +404,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   const WHEEL_LONG = {LF:'Left Front',RF:'Right Front',LR:'Left Rear',RR:'Right Rear'};
   let tunes = [];
   let active = -1;
+  let dbRows = [];
   const $ = id => document.getElementById(id);
   const fmt = (n, d=1) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—';
   const get = (obj, path, fallback=null) => path.split('.').reduce((o,k)=> (o && o[k]!==undefined ? o[k] : undefined), obj) ?? fallback;
@@ -548,10 +564,43 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       if(list) list.innerHTML = `<div class="dbEmpty danger">${err.message || err}</div>`;
     }
   }
+  function uniqueSorted(values){
+    return [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))]
+      .sort((a,b) => a.localeCompare(b, undefined, {sensitivity:'base'}));
+  }
+  function populateDbFilters(rows){
+    const trackSel = $('dbTrackFilter');
+    const carSel = $('dbCarFilter');
+    if(!trackSel || !carSel) return;
+    const currentTrack = trackSel.value;
+    const currentCar = carSel.value;
+    const tracks = uniqueSorted(rows.map(t => t.track));
+    const cars = uniqueSorted(rows.map(t => t.car));
+    trackSel.innerHTML = '<option value="">All tracks</option>' + tracks.map(x => `<option value="${safe(x)}">${safe(x)}</option>`).join('');
+    carSel.innerHTML = '<option value="">All cars</option>' + cars.map(x => `<option value="${safe(x)}">${safe(x)}</option>`).join('');
+    if(tracks.includes(currentTrack)) trackSel.value = currentTrack;
+    if(cars.includes(currentCar)) carSel.value = currentCar;
+  }
+  function applyDbFilters(){
+    const track = $('dbTrackFilter')?.value || '';
+    const car = $('dbCarFilter')?.value || '';
+    const filtered = dbRows.filter(t => {
+      const trackOk = !track || String(t.track || '') === track;
+      const carOk = !car || String(t.car || '') === car;
+      return trackOk && carOk;
+    });
+    renderDatabaseRows(filtered);
+  }
   function renderDatabaseList(rows){
+    dbRows = Array.isArray(rows) ? rows : [];
+    populateDbFilters(dbRows);
+    applyDbFilters();
+  }
+  function renderDatabaseRows(rows){
     const list = $('dbList');
     if(!list) return;
-    if(!rows.length){ list.innerHTML = '<div class="dbEmpty">No tunes saved in the database yet.</div>'; return; }
+    if(!dbRows.length){ list.innerHTML = '<div class="dbEmpty">No tunes saved in the database yet.</div>'; return; }
+    if(!rows.length){ list.innerHTML = '<div class="dbEmpty">No tunes match the selected track/car filters.</div>'; return; }
     list.innerHTML = rows.map(t => `
       <div class="dbRow">
         <div>
@@ -594,6 +643,9 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('closeOwnership').addEventListener('click', () => ownershipModal(false));
   $('loadDb').addEventListener('click', openDatabaseTunes);
   $('closeDb').addEventListener('click', () => dbModal(false));
+  $('dbTrackFilter').addEventListener('change', applyDbFilters);
+  $('dbCarFilter').addEventListener('change', applyDbFilters);
+  $('clearDbFilters').addEventListener('click', () => { $('dbTrackFilter').value=''; $('dbCarFilter').value=''; applyDbFilters(); });
   $('addManual').addEventListener('click',()=>{ tunes.push(blankTune()); active=tunes.length-1; syncFields(); renderTabs(); renderSheet(); $('status').textContent='Blank console tune added.'; });
   const dz=$('dropZone'); ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag')})); ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag')})); dz.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
   $('refFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const img=$('refPreview'); img.src=URL.createObjectURL(f); img.style.display='block'; });
