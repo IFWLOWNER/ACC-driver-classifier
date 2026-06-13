@@ -123,6 +123,10 @@
   .reviewAuthor{font-weight:900;text-transform:uppercase;}
   .reviewStars{color:#ffd05a;font-weight:900;}
   .reviewFeedback{color:#ddd;margin-top:6px;font-size:13px;line-height:1.45;white-space:pre-wrap;}
+  .adminSearch{display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:12px;border-bottom:1px solid #222;padding-bottom:12px;}
+  .adminSearch input{width:100%;background:#050505;border:1px solid #555;color:#fff;padding:11px;font-weight:800;}
+  .dangerBtn{background:#7a1010;border-color:#ff4b4b;color:#fff;}
+  .dangerBtn:hover{background:#b31313;border-color:#ff7070;}
   .dbEmpty{border:1px dashed #666;padding:18px;text-align:center;color:#aaa;}
   .ownershipText{background:#241a05;border-left:4px solid var(--gold);color:#ffe8a5;padding:14px;text-align:left;line-height:1.45;font-size:14px;margin:12px 0;}
   .authorLocked{background:#0f1f13;border:1px solid #1f6b3b;color:#c7ffd9;padding:12px;text-align:left;font-weight:900;margin:12px 0;}
@@ -226,6 +230,7 @@
       <button id="saveDb" class="ghost" type="button">Save active tune</button>
       <button id="saveSelectedDb" class="uploadBlue" type="button">Upload selected to database</button>
       <button id="loadDb" class="ghost" type="button">Download from database</button>
+      <button id="adminDb" class="dangerBtn" type="button" style="display:none;">Admin DB tools</button>
       <button id="copyPng" class="primary" type="button">Copy tune image</button>
       <button id="downloadPng" type="button">Download tune PNG</button>
       <button id="downloadFullPng" class="ghost" type="button">Download long tune PNG</button>
@@ -334,6 +339,21 @@
       <a class="primary" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="padding:13px 18px;font-weight:900;text-transform:uppercase;color:#fff;">Upgrade Patreon</a>
       <button id="closeUpgrade2" class="ghost" type="button">Not now</button>
     </div>
+  </div>
+</div>
+
+<div id="adminModal" class="dbModal">
+  <div class="dbPanel">
+    <div class="dbHead">
+      <h2>Owner/Ops database tools</h2>
+      <button id="closeAdmin" class="ghost" type="button">Close</button>
+    </div>
+    <div class="adminSearch">
+      <input id="adminSearchInput" type="text" placeholder="Search file name, title, car, track, author... e.g. JADIER or CDA">
+      <button id="adminSearchBtn" class="dangerBtn" type="button">Search</button>
+    </div>
+    <div class="warning">Owner/Ops only. Removing a tune hides it from the community database but keeps an audit trail in Firestore.</div>
+    <div id="adminList" class="dbList"><div class="dbEmpty">Search for a tune filename/title to manage it.</div></div>
   </div>
 </div>
 
@@ -455,6 +475,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     gate.style.display='none';
     app.style.display='';
     updateAccessBar(meta || {});
+    updateAdminToolsButton();
   }
   function logout(){
     localStorage.removeItem(IFWL_PATREON_GATE.SESSION_KEY);
@@ -487,6 +508,16 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     return !!(meta.patreonGranted || meta.patreonAccessGranted || meta.patreonDownloadAccess || meta.staffBypass || meta.canDownloadTunes);
   }
   window.IFWL_canDownloadDatabaseTunes = canDownloadDatabaseTunes;
+  function canModerateTunes(){
+    const meta = window.IFWL_PATREON_META || {};
+    const tier = String(meta.patreonTier || meta.tier || '').toLowerCase();
+    return !!(meta.canModerateTunes || meta.staffBypass || tier.includes('owner') || tier.includes('ops'));
+  }
+  window.IFWL_canModerateTunes = canModerateTunes;
+  function updateAdminToolsButton(){
+    const btn = document.getElementById('adminDb');
+    if(btn) btn.style.display = canModerateTunes() ? 'inline-flex' : 'none';
+  }
   async function loadDatabaseTuneCount(){
     const el = document.getElementById('databaseCountQuote');
     if(!el) return;
@@ -953,6 +984,9 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function canDownloadDatabaseTunes(){
     return window.IFWL_canDownloadDatabaseTunes ? window.IFWL_canDownloadDatabaseTunes() : true;
   }
+  function canModerateTunes(){
+    return window.IFWL_canModerateTunes ? window.IFWL_canModerateTunes() : false;
+  }
   function dbModal(show){
     const modal = $('dbModal');
     if(modal) modal.style.display = show ? 'flex' : 'none';
@@ -1217,8 +1251,10 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
         <div class="reviewAuthor">${htmlSafe(r.authorName || 'IFWL')}</div>
         <div class="reviewStars">${starText(r.stars, 1).split(' ')[0]} ${Number(r.stars || 0)} / 5</div>
         ${r.feedback ? `<div class="reviewFeedback">${htmlSafe(r.feedback)}</div>` : '<div class="reviewFeedback">No feedback note added.</div>'}
+        ${canModerateTunes() ? `<div class="upgradeActions"><button class="dangerBtn reviewDelete" type="button" data-review-id="${htmlSafe(r.id || '')}">Remove review</button></div>` : ''}
       </div>
     `).join('');
+    document.querySelectorAll('.reviewDelete').forEach(btn => btn.addEventListener('click', () => deleteTuneReview(btn.dataset.reviewId)));
   }
   async function openReviewModal(id, title){
     currentReviewTuneId = String(id || '');
@@ -1269,6 +1305,88 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       if(status) status.innerHTML = `<span class="danger">${htmlSafe(err.message || err)}</span>`;
     }
   }
+  function adminModal(show){
+    const modal = $('adminModal');
+    if(modal) modal.style.display = show ? 'flex' : 'none';
+  }
+  async function openAdminTools(){
+    if(!canModerateTunes()){ dbStatus('Owner/Ops only.', true); return; }
+    adminModal(true);
+    await adminSearchTunes();
+  }
+  async function adminSearchTunes(){
+    const token = sessionToken();
+    const q = $('adminSearchInput')?.value || '';
+    const list = $('adminList');
+    if(!token){ if(list) list.innerHTML = '<div class="dbEmpty danger">Missing session.</div>'; return; }
+    if(list) list.innerHTML = '<div class="dbEmpty">Searching database...</div>';
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneAdminSearch=1&token=${encodeURIComponent(token)}&q=${encodeURIComponent(q)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Admin search failed');
+      renderAdminRows(data.rows || []);
+    }catch(err){
+      console.error(err);
+      if(list) list.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
+    }
+  }
+  function renderAdminRows(rows){
+    const list = $('adminList');
+    if(!list) return;
+    if(!rows.length){ list.innerHTML = '<div class="dbEmpty">No matching tunes found.</div>'; return; }
+    list.innerHTML = rows.map(t => `
+      <div class="dbRow">
+        <div>
+          <div class="dbTitle">${htmlSafe(t.title || 'IFWL Tune')}</div>
+          <div class="dbMeta">
+            File: ${htmlSafe(t.fileName || t.title || '—')}<br>
+            ${htmlSafe(t.car || '')} ${t.car ? '•' : ''} ${htmlSafe(t.track || '')} ${t.track ? '•' : ''} ${htmlSafe(t.session || '')}<br>
+            Author: ${htmlSafe(t.authorName || 'IFWL')}<br>
+            Downloads: ${htmlSafe(t.downloadCount || 0)} • Rating: ${starText(t.ratingAvg, t.ratingCount)}
+          </div>
+        </div>
+        <div class="dbActions">
+          <button class="ghost adminReviews" type="button" data-id="${htmlSafe(t.id)}" data-title="${htmlSafe(t.title || 'IFWL Tune')}">Reviews</button>
+          <button class="dangerBtn adminDeleteTune" type="button" data-id="${htmlSafe(t.id)}" data-title="${htmlSafe(t.title || 'IFWL Tune')}">Remove tune</button>
+        </div>
+      </div>
+    `).join('');
+    document.querySelectorAll('.adminDeleteTune').forEach(btn => btn.addEventListener('click', () => adminDeleteTune(btn.dataset.id, btn.dataset.title)));
+    document.querySelectorAll('.adminReviews').forEach(btn => btn.addEventListener('click', () => openReviewModal(btn.dataset.id, btn.dataset.title)));
+  }
+  async function adminDeleteTune(id, title){
+    if(!canModerateTunes()){ dbStatus('Owner/Ops only.', true); return; }
+    if(!confirm(`Remove this tune from the database?\n\n${title || id}`)) return;
+    const token = sessionToken();
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneDelete=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`, {method:'POST'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Delete failed');
+      dbStatus(`Removed tune from database: ${title || id}`);
+      await adminSearchTunes();
+    }catch(err){
+      console.error(err);
+      dbStatus(err.message || err, true);
+    }
+  }
+  async function deleteTuneReview(reviewId){
+    if(!canModerateTunes()){ dbStatus('Owner/Ops only.', true); return; }
+    if(!currentReviewTuneId || !reviewId){ return; }
+    if(!confirm('Remove this review/comment from the tune?')) return;
+    const token = sessionToken();
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneReviewDelete=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(currentReviewTuneId)}&reviewId=${encodeURIComponent(reviewId)}`, {method:'POST'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Review delete failed');
+      const status = $('reviewStatus');
+      if(status) status.textContent = 'Review removed.';
+      await openReviewModal(currentReviewTuneId, $('reviewTuneTitle')?.textContent || 'IFWL Tune');
+    }catch(err){
+      console.error(err);
+      const status = $('reviewStatus');
+      if(status) status.innerHTML = `<span class="danger">${htmlSafe(err.message || err)}</span>`;
+    }
+  }
   $('setupFiles').addEventListener('change',e=>addFiles(e.target.files));
   $('setupFolder').addEventListener('change',e=>addFiles(e.target.files));
   $('saveDb').addEventListener('click', openSmartSaveModal);
@@ -1281,6 +1399,10 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('closeUpgrade').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('closeUpgrade2').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('loadDb').addEventListener('click', openDatabaseTunes);
+  $('adminDb').addEventListener('click', openAdminTools);
+  $('closeAdmin').addEventListener('click', () => adminModal(false));
+  $('adminSearchBtn').addEventListener('click', adminSearchTunes);
+  $('adminSearchInput').addEventListener('keydown', e => { if(e.key === 'Enter') adminSearchTunes(); });
   $('closeDb').addEventListener('click', () => dbModal(false));
   $('dbAllTunesBtn').addEventListener('click', openDatabaseTunes);
   $('dbMyTunesBtn').addEventListener('click', openMyDownloadedTunes);
