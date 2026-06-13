@@ -25,6 +25,8 @@
   .primary{background:var(--red);border-color:var(--red);}
   .primary:hover{background:#ff111d;border-color:#ff111d;}
   .ghost{background:#00000088;}
+  .uploadBlue{background:#00b7ff;border-color:#00b7ff;color:#001018;text-shadow:none;}
+  .uploadBlue:hover{background:#28c9ff;border-color:#28c9ff;color:#001018;}
   input[type=file]{display:none;}
   .grid{display:grid;grid-template-columns:360px 1fr;gap:18px;align-items:start;}
   .side{position:sticky;top:16px;display:flex;flex-direction:column;gap:14px;}
@@ -217,8 +219,8 @@
       <label class="file-label primary" for="setupFiles">Add tune JSON</label><input id="setupFiles" type="file" accept=".json,application/json" multiple>
       <label class="file-label primary" for="setupFolder">Add track folder</label><input id="setupFolder" type="file" accept=".json,application/json" multiple webkitdirectory directory>
       <button id="addManual" class="ghost" type="button">Blank console tune</button>
-      <button id="saveDb" class="ghost" type="button">Save to database</button>
-      <button id="saveSelectedDb" class="ghost" type="button">Save selected to database</button>
+      <button id="saveDb" class="ghost" type="button">Save active tune</button>
+      <button id="saveSelectedDb" class="uploadBlue" type="button">Upload selected to database</button>
       <button id="loadDb" class="ghost" type="button">Download from database</button>
       <button id="copyPng" class="primary" type="button">Copy tune image</button>
       <button id="downloadPng" type="button">Download tune PNG</button>
@@ -247,6 +249,7 @@
         <div class="bulkTools">
           <button id="selectAllTunes" class="ghost" type="button">Select all</button>
           <button id="clearSelectedTunes" class="ghost" type="button">Clear selected</button>
+          <button id="uploadSelectedSide" class="uploadBlue" type="button" style="grid-column:1/3;">Upload selected</button>
         </div>
         <div id="tabs" class="tabs"></div>
       </div>
@@ -859,6 +862,18 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     if(!indexes.length){ dbStatus('Tick the tunes you want to upload first.', true); return; }
     openOwnershipModal(indexes);
   }
+  function openSmartSaveModal(){
+    const indexes = selectedIndexes();
+    if(indexes.length > 1){
+      openOwnershipModal(indexes);
+      return;
+    }
+    if(indexes.length === 1){
+      active = indexes[0];
+      syncFields(); renderTabs(); renderSheet();
+    }
+    openOwnershipModal();
+  }
   async function saveTuneIndexToDatabase(index, token){
     const tune = tunes[index];
     const res = await fetch(backendUrl() + `?patreonTuneSave=1&token=${encodeURIComponent(token)}`, {
@@ -896,7 +911,9 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
         pendingBulkSaveIndexes = null;
         selectedTuneIndexes.clear();
         renderTabs();
-        dbStatus(`Saved ${saved} selected tune(s) to database • Author: ${currentAuthorName()}`);
+        const doneMessage = `Saved ${saved} selected tune(s) to database • Author: ${currentAuthorName()}`;
+        dbStatus(doneMessage);
+        alert(doneMessage);
       }
     }catch(err){
       console.error(err);
@@ -1113,8 +1130,9 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   }
   $('setupFiles').addEventListener('change',e=>addFiles(e.target.files));
   $('setupFolder').addEventListener('change',e=>addFiles(e.target.files));
-  $('saveDb').addEventListener('click', () => openOwnershipModal());
+  $('saveDb').addEventListener('click', openSmartSaveModal);
   $('saveSelectedDb').addEventListener('click', openBulkOwnershipModal);
+  $('uploadSelectedSide').addEventListener('click', openBulkOwnershipModal);
   $('selectAllTunes').addEventListener('click', () => { tunes.forEach((_,i)=>selectedTuneIndexes.add(i)); renderTabs(); });
   $('clearSelectedTunes').addEventListener('click', () => { selectedTuneIndexes.clear(); renderTabs(); });
   $('confirmSaveDb').addEventListener('click', saveActiveTuneToDatabase);
