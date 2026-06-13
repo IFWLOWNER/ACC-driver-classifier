@@ -98,6 +98,9 @@
   .authorLocked{background:#0f1f13;border:1px solid #1f6b3b;color:#c7ffd9;padding:12px;text-align:left;font-weight:900;margin:12px 0;}
   .confirmRow{display:flex;gap:10px;align-items:flex-start;text-align:left;color:#eee;font-size:14px;line-height:1.4;margin:12px 0;}
   .confirmRow input{margin-top:3px;transform:scale(1.2);}
+  .upgradeText{background:#2d0d0d;border-left:4px solid #ff4b4b;color:#ffd0d0;padding:14px;text-align:left;line-height:1.45;font-size:14px;margin:12px 0;}
+  .upgradeActions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  .upgradeActions a{text-decoration:none;}
 
   @media(max-width:1100px){.grid{grid-template-columns:1fr}.side{position:relative}.sheet{transform-origin:top left}.sectionNav{font-size:15px;gap:7px}.topbar{display:block}.toolbar{justify-content:flex-start;margin-top:14px}}
 </style>
@@ -206,6 +209,20 @@
       <span>I confirm that I am the owner of this tune file, that it is unique/user-edited, and that I accept responsibility for the upload.</span>
     </label>
     <button id="confirmSaveDb" class="primary" type="button">Confirm and save to database</button>
+  </div>
+</div>
+
+<div id="upgradeModal" class="dbModal">
+  <div class="dbPanel">
+    <div class="dbHead">
+      <h2>Download limit reached</h2>
+      <button id="closeUpgrade" class="ghost" type="button">Close</button>
+    </div>
+    <div id="upgradeMessage" class="upgradeText">You have used your available tune downloads for this 30 day period.</div>
+    <div class="upgradeActions">
+      <a class="primary" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="padding:13px 18px;font-weight:900;text-transform:uppercase;color:#fff;">Upgrade Patreon</a>
+      <button id="closeUpgrade2" class="ghost" type="button">Not now</button>
+    </div>
   </div>
 </div>
 
@@ -516,6 +533,12 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     const modal = $('ownershipModal');
     if(modal) modal.style.display = show ? 'flex' : 'none';
   }
+  function showUpgradeModal(message){
+    const modal = $('upgradeModal');
+    const msg = $('upgradeMessage');
+    if(msg) msg.textContent = message || 'You have used your available tune downloads for this 30 day period. Upgrade your IFWL Patreon tier to unlock more tunes.';
+    if(modal) modal.style.display = 'flex';
+  }
   function openOwnershipModal(){
     if(active < 0 || !tunes[active]){ dbStatus('Load or create a tune before saving to database.', true); return; }
     const author = $('ownershipAuthor');
@@ -624,7 +647,14 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       if(list) list.insertAdjacentHTML('afterbegin', '<div class="dbEmpty">Downloading tune and checking allowance...</div>');
       const res = await fetch(backendUrl() + `?patreonTuneGet=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`, {cache:'no-store'});
       const data = await res.json();
-      if(!res.ok || !data.ok) throw new Error(data.message || data.error || 'Download denied');
+      if(!res.ok || !data.ok){
+        const msg = data.message || data.error || 'Download denied';
+        if(data.upgradePrompt || data.allowed === false || data.downloadGranted === false || data.patreonDownloadGranted === false){
+          showUpgradeModal(msg);
+          if(data && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data);
+        }
+        throw new Error(msg);
+      }
       const tune = data.tune;
       tunes.push(tune);
       active = tunes.length - 1;
@@ -641,6 +671,8 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('saveDb').addEventListener('click', openOwnershipModal);
   $('confirmSaveDb').addEventListener('click', saveActiveTuneToDatabase);
   $('closeOwnership').addEventListener('click', () => ownershipModal(false));
+  $('closeUpgrade').addEventListener('click', () => $('upgradeModal').style.display='none');
+  $('closeUpgrade2').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('loadDb').addEventListener('click', openDatabaseTunes);
   $('closeDb').addEventListener('click', () => dbModal(false));
   $('dbTrackFilter').addEventListener('change', applyDbFilters);
