@@ -80,6 +80,21 @@
   .patreonError{background:#2d0d0d;border-left:4px solid #ff4b4b;color:#ffd0d0;padding:12px 14px;text-align:left;margin-top:14px;font-size:13px;line-height:1.45;display:none;}
   .patreonGrantedBar{display:none;margin:-4px 0 14px;padding:10px 12px;background:#0d2214;border:1px solid #1f6b3b;color:#c7ffd9;font-size:13px;font-weight:800;text-transform:uppercase;}
 
+
+  .dbModal{position:fixed;inset:0;background:#000c;z-index:9999;display:none;align-items:center;justify-content:center;padding:24px;}
+  .dbPanel{width:min(920px,100%);max-height:86vh;overflow:auto;background:#0b0b0b;border:2px solid #666;box-shadow:0 30px 90px #000;padding:18px;}
+  .dbHead{display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid #333;padding-bottom:12px;margin-bottom:12px;}
+  .dbHead h2{margin:0;text-transform:uppercase;font-size:22px;letter-spacing:.04em;}
+  .dbList{display:grid;gap:10px;}
+  .dbRow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;border:1px solid #444;background:#111;padding:12px;}
+  .dbTitle{font-weight:900;text-transform:uppercase;letter-spacing:.03em;}
+  .dbMeta{font-size:12px;color:#aaa;margin-top:4px;line-height:1.45;}
+  .dbEmpty{border:1px dashed #666;padding:18px;text-align:center;color:#aaa;}
+  .ownershipText{background:#241a05;border-left:4px solid var(--gold);color:#ffe8a5;padding:14px;text-align:left;line-height:1.45;font-size:14px;margin:12px 0;}
+  .authorLocked{background:#0f1f13;border:1px solid #1f6b3b;color:#c7ffd9;padding:12px;text-align:left;font-weight:900;margin:12px 0;}
+  .confirmRow{display:flex;gap:10px;align-items:flex-start;text-align:left;color:#eee;font-size:14px;line-height:1.4;margin:12px 0;}
+  .confirmRow input{margin-top:3px;transform:scale(1.2);}
+
   @media(max-width:1100px){.grid{grid-template-columns:1fr}.side{position:relative}.sheet{transform-origin:top left}.sectionNav{font-size:15px;gap:7px}.topbar{display:block}.toolbar{justify-content:flex-start;margin-top:14px}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -108,6 +123,8 @@
     <div class="toolbar">
       <label class="file-label primary" for="setupFiles">Add tune JSON</label><input id="setupFiles" type="file" accept=".json,application/json" multiple>
       <button id="addManual" class="ghost" type="button">Blank console tune</button>
+      <button id="saveDb" class="ghost" type="button">Save to database</button>
+      <button id="loadDb" class="ghost" type="button">Download from database</button>
       <button id="copyPng" class="primary" type="button">Copy tune image</button>
       <button id="downloadPng" type="button">Download tune PNG</button>
       <button id="downloadFullPng" class="ghost" type="button">Download long tune PNG</button>
@@ -148,6 +165,35 @@
     <main id="captureWrap"><div id="sheet" class="sheet"><div class="empty"><div><strong>No tune loaded</strong>Drop one or more ACC setup JSON files, or create a blank console tune.</div></div></div></main>
   </div>
 </div>
+
+<div id="dbModal" class="dbModal">
+  <div class="dbPanel">
+    <div class="dbHead">
+      <h2>IFWL Tune Database</h2>
+      <button id="closeDb" class="ghost" type="button">Close</button>
+    </div>
+    <div id="dbList" class="dbList"><div class="dbEmpty">Loading tunes...</div></div>
+  </div>
+</div>
+
+<div id="ownershipModal" class="dbModal">
+  <div class="dbPanel">
+    <div class="dbHead">
+      <h2>Confirm tune ownership</h2>
+      <button id="closeOwnership" class="ghost" type="button">Cancel</button>
+    </div>
+    <div class="authorLocked">Author saved as: <span id="ownershipAuthor">Discord user</span></div>
+    <div class="ownershipText">
+      IFWL does not allow hosting of files from other third-party distributors. We require unique, user-edited files only. Before uploading to the database, you must confirm that you are the owner of this file. If required, you may be held responsible for any unauthorised uploads of third-party content.
+    </div>
+    <label class="confirmRow">
+      <input id="ownershipCheck" type="checkbox">
+      <span>I confirm that I am the owner of this tune file, that it is unique/user-edited, and that I accept responsibility for the upload.</span>
+    </label>
+    <button id="confirmSaveDb" class="primary" type="button">Confirm and save to database</button>
+  </div>
+</div>
+
 <canvas id="workCanvas" class="hiddenCanvas"></canvas>
 
 <script>
@@ -167,6 +213,8 @@ const IFWL_PATREON_GATE = {
     ops: { id:"1285573242534363177", bypass:true, label:"Ops Team" }
   }
 };
+window.IFWL_PATREON_BACKEND = IFWL_PATREON_GATE.FUNCTION;
+window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
 
 (function(){
   const gate = document.getElementById('patreonGate');
@@ -225,6 +273,7 @@ const IFWL_PATREON_GATE = {
     accessBar.textContent = text;
     accessBar.style.display='block';
   }
+  window.IFWL_updatePatreonAccessBar = updateAccessBar;
   function showApp(meta){
     window.IFWL_PATREON_GRANTED = true;
     window.IFWL_PATREON_META = meta || {};
@@ -429,7 +478,122 @@ const IFWL_PATREON_GATE = {
     if(ok && active<0) active=0; else if(ok) active=tunes.length-ok;
     syncFields(); renderTabs(); renderSheet(); $('status').textContent = ok ? `${ok} tune(s) loaded.` : ''; if(bad) $('status').innerHTML += ` <span class="danger">${bad} file(s) failed.</span>`;
   }
+  function backendUrl(){
+    return window.IFWL_PATREON_BACKEND || "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
+  }
+  function sessionToken(){
+    return localStorage.getItem(window.IFWL_PATREON_SESSION_KEY || "IFWL_PATREON_SESSION") || "";
+  }
+  function dbModal(show){
+    const modal = $('dbModal');
+    if(modal) modal.style.display = show ? 'flex' : 'none';
+  }
+  function dbStatus(message, isError=false){
+    const status = $('status');
+    if(status) status.innerHTML = isError ? `<span class="danger">${message}</span>` : message;
+  }
+  function currentAuthorName(){
+    const meta = window.IFWL_PATREON_META || {};
+    return meta.nick || meta.globalName || meta.global_name || meta.username || 'Discord user';
+  }
+  function ownershipModal(show){
+    const modal = $('ownershipModal');
+    if(modal) modal.style.display = show ? 'flex' : 'none';
+  }
+  function openOwnershipModal(){
+    if(active < 0 || !tunes[active]){ dbStatus('Load or create a tune before saving to database.', true); return; }
+    const author = $('ownershipAuthor');
+    const check = $('ownershipCheck');
+    if(author) author.textContent = currentAuthorName();
+    if(check) check.checked = false;
+    ownershipModal(true);
+  }
+  async function saveActiveTuneToDatabase(){
+    if(active < 0 || !tunes[active]){ dbStatus('Load or create a tune before saving to database.', true); return; }
+    const token = sessionToken();
+    if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
+    const check = $('ownershipCheck');
+    if(check && !check.checked){ dbStatus('You must confirm tune ownership before saving to database.', true); return; }
+    try{
+      dbStatus('Saving tune to database...');
+      const res = await fetch(backendUrl() + `?patreonTuneSave=1&token=${encodeURIComponent(token)}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ tune:tunes[active], ownershipConfirmed:true })
+      });
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Save failed');
+      tunes[active].dbId = data.id;
+      ownershipModal(false);
+      dbStatus(`Saved to database: ${data.title || tunes[active].title || 'IFWL Tune'} • Author: ${data.authorName || currentAuthorName()}`);
+    }catch(err){
+      console.error(err);
+      dbStatus(err.message || err, true);
+    }
+  }
+  async function openDatabaseTunes(){
+    const token = sessionToken();
+    if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
+    dbModal(true);
+    const list = $('dbList');
+    if(list) list.innerHTML = '<div class="dbEmpty">Loading tunes from database...</div>';
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneList=1&token=${encodeURIComponent(token)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load database tunes');
+      renderDatabaseList(data.tunes || []);
+      if(data.patreonStatus && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data.patreonStatus);
+    }catch(err){
+      console.error(err);
+      if(list) list.innerHTML = `<div class="dbEmpty danger">${err.message || err}</div>`;
+    }
+  }
+  function renderDatabaseList(rows){
+    const list = $('dbList');
+    if(!list) return;
+    if(!rows.length){ list.innerHTML = '<div class="dbEmpty">No tunes saved in the database yet.</div>'; return; }
+    list.innerHTML = rows.map(t => `
+      <div class="dbRow">
+        <div>
+          <div class="dbTitle">${safe(t.title || 'IFWL Tune')}</div>
+          <div class="dbMeta">
+            ${safe(t.car || '')} ${t.car ? '•' : ''} ${safe(t.track || '')} ${t.track ? '•' : ''} ${safe(t.session || '')}<br>
+            Author: ${safe(t.authorName || t.createdBy?.authorName || t.createdBy?.nick || t.createdBy?.username || 'IFWL')}<br>
+            Platform: ${safe(t.platform || '—')} • Downloads: ${safe(t.downloadCount || 0)}
+          </div>
+        </div>
+        <button class="primary dbDownload" type="button" data-id="${safe(t.id)}">Download tune</button>
+      </div>
+    `).join('');
+    document.querySelectorAll('.dbDownload').forEach(btn => btn.addEventListener('click', () => downloadTuneFromDatabase(btn.dataset.id)));
+  }
+  async function downloadTuneFromDatabase(id){
+    const token = sessionToken();
+    if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
+    const list = $('dbList');
+    try{
+      if(list) list.insertAdjacentHTML('afterbegin', '<div class="dbEmpty">Downloading tune and checking allowance...</div>');
+      const res = await fetch(backendUrl() + `?patreonTuneGet=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.message || data.error || 'Download denied');
+      const tune = data.tune;
+      tunes.push(tune);
+      active = tunes.length - 1;
+      syncFields(); renderTabs(); renderSheet(); dbModal(false);
+      if(data.downloadStatus && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data.downloadStatus);
+      dbStatus(`Downloaded from database: ${tune.title || tune.name || 'IFWL Tune'}`);
+    }catch(err){
+      console.error(err);
+      dbStatus(err.message || err, true);
+      if(list) await openDatabaseTunes();
+    }
+  }
   $('setupFiles').addEventListener('change',e=>addFiles(e.target.files));
+  $('saveDb').addEventListener('click', openOwnershipModal);
+  $('confirmSaveDb').addEventListener('click', saveActiveTuneToDatabase);
+  $('closeOwnership').addEventListener('click', () => ownershipModal(false));
+  $('loadDb').addEventListener('click', openDatabaseTunes);
+  $('closeDb').addEventListener('click', () => dbModal(false));
   $('addManual').addEventListener('click',()=>{ tunes.push(blankTune()); active=tunes.length-1; syncFields(); renderTabs(); renderSheet(); $('status').textContent='Blank console tune added.'; });
   const dz=$('dropZone'); ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag')})); ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag')})); dz.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
   $('refFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const img=$('refPreview'); img.src=URL.createObjectURL(f); img.style.display='block'; });
@@ -548,7 +712,6 @@ const IFWL_PATREON_GATE = {
   }
   $('downloadPng').addEventListener('click',async()=>{
     if(active<0) return;
-    if(window.IFWL_requireDownloadPermission && !(await window.IFWL_requireDownloadPermission('tune_png'))) return;
     try{
       $('status').textContent='Rendering tune PNG...';
       const blob=await nodeBlob($('sheet'));
@@ -561,7 +724,6 @@ const IFWL_PATREON_GATE = {
   });
   $('downloadFullPng').addEventListener('click',async()=>{
     try{
-      if(window.IFWL_requireDownloadPermission && !(await window.IFWL_requireDownloadPermission('long_tune_png'))) return;
       $('status').textContent='Rendering long tune PNG...';
       const blob=await longTuneBlob();
       triggerBlobDownload(blob, ((tunes[active]?.title)||'IFWL_ACC_Tune').replace(/[^a-z0-9]+/gi,'_')+'_long_tune.png');
@@ -573,7 +735,6 @@ const IFWL_PATREON_GATE = {
   });
   $('copyPng').addEventListener('click',async()=>{
     if(active<0) return;
-    if(window.IFWL_requireDownloadPermission && !(await window.IFWL_requireDownloadPermission('copy_tune_png'))) return;
     try{
       $('status').textContent='Rendering image for clipboard...';
       const blob=await nodeBlob($('sheet'));
