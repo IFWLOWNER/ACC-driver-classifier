@@ -240,7 +240,7 @@
     <aside class="side">
       <div class="box">
         <h2>1. Add files</h2>
-        <div id="dropZone" class="drop"><div><strong>Drop setup JSON files or a track folder here</strong><br><span class="small">You can add multiple tunes, or drop/select a folder named after the track, such as watkins_glen.</span></div></div>
+        <div id="dropZone" class="drop"><div><strong>Drop setup JSON files or a track folder here</strong><br><span class="small">You can add multiple tunes, or drop/select a folder named after the track, such as brands_hatch, zolder or red_bull_ring.</span></div></div>
         <div class="folderHint"><b>Folder upload:</b> if you upload a folder named after an ACC track, every JSON inside will be loaded with that track selected automatically. Tick the tunes you want, then use <b>Save selected to database</b>.</div>
         <div class="warning">Console screenshots cannot be read perfectly in a plain offline HTML page. Use <b>Blank console tune</b>, then type/copy the values from the image into the editable cards. The main export is the tune sheet on the right. Exports render as long PNG files for Discord posting, and the long tune export excludes the left-side controls and uses an auto-tight crop to the tune sheet width.</div>
       </div>
@@ -633,7 +633,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     return String(value || '')
       .toLowerCase()
       .replace(/[_-]+/g, ' ')
-      .replace(/(acc|setup|setups|tunes|tune|json|dry|wet|race|quali|qualy|q)/g, ' ')
+      .replace(/\b(acc|setup|setups|tunes|tune|json|dry|wet|race|quali|qualy|q)\b/g, ' ')
       .replace(/[^a-z0-9 ]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -654,12 +654,21 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   }
   function inferTrackFromFile(file){
     const rel = String(file?.webkitRelativePath || file?.relativePath || file?.path || '');
-    if(rel){
-      const topFolder = rel.split('/').filter(Boolean)[0] || '';
-      const fromFolder = inferTrackFromName(topFolder);
-      if(fromFolder) return fromFolder;
+    const parts = rel ? rel.split('/').filter(Boolean) : [];
+    if(file?.name && !parts.includes(file.name)) parts.push(file.name);
+
+    // Scan every folder/file segment, not just the first folder.
+    // This supports both:
+    //   Brands Hatch/file.json
+    // and nested car folders like:
+    //   porsche_992_gt3_r/Brands Hatch/file.json
+    for(const part of parts){
+      const match = inferTrackFromName(part.replace(/\.json$/i, ''));
+      if(match) return match;
     }
-    return inferTrackFromName(file?.name || '');
+
+    // Final fallback: check the complete path as one string.
+    return inferTrackFromName(rel || file?.name || '');
   }
   function fileBase(name){ return name.replace(/\.json$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim(); }
   function prettyCar(car){ return safe(car).replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); }
