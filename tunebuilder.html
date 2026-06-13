@@ -79,6 +79,10 @@
   .patreonActions .patreonBtn{background:#e85b46;border-color:#e85b46;}
   .patreonError{background:#2d0d0d;border-left:4px solid #ff4b4b;color:#ffd0d0;padding:12px 14px;text-align:left;margin-top:14px;font-size:13px;line-height:1.45;display:none;}
   .patreonGrantedBar{display:none;margin:-4px 0 14px;padding:10px 12px;background:#0d2214;border:1px solid #1f6b3b;color:#c7ffd9;font-size:13px;font-weight:800;text-transform:uppercase;}
+  .quickDetails{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) minmax(170px,.6fr) minmax(170px,.6fr);gap:10px;margin:-2px 0 14px;padding:12px;background:#101010;border:1px solid #444;}
+  .quickField{display:grid;gap:5px;}
+  .quickField label{font-size:11px;color:#aaa;text-transform:uppercase;font-weight:900;letter-spacing:.04em;}
+  .quickField input,.quickField select{width:100%;background:#050505;border:1px solid #555;color:#fff;padding:10px;font-weight:800;}
 
 
   .dbModal{position:fixed;inset:0;background:#000c;z-index:9999;display:none;align-items:center;justify-content:center;padding:24px;}
@@ -139,6 +143,12 @@
     </div>
   </div>
   <div id="patreonGrantedBar" class="patreonGrantedBar"></div>
+  <div class="quickDetails">
+    <div class="quickField"><label for="titleInputTop">Tune title</label><input id="titleInputTop" type="text" placeholder="LFM Race Dry"></div>
+    <div class="quickField"><label for="topTrackInput">Track</label><select id="topTrackInput"></select></div>
+    <div class="quickField"><label for="sessionInputTop">Session</label><select id="sessionInputTop"><option>Race Dry</option><option>Quali Dry</option><option>Race Wet</option><option>Quali Wet</option><option>Practice</option><option>Custom</option></select></div>
+    <div class="quickField"><label for="platformInputTop">Platform</label><select id="platformInputTop"><option>PC</option><option>Console</option><option>PC + Console</option></select></div>
+  </div>
   <div class="toolbarNote"><b>Note:</b> the blue section tabs inside the tune sheet are now clickable. <b>Download tune PNG</b> exports the tune sheet only. <b>Download long tune PNG</b> exports the full long tune sheet only, using an auto-tight crop so there is no left-side controls and no wasted right-side space.</div>
   <div class="grid">
     <aside class="side">
@@ -155,7 +165,7 @@
         <h2>3. Tune details</h2>
         <div class="fields">
           <div class="field"><label>Display title</label><input id="titleInput" type="text" placeholder="LFM Race Dry"></div>
-          <div class="field"><label>Track</label><input id="trackInput" type="text" placeholder="Silverstone / Monza / Spa"></div>
+          <div class="field"><label>Track</label><select id="trackInput"></select></div>
           <div class="field"><label>Session</label><select id="sessionInput"><option>Race Dry</option><option>Quali Dry</option><option>Race Wet</option><option>Quali Wet</option><option>Practice</option><option>Custom</option></select></div>
           <div class="field"><label>Platform</label><select id="platformInput"><option>PC</option><option>Console</option><option>PC + Console</option></select></div>
           <div class="field"><label>Notes</label><input id="notesInput" type="text" placeholder="Safe stable race setup / aggressive quali setup"></div>
@@ -238,9 +248,9 @@ const IFWL_PATREON_GATE = {
   PATREON_URL: "https://www.patreon.com/c/IFWL",
   DENIED_TEXT: "you are not showing as a patreon in IFWL, ensure you have linked your discord to your patreon account via the patreon settings page, if you havent yet joined IFWL patreons, do so here : https://www.patreon.com/c/IFWL",
   ROLES: {
-    bronze: { id:"1299446348843712512", limit:1, label:"Bronze" },
+    bronze: { id:"1300001061896982640", limit:1, label:"Bronze" },
     silver: { id:"1300000880204189757", limit:2, label:"Silver" },
-    gold: { id:"1300001061896982640", limit:10, label:"Gold" },
+    gold: { id:"1299446348843712512", limit:10, label:"Gold" },
     owner: { id:"1164536220387385364", bypass:true, label:"Owner" },
     ops: { id:"1285573242534363177", bypass:true, label:"Ops Team" }
   }
@@ -419,6 +429,34 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
 (() => {
   const WHEEL = ['LF','RF','LR','RR'];
   const WHEEL_LONG = {LF:'Left Front',RF:'Right Front',LR:'Left Rear',RR:'Right Rear'};
+  const ACC_TRACKS = [
+    'Barcelona',
+    'Brands Hatch',
+    'Circuit of the Americas',
+    'Donington Park',
+    'Hungaroring',
+    'Imola',
+    'Indianapolis',
+    'Kyalami',
+    'Laguna Seca',
+    'Misano',
+    'Monza',
+    'Mount Panorama',
+    'Nordschleife',
+    'Nürburgring',
+    'Nürburgring 24H',
+    'Oulton Park',
+    'Paul Ricard',
+    'Red Bull Ring',
+    'Silverstone',
+    'Snetterton',
+    'Spa-Francorchamps',
+    'Suzuka',
+    'Valencia',
+    'Watkins Glen',
+    'Zandvoort',
+    'Zolder'
+  ];
   let tunes = [];
   let active = -1;
   let dbRows = [];
@@ -426,6 +464,10 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   const fmt = (n, d=1) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—';
   const get = (obj, path, fallback=null) => path.split('.').reduce((o,k)=> (o && o[k]!==undefined ? o[k] : undefined), obj) ?? fallback;
   const safe = v => (v===undefined || v===null || v==='') ? '—' : String(v);
+  function populateTrackSelects(){
+    const options = '<option value="">Select track...</option>' + ACC_TRACKS.map(t => `<option value="${t}">${t}</option>`).join('');
+    ['trackInput','topTrackInput'].forEach(id => { const el = $(id); if(el) el.innerHTML = options; });
+  }
   function fileBase(name){ return name.replace(/\.json$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim(); }
   function prettyCar(car){ return safe(car).replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); }
   function pressure(v){ return Number.isFinite(Number(v)) ? (20 + Number(v)/10).toFixed(1) + ' psi' : '—'; }
@@ -500,8 +542,29 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function syncFields(){
     const t=tunes[active];
     ['title','track','session','platform','notes'].forEach(k=>{ const el=$(k+'Input'); if(el) el.value=t ? (t[k]||'') : ''; });
+    if($('titleInputTop')) $('titleInputTop').value = t ? (t.title || '') : '';
+    if($('topTrackInput')) $('topTrackInput').value = t ? (t.track || '') : '';
+    if($('sessionInputTop')) $('sessionInputTop').value = t ? (t.session || '') : '';
+    if($('platformInputTop')) $('platformInputTop').value = t ? (t.platform || '') : '';
   }
-  ['title','track','session','platform','notes'].forEach(k=>$(k+'Input').addEventListener('input',e=>{ if(active>-1){ tunes[active][k]=e.target.value; renderTabs(); renderSheet(); }}));
+  function updateTuneField(k, value){
+    if(active<0) return;
+    tunes[active][k] = value;
+    if(k==='title' && $('titleInputTop')) $('titleInputTop').value = value;
+    if(k==='title' && $('titleInput')) $('titleInput').value = value;
+    if(k==='track' && $('topTrackInput')) $('topTrackInput').value = value;
+    if(k==='track' && $('trackInput')) $('trackInput').value = value;
+    if(k==='session' && $('sessionInputTop')) $('sessionInputTop').value = value;
+    if(k==='session' && $('sessionInput')) $('sessionInput').value = value;
+    if(k==='platform' && $('platformInputTop')) $('platformInputTop').value = value;
+    if(k==='platform' && $('platformInput')) $('platformInput').value = value;
+    renderTabs(); renderSheet();
+  }
+  ['title','track','session','platform','notes'].forEach(k=>$(k+'Input').addEventListener('input',e=>updateTuneField(k,e.target.value)));
+  $('titleInputTop').addEventListener('input',e=>updateTuneField('title',e.target.value));
+  $('topTrackInput').addEventListener('input',e=>updateTuneField('track',e.target.value));
+  $('sessionInputTop').addEventListener('input',e=>updateTuneField('session',e.target.value));
+  $('platformInputTop').addEventListener('input',e=>updateTuneField('platform',e.target.value));
   async function addFiles(files){
     let ok=0, bad=0;
     for(const f of files){
@@ -541,6 +604,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   }
   function openOwnershipModal(){
     if(active < 0 || !tunes[active]){ dbStatus('Load or create a tune before saving to database.', true); return; }
+    if(!tunes[active].track){ dbStatus('Please select a track before saving to database.', true); $('topTrackInput')?.focus(); return; }
     const author = $('ownershipAuthor');
     const check = $('ownershipCheck');
     if(author) author.textContent = currentAuthorName();
@@ -829,6 +893,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       $('status').innerHTML='<span class="danger">Copy failed in this browser. Use Download tune PNG instead.</span>';
     }
   });
+  populateTrackSelects();
   renderTabs(); renderSheet();
 })();
 </script>
