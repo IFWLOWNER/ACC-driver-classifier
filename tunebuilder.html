@@ -46,6 +46,9 @@
   .bulkTools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
   .bulkTools button{font-size:12px;padding:9px 8px;min-height:38px;}
   .folderHint{margin-top:10px;border-left:4px solid var(--blue);padding:10px 12px;background:#071824;color:#c8edff;font-size:12px;line-height:1.45;}
+  .prohibitedBox{display:none;margin-top:10px;border-left:4px solid #ff4b4b;padding:10px 12px;background:#2d0d0d;color:#ffd0d0;font-size:12px;line-height:1.45;}
+  .prohibitedBox b{color:#fff;}
+  .prohibitedBox ul{margin:6px 0 0 18px;padding:0;max-height:120px;overflow:auto;}
   .fields{display:grid;gap:8px;}
   .field{display:grid;gap:5px;}
   .field label{font-size:11px;color:#aaa;text-transform:uppercase;font-weight:800;}
@@ -607,6 +610,36 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     'Zandvoort',
     'Zolder'
   ];
+  const TRACK_ALIASES = {
+    'cota':'Circuit of the Americas',
+    'circuit americas':'Circuit of the Americas',
+    'circuit of americas':'Circuit of the Americas',
+    'circuit of the americas':'Circuit of the Americas',
+    'america':'Circuit of the Americas',
+    'americas':'Circuit of the Americas',
+    'nurburgring':'Nürburgring',
+    'nurburgring gp':'Nürburgring',
+    'nuerburgring':'Nürburgring',
+    'nuerburgring gp':'Nürburgring',
+    'nurburgring24':'Nürburgring 24H',
+    'nurburgring 24':'Nürburgring 24H',
+    'nurburgring 24h':'Nürburgring 24H',
+    'n24':'Nürburgring 24H',
+    'nordschleife':'Nordschleife',
+    'redbullring':'Red Bull Ring',
+    'red bull':'Red Bull Ring',
+    'brands':'Brands Hatch',
+    'brands hatch':'Brands Hatch',
+    'bathurst':'Mount Panorama',
+    'mount panorama':'Mount Panorama',
+    'spa':'Spa-Francorchamps',
+    'spa francorchamps':'Spa-Francorchamps',
+    'watkins':'Watkins Glen',
+    'watkins glen':'Watkins Glen',
+    'paul ricard':'Paul Ricard',
+    'laguna':'Laguna Seca',
+    'laguna seca':'Laguna Seca'
+  };
   let tunes = [];
   let active = -1;
   let dbRows = [];
@@ -631,8 +664,11 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   }
   function normaliseTrackToken(value){
     return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[_-]+/g, ' ')
+      .replace(/\.(json|zip)$/g, ' ')
       .replace(/\b(acc|setup|setups|tunes|tune|json|dry|wet|race|quali|qualy|q)\b/g, ' ')
       .replace(/[^a-z0-9 ]+/g, ' ')
       .replace(/\s+/g, ' ')
@@ -641,8 +677,18 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function inferTrackFromName(value){
     const haystack = normaliseTrackToken(value);
     if(!haystack) return '';
+
+    if(TRACK_ALIASES[haystack]) return TRACK_ALIASES[haystack];
+
     let best = '';
     let bestLen = 0;
+    for(const [alias, track] of Object.entries(TRACK_ALIASES)){
+      const key = normaliseTrackToken(alias);
+      if(key && (haystack === key || haystack.includes(key) || key.includes(haystack)) && key.length > bestLen){
+        best = track;
+        bestLen = key.length;
+      }
+    }
     for(const track of ACC_TRACKS){
       const key = normaliseTrackToken(track);
       if(key && (haystack === key || haystack.includes(key) || key.includes(haystack)) && key.length > bestLen){
@@ -657,7 +703,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     const parts = rel ? rel.split('/').filter(Boolean) : [];
     if(file?.name && !parts.includes(file.name)) parts.push(file.name);
 
-    // Scan every folder/file segment, not just the first folder.
+    // Scan every folder/file segment, not just the first folder. Includes aliases like COTA -> Circuit of the Americas and nurburgring -> Nürburgring.
     // This supports both:
     //   Brands Hatch/file.json
     // and nested car folders like:
@@ -768,10 +814,34 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('topTrackInput').addEventListener('input',e=>updateTuneField('track',e.target.value));
   $('sessionInputTop').addEventListener('input',e=>updateTuneField('session',e.target.value));
   $('platformInputTop').addEventListener('input',e=>updateTuneField('platform',e.target.value));
+  function prohibitedTuneName(file){
+    const name = String(file?.webkitRelativePath || file?.relativePath || file?.path || file?.name || '');
+    return /(^|[^a-z0-9])(jadier|cda)([^a-z0-9]|$)/i.test(name) || /(jadier|cda)/i.test(name);
+  }
+  function showProhibitedBox(removed){
+    const box = $('prohibitedUploadBox');
+    if(!box) return;
+    if(!removed || !removed.length){ box.style.display='none'; box.innerHTML=''; return; }
+    const list = removed.slice(0, 20).map(name => `<li>${htmlSafe(name)}</li>`).join('');
+    const extra = removed.length > 20 ? `<li>...and ${removed.length - 20} more</li>` : '';
+    box.innerHTML = `<b>Prohibited tunes uploaded and removed:</b> ${removed.length}<ul>${list}${extra}</ul>`;
+    box.style.display = 'block';
+  }
   async function addFiles(files){
     let ok=0, bad=0;
+    const removed = [];
     const startIndex = tunes.length;
-    const fileList = Array.from(files || []).filter(f => /\.json$/i.test(f.name || ''));
+    const allFiles = Array.from(files || []);
+    const fileList = allFiles.filter(f => {
+      const isJson = /\.json$/i.test(f.name || '');
+      if(!isJson) return false;
+      if(prohibitedTuneName(f)){
+        removed.push(String(f.webkitRelativePath || f.relativePath || f.path || f.name || 'blocked file'));
+        return false;
+      }
+      return true;
+    });
+
     for(const f of fileList){
       try{
         const text=await f.text();
@@ -784,11 +854,16 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       }
       catch(err){ console.error(err); bad++; }
     }
+
     if(ok && active<0) active=0; else if(ok) active=startIndex;
     for(let i=startIndex;i<tunes.length;i++) selectedTuneIndexes.add(i);
     syncFields(); renderTabs(); renderSheet();
+    showProhibitedBox(removed);
+
     const firstTrack = ok ? tunes[startIndex]?.track : '';
-    $('status').textContent = ok ? `${ok} tune(s) loaded${firstTrack ? ` with track set to ${firstTrack}` : ''}.` : '';
+    let msg = ok ? `${ok} tune(s) loaded${firstTrack ? ` with track set to ${firstTrack}` : ''}.` : '';
+    if(removed.length) msg += ` Prohibited tunes uploaded and removed: ${removed.length}.`;
+    $('status').textContent = msg;
     if(bad) $('status').innerHTML += ` <span class="danger">${bad} file(s) failed.</span>`;
   }
   async function collectFilesFromEntry(entry, path=''){
