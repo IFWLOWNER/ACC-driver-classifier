@@ -79,6 +79,8 @@
   .patreonActions .patreonBtn{background:#e85b46;border-color:#e85b46;}
   .patreonError{background:#2d0d0d;border-left:4px solid #ff4b4b;color:#ffd0d0;padding:12px 14px;text-align:left;margin-top:14px;font-size:13px;line-height:1.45;display:none;}
   .patreonGrantedBar{display:none;margin:-4px 0 14px;padding:10px 12px;background:#0d2214;border:1px solid #1f6b3b;color:#c7ffd9;font-size:13px;font-weight:800;text-transform:uppercase;}
+  .databaseQuote{margin:14px auto 0;max-width:620px;background:#101010;border:1px solid #444;padding:12px 14px;color:#f5f5f5;font-weight:900;text-transform:uppercase;letter-spacing:.03em;line-height:1.45;}
+  .databaseQuote span{color:var(--red);}
   .quickDetails{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) minmax(170px,.6fr) minmax(170px,.6fr);gap:10px;margin:-2px 0 14px;padding:12px;background:#101010;border:1px solid #444;}
   .quickField{display:grid;gap:5px;}
   .quickField label{font-size:11px;color:#aaa;text-transform:uppercase;font-weight:900;letter-spacing:.04em;}
@@ -178,6 +180,7 @@
       <div class="patreonRole">Silver<span>2 tune downloads / 30 days</span></div>
       <div class="patreonRole">Gold<span>10 tune downloads / 30 days</span></div>
     </div>
+    <div id="databaseCountQuote" class="databaseQuote">IFWL database is loading tune count...</div>
     <div id="patreonGateError" class="patreonError"></div>
     <div class="patreonActions">
       <button id="patreonDiscordLoginBtn" class="discordBtn" type="button">Login with Discord</button>
@@ -406,6 +409,21 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function isPatreonGranted(data){
     return !!(data && (data.patreonGranted || data.patreonAccessGranted || data.patreonDownloadAccess || data.staffBypass));
   }
+  async function loadDatabaseTuneCount(){
+    const el = document.getElementById('databaseCountQuote');
+    if(!el) return;
+    try{
+      const r = await fetch(IFWL_PATREON_GATE.FUNCTION + '?patreonTuneCount=1', {cache:'no-store'});
+      const data = await r.json();
+      if(data && data.ok){
+        const count = Number(data.tuneCount || 0).toLocaleString();
+        el.innerHTML = `IFWL database currently holds <span>${count}</span> tune${Number(data.tuneCount || 0) === 1 ? '' : 's'} and is always expanding!`;
+      }
+    }catch(e){
+      console.warn('Tune count unavailable', e);
+      el.textContent = 'IFWL database is always expanding!';
+    }
+  }
   async function handleCallback(){
     const params = new URLSearchParams(location.search);
     const code = params.get('code');
@@ -463,6 +481,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   if(logoutBtn) logoutBtn.addEventListener('click', logout);
 
   (async function init(){
+    loadDatabaseTuneCount();
     try{
       const handled = await handleCallback();
       if(handled) return;
