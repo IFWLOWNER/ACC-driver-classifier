@@ -196,7 +196,7 @@
   <div class="patreonCard">
     <div class="patreonLogo">IFWL</div>
     <h2 id="patreonGateTitle">Patreon Tune Access</h2>
-    <p id="patreonGateMessage">Login with Discord. Bronze, Silver and Gold IFWL Patreons can access tune downloads, with limits applied every 30 days.</p>
+    <p id="patreonGateMessage">Login with Discord. IFWL Active Racers can upload and review community tunes. Bronze, Silver and Gold IFWL Patreons can also download tunes, with limits applied every 30 days.</p>
     <div class="patreonRoles">
       <div class="patreonRole">Bronze<span>1 tune download / 30 days</span></div>
       <div class="patreonRole">Silver<span>2 tune downloads / 30 days</span></div>
@@ -369,6 +369,7 @@ const IFWL_PATREON_GATE = {
     bronze: { id:"1300001061896982640", limit:1, label:"Bronze" },
     silver: { id:"1300000880204189757", limit:2, label:"Silver" },
     gold: { id:"1299446348843712512", limit:10, label:"Gold" },
+    activeRacer: { id:"1166713466917224449", uploadOnly:true, label:"IFWL Active Racer" },
     owner: { id:"1164536220387385364", bypass:true, label:"Owner" },
     ops: { id:"1285573242534363177", bypass:true, label:"Ops Team" }
   }
@@ -404,12 +405,12 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     showError('');
     if(accessBar) accessBar.style.display='none';
     if(mode === 'denied'){
-      title.textContent = 'Patreon access required';
+      title.textContent = 'IFWL access required';
       msg.textContent = IFWL_PATREON_GATE.DENIED_TEXT;
-      showError('Access denied: Bronze, Silver, Gold, Owner or Ops role not found.');
+      showError('Access denied: IFWL Active Racer, Bronze, Silver, Gold, Owner or Ops role not found.');
     } else {
-      title.textContent = 'Patreon Tune Access';
-      msg.textContent = 'Login with Discord. Bronze, Silver and Gold IFWL Patreons can access tune downloads, with limits applied every 30 days.';
+      title.textContent = 'IFWL Tune Access';
+      msg.textContent = 'Login with Discord. Active Racers can upload/review tunes. Patreon members can also download tunes.';
     }
   }
   function tierLimit(tier){
@@ -422,6 +423,13 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   }
   function updateAccessBar(meta){
     if(!accessBar) return;
+    const canDownload = !!(meta?.patreonGranted || meta?.patreonAccessGranted || meta?.staffBypass || meta?.canDownloadTunes);
+    const uploadOnly = !!(meta?.uploadOnlyAccess || meta?.activeRacer) && !canDownload;
+    if(uploadOnly){
+      accessBar.textContent = 'IFWL Active Racer access granted: upload and review enabled • Tune downloads require Bronze/Silver/Gold Patreon';
+      accessBar.style.display='block';
+      return;
+    }
     const tier = meta?.patreonTier || meta?.tier || meta?.role || 'Patreon';
     const remaining = meta?.downloadsRemaining ?? meta?.remaining ?? null;
     const used = meta?.downloadsUsed ?? meta?.used ?? null;
@@ -465,7 +473,11 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     return r.json();
   }
   function isPatreonGranted(data){
-    return !!(data && (data.patreonGranted || data.patreonAccessGranted || data.patreonDownloadAccess || data.staffBypass));
+    return !!(data && (data.patreonGranted || data.patreonAccessGranted || data.patreonDownloadAccess || data.staffBypass || data.activeRacer || data.tuneBuilderAccess || data.canUploadTunes || data.canReviewTunes));
+  }
+  function canDownloadDatabaseTunes(){
+    const meta = window.IFWL_PATREON_META || {};
+    return !!(meta.patreonGranted || meta.patreonAccessGranted || meta.patreonDownloadAccess || meta.staffBypass || meta.canDownloadTunes);
   }
   async function loadDatabaseTuneCount(){
     const el = document.getElementById('databaseCountQuote');
@@ -489,7 +501,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     if(error){ showGate('denied'); showError(`Discord login error: ${error}`); return; }
     if(!code) return false;
 
-    title.textContent = 'Checking Patreon access...';
+    title.textContent = 'Checking IFWL access...';
     msg.textContent = 'Please wait while IFWL checks your Discord roles.';
     showError('');
 
@@ -898,7 +910,6 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     const token = sessionToken();
     if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
     setDbMode('mine');
-    setDbMode('all');
     dbModal(true);
     const list = $('dbList');
     if(list) list.innerHTML = '<div class="dbEmpty">Loading your downloaded tunes...</div>';
@@ -916,6 +927,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   async function openDatabaseTunes(){
     const token = sessionToken();
     if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
+    setDbMode('all');
     dbModal(true);
     const list = $('dbList');
     if(list) list.innerHTML = '<div class="dbEmpty">Loading tunes from database...</div>';
@@ -982,7 +994,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
         </div>
         <div class="dbActions">
           <button class="ghost dbReviews" type="button" data-id="${htmlSafe(t.id)}" data-title="${htmlSafe(t.title || 'IFWL Tune')}">Reviews</button>
-          <button class="primary dbDownload" type="button" data-id="${htmlSafe(t.id)}">${owned ? 'Load owned tune' : 'Download tune'}</button>
+          ${canDownloadDatabaseTunes() ? `<button class="primary dbDownload" type="button" data-id="${htmlSafe(t.id)}">${owned ? 'Load owned tune' : 'Download tune'}</button>` : '<button class="ghost dbNoDownload" type="button">Patreon download only</button>'}
         </div>
       </div>`;
     }).join('');
@@ -990,6 +1002,11 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     document.querySelectorAll('.dbReviews').forEach(btn => btn.addEventListener('click', () => openReviewModal(btn.dataset.id, btn.dataset.title)));
   }
   async function downloadTuneFromDatabase(id){
+    if(!canDownloadDatabaseTunes()){
+      showUpgradeModal('Tune downloads require Bronze, Silver or Gold IFWL Patreon. IFWL Active Racers can upload tunes and leave reviews, but cannot download database tunes without Patreon.');
+      dbStatus('Download locked: Bronze/Silver/Gold Patreon required.', true);
+      return;
+    }
     const token = sessionToken();
     if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
     const list = $('dbList');
