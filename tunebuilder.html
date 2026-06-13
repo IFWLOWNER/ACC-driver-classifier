@@ -39,6 +39,11 @@
   .tab.active{border-color:var(--red);box-shadow:inset 4px 0 0 var(--red);}
   .tab .name{font-weight:800;font-size:13px;line-height:1.2;}
   .tab .meta{font-size:11px;color:#aaa;margin-top:2px;}
+  .tabCheck{display:flex;align-items:center;justify-content:center;margin-right:6px;}
+  .tabCheck input{width:18px;height:18px;accent-color:var(--red);}
+  .bulkTools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+  .bulkTools button{font-size:12px;padding:9px 8px;min-height:38px;}
+  .folderHint{margin-top:10px;border-left:4px solid var(--blue);padding:10px 12px;background:#071824;color:#c8edff;font-size:12px;line-height:1.45;}
   .fields{display:grid;gap:8px;}
   .field{display:grid;gap:5px;}
   .field label{font-size:11px;color:#aaa;text-transform:uppercase;font-weight:800;}
@@ -210,8 +215,10 @@
     <div class="brand"><div class="mark">IFWL</div><div><h1>ACC Tune Image Builder</h1><div class="subtitle">Drop ACC setup JSON files, edit anything, then copy/export one clean Discord-ready image.</div></div></div>
     <div class="toolbar">
       <label class="file-label primary" for="setupFiles">Add tune JSON</label><input id="setupFiles" type="file" accept=".json,application/json" multiple>
+      <label class="file-label primary" for="setupFolder">Add track folder</label><input id="setupFolder" type="file" accept=".json,application/json" multiple webkitdirectory directory>
       <button id="addManual" class="ghost" type="button">Blank console tune</button>
       <button id="saveDb" class="ghost" type="button">Save to database</button>
+      <button id="saveSelectedDb" class="ghost" type="button">Save selected to database</button>
       <button id="loadDb" class="ghost" type="button">Download from database</button>
       <button id="copyPng" class="primary" type="button">Copy tune image</button>
       <button id="downloadPng" type="button">Download tune PNG</button>
@@ -231,11 +238,16 @@
     <aside class="side">
       <div class="box">
         <h2>1. Add files</h2>
-        <div id="dropZone" class="drop"><div><strong>Drop setup JSON files here</strong><br><span class="small">You can add multiple tunes, for example Q Dry, Race Dry, Q Wet and Race Wet.</span></div></div>
+        <div id="dropZone" class="drop"><div><strong>Drop setup JSON files or a track folder here</strong><br><span class="small">You can add multiple tunes, or drop/select a folder named after the track, such as watkins_glen.</span></div></div>
+        <div class="folderHint"><b>Folder upload:</b> if you upload a folder named after an ACC track, every JSON inside will be loaded with that track selected automatically. Tick the tunes you want, then use <b>Save selected to database</b>.</div>
         <div class="warning">Console screenshots cannot be read perfectly in a plain offline HTML page. Use <b>Blank console tune</b>, then type/copy the values from the image into the editable cards. The main export is the tune sheet on the right. Exports render as long PNG files for Discord posting, and the long tune export excludes the left-side controls and uses an auto-tight crop to the tune sheet width.</div>
       </div>
       <div class="box">
         <h2>2. Tunes loaded</h2>
+        <div class="bulkTools">
+          <button id="selectAllTunes" class="ghost" type="button">Select all</button>
+          <button id="clearSelectedTunes" class="ghost" type="button">Clear selected</button>
+        </div>
         <div id="tabs" class="tabs"></div>
       </div>
       <div class="box">
@@ -292,6 +304,7 @@
       <button id="closeOwnership" class="ghost" type="button">Cancel</button>
     </div>
     <div class="authorLocked">Author saved as: <span id="ownershipAuthor">Discord user</span></div>
+    <div class="authorLocked" id="ownershipBulkCount" style="display:none;">Selected upload count: <span id="ownershipBulkCountValue">0</span> tune(s)</div>
     <div class="ownershipText">
       IFWL does not allow hosting of files from other third-party distributors. We require unique, user-edited files only. Before uploading to the database, you must confirm that you are the owner of this file. If required, you may be held responsible for any unauthorised uploads of third-party content.
     </div>
@@ -584,6 +597,8 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   let dbMode = 'all';
   let currentReviewTuneId = '';
   let currentReviewStars = 0;
+  const selectedTuneIndexes = new Set();
+  let pendingBulkSaveIndexes = null;
   const $ = id => document.getElementById(id);
   const fmt = (n, d=1) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—';
   const get = (obj, path, fallback=null) => path.split('.').reduce((o,k)=> (o && o[k]!==undefined ? o[k] : undefined), obj) ?? fallback;
@@ -597,6 +612,38 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function populateTrackSelects(){
     const options = '<option value="">Select track...</option>' + ACC_TRACKS.map(t => `<option value="${t}">${t}</option>`).join('');
     ['trackInput','topTrackInput'].forEach(id => { const el = $(id); if(el) el.innerHTML = options; });
+  }
+  function normaliseTrackToken(value){
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[_-]+/g, ' ')
+      .replace(/(acc|setup|setups|tunes|tune|json|dry|wet|race|quali|qualy|q)/g, ' ')
+      .replace(/[^a-z0-9 ]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  function inferTrackFromName(value){
+    const haystack = normaliseTrackToken(value);
+    if(!haystack) return '';
+    let best = '';
+    let bestLen = 0;
+    for(const track of ACC_TRACKS){
+      const key = normaliseTrackToken(track);
+      if(key && (haystack === key || haystack.includes(key) || key.includes(haystack)) && key.length > bestLen){
+        best = track;
+        bestLen = key.length;
+      }
+    }
+    return best;
+  }
+  function inferTrackFromFile(file){
+    const rel = String(file?.webkitRelativePath || file?.relativePath || file?.path || '');
+    if(rel){
+      const topFolder = rel.split('/').filter(Boolean)[0] || '';
+      const fromFolder = inferTrackFromName(topFolder);
+      if(fromFolder) return fromFolder;
+    }
+    return inferTrackFromName(file?.name || '');
   }
   function fileBase(name){ return name.replace(/\.json$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim(); }
   function prettyCar(car){ return safe(car).replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); }
@@ -665,9 +712,10 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     bindSheetInteractions();
   }
   function renderTabs(){
-    $('tabs').innerHTML = tunes.map((t,i)=>`<div class="tab ${i===active?'active':''}" data-i="${i}"><div><div class="name">${safe(t.title || t.name)}</div><div class="meta">${safe(t.car || 'Manual tune')} • ${safe(t.session)}</div></div><button data-del="${i}" title="Remove">×</button></div>`).join('') || '<div class="small">No tunes loaded yet.</div>';
-    document.querySelectorAll('.tab').forEach(el=>el.addEventListener('click',e=>{ if(e.target.dataset.del!==undefined) return; active=Number(el.dataset.i); syncFields(); renderTabs(); renderSheet(); }));
-    document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); tunes.splice(Number(btn.dataset.del),1); active=Math.min(active,tunes.length-1); if(!tunes.length) active=-1; syncFields(); renderTabs(); renderSheet(); }));
+    $('tabs').innerHTML = tunes.map((t,i)=>`<div class="tab ${i===active?'active':''}" data-i="${i}"><label class="tabCheck" title="Select for database upload"><input type="checkbox" class="bulkTuneCheck" data-check="${i}" ${selectedTuneIndexes.has(i)?'checked':''}></label><div><div class="name">${safe(t.title || t.name)}</div><div class="meta">${safe(t.car || 'Manual tune')} • ${safe(t.track || 'No track selected')} • ${safe(t.session)}</div></div><button data-del="${i}" title="Remove">×</button></div>`).join('') || '<div class="small">No tunes loaded yet.</div>';
+    document.querySelectorAll('.tab').forEach(el=>el.addEventListener('click',e=>{ if(e.target.dataset.del!==undefined || e.target.dataset.check!==undefined || e.target.closest('.tabCheck')) return; active=Number(el.dataset.i); syncFields(); renderTabs(); renderSheet(); }));
+    document.querySelectorAll('.bulkTuneCheck').forEach(chk=>chk.addEventListener('change',e=>{ const idx=Number(e.target.dataset.check); if(e.target.checked) selectedTuneIndexes.add(idx); else selectedTuneIndexes.delete(idx); }));
+    document.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',e=>{ e.stopPropagation(); const idx=Number(btn.dataset.del); tunes.splice(idx,1); const oldSelected=[...selectedTuneIndexes]; selectedTuneIndexes.clear(); oldSelected.forEach(v=>{ if(v<idx) selectedTuneIndexes.add(v); else if(v>idx) selectedTuneIndexes.add(v-1); }); active=Math.min(active,tunes.length-1); if(!tunes.length) active=-1; syncFields(); renderTabs(); renderSheet(); }));
   }
   function syncFields(){
     const t=tunes[active];
@@ -697,12 +745,47 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('platformInputTop').addEventListener('input',e=>updateTuneField('platform',e.target.value));
   async function addFiles(files){
     let ok=0, bad=0;
-    for(const f of files){
-      try{ const text=await f.text(); const json=JSON.parse(text); tunes.push(makeTuneFromJson(json,f.name)); ok++; }
+    const startIndex = tunes.length;
+    const fileList = Array.from(files || []).filter(f => /\.json$/i.test(f.name || ''));
+    for(const f of fileList){
+      try{
+        const text=await f.text();
+        const json=JSON.parse(text);
+        const tune = makeTuneFromJson(json,f.name);
+        const inferredTrack = inferTrackFromFile(f);
+        if(inferredTrack) tune.track = inferredTrack;
+        tunes.push(tune);
+        ok++;
+      }
       catch(err){ console.error(err); bad++; }
     }
-    if(ok && active<0) active=0; else if(ok) active=tunes.length-ok;
-    syncFields(); renderTabs(); renderSheet(); $('status').textContent = ok ? `${ok} tune(s) loaded.` : ''; if(bad) $('status').innerHTML += ` <span class="danger">${bad} file(s) failed.</span>`;
+    if(ok && active<0) active=0; else if(ok) active=startIndex;
+    for(let i=startIndex;i<tunes.length;i++) selectedTuneIndexes.add(i);
+    syncFields(); renderTabs(); renderSheet();
+    const firstTrack = ok ? tunes[startIndex]?.track : '';
+    $('status').textContent = ok ? `${ok} tune(s) loaded${firstTrack ? ` with track set to ${firstTrack}` : ''}.` : '';
+    if(bad) $('status').innerHTML += ` <span class="danger">${bad} file(s) failed.</span>`;
+  }
+  async function collectFilesFromEntry(entry, path=''){
+    if(entry.isFile){
+      return new Promise(resolve => entry.file(file => { file.relativePath = path + file.name; resolve([file]); }, () => resolve([])));
+    }
+    if(entry.isDirectory){
+      const reader = entry.createReader();
+      const entries = await new Promise(resolve => reader.readEntries(resolve));
+      const nested = await Promise.all(entries.map(e => collectFilesFromEntry(e, path + entry.name + '/')));
+      return nested.flat();
+    }
+    return [];
+  }
+  async function addDroppedItems(dataTransfer){
+    const items = Array.from(dataTransfer?.items || []);
+    const entries = items.map(item => item.webkitGetAsEntry ? item.webkitGetAsEntry() : null).filter(Boolean);
+    if(entries.length){
+      const nested = await Promise.all(entries.map(e => collectFilesFromEntry(e)));
+      return addFiles(nested.flat());
+    }
+    return addFiles(dataTransfer?.files || []);
   }
   function backendUrl(){
     return window.IFWL_PATREON_BACKEND || "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
@@ -732,33 +815,73 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     if(msg) msg.textContent = message || 'You have used your available tune downloads for this 30 day period. Upgrade your IFWL Patreon tier to unlock more tunes.';
     if(modal) modal.style.display = 'flex';
   }
-  function openOwnershipModal(){
-    if(active < 0 || !tunes[active]){ dbStatus('Load or create a tune before saving to database.', true); return; }
-    if(!tunes[active].track){ dbStatus('Please select a track before saving to database.', true); $('topTrackInput')?.focus(); return; }
+  function selectedIndexes(){
+    return [...selectedTuneIndexes].filter(i => tunes[i]).sort((a,b)=>a-b);
+  }
+  function openOwnershipModal(indexes=null){
+    const bulk = Array.isArray(indexes);
+    const targets = bulk ? indexes : (active >= 0 ? [active] : []);
+    if(!targets.length){ dbStatus('Load or select a tune before saving to database.', true); return; }
+    const missingTrack = targets.find(i => !tunes[i]?.track);
+    if(missingTrack !== undefined){
+      active = missingTrack; syncFields(); renderTabs(); renderSheet();
+      dbStatus('Please select a track before saving to database.', true); $('topTrackInput')?.focus(); return;
+    }
+    pendingBulkSaveIndexes = bulk ? targets : null;
     const author = $('ownershipAuthor');
     const check = $('ownershipCheck');
+    const bulkBox = $('ownershipBulkCount');
+    const bulkCount = $('ownershipBulkCountValue');
     if(author) author.textContent = currentAuthorName();
     if(check) check.checked = false;
+    if(bulkBox) bulkBox.style.display = bulk ? 'block' : 'none';
+    if(bulkCount) bulkCount.textContent = String(targets.length);
     ownershipModal(true);
   }
+  function openBulkOwnershipModal(){
+    const indexes = selectedIndexes();
+    if(!indexes.length){ dbStatus('Tick the tunes you want to upload first.', true); return; }
+    openOwnershipModal(indexes);
+  }
+  async function saveTuneIndexToDatabase(index, token){
+    const tune = tunes[index];
+    const res = await fetch(backendUrl() + `?patreonTuneSave=1&token=${encodeURIComponent(token)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ tune, ownershipConfirmed:true })
+    });
+    const data = await res.json();
+    if(!res.ok || !data.ok) throw new Error(data.error || `Save failed for ${tune?.title || 'IFWL Tune'}`);
+    tunes[index].dbId = data.id;
+    return data;
+  }
   async function saveActiveTuneToDatabase(){
-    if(active < 0 || !tunes[active]){ dbStatus('Load or create a tune before saving to database.', true); return; }
     const token = sessionToken();
     if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
     const check = $('ownershipCheck');
     if(check && !check.checked){ dbStatus('You must confirm tune ownership before saving to database.', true); return; }
+    const targets = pendingBulkSaveIndexes || (active >= 0 ? [active] : []);
+    if(!targets.length){ dbStatus('Load or select a tune before saving to database.', true); return; }
     try{
-      dbStatus('Saving tune to database...');
-      const res = await fetch(backendUrl() + `?patreonTuneSave=1&token=${encodeURIComponent(token)}`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ tune:tunes[active], ownershipConfirmed:true })
-      });
-      const data = await res.json();
-      if(!res.ok || !data.ok) throw new Error(data.error || 'Save failed');
-      tunes[active].dbId = data.id;
-      ownershipModal(false);
-      dbStatus(`Saved to database: ${data.title || tunes[active].title || 'IFWL Tune'} • Author: ${data.authorName || currentAuthorName()}`);
+      if(targets.length === 1){
+        dbStatus('Saving tune to database...');
+        const data = await saveTuneIndexToDatabase(targets[0], token);
+        ownershipModal(false);
+        pendingBulkSaveIndexes = null;
+        dbStatus(`Saved to database: ${data.title || tunes[targets[0]].title || 'IFWL Tune'} • Author: ${data.authorName || currentAuthorName()}`);
+      } else {
+        let saved = 0;
+        for(const idx of targets){
+          dbStatus(`Saving selected tunes to database... ${saved + 1}/${targets.length}`);
+          await saveTuneIndexToDatabase(idx, token);
+          saved++;
+        }
+        ownershipModal(false);
+        pendingBulkSaveIndexes = null;
+        selectedTuneIndexes.clear();
+        renderTabs();
+        dbStatus(`Saved ${saved} selected tune(s) to database • Author: ${currentAuthorName()}`);
+      }
     }catch(err){
       console.error(err);
       dbStatus(err.message || err, true);
@@ -968,9 +1091,13 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     }
   }
   $('setupFiles').addEventListener('change',e=>addFiles(e.target.files));
-  $('saveDb').addEventListener('click', openOwnershipModal);
+  $('setupFolder').addEventListener('change',e=>addFiles(e.target.files));
+  $('saveDb').addEventListener('click', () => openOwnershipModal());
+  $('saveSelectedDb').addEventListener('click', openBulkOwnershipModal);
+  $('selectAllTunes').addEventListener('click', () => { tunes.forEach((_,i)=>selectedTuneIndexes.add(i)); renderTabs(); });
+  $('clearSelectedTunes').addEventListener('click', () => { selectedTuneIndexes.clear(); renderTabs(); });
   $('confirmSaveDb').addEventListener('click', saveActiveTuneToDatabase);
-  $('closeOwnership').addEventListener('click', () => ownershipModal(false));
+  $('closeOwnership').addEventListener('click', () => { pendingBulkSaveIndexes = null; ownershipModal(false); });
   $('closeUpgrade').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('closeUpgrade2').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('loadDb').addEventListener('click', openDatabaseTunes);
@@ -984,7 +1111,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('dbCarFilter').addEventListener('change', applyDbFilters);
   $('clearDbFilters').addEventListener('click', () => { $('dbTrackFilter').value=''; $('dbCarFilter').value=''; applyDbFilters(); });
   $('addManual').addEventListener('click',()=>{ tunes.push(blankTune()); active=tunes.length-1; syncFields(); renderTabs(); renderSheet(); $('status').textContent='Blank console tune added.'; });
-  const dz=$('dropZone'); ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag')})); ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag')})); dz.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+  const dz=$('dropZone'); ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag')})); ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag')})); dz.addEventListener('drop',e=>addDroppedItems(e.dataTransfer));
   $('refFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const img=$('refPreview'); img.src=URL.createObjectURL(f); img.style.display='block'; });
   function bindSheetInteractions(){
     document.querySelectorAll('#sheet .navTab').forEach(btn => {
