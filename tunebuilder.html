@@ -91,6 +91,8 @@
   .dbPanel{width:min(920px,100%);max-height:86vh;overflow:auto;background:#0b0b0b;border:2px solid #666;box-shadow:0 30px 90px #000;padding:18px;}
   .dbHead{display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid #333;padding-bottom:12px;margin-bottom:12px;}
   .dbHead h2{margin:0;text-transform:uppercase;font-size:22px;letter-spacing:.04em;}
+  .dbTabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;border-bottom:1px solid #222;padding-bottom:12px;}
+  .dbTabs button.active{background:var(--red);border-color:var(--red);}
   .dbFilters{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-bottom:12px;border-bottom:1px solid #222;padding-bottom:12px;}
   .dbFilterField{display:grid;gap:5px;}
   .dbFilterField label{font-size:11px;color:#aaa;text-transform:uppercase;font-weight:900;letter-spacing:.04em;}
@@ -99,6 +101,18 @@
   .dbRow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;border:1px solid #444;background:#111;padding:12px;}
   .dbTitle{font-weight:900;text-transform:uppercase;letter-spacing:.03em;}
   .dbMeta{font-size:12px;color:#aaa;margin-top:4px;line-height:1.45;}
+  .dbRating{color:#ffd05a;font-weight:900;margin-top:5px;font-size:13px;}
+  .ownedPill{display:inline-block;background:#0d2214;border:1px solid #1f6b3b;color:#c7ffd9;padding:2px 7px;font-size:11px;font-weight:900;text-transform:uppercase;margin-left:6px;}
+  .dbActions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+  .starSelect{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap;}
+  .starSelect button{font-size:28px;line-height:1;background:#111;border:1px solid #555;color:#666;padding:6px 10px;min-height:44px;}
+  .starSelect button.active,.starSelect button:hover{color:#ffd05a;border-color:#ffd05a;background:#221b06;}
+  .reviewBox textarea{width:100%;min-height:96px;background:#050505;border:1px solid #555;color:#fff;padding:12px;font-weight:700;resize:vertical;}
+  .reviewList{display:grid;gap:10px;margin-top:14px;}
+  .reviewItem{border:1px solid #333;background:#111;padding:10px;}
+  .reviewAuthor{font-weight:900;text-transform:uppercase;}
+  .reviewStars{color:#ffd05a;font-weight:900;}
+  .reviewFeedback{color:#ddd;margin-top:6px;font-size:13px;line-height:1.45;white-space:pre-wrap;}
   .dbEmpty{border:1px dashed #666;padding:18px;text-align:center;color:#aaa;}
   .ownershipText{background:#241a05;border-left:4px solid var(--gold);color:#ffe8a5;padding:14px;text-align:left;line-height:1.45;font-size:14px;margin:12px 0;}
   .authorLocked{background:#0f1f13;border:1px solid #1f6b3b;color:#c7ffd9;padding:12px;text-align:left;font-weight:900;margin:12px 0;}
@@ -151,8 +165,11 @@
     .dbPanel{width:100%;max-height:none;padding:12px;}
     .dbHead{align-items:flex-start;}
     .dbHead h2{font-size:18px;}
+    .dbTabs{display:grid;grid-template-columns:1fr 1fr;}
     .dbFilters{grid-template-columns:1fr;}
     .dbRow{grid-template-columns:1fr;}
+    .dbActions{justify-content:stretch;}
+    .dbActions button{width:100%;}
     .dbRow button{width:100%;}
     .patreonRoles{grid-template-columns:1fr;}
     .patreonCard{padding:18px;}
@@ -249,6 +266,10 @@
       <h2>IFWL Tune Database</h2>
       <button id="closeDb" class="ghost" type="button">Close</button>
     </div>
+    <div class="dbTabs">
+      <button id="dbAllTunesBtn" class="primary active" type="button">All tunes</button>
+      <button id="dbMyTunesBtn" class="ghost" type="button">My downloaded tunes</button>
+    </div>
     <div class="dbFilters">
       <div class="dbFilterField">
         <label for="dbTrackFilter">Track</label>
@@ -293,6 +314,30 @@
       <a class="primary" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="padding:13px 18px;font-weight:900;text-transform:uppercase;color:#fff;">Upgrade Patreon</a>
       <button id="closeUpgrade2" class="ghost" type="button">Not now</button>
     </div>
+  </div>
+</div>
+
+<div id="reviewModal" class="dbModal">
+  <div class="dbPanel reviewBox">
+    <div class="dbHead">
+      <h2>Community tune reviews</h2>
+      <button id="closeReview" class="ghost" type="button">Close</button>
+    </div>
+    <div class="dbTitle" id="reviewTuneTitle">IFWL Tune</div>
+    <div class="dbMeta">Rate the tune out of 5 stars. You need to own/download a tune before reviewing it.</div>
+    <div id="reviewStars" class="starSelect">
+      <button type="button" data-star="1">★</button>
+      <button type="button" data-star="2">★</button>
+      <button type="button" data-star="3">★</button>
+      <button type="button" data-star="4">★</button>
+      <button type="button" data-star="5">★</button>
+    </div>
+    <textarea id="reviewFeedback" maxlength="600" placeholder="Small feedback note for the community..."></textarea>
+    <div class="upgradeActions">
+      <button id="submitReview" class="primary" type="button">Save review</button>
+    </div>
+    <div id="reviewStatus" class="status"></div>
+    <div id="reviewExistingList" class="reviewList"><div class="dbEmpty">Loading reviews...</div></div>
   </div>
 </div>
 
@@ -536,10 +581,19 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   let tunes = [];
   let active = -1;
   let dbRows = [];
+  let dbMode = 'all';
+  let currentReviewTuneId = '';
+  let currentReviewStars = 0;
   const $ = id => document.getElementById(id);
   const fmt = (n, d=1) => Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—';
   const get = (obj, path, fallback=null) => path.split('.').reduce((o,k)=> (o && o[k]!==undefined ? o[k] : undefined), obj) ?? fallback;
   const safe = v => (v===undefined || v===null || v==='') ? '—' : String(v);
+  const htmlSafe = v => String(v===undefined || v===null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function starText(avg, count){
+    const n = Math.max(0, Math.min(5, Math.round(Number(avg || 0))));
+    const stars = '★'.repeat(n) + '☆'.repeat(5 - n);
+    return `${stars} ${Number(avg || 0).toFixed(Number(avg || 0) ? 1 : 0)} / 5 (${Number(count || 0)} review${Number(count || 0) === 1 ? '' : 's'})`;
+  }
   function populateTrackSelects(){
     const options = '<option value="">Select track...</option>' + ACC_TRACKS.map(t => `<option value="${t}">${t}</option>`).join('');
     ['trackInput','topTrackInput'].forEach(id => { const el = $(id); if(el) el.innerHTML = options; });
@@ -710,6 +764,32 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       dbStatus(err.message || err, true);
     }
   }
+  function setDbMode(mode){
+    dbMode = mode || 'all';
+    const allBtn = $('dbAllTunesBtn');
+    const mineBtn = $('dbMyTunesBtn');
+    if(allBtn) allBtn.classList.toggle('active', dbMode === 'all');
+    if(mineBtn) mineBtn.classList.toggle('active', dbMode === 'mine');
+  }
+  async function openMyDownloadedTunes(){
+    const token = sessionToken();
+    if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
+    setDbMode('mine');
+    setDbMode('all');
+    dbModal(true);
+    const list = $('dbList');
+    if(list) list.innerHTML = '<div class="dbEmpty">Loading your downloaded tunes...</div>';
+    try{
+      const res = await fetch(backendUrl() + `?patreonMyTunes=1&token=${encodeURIComponent(token)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load your downloaded tunes');
+      renderDatabaseList(data.tunes || []);
+      if(data.patreonStatus && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data.patreonStatus);
+    }catch(err){
+      console.error(err);
+      if(list) list.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
+    }
+  }
   async function openDatabaseTunes(){
     const token = sessionToken();
     if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
@@ -762,29 +842,36 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function renderDatabaseRows(rows){
     const list = $('dbList');
     if(!list) return;
-    if(!dbRows.length){ list.innerHTML = '<div class="dbEmpty">No tunes saved in the database yet.</div>'; return; }
+    if(!dbRows.length){ list.innerHTML = `<div class="dbEmpty">${dbMode === 'mine' ? 'You have not downloaded any tunes yet.' : 'No tunes saved in the database yet.'}</div>`; return; }
     if(!rows.length){ list.innerHTML = '<div class="dbEmpty">No tunes match the selected track/car filters.</div>'; return; }
-    list.innerHTML = rows.map(t => `
+    list.innerHTML = rows.map(t => {
+      const owned = !!t.owned;
+      return `
       <div class="dbRow">
         <div>
-          <div class="dbTitle">${safe(t.title || 'IFWL Tune')}</div>
+          <div class="dbTitle">${htmlSafe(t.title || 'IFWL Tune')}${owned ? '<span class="ownedPill">Owned</span>' : ''}</div>
           <div class="dbMeta">
-            ${safe(t.car || '')} ${t.car ? '•' : ''} ${safe(t.track || '')} ${t.track ? '•' : ''} ${safe(t.session || '')}<br>
-            Author: ${safe(t.authorName || t.createdBy?.authorName || t.createdBy?.nick || t.createdBy?.username || 'IFWL')}<br>
-            Platform: ${safe(t.platform || '—')} • Downloads: ${safe(t.downloadCount || 0)}
+            ${htmlSafe(t.car || '')} ${t.car ? '•' : ''} ${htmlSafe(t.track || '')} ${t.track ? '•' : ''} ${htmlSafe(t.session || '')}<br>
+            Author: ${htmlSafe(t.authorName || t.createdBy?.authorName || t.createdBy?.nick || t.createdBy?.username || 'IFWL')}<br>
+            Platform: ${htmlSafe(t.platform || '—')} • Downloads: ${htmlSafe(t.downloadCount || 0)}${owned && t.firstDownloadedAtMs ? ` • First downloaded: ${new Date(Number(t.firstDownloadedAtMs)).toLocaleDateString()}` : ''}
           </div>
+          <div class="dbRating">${starText(t.ratingAvg, t.ratingCount)}</div>
         </div>
-        <button class="primary dbDownload" type="button" data-id="${safe(t.id)}">Download tune</button>
-      </div>
-    `).join('');
+        <div class="dbActions">
+          <button class="ghost dbReviews" type="button" data-id="${htmlSafe(t.id)}" data-title="${htmlSafe(t.title || 'IFWL Tune')}">Reviews</button>
+          <button class="primary dbDownload" type="button" data-id="${htmlSafe(t.id)}">${owned ? 'Load owned tune' : 'Download tune'}</button>
+        </div>
+      </div>`;
+    }).join('');
     document.querySelectorAll('.dbDownload').forEach(btn => btn.addEventListener('click', () => downloadTuneFromDatabase(btn.dataset.id)));
+    document.querySelectorAll('.dbReviews').forEach(btn => btn.addEventListener('click', () => openReviewModal(btn.dataset.id, btn.dataset.title)));
   }
   async function downloadTuneFromDatabase(id){
     const token = sessionToken();
     if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
     const list = $('dbList');
     try{
-      if(list) list.insertAdjacentHTML('afterbegin', '<div class="dbEmpty">Downloading tune and checking allowance...</div>');
+      if(list) list.insertAdjacentHTML('afterbegin', '<div class="dbEmpty">Loading tune and checking allowance/ownership...</div>');
       const res = await fetch(backendUrl() + `?patreonTuneGet=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`, {cache:'no-store'});
       const data = await res.json();
       if(!res.ok || !data.ok){
@@ -800,11 +887,84 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       active = tunes.length - 1;
       syncFields(); renderTabs(); renderSheet(); dbModal(false);
       if(data.downloadStatus && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data.downloadStatus);
-      dbStatus(`Downloaded from database: ${tune.title || tune.name || 'IFWL Tune'}`);
+      dbStatus(`${data.alreadyOwned ? 'Loaded owned tune' : 'Downloaded from database'}: ${tune.title || tune.name || 'IFWL Tune'}`);
     }catch(err){
       console.error(err);
       dbStatus(err.message || err, true);
       if(list) await openDatabaseTunes();
+    }
+  }
+  function reviewModal(show){
+    const modal = $('reviewModal');
+    if(modal) modal.style.display = show ? 'flex' : 'none';
+  }
+  function setReviewStars(stars){
+    currentReviewStars = Number(stars || 0);
+    document.querySelectorAll('#reviewStars button').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.star) <= currentReviewStars));
+  }
+  function renderReviewList(data){
+    const list = $('reviewExistingList');
+    if(!list) return;
+    const reviews = Array.isArray(data?.reviews) ? data.reviews : [];
+    if(!reviews.length){
+      list.innerHTML = '<div class="dbEmpty">No community reviews yet. Be the first to review this tune.</div>';
+      return;
+    }
+    list.innerHTML = reviews.map(r => `
+      <div class="reviewItem">
+        <div class="reviewAuthor">${htmlSafe(r.authorName || 'IFWL')}</div>
+        <div class="reviewStars">${starText(r.stars, 1).split(' ')[0]} ${Number(r.stars || 0)} / 5</div>
+        ${r.feedback ? `<div class="reviewFeedback">${htmlSafe(r.feedback)}</div>` : '<div class="reviewFeedback">No feedback note added.</div>'}
+      </div>
+    `).join('');
+  }
+  async function openReviewModal(id, title){
+    currentReviewTuneId = String(id || '');
+    setReviewStars(0);
+    const titleEl = $('reviewTuneTitle');
+    const feedback = $('reviewFeedback');
+    const status = $('reviewStatus');
+    const list = $('reviewExistingList');
+    if(titleEl) titleEl.textContent = title || 'IFWL Tune';
+    if(feedback) feedback.value = '';
+    if(status) status.textContent = '';
+    if(list) list.innerHTML = '<div class="dbEmpty">Loading reviews...</div>';
+    reviewModal(true);
+
+    const token = sessionToken();
+    if(!token || !currentReviewTuneId){ return; }
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneReviews=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(currentReviewTuneId)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load reviews');
+      renderReviewList(data);
+    }catch(err){
+      console.error(err);
+      if(list) list.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
+    }
+  }
+  async function submitTuneReview(){
+    const token = sessionToken();
+    const status = $('reviewStatus');
+    if(!token){ if(status) status.innerHTML = '<span class="danger">Missing Patreon session. Please logout and login again.</span>'; return; }
+    if(!currentReviewTuneId){ return; }
+    if(!currentReviewStars){ if(status) status.innerHTML = '<span class="danger">Please choose a star rating first.</span>'; return; }
+    try{
+      if(status) status.textContent = 'Saving review...';
+      const res = await fetch(backendUrl() + `?patreonTuneReview=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(currentReviewTuneId)}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ stars:currentReviewStars, feedback:$('reviewFeedback')?.value || '' })
+      });
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Could not save review');
+      if(status) status.textContent = `Review saved. Current rating: ${Number(data.ratingAvg || 0).toFixed(1)} / 5 from ${data.ratingCount || 0} review(s).`;
+      await openReviewModal(currentReviewTuneId, $('reviewTuneTitle')?.textContent || 'IFWL Tune');
+      if(dbMode === 'mine') await openMyDownloadedTunes(); else await openDatabaseTunes();
+      reviewModal(true);
+    }catch(err){
+      console.error(err);
+      if(status) status.innerHTML = `<span class="danger">${htmlSafe(err.message || err)}</span>`;
     }
   }
   $('setupFiles').addEventListener('change',e=>addFiles(e.target.files));
@@ -815,6 +975,11 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('closeUpgrade2').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('loadDb').addEventListener('click', openDatabaseTunes);
   $('closeDb').addEventListener('click', () => dbModal(false));
+  $('dbAllTunesBtn').addEventListener('click', openDatabaseTunes);
+  $('dbMyTunesBtn').addEventListener('click', openMyDownloadedTunes);
+  $('closeReview').addEventListener('click', () => reviewModal(false));
+  $('submitReview').addEventListener('click', submitTuneReview);
+  document.querySelectorAll('#reviewStars button').forEach(btn => btn.addEventListener('click', () => setReviewStars(btn.dataset.star)));
   $('dbTrackFilter').addEventListener('change', applyDbFilters);
   $('dbCarFilter').addEventListener('change', applyDbFilters);
   $('clearDbFilters').addEventListener('click', () => { $('dbTrackFilter').value=''; $('dbCarFilter').value=''; applyDbFilters(); });
