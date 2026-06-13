@@ -195,6 +195,7 @@
   }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 <div id="patreonGate">
@@ -219,8 +220,8 @@
   <div class="topbar">
     <div class="brand"><div class="mark">IFWL</div><div><h1>ACC Tune Image Builder</h1><div class="subtitle">Drop ACC setup JSON files, edit anything, then copy/export one clean Discord-ready image.</div></div></div>
     <div class="toolbar">
-      <label class="file-label primary" for="setupFiles">Add tune JSON</label><input id="setupFiles" type="file" accept=".json,application/json" multiple>
-      <label class="file-label primary" for="setupFolder">Add track folder</label><input id="setupFolder" type="file" accept=".json,application/json" multiple webkitdirectory directory>
+      <label class="file-label primary" for="setupFiles">Add JSON / ZIP</label><input id="setupFiles" type="file" accept=".json,.zip,application/json,application/zip" multiple>
+      <label class="file-label primary" for="setupFolder">Add folder / ZIPs</label><input id="setupFolder" type="file" accept=".json,.zip,application/json,application/zip" multiple webkitdirectory directory>
       <button id="addManual" class="ghost" type="button">Blank console tune</button>
       <button id="saveDb" class="ghost" type="button">Save active tune</button>
       <button id="saveSelectedDb" class="uploadBlue" type="button">Upload selected to database</button>
@@ -716,6 +717,14 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     // Final fallback: check the complete path as one string.
     return inferTrackFromName(rel || file?.name || '');
   }
+  function inferTrackFromZipEntry(zipName, entryName){
+    const parts = [zipName, ...String(entryName || '').split('/').filter(Boolean)];
+    for(const part of parts){
+      const match = inferTrackFromName(String(part).replace(/\.json$/i, '').replace(/\.zip$/i, ''));
+      if(match) return match;
+    }
+    return inferTrackFromName(`${zipName || ''} ${entryName || ''}`);
+  }
   function fileBase(name){ return name.replace(/\.json$/i,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim(); }
   function prettyCar(car){ return safe(car).replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); }
   function pressure(v){ return Number.isFinite(Number(v)) ? (20 + Number(v)/10).toFixed(1) + ' psi' : '—'; }
@@ -827,29 +836,77 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     box.innerHTML = `<b>Prohibited tunes uploaded and removed:</b> ${removed.length}<ul>${list}${extra}</ul>`;
     box.style.display = 'block';
   }
-  async function addFiles(files){
+  async function loadTuneFromJsonText(text, displayName, trackName){
+    const json = JSON.parse(text);
+    const tune = makeTuneFromJson(json, displayName);
+    if(trackName) tune.track = trackName;
+    tunes.push(tune);
+  }
+  async function addZipFile(file, removed){
+    if(!window.JSZip) throw new Error('ZIP support could not load. Please refresh the page and try again.');
+
+    const zip = await window.JSZip.loadAsync(file);
     let ok=0, bad=0;
+    const entries = Object.values(zip.files || {});
+
+    for(const entry of entries){
+      if(entry.dir || !/\.json$/i.test(entry.name || '')) continue;
+      const combinedName = `${file.name}/${entry.name}`;
+      const pseudo = { name: entry.name.split('/').pop() || entry.name, relativePath: combinedName, webkitRelativePath: combinedName, path: combinedName };
+
+      if(prohibitedTuneName(pseudo)){
+        removed.push(combinedName);
+        continue;
+      }
+
+      try{
+        const text = await entry.async('text');
+        const inferredTrack = inferTrackFromZipEntry(file.name, entry.name);
+        await loadTuneFromJsonText(text, pseudo.name, inferredTrack);
+        ok++;
+      }catch(err){
+        console.error('ZIP entry failed', combinedName, err);
+        bad++;
+      }
+    }
+
+    return { ok, bad };
+  }
+  async function addFiles(files){
+    let ok=0, bad=0, zipCount=0;
     const removed = [];
     const startIndex = tunes.length;
     const allFiles = Array.from(files || []);
-    const fileList = allFiles.filter(f => {
-      const isJson = /\.json$/i.test(f.name || '');
-      if(!isJson) return false;
+
+    for(const f of allFiles){
+      const name = String(f.name || '');
+      const isZip = /\.zip$/i.test(name);
+      const isJson = /\.json$/i.test(name);
+
+      if(!isZip && !isJson) continue;
+
+      if(isZip){
+        try{
+          const result = await addZipFile(f, removed);
+          ok += result.ok;
+          bad += result.bad;
+          zipCount++;
+        }catch(err){
+          console.error('ZIP failed', f.name, err);
+          bad++;
+        }
+        continue;
+      }
+
       if(prohibitedTuneName(f)){
         removed.push(String(f.webkitRelativePath || f.relativePath || f.path || f.name || 'blocked file'));
-        return false;
+        continue;
       }
-      return true;
-    });
 
-    for(const f of fileList){
       try{
         const text=await f.text();
-        const json=JSON.parse(text);
-        const tune = makeTuneFromJson(json,f.name);
         const inferredTrack = inferTrackFromFile(f);
-        if(inferredTrack) tune.track = inferredTrack;
-        tunes.push(tune);
+        await loadTuneFromJsonText(text, f.name, inferredTrack);
         ok++;
       }
       catch(err){ console.error(err); bad++; }
@@ -861,7 +918,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     showProhibitedBox(removed);
 
     const firstTrack = ok ? tunes[startIndex]?.track : '';
-    let msg = ok ? `${ok} tune(s) loaded${firstTrack ? ` with track set to ${firstTrack}` : ''}.` : '';
+    let msg = ok ? `${ok} tune(s) loaded${zipCount ? ` from ${zipCount} ZIP file(s)` : ''}${firstTrack ? ` with track set to ${firstTrack}` : ''}.` : '';
     if(removed.length) msg += ` Prohibited tunes uploaded and removed: ${removed.length}.`;
     $('status').textContent = msg;
     if(bad) $('status').innerHTML += ` <span class="danger">${bad} file(s) failed.</span>`;
