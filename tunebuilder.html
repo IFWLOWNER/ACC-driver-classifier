@@ -92,12 +92,22 @@
   .databaseQuote{margin:14px auto 0;max-width:620px;background:#101010;border:1px solid #444;padding:12px 14px;color:#f5f5f5;font-weight:900;text-transform:uppercase;letter-spacing:.03em;line-height:1.45;}
   .databaseQuote span{color:var(--red);}
   .databaseStats{margin:12px auto 0;max-width:820px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;text-align:left;}
-  .statCard{background:#101010;border:1px solid #444;padding:12px;color:#ddd;}
-  .statCard h3{margin:0 0 8px;text-transform:uppercase;font-size:13px;letter-spacing:.04em;color:#fff;}
-  .statCard ol{margin:0;padding-left:19px;}
-  .statCard li{margin:0 0 8px;font-size:12px;line-height:1.35;}
+  .communitySpotlight{margin:0 0 14px;padding:16px;border:1px solid #4d4d4d;background:radial-gradient(circle at 18% 0%,#17324a 0,#101010 38%,#050505 100%);box-shadow:0 20px 60px #0008;}
+  .spotHead{display:flex;justify-content:space-between;gap:12px;align-items:end;border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:12px;}
+  .spotHead h2{margin:0;text-transform:uppercase;letter-spacing:.06em;font-size:22px;}
+  .spotHead span{color:#aaa;font-size:12px;text-transform:uppercase;font-weight:900;}
+  .spotGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+  .statCard{background:linear-gradient(145deg,#141414,#070707);border:1px solid #4b4b4b;padding:12px;color:#ddd;min-height:150px;}
+  .statCard h3{margin:0 0 10px;text-transform:uppercase;font-size:13px;letter-spacing:.05em;color:#fff;}
+  .statCard ol{margin:0;padding:0;list-style:none;display:grid;gap:8px;}
+  .statCard li{margin:0;font-size:12px;line-height:1.35;}
   .statCard b{color:#fff;}
   .statMeta{color:#aaa;font-size:11px;}
+  .spotItem{width:100%;display:block;text-align:left;background:#0d0d0d;border:1px solid #333;color:#ddd;padding:10px;min-height:0;text-transform:none;letter-spacing:0;font-weight:700;cursor:pointer;}
+  .spotItem:hover{border-color:#00b7ff;background:#091923;}
+  .spotRank{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-right:6px;border-radius:999px;background:var(--red);color:#fff;font-weight:900;}
+  .spotTitle{font-weight:900;text-transform:uppercase;color:#fff;}
+  .spotStars{color:#ffd05a;font-weight:900;}
   .quickDetails{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) minmax(170px,.6fr) minmax(170px,.6fr);gap:10px;margin:-2px 0 14px;padding:12px;background:#101010;border:1px solid #444;}
   .quickField{display:grid;gap:5px;}
   .quickField label{font-size:11px;color:#aaa;text-transform:uppercase;font-weight:900;letter-spacing:.04em;}
@@ -194,6 +204,8 @@
     .dbRow button{width:100%;}
     .patreonRoles{grid-template-columns:1fr;}
     .databaseStats{grid-template-columns:1fr;}
+    .spotHead{display:block;}
+    .spotGrid{grid-template-columns:1fr;}
     .patreonCard{padding:18px;}
   }
   @media(max-width:430px){
@@ -221,11 +233,7 @@
       <div class="patreonRole">Gold<span>10 tune downloads / 30 days</span></div>
     </div>
     <div id="databaseCountQuote" class="databaseQuote">IFWL database is loading tune count...</div>
-    <div id="databaseStats" class="databaseStats">
-      <div class="statCard"><h3>Top reviewed tunes</h3><div class="statMeta">Loading...</div></div>
-      <div class="statCard"><h3>Most downloaded</h3><div class="statMeta">Loading...</div></div>
-      <div class="statCard"><h3>Top contributors</h3><div class="statMeta">Loading...</div></div>
-    </div>
+
     <div id="patreonGateError" class="patreonError"></div>
     <div class="patreonActions">
       <button id="patreonDiscordLoginBtn" class="discordBtn" type="button">Login with Discord</button>
@@ -251,6 +259,17 @@
     </div>
   </div>
   <div id="patreonGrantedBar" class="patreonGrantedBar"></div>
+  <section id="mainDatabaseStats" class="communitySpotlight">
+    <div class="spotHead">
+      <h2>IFWL Community Spotlight</h2>
+      <span>Click a tune to load it • click a contributor to view uploads</span>
+    </div>
+    <div class="spotGrid">
+      <div class="statCard"><h3>Top reviewed tunes</h3><div class="statMeta">Loading...</div></div>
+      <div class="statCard"><h3>Most downloaded</h3><div class="statMeta">Loading...</div></div>
+      <div class="statCard"><h3>Top contributors</h3><div class="statMeta">Loading...</div></div>
+    </div>
+  </section>
   <div class="quickDetails">
     <div class="quickField"><label for="titleInputTop">Tune title</label><input id="titleInputTop" type="text" placeholder="LFM Race Dry"></div>
     <div class="quickField"><label for="topTrackInput">Track</label><select id="topTrackInput"></select></div>
@@ -550,35 +569,43 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     const n = Math.max(0, Math.min(5, Math.round(Number(avg || 0))));
     return '★'.repeat(n) + '☆'.repeat(5 - n);
   }
-  function tuneLineForStats(t, mode){
+  function tuneButtonForStats(t, mode, rank){
     const title = escapeHtml(t.title || 'IFWL Tune');
     const metaBits = [t.car, t.track, t.session].filter(Boolean).map(escapeHtml).join(' • ');
     const stat = mode === 'downloads'
       ? `${Number(t.downloadCount || 0).toLocaleString()} download${Number(t.downloadCount || 0) === 1 ? '' : 's'}`
       : `${starsForStats(t.ratingAvg)} ${Number(t.ratingAvg || 0).toFixed(1)} / 5 (${Number(t.ratingCount || 0)} review${Number(t.ratingCount || 0) === 1 ? '' : 's'})`;
-    return `<li><b>${title}</b><br><span class="statMeta">${metaBits}${metaBits ? '<br>' : ''}${stat}</span></li>`;
+    return `<button class="spotItem statTuneClick" type="button" data-tune-id="${escapeHtml(t.id || '')}"><span class="spotRank">${rank}</span><span class="spotTitle">${title}</span><br><span class="statMeta">${metaBits}${metaBits ? '<br>' : ''}<span class="spotStars">${stat}</span></span></button>`;
   }
-  function contributorLineForStats(c){
-    return `<li><b>${escapeHtml(c.authorName || 'IFWL')}</b><br><span class="statMeta">${Number(c.tuneCount || 0).toLocaleString()} tune${Number(c.tuneCount || 0) === 1 ? '' : 's'} uploaded</span></li>`;
+  function contributorButtonForStats(c, rank){
+    return `<button class="spotItem statContributorClick" type="button" data-author-name="${escapeHtml(c.authorName || 'IFWL')}" data-user-id="${escapeHtml(c.userId || '')}"><span class="spotRank">${rank}</span><span class="spotTitle">${escapeHtml(c.authorName || 'IFWL')}</span><br><span class="statMeta">${Number(c.tuneCount || 0).toLocaleString()} tune${Number(c.tuneCount || 0) === 1 ? '' : 's'} uploaded</span></button>`;
   }
   async function loadDatabaseStats(){
-    const el = document.getElementById('databaseStats');
+    const el = document.getElementById('mainDatabaseStats');
     if(!el) return;
+    const grid = el.querySelector('.spotGrid') || el;
     try{
       const r = await fetch(IFWL_PATREON_GATE.FUNCTION + '?patreonTuneStats=1', {cache:'no-store'});
       const data = await r.json();
       if(!data || !data.ok) throw new Error(data?.error || 'Stats unavailable');
-      const topRated = (data.topRated || []).map(x => tuneLineForStats(x, 'rating')).join('') || '<li><span class="statMeta">No reviews yet.</span></li>';
-      const topDownloaded = (data.topDownloaded || []).map(x => tuneLineForStats(x, 'downloads')).join('') || '<li><span class="statMeta">No downloads yet.</span></li>';
-      const topContributors = (data.topContributors || []).map(contributorLineForStats).join('') || '<li><span class="statMeta">No contributors yet.</span></li>';
-      el.innerHTML = `
-        <div class="statCard"><h3>Top reviewed tunes</h3><ol>${topRated}</ol></div>
-        <div class="statCard"><h3>Most downloaded</h3><ol>${topDownloaded}</ol></div>
-        <div class="statCard"><h3>Top contributors</h3><ol>${topContributors}</ol></div>
+      const topRated = (data.topRated || []).map((x,i) => tuneButtonForStats(x, 'rating', i+1)).join('') || '<div class="statMeta">No reviews yet.</div>';
+      const topDownloaded = (data.topDownloaded || []).map((x,i) => tuneButtonForStats(x, 'downloads', i+1)).join('') || '<div class="statMeta">No downloads yet.</div>';
+      const topContributors = (data.topContributors || []).map((x,i) => contributorButtonForStats(x, i+1)).join('') || '<div class="statMeta">No contributors yet.</div>';
+      grid.innerHTML = `
+        <div class="statCard"><h3>Top reviewed tunes</h3><div>${topRated}</div></div>
+        <div class="statCard"><h3>Most downloaded</h3><div>${topDownloaded}</div></div>
+        <div class="statCard"><h3>Top contributors</h3><div>${topContributors}</div></div>
       `;
+      document.querySelectorAll('.statTuneClick').forEach(btn => btn.addEventListener('click', () => {
+        const id = btn.dataset.tuneId;
+        if(id && window.IFWL_loadDatabaseTuneById) window.IFWL_loadDatabaseTuneById(id);
+      }));
+      document.querySelectorAll('.statContributorClick').forEach(btn => btn.addEventListener('click', () => {
+        if(window.IFWL_openContributorUploads) window.IFWL_openContributorUploads(btn.dataset.authorName || '', btn.dataset.userId || '');
+      }));
     }catch(e){
       console.warn('Tune stats unavailable', e);
-      el.innerHTML = `
+      grid.innerHTML = `
         <div class="statCard"><h3>Top reviewed tunes</h3><div class="statMeta">Stats unavailable.</div></div>
         <div class="statCard"><h3>Most downloaded</h3><div class="statMeta">Stats unavailable.</div></div>
         <div class="statCard"><h3>Top contributors</h3><div class="statMeta">Stats unavailable.</div></div>
@@ -1296,6 +1323,32 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       if(list) await openDatabaseTunes();
     }
   }
+  window.IFWL_loadDatabaseTuneById = async function(id){
+    await downloadTuneFromDatabase(id);
+  };
+  window.IFWL_openContributorUploads = async function(authorName, userId){
+    const token = sessionToken();
+    if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
+    setDbMode('all');
+    dbModal(true);
+    const list = $('dbList');
+    if(list) list.innerHTML = `<div class="dbEmpty">Loading uploads from ${htmlSafe(authorName || 'contributor')}...</div>`;
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneList=1&token=${encodeURIComponent(token)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load contributor tunes');
+      const rows = (data.tunes || []).filter(t => {
+        const sameUser = userId && t.createdBy?.userId && String(t.createdBy.userId) === String(userId);
+        const sameName = authorName && String(t.authorName || t.createdBy?.authorName || t.createdBy?.nick || t.createdBy?.username || '') === String(authorName);
+        return sameUser || sameName;
+      });
+      renderDatabaseList(rows);
+      if(data.patreonStatus && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data.patreonStatus);
+    }catch(err){
+      console.error(err);
+      if(list) list.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
+    }
+  };
   function reviewModal(show){
     const modal = $('reviewModal');
     if(modal) modal.style.display = show ? 'flex' : 'none';
