@@ -856,7 +856,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('platformInputTop').addEventListener('input',e=>updateTuneField('platform',e.target.value));
   function prohibitedTuneName(file){
     const name = String(file?.webkitRelativePath || file?.relativePath || file?.path || file?.name || '');
-    return /(^|[^a-z0-9])(jadier|cda)([^a-z0-9]|$)/i.test(name) || /(jadier|cda)/i.test(name);
+    return /(^|[^a-z0-9])(jadier|jardier|cda)([^a-z0-9]|$)/i.test(name) || /(jadier|jardier|cda)/i.test(name);
   }
   function showProhibitedBox(removed){
     const box = $('prohibitedUploadBox');
@@ -1077,16 +1077,29 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
         dbStatus(`Saved to database: ${data.title || tunes[targets[0]].title || 'IFWL Tune'} • Author: ${data.authorName || currentAuthorName()}`);
       } else {
         let saved = 0;
+        let blocked = 0;
+        const blockedNames = [];
         for(const idx of targets){
-          dbStatus(`Saving selected tunes to database... ${saved + 1}/${targets.length}`);
-          await saveTuneIndexToDatabase(idx, token);
-          saved++;
+          dbStatus(`Saving selected tunes to database... ${saved + blocked + 1}/${targets.length}`);
+          try{
+            await saveTuneIndexToDatabase(idx, token);
+            saved++;
+          }catch(itemErr){
+            const msg = String(itemErr?.message || itemErr || '');
+            if(/prohibited|third-party|blocked/i.test(msg)){
+              blocked++;
+              blockedNames.push(tunes[idx]?.name || tunes[idx]?.title || `Tune ${idx + 1}`);
+              continue;
+            }
+            throw itemErr;
+          }
         }
         ownershipModal(false);
         pendingBulkSaveIndexes = null;
         selectedTuneIndexes.clear();
         renderTabs();
-        const doneMessage = `Saved ${saved} selected tune(s) to database • Author: ${currentAuthorName()}`;
+        if(blockedNames.length) showProhibitedBox(blockedNames);
+        const doneMessage = `Saved ${saved} selected tune(s) to database${blocked ? ` • Prohibited tunes uploaded and removed: ${blocked}` : ''} • Author: ${currentAuthorName()}`;
         dbStatus(doneMessage);
         alert(doneMessage);
       }
