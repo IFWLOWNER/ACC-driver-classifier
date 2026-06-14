@@ -765,6 +765,11 @@
     .dbHeadActions button{flex:1 1 120px;}
   }
 
+
+
+  /* v5.6 PC JSON download support */
+  .dbJsonDownload{background:linear-gradient(180deg,#5b636b,#3c434a)!important;color:#fff!important;}
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -1961,12 +1966,13 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
         </div>
         <div class="dbActions">
           <button class="ghost dbReviews" type="button" data-id="${htmlSafe(t.id)}" data-title="${htmlSafe(t.title || 'IFWL Tune')}">Reviews</button>
-          ${canDownloadDatabaseTunes() ? `<button class="primary dbDownload" type="button" data-id="${htmlSafe(t.id)}">${owned ? 'Load owned tune' : 'Download tune'}</button>` : '<button class="ghost dbNoDownload" type="button">Patreon download only</button>'}
+          ${canDownloadDatabaseTunes() ? `<button class="ghost dbJsonDownload" type="button" data-id="${htmlSafe(t.id)}">Download JSON file</button><button class="primary dbDownload" type="button" data-id="${htmlSafe(t.id)}">${owned ? 'Load owned tune' : 'Download tune'}</button>` : '<button class="ghost dbNoDownload" type="button">Patreon download only</button>'}
         </div>
       </div>`;
   }
   function bindDatabaseRowButtons(){
     document.querySelectorAll('.dbDownload').forEach(btn => btn.addEventListener('click', () => downloadTuneFromDatabase(btn.dataset.id)));
+    document.querySelectorAll('.dbJsonDownload').forEach(btn => btn.addEventListener('click', () => downloadTuneJsonFromDatabase(btn.dataset.id)));
     document.querySelectorAll('.dbReviews').forEach(btn => btn.addEventListener('click', () => openReviewModal(btn.dataset.id, btn.dataset.title)));
   }
   function renderTuneListFor(track, car){
@@ -2022,6 +2028,59 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     list.innerHTML = rows.map(databaseRowHtml).join('');
     bindDatabaseRowButtons();
   }
+  function getOriginalAccJsonFromTune(tune){
+    if(!tune) return null;
+    return tune.raw || tune.rawJson || tune.originalJson || tune.originalSetupJson || tune.accJson || tune.json || null;
+  }
+  function safeJsonFileName(tune){
+    const base = String(tune?.title || tune?.name || tune?.car || 'IFWL_ACC_Tune').trim() || 'IFWL_ACC_Tune';
+    return base.replace(/[^a-z0-9_\- ]+/gi,'').replace(/\s+/g,'_').slice(0,90) + '.json';
+  }
+  async function downloadTuneJsonFromDatabase(id){
+    if(!canDownloadDatabaseTunes()){
+      showUpgradeModal('Tune JSON downloads require an available IFWL Tune Share download allowance. Upgrade your IFWL Patreon tier to unlock more downloads.');
+      dbStatus('Download locked: no tune download allowance available.', true);
+      return;
+    }
+    const token = sessionToken();
+    if(!token){ dbStatus('Missing Patreon session. Please logout and login again.', true); return; }
+    try{
+      dbStatus('Preparing ACC setup JSON download...');
+      const res = await fetch(backendUrl() + `?patreonTuneGet=1&token=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok){
+        const msg = data.message || data.error || 'JSON download denied';
+        if(data.upgradePrompt || data.allowed === false || data.downloadGranted === false || data.patreonDownloadGranted === false){
+          showUpgradeModal(msg);
+          if(data && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data);
+        }
+        throw new Error(msg);
+      }
+      const tune = data.tune || {};
+      let raw = getOriginalAccJsonFromTune(tune);
+      if(!raw){
+        alert('This tune does not have an original ACC JSON file stored. This usually means it was created as a manual/console tune or was uploaded before JSON export support was added.');
+        dbStatus('JSON unavailable for this tune.', true);
+        return;
+      }
+      let outputText = '';
+      if(typeof raw === 'string'){
+        outputText = raw.trim();
+        try{ JSON.parse(outputText); }
+        catch{ outputText = JSON.stringify({ tune: raw }, null, 2); }
+      } else {
+        outputText = JSON.stringify(raw, null, 2);
+      }
+      const blob = new Blob([outputText], {type:'application/json'});
+      triggerBlobDownload(blob, safeJsonFileName(tune));
+      if(data.downloadStatus && window.IFWL_updatePatreonAccessBar) window.IFWL_updatePatreonAccessBar(data.downloadStatus);
+      dbStatus(`ACC setup JSON downloaded: ${safeJsonFileName(tune)}`);
+    }catch(err){
+      console.error(err);
+      dbStatus(err.message || err, true);
+    }
+  }
+
   async function downloadTuneFromDatabase(id){
     if(!canDownloadDatabaseTunes()){
       showUpgradeModal('Tune downloads require Bronze, Silver or Gold IFWL Patreon. IFWL Active Racers can upload tunes and leave reviews, but cannot download database tunes without Patreon.');
