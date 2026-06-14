@@ -311,6 +311,12 @@
   .subtitle{color:#e7f0f4!important;font-size:13px!important;line-height:1.25!important;}
 
   .toolbar{gap:9px!important;justify-content:center!important;}
+  .mobileToolbarBar{display:none!important;width:100%!important;}
+  .mobileToolbarToggle{display:none!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;width:100%!important;padding:12px 16px!important;background:linear-gradient(180deg,var(--ifwl-teal),var(--ifwl-teal-dark))!important;color:#fff!important;border:0!important;border-radius:14px!important;box-shadow:0 10px 22px rgba(42,157,143,.25)!important;font-weight:800!important;text-align:left!important;}
+  .mobileToolbarToggleLabel{display:flex!important;flex-direction:column!important;gap:2px!important;}
+  .mobileToolbarToggleLabel strong{font-size:14px!important;line-height:1.1!important;}
+  .mobileToolbarToggleLabel span{font-size:11px!important;line-height:1.2!important;opacity:.92!important;}
+  .mobileToolbarArrow{font-size:20px!important;line-height:1!important;transition:transform .18s ease!important;}
   button,.file-label,select,input[type=text],textarea{
     border-radius:12px!important;
     text-transform:none!important;
@@ -474,6 +480,11 @@
     .brand{flex-direction:column!important;text-align:center!important;gap:8px!important;}
     .mark,.mark img{width:155px!important;min-width:155px!important;}
     h1{font-size:1.25rem!important;}
+    .mobileToolbarBar{display:block!important;order:3!important;margin-top:6px!important;}
+    .mobileToolbarToggle{display:flex!important;}
+    .topbar.is-collapsed .toolbar{display:none!important;}
+    .topbar.is-expanded .toolbar{display:grid!important;grid-template-columns:1fr!important;gap:8px!important;width:100%!important;margin-top:10px!important;}
+    .topbar.is-expanded .mobileToolbarArrow{transform:rotate(180deg)!important;}
     .toolbar{width:100%!important;}
     .toolbar button,.toolbar .file-label{flex:1 1 145px!important;justify-content:center!important;text-align:center!important;}
     .workflowMini span{flex:1 1 100%!important;}
@@ -743,7 +754,13 @@
 <div class="app" id="mainApp" style="display:none;">
   <div class="topbar">
     <div class="brand"><div class="mark"><img src="ifwlheaderlogo.webp" alt="IFWL"></div><div><h1>IFWL Tune Share</h1><div class="subtitle">Upload, share, review and export IFWL ACC tunes.</div></div></div>
-    <div class="toolbar">
+    <div class="mobileToolbarBar">
+      <button id="mobileToolbarToggle" class="mobileToolbarToggle" type="button" aria-expanded="false" aria-controls="mainToolbar">
+        <span class="mobileToolbarToggleLabel"><strong>Quick menu</strong><span>Tap to show or hide the action buttons</span></span>
+        <span class="mobileToolbarArrow">▾</span>
+      </button>
+    </div>
+    <div class="toolbar" id="mainToolbar">
       <label class="file-label primary" for="setupFiles">Add files</label><input id="setupFiles" type="file" accept=".json,.zip,application/json,application/zip" multiple>
       <label class="file-label primary" for="setupFolder">Add folder / ZIP</label><input id="setupFolder" type="file" accept=".json,.zip,application/json,application/zip" multiple webkitdirectory directory>
       <button id="addManual" class="ghost" type="button">Manual tune</button>
@@ -2208,8 +2225,42 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       $('status').innerHTML='<span class="danger">Copy failed in this browser. Use Download tune PNG instead.</span>';
     }
   });
+  function setupMobileToolbarToggle(){
+    const topbar = document.querySelector('.topbar');
+    const toolbar = $('mainToolbar');
+    const toggle = $('mobileToolbarToggle');
+    if(!topbar || !toolbar || !toggle) return;
+    const labelStrong = toggle.querySelector('strong');
+    const labelSmall = toggle.querySelector('.mobileToolbarToggleLabel span');
+    function apply(forceOpen){
+      const isMobile = window.matchMedia('(max-width: 720px)').matches;
+      if(!isMobile){
+        toolbar.hidden = false;
+        topbar.classList.remove('is-collapsed','is-expanded');
+        toggle.setAttribute('aria-expanded','true');
+        if(labelStrong) labelStrong.textContent = 'Quick menu';
+        if(labelSmall) labelSmall.textContent = 'All action buttons are visible';
+        return;
+      }
+      let open = typeof forceOpen === 'boolean' ? forceOpen : localStorage.getItem('ifwlTuneShareMobileMenuOpen') === '1';
+      topbar.classList.toggle('is-expanded', open);
+      topbar.classList.toggle('is-collapsed', !open);
+      toolbar.hidden = !open;
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if(labelStrong) labelStrong.textContent = open ? 'Hide quick menu' : 'Show quick menu';
+      if(labelSmall) labelSmall.textContent = open ? 'Tap to collapse the action buttons' : 'Tap to expand the action buttons';
+    }
+    toggle.addEventListener('click', ()=>{
+      const nextOpen = toggle.getAttribute('aria-expanded') !== 'true';
+      localStorage.setItem('ifwlTuneShareMobileMenuOpen', nextOpen ? '1' : '0');
+      apply(nextOpen);
+    });
+    window.addEventListener('resize', ()=>apply());
+    apply(false);
+  }
   populateTrackSelects();
   renderTabs(); renderSheet();
+  setupMobileToolbarToggle();
 })();
 </script>
 </body>
