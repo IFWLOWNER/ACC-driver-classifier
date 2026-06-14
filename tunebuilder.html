@@ -794,6 +794,19 @@
   .adminEmptySmall{font-size:12px;color:#67707a;background:#f7fafb;border:1px dashed rgba(0,0,0,.12);border-radius:10px;padding:10px;}
   @media(max-width:900px){.adminSummaryGrid{grid-template-columns:repeat(2,minmax(0,1fr));}.adminPanelsGrid{grid-template-columns:1fr;}.adminMiniRow{grid-template-columns:1fr;}.adminMiniRow em{text-align:left;}}
 
+
+
+  /* v5.8 bug fixes: readable modal text, tyre table alignment, safer upload confirmation */
+  .reviewItem,.reviewItem *:not(button){color:#1c1f24!important;}
+  .reviewFeedback{color:#1c1f24!important;opacity:1!important;}
+  .confirmRow,.confirmRow span{color:#1c1f24!important;opacity:1!important;}
+  .confirmRow input{accent-color:var(--ifwl-teal)!important;}
+  .miniTable{table-layout:fixed!important;width:100%!important;font-size:13px!important;}
+  .miniTable th,.miniTable td{padding:6px 4px!important;white-space:normal!important;word-break:normal!important;overflow-wrap:normal!important;}
+  .miniTable th:first-child,.miniTable td:first-child{width:28%!important;}
+  .miniTable th:not(:first-child),.miniTable td:not(:first-child){width:18%!important;}
+  .panelBody .miniTable{margin:0 auto!important;}
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -828,6 +841,7 @@
       <button id="addManual" class="ghost" type="button">Manual tune</button>
       <button id="saveSelectedDb" class="uploadBlue" type="button">Upload a tune</button>
       <button id="loadDb" class="primary" type="button">Browse tunes</button>
+      <button id="myTunesTopBtn" class="ghost" type="button">My downloaded tunes</button>
       <button id="saveDb" class="ghost" type="button">Save current only</button>
       <button id="adminDb" class="dangerBtn" type="button" style="display:none;">Admin DB</button>
       <button id="patreonLogoutBtn" class="ghost" type="button">Logout</button>
@@ -1190,7 +1204,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     const stat = mode === 'downloads'
       ? `${Number(t.downloadCount || 0).toLocaleString()} download${Number(t.downloadCount || 0) === 1 ? '' : 's'}`
       : `${starsForStats(t.ratingAvg)} ${Number(t.ratingAvg || 0).toFixed(1)} / 5 (${Number(t.ratingCount || 0)} review${Number(t.ratingCount || 0) === 1 ? '' : 's'})`;
-    return `<button class="spotItem statTuneClick" type="button" data-tune-id="${escapeHtml(t.id || '')}"><span class="spotRank">${rank}</span><span class="spotTitle">${title}</span><br><span class="statMeta">${metaBits}${metaBits ? '<br>' : ''}<span class="spotStars">${stat}</span></span></button>`;
+    return `<button class="spotItem statTuneClick" type="button" data-tune-id="${escapeHtml(t.id || '')}" data-tune-title="${title}"><span class="spotRank">${rank}</span><span class="spotTitle">${title}</span><br><span class="statMeta">${metaBits}${metaBits ? '<br>' : ''}<span class="spotStars">${stat}</span></span></button>`;
   }
   function contributorButtonForStats(c, rank){
     return `<button class="spotItem statContributorClick" type="button" data-author-name="${escapeHtml(c.authorName || 'IFWL')}" data-user-id="${escapeHtml(c.userId || '')}"><span class="spotRank">${rank}</span><span class="spotTitle">${escapeHtml(c.authorName || 'IFWL')}</span><br><span class="statMeta">${Number(c.tuneCount || 0).toLocaleString()} tune${Number(c.tuneCount || 0) === 1 ? '' : 's'} uploaded</span></button>`;
@@ -1212,7 +1226,8 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       `;
       document.querySelectorAll('.statTuneClick').forEach(btn => btn.addEventListener('click', () => {
         const id = btn.dataset.tuneId;
-        if(id && window.IFWL_loadDatabaseTuneById) window.IFWL_loadDatabaseTuneById(id);
+        const title = btn.dataset.tuneTitle || 'IFWL Tune';
+        if(id && window.IFWL_openTuneReviewsById) window.IFWL_openTuneReviewsById(id, title);
       }));
       document.querySelectorAll('.statContributorClick').forEach(btn => btn.addEventListener('click', () => {
         if(window.IFWL_openContributorUploads) window.IFWL_openContributorUploads(btn.dataset.authorName || '', btn.dataset.userId || '');
@@ -1793,6 +1808,9 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   }
   async function saveTuneIndexToDatabase(index, token){
     const tune = tunes[index];
+    if(tune?.dbId){
+      return { ok:true, id:tune.dbId, title:tune.title || tune.name || 'IFWL Tune', alreadySaved:true };
+    }
     const res = await fetch(backendUrl() + `?patreonTuneSave=1&token=${encodeURIComponent(token)}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -1810,22 +1828,30 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     if(check && !check.checked){ dbStatus('You must confirm tune ownership before saving to database.', true); return; }
     const targets = pendingBulkSaveIndexes || (active >= 0 ? [active] : []);
     if(!targets.length){ dbStatus('Load or select a tune before saving to database.', true); return; }
+    const confirmBtn = $('confirmSaveDb');
+    if(confirmBtn) confirmBtn.disabled = true;
     try{
       if(targets.length === 1){
         dbStatus('Saving tune to database...');
         const data = await saveTuneIndexToDatabase(targets[0], token);
         ownershipModal(false);
         pendingBulkSaveIndexes = null;
-        dbStatus(`Saved to database: ${data.title || tunes[targets[0]].title || 'IFWL Tune'} • Author: ${data.authorName || currentAuthorName()}`);
+        const msg = data.alreadySaved
+          ? `Already saved to database: ${data.title || tunes[targets[0]].title || 'IFWL Tune'}`
+          : `Saved to database: ${data.title || tunes[targets[0]].title || 'IFWL Tune'} • Author: ${data.authorName || currentAuthorName()}`;
+        dbStatus(msg);
+        alert(msg);
       } else {
         let saved = 0;
+        let skipped = 0;
         let blocked = 0;
         const blockedNames = [];
         for(const idx of targets){
-          dbStatus(`Saving selected tunes to database... ${saved + blocked + 1}/${targets.length}`);
+          dbStatus(`Saving selected tunes to database... ${saved + skipped + blocked + 1}/${targets.length}`);
           try{
-            await saveTuneIndexToDatabase(idx, token);
-            saved++;
+            const itemData = await saveTuneIndexToDatabase(idx, token);
+            if(itemData?.alreadySaved) skipped++;
+            else saved++;
           }catch(itemErr){
             const msg = String(itemErr?.message || itemErr || '');
             if(/prohibited|third-party|blocked/i.test(msg)){
@@ -1841,13 +1867,15 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
         selectedTuneIndexes.clear();
         renderTabs();
         if(blockedNames.length) showProhibitedBox(blockedNames);
-        const doneMessage = `Saved ${saved} selected tune(s) to database${blocked ? ` • Prohibited tunes uploaded and removed: ${blocked}` : ''} • Author: ${currentAuthorName()}`;
+        const doneMessage = `Saved ${saved} selected tune(s) to database${skipped ? ` • Already saved/skipped: ${skipped}` : ''}${blocked ? ` • Prohibited tunes uploaded and removed: ${blocked}` : ''} • Author: ${currentAuthorName()}`;
         dbStatus(doneMessage);
         alert(doneMessage);
       }
     }catch(err){
       console.error(err);
       dbStatus(err.message || err, true);
+    }finally{
+      if(confirmBtn) confirmBtn.disabled = false;
     }
   }
   function setDbMode(mode){
@@ -2224,6 +2252,10 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       if(list) list.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
     }
   }
+  window.IFWL_openTuneReviewsById = async function(id, title){
+    await openReviewModal(id, title || 'IFWL Tune');
+  };
+
   async function submitTuneReview(){
     const token = sessionToken();
     const status = $('reviewStatus');
@@ -2403,6 +2435,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('closeUpgrade').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('closeUpgrade2').addEventListener('click', () => $('upgradeModal').style.display='none');
   $('loadDb').addEventListener('click', openDatabaseTunes);
+  $('myTunesTopBtn').addEventListener('click', openMyDownloadedTunes);
   $('adminDb').addEventListener('click', openAdminTools);
   $('closeAdmin').addEventListener('click', () => adminModal(false));
   $('adminRefreshOverview').addEventListener('click', loadAdminOverview);
