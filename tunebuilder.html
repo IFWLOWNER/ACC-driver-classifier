@@ -770,6 +770,30 @@
   /* v5.6 PC JSON download support */
   .dbJsonDownload{background:linear-gradient(180deg,#5b636b,#3c434a)!important;color:#fff!important;}
 
+
+
+  /* v5.7 Owner/Ops admin overview */
+  #adminModal .dbPanel{width:min(1180px,96vw)!important;}
+  .adminOverviewTop{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(42,157,143,.12);border:1px solid rgba(42,157,143,.25);border-radius:16px;padding:14px;margin-bottom:12px;color:#123f39;}
+  .adminOverviewTop strong{display:block;font-family:'GoodTimesRG',Arial,sans-serif;text-transform:uppercase;letter-spacing:.4px;color:#111;margin-bottom:4px;}
+  .adminOverviewTop span{display:block;font-size:13px;color:#46515d;font-weight:700;line-height:1.35;}
+  .adminOverview{display:grid;gap:12px;margin-bottom:14px;}
+  .adminSummaryGrid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;}
+  .adminMetric{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:12px;box-shadow:0 8px 18px rgba(0,0,0,.05);}
+  .adminMetric b{display:block;font-size:22px;color:#12453f;line-height:1.1;}
+  .adminMetric span{display:block;font-size:11px;color:#67707a;text-transform:uppercase;font-weight:900;letter-spacing:.04em;margin-top:5px;}
+  .adminPanelsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+  .adminInfoPanel{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:12px;box-shadow:0 8px 18px rgba(0,0,0,.05);min-width:0;}
+  .adminInfoPanel h3{margin:0 0 9px;font-family:'GoodTimesRG',Arial,sans-serif;font-size:14px;text-transform:uppercase;letter-spacing:.4px;color:#111;}
+  .adminMiniTable{display:grid;gap:7px;max-height:260px;overflow:auto;padding-right:2px;}
+  .adminMiniRow{display:grid;grid-template-columns:1.2fr .55fr .5fr;gap:8px;align-items:center;background:#f7fafb;border:1px solid rgba(0,0,0,.06);border-radius:10px;padding:8px;font-size:12px;}
+  .adminMiniRow strong{color:#111;line-height:1.2;word-break:break-word;}
+  .adminMiniRow span{color:#56616d;line-height:1.25;}
+  .adminMiniRow em{font-style:normal;font-weight:900;color:#12453f;text-align:right;}
+  .adminMiniRow.maxed em{color:#b42318;}
+  .adminEmptySmall{font-size:12px;color:#67707a;background:#f7fafb;border:1px dashed rgba(0,0,0,.12);border-radius:10px;padding:10px;}
+  @media(max-width:900px){.adminSummaryGrid{grid-template-columns:repeat(2,minmax(0,1fr));}.adminPanelsGrid{grid-template-columns:1fr;}.adminMiniRow{grid-template-columns:1fr;}.adminMiniRow em{text-align:left;}}
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -950,6 +974,14 @@
       <h2>Owner/Ops database tools</h2>
       <button id="closeAdmin" class="ghost" type="button">Close</button>
     </div>
+    <div class="adminOverviewTop">
+      <div>
+        <strong>Ops overview</strong>
+        <span>30-day download usage, maxed-out users, upload activity and recent database movement.</span>
+      </div>
+      <button id="adminRefreshOverview" class="primary" type="button">Refresh overview</button>
+    </div>
+    <div id="adminOverview" class="adminOverview"><div class="dbEmpty">Loading admin overview...</div></div>
     <div class="adminSearch">
       <input id="adminSearchInput" type="text" placeholder="Search file name, title, car, track, author... e.g. JADIER or CDA">
       <button id="adminSearchBtn" class="dangerBtn" type="button">Search</button>
@@ -995,10 +1027,10 @@ const IFWL_PATREON_GATE = {
   PATREON_URL: "https://www.patreon.com/c/IFWL",
   DENIED_TEXT: "you are not showing as a patreon in IFWL, ensure you have linked your discord to your patreon account via the patreon settings page, if you havent yet joined IFWL patreons, do so here : https://www.patreon.com/c/IFWL",
   ROLES: {
-    bronze: { id:"1300001061896982640", limit:1, label:"Bronze" },
-    silver: { id:"1300000880204189757", limit:2, label:"Silver" },
-    gold: { id:"1299446348843712512", limit:10, label:"Gold" },
-    activeRacer: { id:"1166713466917224449", uploadOnly:true, label:"IFWL Active Racer" },
+    bronze: { id:"1300001061896982640", limit:3, label:"Bronze" },
+    silver: { id:"1300000880204189757", limit:10, label:"Silver" },
+    gold: { id:"1299446348843712512", limit:30, label:"Gold" },
+    activeRacer: { id:"1166713466917224449", limit:1, label:"IFWL Active Racer" },
     owner: { id:"1164536220387385364", bypass:true, label:"Owner" },
     ops: { id:"1285573242534363177", bypass:true, label:"Ops Team" }
   }
@@ -2216,6 +2248,66 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       if(status) status.innerHTML = `<span class="danger">${htmlSafe(err.message || err)}</span>`;
     }
   }
+  function shortDate(ms){
+    const n = Number(ms || 0);
+    if(!n) return '—';
+    try{ return new Date(n).toLocaleString([], {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}); }
+    catch{ return '—'; }
+  }
+  function limitLabel(user){
+    const limit = Number(user?.downloadLimit || 0);
+    if(limit >= 999999) return '∞';
+    return String(limit || 0);
+  }
+  function adminMiniRows(rows, type){
+    if(!rows || !rows.length) return '<div class="adminEmptySmall">Nothing to show yet.</div>';
+    return rows.map(x => {
+      if(type === 'downloadUser' || type === 'maxed'){
+        const used = Number(x.downloadsUsed || 0);
+        const limit = limitLabel(x);
+        return `<div class="adminMiniRow ${type === 'maxed' ? 'maxed' : ''}"><strong>${htmlSafe(x.name || x.username || x.userId || 'Unknown user')}<br><span>${htmlSafe(x.patreonTier || '—')}</span></strong><span>${used}/${limit} used<br>Last: ${shortDate(x.lastDownloadAtMs)}</span><em>${Number(x.downloadsRemaining || 0)} left</em></div>`;
+      }
+      if(type === 'uploader'){
+        return `<div class="adminMiniRow"><strong>${htmlSafe(x.name || 'Unknown uploader')}</strong><span>${Number(x.uploads30 || 0)} in 30 days<br>Last: ${shortDate(x.lastUploadAtMs)}</span><em>${Number(x.uploadCount || 0)} total</em></div>`;
+      }
+      if(type === 'recentUpload'){
+        return `<div class="adminMiniRow"><strong>${htmlSafe(x.title || 'IFWL Tune')}<br><span>${htmlSafe(x.authorName || 'IFWL')}</span></strong><span>${htmlSafe([x.car,x.track,x.session].filter(Boolean).join(' • '))}<br>${shortDate(x.createdAtMs)}</span><em>${Number(x.downloadCount || 0)} dl</em></div>`;
+      }
+      return `<div class="adminMiniRow"><strong>${htmlSafe(x.name || x.username || 'Unknown user')}</strong><span>${htmlSafe(x.patreonTier || '—')}<br>${shortDate(x.createdAtMs)}</span><em>${htmlSafe(x.downloadType || 'download')}</em></div>`;
+    }).join('');
+  }
+  async function loadAdminOverview(){
+    const token = sessionToken();
+    const wrap = $('adminOverview');
+    if(!wrap) return;
+    if(!token){ wrap.innerHTML = '<div class="dbEmpty danger">Missing session.</div>'; return; }
+    wrap.innerHTML = '<div class="dbEmpty">Loading admin overview...</div>';
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneAdminOverview=1&token=${encodeURIComponent(token)}`, {cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Admin overview failed');
+      const s = data.summary || {};
+      wrap.innerHTML = `
+        <div class="adminSummaryGrid">
+          <div class="adminMetric"><b>${Number(s.activeTunes || 0).toLocaleString()}</b><span>Active tunes</span></div>
+          <div class="adminMetric"><b>${Number(s.downloads30 || 0).toLocaleString()}</b><span>Downloads / 30d</span></div>
+          <div class="adminMetric"><b>${Number(s.activeDownloaders30 || 0).toLocaleString()}</b><span>Download users</span></div>
+          <div class="adminMetric"><b>${Number(s.maxedOutUsers || 0).toLocaleString()}</b><span>Maxed out</span></div>
+          <div class="adminMetric"><b>${Number(s.uploads30 || 0).toLocaleString()}</b><span>Uploads / 30d</span></div>
+          <div class="adminMetric"><b>${Number(s.uploaders || 0).toLocaleString()}</b><span>Uploaders</span></div>
+        </div>
+        <div class="adminPanelsGrid">
+          <div class="adminInfoPanel"><h3>Users actively downloading</h3><div class="adminMiniTable">${adminMiniRows(data.downloadUsers || [], 'downloadUser')}</div></div>
+          <div class="adminInfoPanel"><h3>Users maxed out</h3><div class="adminMiniTable">${adminMiniRows(data.maxedOutUsers || [], 'maxed')}</div></div>
+          <div class="adminInfoPanel"><h3>Users uploading</h3><div class="adminMiniTable">${adminMiniRows(data.uploaders || [], 'uploader')}</div></div>
+          <div class="adminInfoPanel"><h3>Recent uploads</h3><div class="adminMiniTable">${adminMiniRows(data.recentUploads || [], 'recentUpload')}</div></div>
+        </div>`;
+    }catch(err){
+      console.error(err);
+      wrap.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
+    }
+  }
+
   function adminModal(show){
     const modal = $('adminModal');
     if(modal) modal.style.display = show ? 'flex' : 'none';
@@ -2223,6 +2315,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   async function openAdminTools(){
     if(!canModerateTunes()){ dbStatus('Owner/Ops only.', true); return; }
     adminModal(true);
+    await loadAdminOverview();
     await adminSearchTunes();
   }
   async function adminSearchTunes(){
@@ -2312,6 +2405,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('loadDb').addEventListener('click', openDatabaseTunes);
   $('adminDb').addEventListener('click', openAdminTools);
   $('closeAdmin').addEventListener('click', () => adminModal(false));
+  $('adminRefreshOverview').addEventListener('click', loadAdminOverview);
   $('adminSearchBtn').addEventListener('click', adminSearchTunes);
   $('adminSearchInput').addEventListener('keydown', e => { if(e.key === 'Enter') adminSearchTunes(); });
   $('dbBrowseBack').addEventListener('click', () => { const btn = $('dbBrowseBack'); const mode = btn.dataset.backMode || ''; if(mode === 'cars'){ renderCarImageGrid(btn.dataset.track || ''); } else { renderTrackImageGrid(); } });
