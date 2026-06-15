@@ -871,7 +871,7 @@
     <div class="quickField"><label for="sessionInputTop">Session</label><select id="sessionInputTop"><option>Race Dry</option><option>Quali Dry</option><option>Race Wet</option><option>Quali Wet</option><option>Practice</option><option>Custom</option></select></div>
     <div class="quickField"><label for="platformInputTop">Platform</label><select id="platformInputTop"><option>PC</option><option>Console</option><option>PC + Console</option></select></div>
   </div>
-  <div class="toolbarNote"><b>Quick start:</b> upload files or a folder, check the track/session, tick the tunes you want to share, then upload selected. Use Browse tunes to pick by track image, then car image, then tune list. Image buttons now sit directly above the tune preview.</div>
+  <div class="toolbarNote"><b>Quick start:</b> upload files or a folder, check the track/session, tick the tunes you want to share, then upload selected. Use Browse tunes, then choose Browse by track or Browse by car. Image buttons now sit directly above the tune preview.</div>
   <div class="grid">
     <aside class="side">
       <div class="box">
@@ -933,6 +933,8 @@
     <div class="dbTabs">
       <button id="dbAllTunesBtn" class="primary active" type="button">All tunes</button>
       <button id="dbMyTunesBtn" class="ghost" type="button">My downloaded tunes</button>
+      <button id="dbBrowseByTrackBtn" class="primary active" type="button">Browse by track</button>
+      <button id="dbBrowseByCarBtn" class="ghost" type="button">Browse by car</button>
     </div>
     <div class="dbFilters">
       <div class="dbFilterField">
@@ -1468,6 +1470,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   let dbRows = [];
   let dbMode = 'all';
   let dbBrowseScope = 'all';
+  let dbBrowseMode = 'track';
   let currentReviewTuneId = '';
   let currentReviewStars = 0;
   const selectedTuneIndexes = new Set();
@@ -1945,6 +1948,25 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     if(allBtn) allBtn.classList.toggle('active', dbMode === 'all');
     if(mineBtn) mineBtn.classList.toggle('active', dbMode === 'mine');
   }
+  function setBrowseMode(mode, rerender=true){
+    dbBrowseMode = mode === 'car' ? 'car' : 'track';
+    const trackBtn = $('dbBrowseByTrackBtn');
+    const carBtn = $('dbBrowseByCarBtn');
+    if(trackBtn){
+      trackBtn.classList.toggle('active', dbBrowseMode === 'track');
+      trackBtn.classList.toggle('primary', dbBrowseMode === 'track');
+      trackBtn.classList.toggle('ghost', dbBrowseMode !== 'track');
+    }
+    if(carBtn){
+      carBtn.classList.toggle('active', dbBrowseMode === 'car');
+      carBtn.classList.toggle('primary', dbBrowseMode === 'car');
+      carBtn.classList.toggle('ghost', dbBrowseMode !== 'car');
+    }
+    if(rerender && dbRows.length){
+      if(dbBrowseMode === 'car') renderAllCarImageGrid();
+      else renderTrackImageGrid();
+    }
+  }
   async function openMyDownloadedTunes(){
     dbBrowseScope = 'mine';
     const token = sessionToken();
@@ -2071,6 +2093,50 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       </div>`;
     document.querySelectorAll('.browseCarCard').forEach(btn => btn.addEventListener('click', () => renderTuneListFor(btn.dataset.track || '', btn.dataset.car || '')));
   }
+  function renderAllCarImageGrid(){
+    const list = $('dbList');
+    if(!list) return;
+    setBrowseHeading('Browse Cars', '');
+    const cars = uniqueSorted(dbRows.map(t => canonicalCarName(t.car)));
+    if(!cars.length){ list.innerHTML = `<div class="dbEmpty">${dbMode === 'mine' ? 'You have not downloaded any tunes yet.' : 'No tunes saved in the database yet.'}</div>`; return; }
+    list.innerHTML = `
+      <div class="browseIntro">Choose a car first, then pick the track. This view is useful when a car is not appearing where expected under track browsing.</div>
+      <div class="browseImageGrid">
+        ${cars.map(car => {
+          const count = dbRows.filter(t => sameCar(t.car, car)).length;
+          return `<button class="browseImageCard browseAllCarCard" type="button" data-car="${htmlSafe(car)}">
+            ${imageTag(carImageFor(car), car, CAR_IMAGE_PENDING)}
+            <span class="browseImageCardText"><span class="browseImageCardTitle">${htmlSafe(car)}</span><span class="browseImageCardMeta">${count} tune${count === 1 ? '' : 's'} available</span></span>
+          </button>`;
+        }).join('')}
+      </div>`;
+    document.querySelectorAll('.browseAllCarCard').forEach(btn => btn.addEventListener('click', () => renderTrackGridForCar(btn.dataset.car || '')));
+  }
+  function renderTrackGridForCar(car){
+    const list = $('dbList');
+    if(!list) return;
+    setBrowseHeading(car || 'Choose Track', 'allcars');
+    const backBtn = $('dbBrowseBack'); if(backBtn){ backBtn.dataset.car = car || ''; backBtn.dataset.track = ''; }
+    const rows = dbRows.filter(t => sameCar(t.car, car));
+    const tracks = uniqueSorted(rows.map(t => t.track)).sort((a,b)=>(trackOrderValue(a)-trackOrderValue(b)) || a.localeCompare(b));
+    if(!tracks.length){
+      list.innerHTML = `<div class="browseTrail">${htmlSafe(car)}</div><div class="dbEmpty">No tracks found for this car yet.</div>`;
+      return;
+    }
+    list.innerHTML = `
+      <div class="browseTrail">${htmlSafe(car)} → Choose track</div>
+      <div class="browseImageGrid">
+        ${tracks.map(track => {
+          const count = rows.filter(t => sameTrack(t.track, track)).length;
+          return `<button class="browseImageCard browseCarTrackCard" type="button" data-car="${htmlSafe(car)}" data-track="${htmlSafe(track)}">
+            ${imageTag(trackImageFor(track), track, TRACK_IMAGE_PENDING)}
+            <span class="browseImageCardText"><span class="browseImageCardTitle">${htmlSafe(track)}</span><span class="browseImageCardMeta">${count} tune${count === 1 ? '' : 's'} available</span></span>
+          </button>`;
+        }).join('')}
+      </div>`;
+    document.querySelectorAll('.browseCarTrackCard').forEach(btn => btn.addEventListener('click', () => renderTuneListFor(btn.dataset.track || '', btn.dataset.car || '')));
+  }
+
   function databaseRowHtml(t){
     const owned = !!t.owned;
     return `
@@ -2098,7 +2164,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function renderTuneListFor(track, car){
     const list = $('dbList');
     if(!list) return;
-    setBrowseHeading(car || 'Tune List', 'cars');
+    setBrowseHeading(car || 'Tune List', dbBrowseMode === 'car' ? 'cartracks' : 'cars');
     const backBtn = $('dbBrowseBack'); if(backBtn){ backBtn.dataset.track = track || ''; backBtn.dataset.car = car || ''; }
     const rows = dbRows.filter(t => sameTrack(t.track, track) && sameCar(t.car, car));
     list.innerHTML = `
@@ -2135,7 +2201,8 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   function renderDatabaseList(rows){
     dbRows = normaliseDbRows(rows);
     populateDbFilters(dbRows);
-    renderTrackImageGrid();
+    if(dbBrowseMode === 'car') renderAllCarImageGrid();
+    else renderTrackImageGrid();
   }
   function renderDatabaseRows(rows){
     const list = $('dbList');
@@ -2507,10 +2574,20 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('adminRefreshOverview').addEventListener('click', loadAdminOverview);
   $('adminSearchBtn').addEventListener('click', adminSearchTunes);
   $('adminSearchInput').addEventListener('keydown', e => { if(e.key === 'Enter') adminSearchTunes(); });
-  $('dbBrowseBack').addEventListener('click', () => { const btn = $('dbBrowseBack'); const mode = btn.dataset.backMode || ''; if(mode === 'cars'){ renderCarImageGrid(btn.dataset.track || ''); } else { renderTrackImageGrid(); } });
+  $('dbBrowseBack').addEventListener('click', () => {
+    const btn = $('dbBrowseBack');
+    const mode = btn.dataset.backMode || '';
+    if(mode === 'cars') renderCarImageGrid(btn.dataset.track || '');
+    else if(mode === 'allcars') renderAllCarImageGrid();
+    else if(mode === 'cartracks') renderTrackGridForCar(btn.dataset.car || '');
+    else if(dbBrowseMode === 'car') renderAllCarImageGrid();
+    else renderTrackImageGrid();
+  });
   $('closeDb').addEventListener('click', () => dbModal(false));
   $('dbAllTunesBtn').addEventListener('click', openDatabaseTunes);
   $('dbMyTunesBtn').addEventListener('click', openMyDownloadedTunes);
+  $('dbBrowseByTrackBtn').addEventListener('click', () => setBrowseMode('track'));
+  $('dbBrowseByCarBtn').addEventListener('click', () => setBrowseMode('car'));
   $('closeReview').addEventListener('click', () => reviewModal(false));
   $('submitReview').addEventListener('click', submitTuneReview);
   document.querySelectorAll('#reviewStars button').forEach(btn => btn.addEventListener('click', () => setReviewStars(btn.dataset.star)));
@@ -2701,6 +2778,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     window.addEventListener('resize', ()=>apply());
     apply(false);
   }
+  setBrowseMode('track', false);
   populateTrackSelects();
   renderTabs(); renderSheet();
   setupMobileToolbarToggle();
