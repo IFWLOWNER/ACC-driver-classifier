@@ -1012,6 +1012,17 @@
       <button id="adminSearchBtn" class="dangerBtn" type="button">Search</button>
     </div>
     <div class="warning">Owner/Ops only. Removing a tune hides it from the community database but keeps an audit trail in Firestore.</div>
+    <div class="adminOverviewTop">
+      <div>
+        <strong>Database-wide name cleanup</strong>
+        <span>Preview first, then apply. Removes temperature tokens like 30c / 38C and changes WET to RAIN in tune titles and file-name fields. IFWL.NET and other names are left in place.</span>
+      </div>
+      <div class="dbHeadActions">
+        <button id="adminPreviewNameClean" class="primary" type="button">Preview cleanup</button>
+        <button id="adminRunNameClean" class="dangerBtn" type="button">Apply cleanup</button>
+      </div>
+    </div>
+    <div id="adminNameCleanResult" class="adminOverview"><div class="adminEmptySmall">Name cleanup has not been previewed yet.</div></div>
     <div id="adminList" class="dbList"><div class="dbEmpty">Search for a tune filename/title to manage it.</div></div>
   </div>
 </div>
@@ -1426,13 +1437,13 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   const CAR_IMAGE_FILES = Object.fromEntries([
     ['Mercedes AMG GT3 Evo',['Mercedes Amg Gt3 Evo.png','MERCEDES AMG GT3 EVO.png']],
     ['Mercedes AMG GT3',['Mercedes Amg Gt3 Evo.png','MERCEDES AMG GT3.png']],
-    ['Mercedes AMG GT4',['Mercedes AMG GT4.png','Mercedes Amg Gt4.png','Mercedes Amg Gt3 Evo.png']],
-    ['Mercedes AMG GT2',['Mercedes AMG GT2.png','Mercedes Amg Gt2.png','Mercedes Amg Gt3 Evo.png']],
+    ['Mercedes AMG GT4',['Mercedes Amg Gt3 Evo.png']],
+    ['Mercedes AMG GT2',['Mercedes Amg Gt3 Evo.png']],
     ['Porsche 992 GT3 R',['Porsche 992 Gt3 R.png','PORSCHE 992 GT3 R.png']],
-    ['Porsche 992 GT3 Cup',['Porsche 992 Gt3 Cup.png','PORSCHE 992 GT3 CUP.png','Porsche 992 Gt3 R.png']],
-    ['Porsche 991II GT3 R',['Porsche 991ii Gt3 R.png','PORSCHE 991II GT3 R.png','Porsche 992 Gt3 R.png']],
-    ['Porsche 991 GT2 RS MR',['Porsche 991 Gt2 Rs Mr.png','PORSCHE 991 GT2 RS MR.png','Porsche 992 Gt3 R.png']],
-    ['Porsche 718 Cayman GT4 MR',['Porsche 718 Cayman Gt4 Mr.png','PORSCHE 718 CAYMAN GT4 MR.png','Porsche 992 Gt3 R.png']],
+    ['Porsche 992 GT3 Cup',['Porsche 992 Gt3 R.png']],
+    ['Porsche 991II GT3 R',['Porsche 992 Gt3 R.png']],
+    ['Porsche 991 GT2 RS MR',['Porsche 992 Gt3 R.png']],
+    ['Porsche 718 Cayman GT4 MR',['Porsche 992 Gt3 R.png']],
     ['Lamborghini Huracan GT3 Evo2',['Lamborghini Huracan Gt3 Evo2.png']],
     ['Nissan GT-R GT3 2018',['Nissan Gtr Gt3 2018.png','Nissan Gt R Gt3 2018.png','NISSAN GT R GT3 2018.png']],
     ['Nissan GTR GT3 2018',['Nissan Gtr Gt3 2018.png','Nissan Gt R Gt3 2018.png','NISSAN GT R GT3 2018.png']],
@@ -1443,7 +1454,7 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     ['For Mustang',['Ford Mustang Gt3.png','FOR MUSTANG.png']],
     ['Mustang GT3',['Ford Mustang Gt3.png','FOR MUSTANG.png']],
     ['Ferrari 488 GT3 Evo',['Ferrari 488 Gt3 Evo.png']],
-    ['Ferrari 296 GT3',['Ferrari 296 Gt3.png','FERRARI 296 GT3.png','Ferrari 488 Gt3 Evo.png']],
+    ['Ferrari 296 GT3',['Ferrari 488 Gt3 Evo.png']],
     ['McLaren 720S GT3 Evo',['Mclaren 720s Gt3 Evo.png','MCLAREN 720S GT3 EVO.png']],
     ['AMR V8 Vantage GT3',['Amr V8 Vantage Gt3.png']],
     ['Aston Martin V8 Vantage GT3',['Amr V8 Vantage Gt3.png']]
@@ -2511,6 +2522,50 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
       if(list) list.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
     }
   }
+  function renderNameCleanResult(data, applied){
+    const wrap = $('adminNameCleanResult');
+    if(!wrap) return;
+    const examples = Array.isArray(data?.examples) ? data.examples : [];
+    const header = applied
+      ? `Applied cleanup to ${Number(data?.updated || 0).toLocaleString()} tune(s).`
+      : `Preview found ${Number(data?.matched || 0).toLocaleString()} tune(s) that would change.`;
+    const rows = examples.map(item => {
+      const first = (item.changes || [])[0] || {};
+      return `<div class="adminMiniRow"><strong>${htmlSafe(item.title || item.id || 'IFWL Tune')}<br><span>${htmlSafe([item.car,item.track].filter(Boolean).join(' • '))}</span></strong><span>${htmlSafe(first.before || '—')}<br>→ ${htmlSafe(first.after || '—')}</span><em>${Number((item.changes || []).length)} field${Number((item.changes || []).length) === 1 ? '' : 's'}</em></div>`;
+    }).join('');
+    wrap.innerHTML = `
+      <div class="adminInfoPanel">
+        <h3>${applied ? 'Cleanup applied' : 'Cleanup preview'}</h3>
+        <div class="adminEmptySmall">${htmlSafe(header)} Checked ${Number(data?.checked || 0).toLocaleString()} database tune document(s). Showing up to 50 examples.</div>
+        <div class="adminMiniTable">${rows || '<div class="adminEmptySmall">No matching names found. Nothing needs changing.</div>'}</div>
+      </div>`;
+  }
+  async function adminNameCleanup(dryRun=true){
+    if(!canModerateTunes()){ dbStatus('Owner/Ops only.', true); return; }
+    const token = sessionToken();
+    const wrap = $('adminNameCleanResult');
+    if(!token){ if(wrap) wrap.innerHTML = '<div class="dbEmpty danger">Missing session.</div>'; return; }
+    if(!dryRun){
+      const ok = confirm('Apply database-wide tune name cleanup now?\n\nThis will remove temperature tokens like 30c / 38C and replace WET with RAIN across tune title/file-name fields.');
+      if(!ok) return;
+    }
+    if(wrap) wrap.innerHTML = `<div class="dbEmpty">${dryRun ? 'Previewing' : 'Applying'} database-wide name cleanup...</div>`;
+    try{
+      const res = await fetch(backendUrl() + `?patreonTuneNameClean=1&dryRun=${dryRun ? '1' : '0'}&token=${encodeURIComponent(token)}`, {method:'POST', cache:'no-store'});
+      const data = await res.json();
+      if(!res.ok || !data.ok) throw new Error(data.error || 'Name cleanup failed');
+      renderNameCleanResult(data, !dryRun);
+      if(!dryRun){
+        await loadAdminOverview();
+        await adminSearchTunes();
+        await loadDatabaseTuneCount();
+        await loadDatabaseStats();
+      }
+    }catch(err){
+      console.error(err);
+      if(wrap) wrap.innerHTML = `<div class="dbEmpty danger">${htmlSafe(err.message || err)}</div>`;
+    }
+  }
   function renderAdminRows(rows){
     const list = $('adminList');
     if(!list) return;
@@ -2586,6 +2641,8 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
   $('adminRefreshOverview').addEventListener('click', loadAdminOverview);
   $('adminSearchBtn').addEventListener('click', adminSearchTunes);
   $('adminSearchInput').addEventListener('keydown', e => { if(e.key === 'Enter') adminSearchTunes(); });
+  $('adminPreviewNameClean').addEventListener('click', () => adminNameCleanup(true));
+  $('adminRunNameClean').addEventListener('click', () => adminNameCleanup(false));
   $('dbBrowseBack').addEventListener('click', () => {
     const btn = $('dbBrowseBack');
     const mode = btn.dataset.backMode || '';
