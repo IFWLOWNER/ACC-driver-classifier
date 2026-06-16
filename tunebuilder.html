@@ -2552,8 +2552,11 @@ window.IFWL_PATREON_SESSION_KEY = IFWL_PATREON_GATE.SESSION_KEY;
     if(wrap) wrap.innerHTML = `<div class="dbEmpty">${dryRun ? 'Previewing' : 'Applying'} database-wide name cleanup...</div>`;
     try{
       const res = await fetch(backendUrl() + `?patreonTuneNameClean=1&dryRun=${dryRun ? '1' : '0'}&token=${encodeURIComponent(token)}`, {method:'POST', cache:'no-store'});
-      const data = await res.json();
-      if(!res.ok || !data.ok) throw new Error(data.error || 'Name cleanup failed');
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); }
+      catch { throw new Error(`Backend returned non-JSON response (${res.status}). ${text.slice(0, 180)}`); }
+      if(!res.ok || !data.ok) throw new Error(data.error || data.detail || 'Name cleanup failed');
       renderNameCleanResult(data, !dryRun);
       if(!dryRun){
         await loadAdminOverview();
