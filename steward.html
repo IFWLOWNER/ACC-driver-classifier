@@ -455,6 +455,21 @@
       font-weight:800;
       opacity:.95;
     }
+
+
+    /* NFA handling: when No Further Action is selected, no time penalty is required */
+    select.nfaNoTimeRequired{
+      opacity:.72;
+      background:#f8fafc !important;
+    }
+    .nfaNoTimeNote{
+      margin-top:6px;
+      font-size:12px;
+      font-weight:800;
+      color:#065f46;
+      display:none;
+    }
+
     @media (max-width: 980px) {
       .voteSummaryGrid{ grid-template-columns:1fr; }
       .linkedTicketGrid{ grid-template-columns:1fr; }
@@ -2294,6 +2309,7 @@
               <div class="muted" style="margin-top:6px;">
                 Choose from 5s to 60s in 5-second steps, or DQ. This feeds the shared steward recommendation summary.
               </div>
+              <div class="nfaNoTimeNote" id="discussionNfaNoTimeNote">NFA selected — no time penalty is required or saved.</div>
             </div>
 
             <div class="penPreview" id="discussionPenaltyPreview" style="display:none;">
@@ -2399,8 +2415,9 @@
               <select id="penaltyCode"></select>
 
               <div class="timePenaltyRow">
-                <label class="muted">Recommended time penalty / DQ (required)</label>
+                <label class="muted">Recommended time penalty / DQ (required unless NFA)</label>
                 <select id="penaltyTime"></select>
+                <div class="nfaNoTimeNote" id="reviewNfaNoTimeNote">NFA selected — no time penalty is required or saved.</div>
                 <div class="muted" style="margin-top:6px;">
                   Choose from 5s to 60s in 5-second steps, or DQ. This is stored with your review and copied into the steward comments audit entry.
                 </div>
@@ -2766,6 +2783,55 @@
       return `${norm} seconds`;
     }
 
+    // NFA / No Further Action must not force a time penalty.
+    // This checks the saved value and all displayed metadata so it still works
+    // if the penalty JSON uses NFA as the code, title, penalty text, or label.
+    function isNfaPenaltySelection(selectOrId) {
+      const sel = typeof selectOrId === "string" ? $(selectOrId) : selectOrId;
+      if (!sel) return false;
+
+      const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
+      const parts = [
+        sel.value,
+        opt?.textContent,
+        opt?.dataset?.code,
+        opt?.dataset?.title,
+        opt?.dataset?.penalty,
+        opt?.dataset?.desc
+      ].map(x => String(x || "").trim()).filter(Boolean);
+
+      const hay = parts.join(" | ").toUpperCase();
+      return /(^|[^A-Z0-9])NFA([^A-Z0-9]|$)/.test(hay) || hay.includes("NO FURTHER ACTION") || hay.includes("NO FURTHER PENALTY");
+    }
+
+    function updatePenaltyTimeRequirement(codeSelectId, timeSelectId, noteId) {
+      const timeSel = $(timeSelectId);
+      if (!timeSel) return false;
+
+      const isNfa = isNfaPenaltySelection(codeSelectId);
+      const placeholder = timeSel.querySelector('option[value=""]');
+
+      if (isNfa) {
+        timeSel.value = "";
+        timeSel.disabled = true;
+        timeSel.classList.add("nfaNoTimeRequired");
+        if (placeholder) placeholder.textContent = "NFA selected — no time penalty required";
+        if ($(noteId)) $(noteId).style.display = "block";
+      } else {
+        timeSel.disabled = false;
+        timeSel.classList.remove("nfaNoTimeRequired");
+        if (placeholder) placeholder.textContent = "Select time penalty / DQ…";
+        if ($(noteId)) $(noteId).style.display = "none";
+      }
+
+      return isNfa;
+    }
+
+    function refreshPenaltyTimeRequirements() {
+      updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
+      updatePenaltyTimeRequirement("discussionPenaltyCode", "discussionPenaltyTime", "discussionNfaNoTimeNote");
+    }
+
     function roundToNearestFive(n) {
       const x = Number(n);
       if (isNaN(x)) return 0;
@@ -2969,7 +3035,9 @@
       if (!sel || !box) return;
 
       const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
-      if (!opt || !opt.value) { box.style.display = "none"; return; }
+      if (!opt || !opt.value) { box.style.display = "none"; updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote"); return; }
+
+      updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
 
       const pen = (opt.dataset.penalty || "").trim();
       const who = (opt.dataset.who || "").trim();
@@ -2991,7 +3059,9 @@
       if (!sel || !box) return;
 
       const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
-      if (!opt || !opt.value) { box.style.display = "none"; return; }
+      if (!opt || !opt.value) { box.style.display = "none"; updatePenaltyTimeRequirement("discussionPenaltyCode", "discussionPenaltyTime", "discussionNfaNoTimeNote"); return; }
+
+      updatePenaltyTimeRequirement("discussionPenaltyCode", "discussionPenaltyTime", "discussionNfaNoTimeNote");
 
       const pen = (opt.dataset.penalty || "").trim();
       const who = (opt.dataset.who || "").trim();
@@ -3076,6 +3146,7 @@
       try {
         await fillSelect("penaltyCode");            // existing CAUSE dropdown
         await fillSelect("discussionPenaltyCode");  // NEW discussion dropdown
+        refreshPenaltyTimeRequirements();
       } catch (e) {
         console.error("Penalty code load failed:", e);
 
@@ -3295,12 +3366,18 @@
 
         // NEW: wire discussion dropdown preview
         const dSel = $("discussionPenaltyCode");
-        if (dSel) dSel.onchange = () => setDiscussionPenaltyPreviewFromSelected();
+        if (dSel) dSel.onchange = () => {
+          setDiscussionPenaltyPreviewFromSelected();
+          updatePenaltyTimeRequirement("discussionPenaltyCode", "discussionPenaltyTime", "discussionNfaNoTimeNote");
+        };
         setDiscussionPenaltyPreviewFromSelected();
 
         // NEW: wire penalty preview for CAUSE dropdown
         const pSel = $("penaltyCode");
-        if (pSel) pSel.onchange = () => setPenaltyPreviewFromSelected();
+        if (pSel) pSel.onchange = () => {
+          setPenaltyPreviewFromSelected();
+          updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
+        };
 
         // NEW: init effect checklist (renders checkboxes and wires handlers)
         initEffectsUI();
@@ -3868,6 +3945,7 @@
       $("discussionInput").value = "";
       if ($("discussionPenaltyTime")) $("discussionPenaltyTime").value = "";
       if ($("penaltyTime")) $("penaltyTime").value = "";
+      refreshPenaltyTimeRequirements();
       renderStewardVoteSummary([]);
       if ($("linkedIncidentSec")) $("linkedIncidentSec").style.display = "none";
       if ($("linkedIncidentDetails")) $("linkedIncidentDetails").style.display = "none";
@@ -4197,8 +4275,9 @@ This steward has declared they are involved in this incident and has recused the
       const value = (sel.value || "").trim();
       if (!opt || !value) { toast("Select a penalty code first"); return; }
 
-      const timePenalty = normalisePenaltyTimeValue($("discussionPenaltyTime")?.value || "");
-      if (!timePenalty) { toast("Select a time penalty or DQ first"); return; }
+      const isNfa = isNfaPenaltySelection("discussionPenaltyCode");
+      const timePenalty = isNfa ? "" : normalisePenaltyTimeValue($("discussionPenaltyTime")?.value || "");
+      if (!isNfa && !timePenalty) { toast("Select a time penalty or DQ first"); return; }
 
       const code = (opt.dataset.code || "").trim();
       const title = (opt.dataset.title || "").trim();
@@ -4213,6 +4292,7 @@ This steward has declared they are involved in this incident and has recused the
 `🧾 PENALTY OPINION
 Code: ${code}${title ? " — " + title : ""}
 Penalty: ${pen || "—"}
+Recommended time penalty: ${isNfa ? "" : formatPenaltyTime(timePenalty)}
 Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExample:\n" + ex : ""}${note ? "\n\nSteward note:\n" + note : ""}`;
 
       const btn = $("postPenaltyOpinionBtn");
@@ -4238,6 +4318,7 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
         toast("Penalty opinion posted ✅");
 
         if ($("discussionInput")) $("discussionInput").value = "";
+        refreshPenaltyTimeRequirements();
 
         await loadDiscussion();
       } catch (e) {
@@ -4284,7 +4365,9 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
       setFreeText("eText", cause.environment?.text || "");
 
       $("penaltyCode").value = d.penaltyCode || "";
-      if ($("penaltyTime")) $("penaltyTime").value = normalisePenaltyTimeValue(d.penaltyTime || "");
+      const loadedReviewIsNfa = isNfaPenaltySelection("penaltyCode");
+      if ($("penaltyTime")) $("penaltyTime").value = loadedReviewIsNfa ? "" : normalisePenaltyTimeValue(d.penaltyTime || "");
+      updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
 
       // restore effects
       const eff = d.EFFECT || d.effect || {};
@@ -4304,8 +4387,9 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
       const pen = ($("penaltyCode").value || "").trim();
       if (!pen) { toast("Penalty code required"); return; }
 
-      const timePenalty = normalisePenaltyTimeValue($("penaltyTime")?.value || "");
-      if (!timePenalty) { toast("Time penalty / DQ required"); return; }
+      const isNfa = isNfaPenaltySelection("penaltyCode");
+      const timePenalty = isNfa ? "" : normalisePenaltyTimeValue($("penaltyTime")?.value || "");
+      if (!isNfa && !timePenalty) { toast("Time penalty / DQ required"); return; }
 
       submitReviewBtn.disabled = true;
       const original = submitReviewBtn.textContent;
@@ -4362,7 +4446,7 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
 `CAUSE + EFFECT REVIEW (INITIAL)
 Steward: ${maskEmail(currentEmail) || "Unknown"}
 Penalty selected: ${pen}
-Recommended time penalty: ${formatPenaltyTime(timePenalty)}
+Recommended time penalty: ${isNfa ? "" : formatPenaltyTime(timePenalty)}
 
 Raw CAUSE (this steward): ${fmt2(eff.rawCause)}
 EFFECT total (stacked): ${(eff.total >= 0 ? "+" : "")}${fmt2(eff.total)}
