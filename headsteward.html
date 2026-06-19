@@ -2,7 +2,7 @@
 <html>
 <head>
   <title>IFWL Head Steward Dashboard</title>
-  <!-- HS WEB STATUS FIX BUILD 4081 - entrylist builder nav button added -->
+  <!-- HS WEB STATUS FIX BUILD 4083 - ticket fetch limit raised to 1000 -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
@@ -2201,29 +2201,29 @@ No reviews submitted yet.`;
         ? discordLink("Open evidence", ticket.proofUrl)
         : "Not provided";
 
-      const stewardsUrl = ticketParamUrl(STEWARD_DELIBERATION_URL, ticketId);
-      const driversUrl = ticketParamUrl(OPEN_STATEMENTS_URL, ticketId);
+      const finalTimeNorm = normalisePenaltyTimeValue(finalData.timePenalty || "");
+      const codeText = String(finalData.code || "").toUpperCase();
+      const penaltyText = String(finalData.penalty || "").toUpperCase();
+      const decisionText = String(finalData.decision || "").toUpperCase();
+      const isNfaOutcome = finalTimeNorm === "NFA"
+        || codeText.includes("NFA")
+        || codeText.includes("NO FURTHER ACTION")
+        || penaltyText.includes("NFA")
+        || penaltyText.includes("NO FURTHER ACTION")
+        || decisionText.includes("NO FURTHER ACTION");
 
-      const finalCodeLine = finalData.code ? `\n**Final Code:** ${finalData.code}` : "";
-      const finalPenaltyLine = finalData.penalty ? `\n**Penalty / Result:** ${finalData.penalty}` : "";
+      const driverLabel = isNfaOutcome ? "Driver Accused" : "Driver at Fault";
       const finalTimeLine = finalData.timePenalty ? `\n**Final Time Penalty / DQ:** ${formatPenaltyTime(finalData.timePenalty)}` : "";
 
       return `✅ **IFWL Steward Ticket Finalised**
 
 **Ticket ID:** \`${ticketId}\`
-**Driver Accused:** ${ticket.accused || "—"}
-**Driver Reporting:** ${ticket.reporter || "—"}
+**${driverLabel}:** ${ticket.accused || "—"}
 **Competition:** ${ticket.competition || "—"}
-**Event:** ${ticket.event || "—"}
-**Rule Breach:** ${ticket.ruleBreach || "ticket submission without assumed breach"}
 **Incident Details:** ${ticket.fullIncident || "—"}
 **Evidence:** ${evidence}
 **Status:** Finalised
-**Steward Decision:** ${finalData.decision || "—"}${finalCodeLine}${finalPenaltyLine}${finalTimeLine}
-**Finalised By:** ${finalData.stewardTag || currentEmail || "Head Steward"}
-
-🧑‍⚖️ **Stewards:** ${discordLink("Stewards deliberation", stewardsUrl)}
-🏁 **Drivers:** ${discordLink("Driver and witness statements", driversUrl)}`;
+**Steward Decision:** ${finalData.decision || "—"}${finalTimeLine}`;
     }
 
     function updateFinalDiscordPreview() {
@@ -2812,7 +2812,7 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
 
       statementStatusCache.clear();
 
-      const snap = await db.collection("tickets").limit(600).get();
+      const snap = await db.collection("tickets").limit(1000).get();
       const tickets = snap.docs.map(d => {
         const data = d.data() || {};
         const status = (data.status || "").trim();
@@ -2936,7 +2936,7 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
         })().catch(() => {});
       }
 
-      ticketHintEl.textContent = `Showing ${shown} ticket(s). (Max 600 fetched).`;
+      ticketHintEl.textContent = `Showing ${shown} ticket(s). (Max 1000 fetched).`;
       updateLinkedSelectionUI();
     }
 
@@ -4228,7 +4228,9 @@ This status was changed from the Head Steward web dashboard so the ticket can be
     38: Build guard: old PC-app status dependency reduced.
     39: Build guard: code syntax checked after generation.
     40: Build guard: final Discord preview finalTimeLine runtime fix.
-    41: End of build notes.
+    41: Build guard: simplified Head Steward finalisation Discord output.
+    42: Build guard: live ticket fetch limit raised from 600 to 1000.
+    43: End of build notes.
   -->
 </body>
 </html>
