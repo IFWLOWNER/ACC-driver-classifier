@@ -2,7 +2,7 @@
 <html>
 <head>
   <title>IFWL Head Steward Dashboard</title>
-  <!-- HS WEB STATUS FIX BUILD 4083 - ticket fetch limit raised to 1000 -->
+  <!-- HS WEB STATUS FIX BUILD 4084 - safer finalisation and database ticket search -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
@@ -758,6 +758,7 @@
       .list { max-height:320px; }
       .grid2 { grid-template-columns: 1fr; }
       #publishAllBtn { width:100%; }
+      #republishFinaliseBtn { width:100%; }
       #refreshStatementsBtn { width:100%; }
       #refreshTicketsBtn { width:100%; }
       #filter { font-size:16px; }
@@ -1133,6 +1134,7 @@
 
           <div class="finaliseActions">
             <button id="previewFinaliseBtn">Preview Discord Result</button>
+            <button id="republishFinaliseBtn">Republish Finalisation to Discord</button>
             <button class="danger" id="finaliseTicketBtn">Finalise & Publish to Discord</button>
           </div>
 
@@ -2253,12 +2255,14 @@ No reviews submitted yet.`;
       const hint = $("finaliseHint");
       const btn = $("finaliseTicketBtn");
       const previewBtn = $("previewFinaliseBtn");
+      const republishBtn = $("republishFinaliseBtn");
 
       if (!t || !selectedTicketId) {
         if (badge) { badge.textContent = "Select a ticket"; badge.className = "badge"; }
         if (hint) hint.textContent = "Select a ticket to enable finalisation.";
         if (btn) btn.disabled = true;
         if (previewBtn) previewBtn.disabled = true;
+        if (republishBtn) republishBtn.disabled = true;
         return;
       }
 
@@ -2268,10 +2272,11 @@ No reviews submitted yet.`;
         badge.className = alreadyFinal ? "badge ok" : "badge";
       }
       if (hint) hint.textContent = alreadyFinal
-        ? "This ticket is already marked as finalised. You can still republish only by changing the status manually first."
+        ? "This ticket is already marked as finalised. Use Republish Finalisation to Discord if the Discord post failed."
         : `Finalising selected ticket: ${selectedTicketId}`;
       if (btn) btn.disabled = alreadyFinal;
       if (previewBtn) previewBtn.disabled = false;
+      if (republishBtn) republishBtn.disabled = !alreadyFinal;
 
       if ($("finalDecisionText")) $("finalDecisionText").value = t.stewardDecision || "";
       if ($("finalPenaltyText")) $("finalPenaltyText").value = t.finalPenalty || t.penaltyApplied || "";
@@ -2286,6 +2291,53 @@ No reviews submitted yet.`;
       }
       setFinalPenaltyPreviewFromSelected();
       updateFinalDiscordPreview();
+    }
+
+    async function republishFinalisationToDiscord() {
+      if (!selectedTicketId) { toast("Select a ticket first"); return; }
+      const t = getSelectedTicketData();
+      if (!t) { toast("Ticket not loaded"); return; }
+
+      const opt = getFinalPenaltyOption();
+      const finalCode = opt && opt.value ? opt.value.trim() : (t.finalPenaltyCode || t.postRaceCode || "");
+      const finalPenaltyTime = normalisePenaltyTimeValue($("finalPenaltyTime")?.value || t.finalPenaltyTime || t.penaltyTime || t.timePenalty || "");
+      const finalPenalty = ($("finalPenaltyText")?.value || t.finalPenalty || t.penaltyApplied || "").trim();
+      const finalDecision = ($("finalDecisionText")?.value || t.stewardDecision || "").trim();
+      const finalStewardTag = ($("finalStewardTag")?.value || t.stewardTag || currentEmail || "Head Steward").trim();
+
+      if (!finalDecision) { toast("Cannot republish: missing steward decision"); return; }
+
+      const ok = confirm(`Republish finalisation Discord message for ticket ${selectedTicketId}?
+
+This will not change Firestore status.`);
+      if (!ok) return;
+
+      const btn = $("republishFinaliseBtn");
+      const original = btn ? btn.textContent : "";
+      if (btn) { btn.disabled = true; btn.textContent = "Republishing…"; }
+
+      try {
+        const discordMessage = buildFinalDiscordMessage(selectedTicketId, t, {
+          code: finalCode,
+          penalty: finalPenalty,
+          timePenalty: finalPenaltyTime,
+          decision: finalDecision,
+          stewardTag: finalStewardTag
+        });
+
+        const chunks = splitDiscordMessages(discordMessage, 1900);
+        for (let i = 0; i < chunks.length; i++) {
+          const prefix = chunks.length > 1 ? `(${i+1}/${chunks.length}) ` : "";
+          await discordPostFinalisation(prefix + chunks[i]);
+        }
+
+        toast("Finalisation republished to Discord ✅");
+      } catch (e) {
+        console.error("Republish finalisation failed:", e);
+        toast("Republish failed: " + (e?.message || e));
+      } finally {
+        if (btn) { btn.textContent = original || "Republish Finalisation to Discord"; btn.disabled = false; }
+      }
     }
 
     async function finaliseSelectedTicket() {
@@ -2329,8 +2381,6 @@ No reviews submitted yet.`;
           finalisedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        await ref.update(updatePayload);
-
         const discordMessage = buildFinalDiscordMessage(selectedTicketId, t, {
           code: finalCode,
           penalty: finalPenalty,
@@ -2338,7 +2388,16 @@ No reviews submitted yet.`;
           decision: finalDecision,
           stewardTag: finalStewardTag
         });
-        await discordPostFinalisation(discordMessage);
+
+        // Safety fix: publish to Discord before marking the ticket Finalised in Firestore.
+        // If Discord fails, the ticket remains live and can be retried.
+        const chunks = splitDiscordMessages(discordMessage, 1900);
+        for (let i = 0; i < chunks.length; i++) {
+          const prefix = chunks.length > 1 ? `(${i+1}/${chunks.length}) ` : "";
+          await discordPostFinalisation(prefix + chunks[i]);
+        }
+
+        await ref.update(updatePayload);
 
         selectedTicketSnap = await ref.get();
         prefillFinalisationFromTicket();
@@ -2383,6 +2442,7 @@ No reviews submitted yet.`;
     const postPenaltyOpinionBtn = $("postPenaltyOpinionBtn");
     const finaliseTicketBtn = $("finaliseTicketBtn");
     const previewFinaliseBtn = $("previewFinaliseBtn");
+    const republishFinaliseBtn = $("republishFinaliseBtn");
     const linkSelectedTicketsBtn = $("linkSelectedTicketsBtn");
     const clearLinkedSelectionBtn = $("clearLinkedSelectionBtn");
     const previewLinkedOutcomeBtn = $("previewLinkedOutcomeBtn");
@@ -2407,6 +2467,7 @@ No reviews submitted yet.`;
     if (postPenaltyOpinionBtn) postPenaltyOpinionBtn.onclick = () => postPenaltyOpinion();
     if (finaliseTicketBtn) finaliseTicketBtn.onclick = () => finaliseSelectedTicket();
     if (previewFinaliseBtn) previewFinaliseBtn.onclick = () => updateFinalDiscordPreview();
+    if (republishFinaliseBtn) republishFinaliseBtn.onclick = () => republishFinalisationToDiscord();
     if (linkSelectedTicketsBtn) linkSelectedTicketsBtn.onclick = () => linkSelectedTicketsAsSameIncident();
     if (clearLinkedSelectionBtn) clearLinkedSelectionBtn.onclick = () => clearLinkedTicketSelection();
     if (previewLinkedOutcomeBtn) previewLinkedOutcomeBtn.onclick = () => updateLinkedOutcomePreview();
@@ -3814,7 +3875,11 @@ Selected effects: ${effectLine}`;
 
     // ---------- NEW: Recent Ticket Status Manager (web-only HS workflow) ----------
     const RECENT_TICKET_STATUSES = ["Finalised", "Under Review", "Appealed"];
+    const RECENT_TICKET_SEARCH_LIMIT = 1000;
     let recentTicketRowsCache = [];
+    let recentTicketSearchRowsCache = [];
+    let recentTicketSearchTimer = null;
+    let recentTicketSearchRunId = 0;
 
     function timestampToDateSafe(v) {
       try {
@@ -3852,6 +3917,37 @@ Selected effects: ${effectLine}`;
         .filter(Boolean)
         .sort((a,b) => b.getTime() - a.getTime());
       return dates[0] || null;
+    }
+
+    function recentTicketRowFromDoc(doc) {
+      if (!doc) return null;
+      const data = doc.data() || {};
+      const status = normaliseTicketStatus(data.status || "Under Review");
+      const date = bestTicketDate(data);
+      return {
+        id: doc.id,
+        data,
+        date,
+        dateMs: date ? date.getTime() : 0,
+        status
+      };
+    }
+
+    function recentTicketSearchHaystack(row) {
+      const status = normaliseTicketStatus(row?.status);
+      return [
+        row?.id,
+        status,
+        row?.data?.accused,
+        row?.data?.reporter,
+        row?.data?.competition,
+        row?.data?.event,
+        row?.data?.ruleBreach,
+        row?.data?.postRaceCode,
+        row?.data?.fullIncident,
+        row?.data?.stewardDecision,
+        row?.data?.linkedIncidentId
+      ].map(x => String(x || "").toLowerCase()).join(" | ");
     }
 
     function normaliseTicketStatus(s) {
@@ -3893,18 +3989,8 @@ Selected effects: ${effectLine}`;
 
         function addDoc(doc) {
           if (!doc || seen.size >= MAX_RECENT_TICKETS || seen.has(doc.id)) return;
-          const data = doc.data() || {};
-          const status = normaliseTicketStatus(data.status || "Under Review");
-          const date = bestTicketDate(data);
-          const dateMs = date ? date.getTime() : 0;
-
-          seen.set(doc.id, {
-            id: doc.id,
-            data,
-            date,
-            dateMs,
-            status
-          });
+          const row = recentTicketRowFromDoc(doc);
+          if (row) seen.set(row.id, row);
         }
 
         // Primary source: your ticket documents use the field named "timestamp".
@@ -3948,6 +4034,72 @@ Selected effects: ${effectLine}`;
       }
     }
 
+    async function runRecentTicketDatabaseSearch() {
+      const searchEl = $("recentTicketsSearch");
+      const tbody = $("recentTicketsTbody");
+      const hint = $("recentTicketsHint");
+      const qRaw = String(searchEl?.value || "").trim();
+      const q = qRaw.toLowerCase();
+      const runId = ++recentTicketSearchRunId;
+
+      if (!q) {
+        recentTicketSearchRowsCache = [];
+        if (hint) hint.textContent = `Loaded ${recentTicketRowsCache.length} latest submitted ticket(s). Search is empty, so only the latest 12 are shown.`;
+        renderRecentTicketsTable();
+        return;
+      }
+
+      if (q.length < 3) {
+        recentTicketSearchRowsCache = [];
+        if (hint) hint.textContent = "Type at least 3 characters to search the ticket database.";
+        renderRecentTicketsTable();
+        return;
+      }
+
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="muted">Searching up to ${RECENT_TICKET_SEARCH_LIMIT} tickets…</td></tr>`;
+      if (hint) hint.textContent = `Searching the ticket database for "${qRaw}". This query is capped at ${RECENT_TICKET_SEARCH_LIMIT} tickets and only runs while searching.`;
+
+      try {
+        const found = new Map();
+
+        // Exact document lookup first. This makes pasted ticket IDs work even if the ticket is not in the latest 12.
+        try {
+          const exactSnap = await db.collection("tickets").doc(qRaw).get();
+          if (exactSnap.exists) {
+            const row = recentTicketRowFromDoc(exactSnap);
+            if (row) found.set(row.id, row);
+          }
+        } catch (exactErr) {
+          console.warn("Exact ticket lookup failed; continuing with capped search:", exactErr);
+        }
+
+        // Capped database search. This does not run on page load. It only runs when the HS searches.
+        const snap = await db.collection("tickets").limit(RECENT_TICKET_SEARCH_LIMIT).get();
+        snap.forEach(doc => {
+          const row = recentTicketRowFromDoc(doc);
+          if (!row) return;
+          if (recentTicketSearchHaystack(row).includes(q)) found.set(row.id, row);
+        });
+
+        if (runId !== recentTicketSearchRunId) return;
+
+        recentTicketSearchRowsCache = [...found.values()]
+          .sort((a,b) => (b.dateMs || 0) - (a.dateMs || 0));
+
+        if (hint) hint.textContent = `Search loaded ${recentTicketSearchRowsCache.length} matching ticket(s) from a capped ${RECENT_TICKET_SEARCH_LIMIT}-ticket database search. Latest 12 remain the default when search is cleared.`;
+        renderRecentTicketsTable();
+      } catch (e) {
+        console.error("runRecentTicketDatabaseSearch failed:", e);
+        if (hint) hint.textContent = "Ticket database search failed. Check console / Firestore rules.";
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="muted">Search failed.</td></tr>`;
+      }
+    }
+
+    function scheduleRecentTicketDatabaseSearch() {
+      if (recentTicketSearchTimer) clearTimeout(recentTicketSearchTimer);
+      recentTicketSearchTimer = setTimeout(() => runRecentTicketDatabaseSearch(), 350);
+    }
+
     function renderRecentTicketsTable() {
       const tbody = $("recentTicketsTbody");
       const pill = $("recentTicketsPill");
@@ -3956,28 +4108,19 @@ Selected effects: ${effectLine}`;
       const q = String($("recentTicketsSearch")?.value || "").toLowerCase().trim();
       const statusFilter = String($("recentTicketsStatusFilter")?.value || "all");
 
-      const rows = recentTicketRowsCache.filter(r => {
+      const databaseSearchActive = q.length >= 3;
+      const baseRows = databaseSearchActive ? recentTicketSearchRowsCache : recentTicketRowsCache;
+
+      const rows = baseRows.filter(r => {
         const status = normaliseTicketStatus(r.status);
         if (statusFilter !== "all" && status.toLowerCase() !== statusFilter) return false;
-
-        const hay = [
-          r.id,
-          status,
-          r.data.accused,
-          r.data.reporter,
-          r.data.competition,
-          r.data.event,
-          r.data.ruleBreach,
-          r.data.fullIncident
-        ].map(x => String(x || "").toLowerCase()).join(" | ");
-
-        return !q || hay.includes(q);
+        return !q || recentTicketSearchHaystack(r).includes(q);
       });
 
-      pill.innerHTML = `Rows: <strong>${rows.length}</strong> / ${recentTicketRowsCache.length}`;
+      pill.innerHTML = `Rows: <strong>${rows.length}</strong> / ${baseRows.length}${databaseSearchActive ? " searched" : " latest"}`;
 
       if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="muted">No recent tickets match the current filters.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="muted">No tickets match the current search/filter. If this is a full ticket ID, check it was copied exactly.</td></tr>`;
         return;
       }
 
@@ -4172,7 +4315,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           const recentRefreshBtn = $("refreshRecentTicketsBtn");
           if (recentRefreshBtn) recentRefreshBtn.onclick = () => loadRecentTickets10d();
           const recentSearchEl = $("recentTicketsSearch");
-          if (recentSearchEl) recentSearchEl.oninput = () => renderRecentTicketsTable();
+          if (recentSearchEl) recentSearchEl.oninput = () => scheduleRecentTicketDatabaseSearch();
           const recentStatusFilterEl = $("recentTicketsStatusFilter");
           if (recentStatusFilterEl) recentStatusFilterEl.onchange = () => renderRecentTicketsTable();
 
@@ -4230,7 +4373,10 @@ This status was changed from the Head Steward web dashboard so the ticket can be
     40: Build guard: final Discord preview finalTimeLine runtime fix.
     41: Build guard: simplified Head Steward finalisation Discord output.
     42: Build guard: live ticket fetch limit raised from 600 to 1000.
-    43: End of build notes.
+    43: Build guard: finalisation posts to Discord before Firestore finalised status.
+    44: Build guard: finalised tickets can be republished to Discord.
+    45: Build guard: recent ticket search can query up to 1000 tickets on demand.
+    46: End of build notes.
   -->
 </body>
 </html>
