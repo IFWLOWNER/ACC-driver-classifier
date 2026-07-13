@@ -84,7 +84,7 @@
   <section class="hero"><div class="hero-inner"><h1>LIVE TIMINGS</h1><p>Live ACC timing and results tower for IFWL. Console Pro-Am, Console Beginner and Console Monday Funday results are synced into GitHub, then displayed here.</p></div></section>
   <div class="titlebar"><h2>LIVE TIMINGS / BETA</h2></div>
   <main>
-    <div class="notice">Want to know where you stand? Latest IFWL server timing files are pulled automatically, with comparisons between Beginner and Pro-Am pace where enough data exists, plus driver consistency across all real session laps, including invalid laps.</div>
+    <div class="notice">Want to know where you stand? Latest IFWL server timing files are pulled automatically, with comparisons between Beginner and Pro-Am pace where enough data exists, plus driver consistency based on fastest-to-slowest lap spread across all real laps, including invalid laps.</div>
     <div id="status"></div>
     <section class="quick-filter-wrap">
       <div class="quick-filter-card">
@@ -96,7 +96,7 @@
           <button class="quick-filter-btn" data-server-quick="console-proam">Console Pro-Am</button>
           <button class="quick-filter-btn purple" data-server-quick="pc-proam">PC Pro-Am</button>
         </div>
-        <div class="quick-filter-help">Use these to jump the whole page into one server view. Consistency uses all real laps, including invalid laps. The normal dropdowns below still work for track and session type.</div>
+        <div class="quick-filter-help">Use these to jump the whole page into one server view. Consistency uses all real laps, including invalid laps, and is now based on fastest-to-slowest lap spread. The normal dropdowns below still work for track and session type.</div>
       </div>
     </section>
 
@@ -341,8 +341,8 @@
 
   function consistencyClass(value){
     if(!Number.isFinite(value)) return '';
-    if(value >= 97) return 'good';
-    if(value >= 93) return 'mid';
+    if(value >= 95) return 'good';
+    if(value >= 85) return 'mid';
     return 'low';
   }
 
@@ -353,20 +353,33 @@
 
   function lapStats(values){
     const laps = values.filter(v => isValidLap(v)).sort((a,b) => a-b);
+
     if(laps.length < 2){
-      return {count:laps.length, avg: laps[0] || 0, spread:0, stdDev:0, consistency:NaN};
+      return {
+        count:laps.length,
+        best: laps[0] || 0,
+        avg: laps[0] || 0,
+        spread:0,
+        consistency:NaN
+      };
     }
 
+    const best = laps[0];
+    const slowest = laps[laps.length - 1];
+    const spread = slowest - best;
     const avg = laps.reduce((a,b)=>a+b,0) / laps.length;
-    const variance = laps.reduce((sum,v)=>sum + Math.pow(v - avg, 2), 0) / laps.length;
-    const stdDev = Math.sqrt(variance);
-    const consistency = Math.max(0, Math.min(100, 100 - ((stdDev / avg) * 100)));
+
+    // Stricter league-style consistency score:
+    // includes valid + invalid real laps, ignores only impossible ACC junk values.
+    // Based on total spread against the driver's best lap in that session.
+    // Example: 10s spread on a 100s best lap = 90% consistency.
+    const consistency = Math.max(0, Math.min(100, 100 - ((spread / best) * 100)));
 
     return {
       count:laps.length,
+      best,
       avg,
-      spread: laps[laps.length - 1] - laps[0],
-      stdDev,
+      spread,
       consistency
     };
   }
