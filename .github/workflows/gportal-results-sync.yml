@@ -1,0 +1,81 @@
+name: Sync G-Portal ACC Results
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  sync-results:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install FTP tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lftp
+
+      - name: Create results folder
+        run: |
+          mkdir -p data/results
+
+      - name: Download ACC result files from G-Portal
+        env:
+          GPORTAL_HOST: ${{ secrets.GPORTAL_HOST }}
+          GPORTAL_PORT: ${{ secrets.GPORTAL_PORT }}
+          GPORTAL_USER: ${{ secrets.GPORTAL_USER }}
+          GPORTAL_PASSWORD: ${{ secrets.GPORTAL_PASSWORD }}
+          GPORTAL_RESULTS_PATH: ${{ secrets.GPORTAL_RESULTS_PATH }}
+        run: |
+          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF
+          set ftp:ssl-allow no
+          set net:timeout 30
+          set net:max-retries 2
+          mirror --verbose --only-newer --include-glob *.json "$GPORTAL_RESULTS_PATH" data/results
+          bye
+          EOF
+
+      - name: Build manifest file
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          results_dir = Path("data/results")
+          files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
+
+          manifest = {
+              "updatedAt": "",
+              "results": [
+                  {
+                      "file": f"data/results/{p.name}",
+                      "name": p.name
+                  }
+                  for p in files
+              ]
+          }
+
+          Path("data").mkdir(exist_ok=True)
+          Path("data/manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+          print(f"Manifest created with {len(files)} result files.")
+          PY
+
+      - name: Commit updated result files
+        run: |
+          git config user.name "IFWL Results Bot"
+          git config user.email "actions@github.com"
+
+          git add data/results/*.json data/manifest.json || true
+
+          if git diff --cached --quiet; then
+            echo "No new result files to commit."
+          else
+            git commit -m "Update G-Portal ACC results"
+            git push
+          fi
