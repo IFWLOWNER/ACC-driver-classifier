@@ -24,20 +24,23 @@ jobs:
       - name: Clear local results folder
         run: |
           rm -rf data/results
-          mkdir -p data/results
+          mkdir -p data/results/console-proam
+          mkdir -p data/results/console-beginner
 
-      - name: Download latest 10 ACC result files from G-Portal
+      - name: Download latest 10 from Console Pro-Am
         env:
-          GPORTAL_HOST: ${{ secrets.GPORTAL_HOST }}
-          GPORTAL_PORT: ${{ secrets.GPORTAL_PORT }}
-          GPORTAL_USER: ${{ secrets.GPORTAL_USER }}
-          GPORTAL_PASSWORD: ${{ secrets.GPORTAL_PASSWORD }}
-          GPORTAL_RESULTS_PATH: ${{ secrets.GPORTAL_RESULTS_PATH }}
+          SERVER_ID: console-proam
+          SERVER_NAME: "IFWL | CONSOLE PRO AM SEASON 3"
+          GPORTAL_HOST: ${{ secrets.GPORTAL_CONSOLE_PROAM_HOST }}
+          GPORTAL_PORT: ${{ secrets.GPORTAL_CONSOLE_PROAM_PORT }}
+          GPORTAL_USER: ${{ secrets.GPORTAL_CONSOLE_PROAM_USER }}
+          GPORTAL_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_PROAM_PASSWORD }}
+          GPORTAL_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_PROAM_RESULTS_PATH }}
         run: |
-          echo "Connecting to G-Portal FTP..."
-          echo "Reading remote result file list..."
+          echo "Connecting to Console Pro-Am G-Portal FTP..."
+          echo "Reading remote Console Pro-Am result file list..."
 
-          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF > remote_files.txt
+          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
           set ftp:ssl-allow no
           set net:timeout 30
           set net:max-retries 2
@@ -46,27 +49,71 @@ jobs:
           bye
           EOF
 
-          echo "Selecting latest 10 result files..."
-          sort -r remote_files.txt | head -n 10 > latest_files.txt
+          echo "Selecting latest 10 Console Pro-Am result files..."
+          sort -r "remote_files_$SERVER_ID.txt" | head -n 10 > "latest_files_$SERVER_ID.txt"
 
-          echo "Latest files selected:"
-          cat latest_files.txt
+          echo "Latest Console Pro-Am files selected:"
+          cat "latest_files_$SERVER_ID.txt"
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
-              echo "Downloading $file"
+              echo "Downloading Console Pro-Am file: $file"
 
               lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF
           set ftp:ssl-allow no
           set net:timeout 30
           set net:max-retries 2
           cd "$GPORTAL_RESULTS_PATH"
-          get "$file" -o "data/results/$file"
+          get "$file" -o "data/results/$SERVER_ID/$file"
           bye
           EOF
 
             fi
-          done < latest_files.txt
+          done < "latest_files_$SERVER_ID.txt"
+
+      - name: Download latest 10 from Console Beginner
+        env:
+          SERVER_ID: console-beginner
+          SERVER_NAME: "IFWL | CONSOLE BEGINNER SEASON 3"
+          GPORTAL_HOST: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_HOST }}
+          GPORTAL_PORT: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PORT }}
+          GPORTAL_USER: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_USER }}
+          GPORTAL_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PASSWORD }}
+          GPORTAL_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_RESULTS_PATH }}
+        run: |
+          echo "Connecting to Console Beginner G-Portal FTP..."
+          echo "Reading remote Console Beginner result file list..."
+
+          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
+          set ftp:ssl-allow no
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$GPORTAL_RESULTS_PATH"
+          cls -1 *.json
+          bye
+          EOF
+
+          echo "Selecting latest 10 Console Beginner result files..."
+          sort -r "remote_files_$SERVER_ID.txt" | head -n 10 > "latest_files_$SERVER_ID.txt"
+
+          echo "Latest Console Beginner files selected:"
+          cat "latest_files_$SERVER_ID.txt"
+
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              echo "Downloading Console Beginner file: $file"
+
+              lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF
+          set ftp:ssl-allow no
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$GPORTAL_RESULTS_PATH"
+          get "$file" -o "data/results/$SERVER_ID/$file"
+          bye
+          EOF
+
+            fi
+          done < "latest_files_$SERVER_ID.txt"
 
       - name: Build manifest file
         run: |
@@ -75,27 +122,44 @@ jobs:
           from pathlib import Path
           from datetime import datetime, timezone
 
-          results_dir = Path("data/results")
-          files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
+          servers = {
+              "console-proam": "IFWL | CONSOLE PRO AM SEASON 3",
+              "console-beginner": "IFWL | CONSOLE BEGINNER SEASON 3"
+          }
+
+          results = []
+
+          for server_id, server_name in servers.items():
+              results_dir = Path("data/results") / server_id
+              files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
+
+              for p in files:
+                  results.append({
+                      "serverId": server_id,
+                      "serverName": server_name,
+                      "file": f"data/results/{server_id}/{p.name}",
+                      "name": p.name
+                  })
 
           manifest = {
               "updatedAt": datetime.now(timezone.utc).isoformat(),
-              "limit": 10,
-              "results": [
+              "limitPerServer": 10,
+              "servers": [
                   {
-                      "file": f"data/results/{p.name}",
-                      "name": p.name
+                      "serverId": server_id,
+                      "serverName": server_name
                   }
-                  for p in files
-              ]
+                  for server_id, server_name in servers.items()
+              ],
+              "results": results
           }
 
           Path("data").mkdir(exist_ok=True)
           Path("data/manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-          print(f"Manifest created with {len(files)} result files.")
-          for p in files:
-              print(f"- {p.name}")
+          print(f"Manifest created with {len(results)} total result files.")
+          for item in results:
+              print(f"- {item['serverName']} / {item['name']}")
           PY
 
       - name: Commit latest result files
