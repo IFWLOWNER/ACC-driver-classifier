@@ -1,48 +1,17 @@
-name: Sync ACC Results
-
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"
-
-permissions:
-  contents: write
-
-jobs:
-  sync-results:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install FTP tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lftp
-
-      - name: Clear local results folders
-        run: |
-          rm -rf data/results
-          mkdir -p data/results/console-proam
-          mkdir -p data/results/console-beginner
-          mkdir -p data/results/pc-proam
-          mkdir -p data/results/pc-monday-funday
-
       # =========================
-      # CONSOLE PRO-AM
+      # CONSOLE MONDAY FUNDAY
       # =========================
-      - name: Download latest 10 from Console Pro-Am
+      - name: Download latest 10 from Console Monday Funday
         env:
-          SERVER_ID: console-proam
-          SERVER_NAME: "IFWL | CONSOLE PRO AM SEASON 3"
-          FTP_HOST: ${{ secrets.GPORTAL_CONSOLE_PROAM_HOST }}
-          FTP_PORT: ${{ secrets.GPORTAL_CONSOLE_PROAM_PORT }}
-          FTP_USER: ${{ secrets.GPORTAL_CONSOLE_PROAM_USER }}
-          FTP_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_PROAM_PASSWORD }}
-          FTP_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_PROAM_RESULTS_PATH }}
+          SERVER_ID: console-monday-funday
+          SERVER_NAME: "IFWL | CONSOLE MONDAY FUNDAY SEASON 3"
+          FTP_HOST: ${{ secrets.GPORTAL_MONDAY_FUNDAY_HOST }}
+          FTP_PORT: ${{ secrets.GPORTAL_MONDAY_FUNDAY_PORT }}
+          FTP_USER: ${{ secrets.GPORTAL_MONDAY_FUNDAY_USER }}
+          FTP_PASSWORD: ${{ secrets.GPORTAL_MONDAY_FUNDAY_PASSWORD }}
+          FTP_RESULTS_PATH: ${{ secrets.GPORTAL_MONDAY_FUNDAY_RESULTS_PATH }}
         run: |
-          echo "Connecting to Console Pro-Am FTP..."
+          echo "Connecting to Console Monday Funday FTP..."
           mkdir -p "data/results/$SERVER_ID"
 
           lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
@@ -57,12 +26,12 @@ jobs:
 
           sort -r "remote_files_$SERVER_ID.txt" | head -n 10 > "latest_files_$SERVER_ID.txt"
 
-          echo "Latest Console Pro-Am files selected:"
+          echo "Latest Console Monday Funday files selected:"
           cat "latest_files_$SERVER_ID.txt"
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
-              echo "Downloading Console Pro-Am file: $file"
+              echo "Downloading Console Monday Funday file: $file"
 
               lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
           set ftp:ssl-allow no
@@ -76,216 +45,3 @@ jobs:
 
             fi
           done < "latest_files_$SERVER_ID.txt"
-
-      # =========================
-      # CONSOLE BEGINNER
-      # =========================
-      - name: Download latest 10 from Console Beginner
-        env:
-          SERVER_ID: console-beginner
-          SERVER_NAME: "IFWL | CONSOLE BEGINNER SEASON 3"
-          FTP_HOST: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_HOST }}
-          FTP_PORT: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PORT }}
-          FTP_USER: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_USER }}
-          FTP_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PASSWORD }}
-          FTP_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_RESULTS_PATH }}
-        run: |
-          echo "Connecting to Console Beginner FTP..."
-          mkdir -p "data/results/$SERVER_ID"
-
-          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
-          set ftp:ssl-allow no
-          set cmd:fail-exit yes
-          set net:timeout 30
-          set net:max-retries 2
-          cd "$FTP_RESULTS_PATH"
-          cls -1 *.json
-          bye
-          EOF
-
-          sort -r "remote_files_$SERVER_ID.txt" | head -n 10 > "latest_files_$SERVER_ID.txt"
-
-          echo "Latest Console Beginner files selected:"
-          cat "latest_files_$SERVER_ID.txt"
-
-          while IFS= read -r file; do
-            if [ -n "$file" ]; then
-              echo "Downloading Console Beginner file: $file"
-
-              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
-          set ftp:ssl-allow no
-          set cmd:fail-exit yes
-          set net:timeout 30
-          set net:max-retries 2
-          cd "$FTP_RESULTS_PATH"
-          get "$file" -o "data/results/$SERVER_ID/$file"
-          bye
-          EOF
-
-            fi
-          done < "latest_files_$SERVER_ID.txt"
-
-      # =========================
-      # PC PRO-AM
-      # =========================
-      - name: Download latest 10 from PC Pro-Am
-        env:
-          SERVER_ID: pc-proam
-          SERVER_NAME: "IFWL | PC PRO AM SEASON 3"
-          FTP_HOST: ${{ secrets.ASSETTO_PC_PROAM_HOST }}
-          FTP_PORT: ${{ secrets.ASSETTO_PC_PROAM_PORT }}
-          FTP_USER: ${{ secrets.ASSETTO_PC_PROAM_USER }}
-          FTP_PASSWORD: ${{ secrets.ASSETTO_PC_PROAM_PASSWORD }}
-          FTP_RESULTS_PATH: ${{ secrets.ASSETTO_PC_PROAM_RESULTS_PATH }}
-        run: |
-          echo "Connecting to PC Pro-Am FTP..."
-          mkdir -p "data/results/$SERVER_ID"
-
-          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
-          set ftp:ssl-allow no
-          set cmd:fail-exit yes
-          set net:timeout 30
-          set net:max-retries 2
-          cd "$FTP_RESULTS_PATH"
-          cls -1 *.json
-          bye
-          EOF
-
-          sort -r "remote_files_$SERVER_ID.txt" | head -n 10 > "latest_files_$SERVER_ID.txt"
-
-          echo "Latest PC Pro-Am files selected:"
-          cat "latest_files_$SERVER_ID.txt"
-
-          while IFS= read -r file; do
-            if [ -n "$file" ]; then
-              echo "Downloading PC Pro-Am file: $file"
-
-              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
-          set ftp:ssl-allow no
-          set cmd:fail-exit yes
-          set net:timeout 30
-          set net:max-retries 2
-          cd "$FTP_RESULTS_PATH"
-          get "$file" -o "data/results/$SERVER_ID/$file"
-          bye
-          EOF
-
-            fi
-          done < "latest_files_$SERVER_ID.txt"
-
-      # =========================
-      # PC MONDAY FUNDAY
-      # =========================
-      - name: Download latest 10 from PC Monday Funday
-        env:
-          SERVER_ID: pc-monday-funday
-          SERVER_NAME: "IFWL | PC MONDAY FUNDAY SEASON 3"
-          FTP_HOST: ${{ secrets.ASSETTO_MONDAY_FUNDAY_HOST }}
-          FTP_PORT: ${{ secrets.ASSETTO_MONDAY_FUNDAY_PORT }}
-          FTP_USER: ${{ secrets.ASSETTO_MONDAY_FUNDAY_USER }}
-          FTP_PASSWORD: ${{ secrets.ASSETTO_MONDAY_FUNDAY_PASSWORD }}
-          FTP_RESULTS_PATH: ${{ secrets.ASSETTO_MONDAY_FUNDAY_RESULTS_PATH }}
-        run: |
-          echo "Connecting to PC Monday Funday FTP..."
-          mkdir -p "data/results/$SERVER_ID"
-
-          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
-          set ftp:ssl-allow no
-          set cmd:fail-exit yes
-          set net:timeout 30
-          set net:max-retries 2
-          cd "$FTP_RESULTS_PATH"
-          cls -1 *.json
-          bye
-          EOF
-
-          sort -r "remote_files_$SERVER_ID.txt" | head -n 10 > "latest_files_$SERVER_ID.txt"
-
-          echo "Latest PC Monday Funday files selected:"
-          cat "latest_files_$SERVER_ID.txt"
-
-          while IFS= read -r file; do
-            if [ -n "$file" ]; then
-              echo "Downloading PC Monday Funday file: $file"
-
-              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
-          set ftp:ssl-allow no
-          set cmd:fail-exit yes
-          set net:timeout 30
-          set net:max-retries 2
-          cd "$FTP_RESULTS_PATH"
-          get "$file" -o "data/results/$SERVER_ID/$file"
-          bye
-          EOF
-
-            fi
-          done < "latest_files_$SERVER_ID.txt"
-
-      # =========================
-      # BUILD MANIFEST
-      # =========================
-      - name: Build manifest file
-        run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          from datetime import datetime, timezone
-
-          servers = {
-              "console-proam": "IFWL | CONSOLE PRO AM SEASON 3",
-              "console-beginner": "IFWL | CONSOLE BEGINNER SEASON 3",
-              "pc-proam": "IFWL | PC PRO AM SEASON 3",
-              "pc-monday-funday": "IFWL | PC MONDAY FUNDAY SEASON 3"
-          }
-
-          results = []
-
-          for server_id, server_name in servers.items():
-              results_dir = Path("data/results") / server_id
-              files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
-
-              for p in files:
-                  results.append({
-                      "serverId": server_id,
-                      "serverName": server_name,
-                      "file": f"data/results/{server_id}/{p.name}",
-                      "name": p.name
-                  })
-
-          manifest = {
-              "updatedAt": datetime.now(timezone.utc).isoformat(),
-              "limitPerServer": 10,
-              "servers": [
-                  {
-                      "serverId": server_id,
-                      "serverName": server_name
-                  }
-                  for server_id, server_name in servers.items()
-              ],
-              "results": results
-          }
-
-          Path("data").mkdir(exist_ok=True)
-          Path("data/manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
-          print(f"Manifest created with {len(results)} total result files.")
-          for item in results:
-              print(f"- {item['serverName']} / {item['name']}")
-          PY
-
-      # =========================
-      # COMMIT RESULTS
-      # =========================
-      - name: Commit latest result files
-        run: |
-          git config user.name "IFWL Results Bot"
-          git config user.email "actions@github.com"
-
-          git add -A data/results data/manifest.json
-
-          if git diff --cached --quiet; then
-            echo "No result file changes to commit."
-          else
-            git commit -m "Update latest ACC results"
-            git push
-          fi
