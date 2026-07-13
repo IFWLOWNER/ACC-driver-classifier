@@ -84,7 +84,7 @@
   <section class="hero"><div class="hero-inner"><h1>LIVE TIMINGS</h1><p>Live ACC timing and results tower for IFWL. Console Pro-Am, Console Beginner and Console Monday Funday results are synced into GitHub, then displayed here.</p></div></section>
   <div class="titlebar"><h2>LIVE TIMINGS / BETA</h2></div>
   <main>
-    <div class="notice">Want to know where you stand? Latest IFWL server timing files are pulled automatically, with comparisons between Beginner and Pro-Am pace where enough data exists, plus driver consistency across valid session laps.</div>
+    <div class="notice">Want to know where you stand? Latest IFWL server timing files are pulled automatically, with comparisons between Beginner and Pro-Am pace where enough data exists, plus driver consistency across all real session laps, including invalid laps.</div>
     <div id="status"></div>
     <section class="quick-filter-wrap">
       <div class="quick-filter-card">
@@ -96,7 +96,7 @@
           <button class="quick-filter-btn" data-server-quick="console-proam">Console Pro-Am</button>
           <button class="quick-filter-btn purple" data-server-quick="pc-proam">PC Pro-Am</button>
         </div>
-        <div class="quick-filter-help">Use these to jump the whole page into one server view. The normal dropdowns below still work for track and session type.</div>
+        <div class="quick-filter-help">Use these to jump the whole page into one server view. Consistency uses all real laps, including invalid laps. The normal dropdowns below still work for track and session type.</div>
       </div>
     </section>
 
@@ -118,7 +118,7 @@
     <section class="split-grid">
       <section class="panel" id="consoleProamFastestPanel">
         <div class="panel-head">
-          <div><h3>Console Pro-Am Fastest Laps</h3><small>Fastest valid laps from Console Pro-Am only</small></div>
+          <div><h3>Console Pro-Am Fastest Laps</h3><small>Fastest recorded laps from Console Pro-Am only</small></div>
           <span class="badge purple">Console Pro-Am</span>
         </div>
         <div class="table-wrap">
@@ -131,7 +131,7 @@
 
       <section class="panel" id="consoleProamAllPanel">
         <div class="panel-head">
-          <div><h3>Console Pro-Am All Timings</h3><small>All valid driver timings from Console Pro-Am sessions</small></div>
+          <div><h3>Console Pro-Am All Timings</h3><small>All driver timings from Console Pro-Am sessions</small></div>
           <span class="badge">Console Pro-Am</span>
         </div>
         <div class="table-wrap">
@@ -144,7 +144,7 @@
 
       <section class="panel" id="consoleBeginnerFastestPanel">
         <div class="panel-head">
-          <div><h3>Console Beginner Fastest Laps</h3><small>Fastest valid laps from Console Beginner only</small></div>
+          <div><h3>Console Beginner Fastest Laps</h3><small>Fastest recorded laps from Console Beginner only</small></div>
           <span class="badge purple">Console Beginner</span>
         </div>
         <div class="table-wrap">
@@ -157,7 +157,7 @@
 
       <section class="panel" id="consoleBeginnerAllPanel">
         <div class="panel-head">
-          <div><h3>Console Beginner All Timings</h3><small>All valid driver timings from Console Beginner sessions</small></div>
+          <div><h3>Console Beginner All Timings</h3><small>All driver timings from Console Beginner sessions</small></div>
           <span class="badge">Console Beginner</span>
         </div>
         <div class="table-wrap">
@@ -170,7 +170,7 @@
 
       <section class="panel" id="pcProamFastestPanel">
         <div class="panel-head">
-          <div><h3>PC Pro-Am Fastest Laps</h3><small>Fastest valid laps from PC Pro-Am only</small></div>
+          <div><h3>PC Pro-Am Fastest Laps</h3><small>Fastest recorded laps from PC Pro-Am only</small></div>
           <span class="badge purple">PC Pro-Am</span>
         </div>
         <div class="table-wrap">
@@ -183,7 +183,7 @@
 
       <section class="panel" id="pcProamAllPanel">
         <div class="panel-head">
-          <div><h3>PC Pro-Am All Timings</h3><small>All valid driver timings from PC Pro-Am sessions</small></div>
+          <div><h3>PC Pro-Am All Timings</h3><small>All driver timings from PC Pro-Am sessions</small></div>
           <span class="badge">PC Pro-Am</span>
         </div>
         <div class="table-wrap">
@@ -196,7 +196,7 @@
 
       <section class="panel" id="pcMondayFundayFastestPanel">
         <div class="panel-head">
-          <div><h3>Console Monday Funday Fastest Laps</h3><small>Fastest valid laps from Console Monday Funday only</small></div>
+          <div><h3>Console Monday Funday Fastest Laps</h3><small>Fastest recorded laps from Console Monday Funday only</small></div>
           <span class="badge purple">Monday Funday</span>
         </div>
         <div class="table-wrap">
@@ -209,7 +209,7 @@
 
       <section class="panel" id="pcMondayFundayAllPanel">
         <div class="panel-head">
-          <div><h3>Console Monday Funday All Timings</h3><small>All valid driver timings from Console Monday Funday sessions</small></div>
+          <div><h3>Console Monday Funday All Timings</h3><small>All driver timings from Console Monday Funday sessions</small></div>
           <span class="badge">Monday Funday</span>
         </div>
         <div class="table-wrap">
@@ -376,8 +376,13 @@
     const laps = Array.isArray(data.laps) ? data.laps : [];
 
     for(const lap of laps){
-      if(!lap || lap.isValidForBest === false) continue;
+      if(!lap) continue;
+
       const laptime = Number(lap.laptime);
+
+      // Consistency intentionally includes both valid and invalid ACC laps.
+      // Invalid laps still show real driver control, track limit and mistake patterns.
+      // We only exclude impossible/broken ACC timing values.
       if(!isValidLap(laptime)) continue;
 
       const key = lapKey(lap.carId, lap.driverIndex);
@@ -546,7 +551,7 @@
     els.sessionBody.innerHTML = s.rows.map((r, i) => {
       const splits = r.bestSplits || [];
       const notes = [r.ballast ? `${r.ballast}kg ballast` : '', r.missingPit === 1 ? 'Missing pit' : '', r.missingPit === 0 ? 'Pit OK' : ''].filter(Boolean).join(' · ') || '-';
-      return `<tr><td class="pos">${i+1}</td><td>${esc(r.carNo)}</td><td class="driver">${esc(r.driver)}</td><td><span class="badge">${esc(r.carGroup)}</span> ${esc(r.carName)}</td><td>${msTime(splits[0])}</td><td>${msTime(splits[1])}</td><td>${msTime(splits[2])}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td class="gap">${isValidLap(r.bestLap) && fastest ? gapTime(r.bestLap - fastest) : '-'}</td><td>${esc(r.lapCount)}</td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} valid laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ valid laps'}</span></td><td class="muted">${esc(notes)}</td></tr>`;
+      return `<tr><td class="pos">${i+1}</td><td>${esc(r.carNo)}</td><td class="driver">${esc(r.driver)}</td><td><span class="badge">${esc(r.carGroup)}</span> ${esc(r.carName)}</td><td>${msTime(splits[0])}</td><td>${msTime(splits[1])}</td><td>${msTime(splits[2])}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td class="gap">${isValidLap(r.bestLap) && fastest ? gapTime(r.bestLap - fastest) : '-'}</td><td>${esc(r.lapCount)}</td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td><td class="muted">${esc(notes)}</td></tr>`;
     }).join('') || '<tr><td colspan="12" class="empty">No drivers found in this result file.</td></tr>';
   }
 
@@ -565,7 +570,7 @@
   function renderTimingTable(body, rows, emptyText){
     const sorted = rows.sort((a,b) => a.bestLap - b.bestLap);
     const fastest = sorted[0]?.bestLap || 0;
-    body.innerHTML = sorted.map((r, i) => `<tr><td class="pos">${i+1}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${i?gapTime(r.bestLap-fastest):''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} valid laps` : 'Need 2+ laps'}</span></td><td class="muted">${esc(r.serverName || 'Unknown server')} / ${esc(r.fileName)}</td></tr>`).join('') || `<tr><td colspan="12" class="empty">${esc(emptyText)}</td></tr>`;
+    body.innerHTML = sorted.map((r, i) => `<tr><td class="pos">${i+1}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${i?gapTime(r.bestLap-fastest):''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps` : 'Need 2+ laps'}</span></td><td class="muted">${esc(r.serverName || 'Unknown server')} / ${esc(r.fileName)}</td></tr>`).join('') || `<tr><td colspan="12" class="empty">${esc(emptyText)}</td></tr>`;
   }
   function renderServerBoards(list){
     const proamRows = resultRows(list, 'console-proam');
