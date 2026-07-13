@@ -1,4 +1,4 @@
-name: Sync G-Portal ACC Results
+name: Sync ACC Results
 
 on:
   workflow_dispatch:
@@ -21,30 +21,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lftp
 
-      - name: Clear local results folder
+      - name: Clear local results folders
         run: |
           rm -rf data/results
           mkdir -p data/results/console-proam
           mkdir -p data/results/console-beginner
+          mkdir -p data/results/pc-proam
 
+      # =========================
+      # CONSOLE PRO-AM - G-PORTAL
+      # =========================
       - name: Download latest 10 from Console Pro-Am
         env:
           SERVER_ID: console-proam
           SERVER_NAME: "IFWL | CONSOLE PRO AM SEASON 3"
-          GPORTAL_HOST: ${{ secrets.GPORTAL_CONSOLE_PROAM_HOST }}
-          GPORTAL_PORT: ${{ secrets.GPORTAL_CONSOLE_PROAM_PORT }}
-          GPORTAL_USER: ${{ secrets.GPORTAL_CONSOLE_PROAM_USER }}
-          GPORTAL_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_PROAM_PASSWORD }}
-          GPORTAL_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_PROAM_RESULTS_PATH }}
+          FTP_HOST: ${{ secrets.GPORTAL_CONSOLE_PROAM_HOST }}
+          FTP_PORT: ${{ secrets.GPORTAL_CONSOLE_PROAM_PORT }}
+          FTP_USER: ${{ secrets.GPORTAL_CONSOLE_PROAM_USER }}
+          FTP_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_PROAM_PASSWORD }}
+          FTP_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_PROAM_RESULTS_PATH }}
         run: |
-          echo "Connecting to Console Pro-Am G-Portal FTP..."
+          echo "Connecting to Console Pro-Am FTP..."
           echo "Reading remote Console Pro-Am result file list..."
 
-          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
+          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
           set ftp:ssl-allow no
           set net:timeout 30
           set net:max-retries 2
-          cd "$GPORTAL_RESULTS_PATH"
+          cd "$FTP_RESULTS_PATH"
           cls -1 *.json
           bye
           EOF
@@ -59,11 +63,11 @@ jobs:
             if [ -n "$file" ]; then
               echo "Downloading Console Pro-Am file: $file"
 
-              lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF
+              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
           set ftp:ssl-allow no
           set net:timeout 30
           set net:max-retries 2
-          cd "$GPORTAL_RESULTS_PATH"
+          cd "$FTP_RESULTS_PATH"
           get "$file" -o "data/results/$SERVER_ID/$file"
           bye
           EOF
@@ -71,24 +75,27 @@ jobs:
             fi
           done < "latest_files_$SERVER_ID.txt"
 
+      # =============================
+      # CONSOLE BEGINNER - G-PORTAL
+      # =============================
       - name: Download latest 10 from Console Beginner
         env:
           SERVER_ID: console-beginner
           SERVER_NAME: "IFWL | CONSOLE BEGINNER SEASON 3"
-          GPORTAL_HOST: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_HOST }}
-          GPORTAL_PORT: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PORT }}
-          GPORTAL_USER: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_USER }}
-          GPORTAL_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PASSWORD }}
-          GPORTAL_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_RESULTS_PATH }}
+          FTP_HOST: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_HOST }}
+          FTP_PORT: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PORT }}
+          FTP_USER: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_USER }}
+          FTP_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PASSWORD }}
+          FTP_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_RESULTS_PATH }}
         run: |
-          echo "Connecting to Console Beginner G-Portal FTP..."
+          echo "Connecting to Console Beginner FTP..."
           echo "Reading remote Console Beginner result file list..."
 
-          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
+          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
           set ftp:ssl-allow no
           set net:timeout 30
           set net:max-retries 2
-          cd "$GPORTAL_RESULTS_PATH"
+          cd "$FTP_RESULTS_PATH"
           cls -1 *.json
           bye
           EOF
@@ -103,11 +110,58 @@ jobs:
             if [ -n "$file" ]; then
               echo "Downloading Console Beginner file: $file"
 
-              lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF
+              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
           set ftp:ssl-allow no
           set net:timeout 30
           set net:max-retries 2
-          cd "$GPORTAL_RESULTS_PATH"
+          cd "$FTP_RESULTS_PATH"
+          get "$file" -o "data/results/$SERVER_ID/$file"
+          bye
+          EOF
+
+            fi
+          done < "latest_files_$SERVER_ID.txt"
+
+      # ==============================
+      # PC PRO-AM - ASSETTO HOSTING
+      # ==============================
+      - name: Download latest 10 from PC Pro-Am
+        env:
+          SERVER_ID: pc-proam
+          SERVER_NAME: "IFWL | PC PRO AM SEASON 3"
+          FTP_HOST: ${{ secrets.ASSETTO_PC_PROAM_HOST }}
+          FTP_PORT: ${{ secrets.ASSETTO_PC_PROAM_PORT }}
+          FTP_USER: ${{ secrets.ASSETTO_PC_PROAM_USER }}
+          FTP_PASSWORD: ${{ secrets.ASSETTO_PC_PROAM_PASSWORD }}
+          FTP_RESULTS_PATH: ${{ secrets.ASSETTO_PC_PROAM_RESULTS_PATH }}
+        run: |
+          echo "Connecting to PC Pro-Am Assetto Hosting FTP..."
+          echo "Reading remote PC Pro-Am result file list..."
+
+          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
+          set ftp:ssl-allow no
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$FTP_RESULTS_PATH"
+          cls -1 *.json
+          bye
+          EOF
+
+          echo "Selecting latest 10 PC Pro-Am result files..."
+          sort -r "remote_files_$SERVER_ID.txt" | head -n 10 > "latest_files_$SERVER_ID.txt"
+
+          echo "Latest PC Pro-Am files selected:"
+          cat "latest_files_$SERVER_ID.txt"
+
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              echo "Downloading PC Pro-Am file: $file"
+
+              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
+          set ftp:ssl-allow no
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$FTP_RESULTS_PATH"
           get "$file" -o "data/results/$SERVER_ID/$file"
           bye
           EOF
@@ -124,7 +178,8 @@ jobs:
 
           servers = {
               "console-proam": "IFWL | CONSOLE PRO AM SEASON 3",
-              "console-beginner": "IFWL | CONSOLE BEGINNER SEASON 3"
+              "console-beginner": "IFWL | CONSOLE BEGINNER SEASON 3",
+              "pc-proam": "IFWL | PC PRO AM SEASON 3"
           }
 
           results = []
@@ -172,6 +227,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No result file changes to commit."
           else
-            git commit -m "Update latest G-Portal ACC results"
+            git commit -m "Update latest ACC results"
             git push
           fi
