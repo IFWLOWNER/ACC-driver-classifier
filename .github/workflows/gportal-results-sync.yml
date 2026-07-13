@@ -21,11 +21,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lftp
 
-      - name: Create results folder
+      - name: Clear local results folder
         run: |
+          rm -rf data/results
           mkdir -p data/results
 
-      - name: Download ACC result files from G-Portal
+      - name: Download latest 10 ACC result files from G-Portal
         env:
           GPORTAL_HOST: ${{ secrets.GPORTAL_HOST }}
           GPORTAL_PORT: ${{ secrets.GPORTAL_PORT }}
@@ -33,25 +34,53 @@ jobs:
           GPORTAL_PASSWORD: ${{ secrets.GPORTAL_PASSWORD }}
           GPORTAL_RESULTS_PATH: ${{ secrets.GPORTAL_RESULTS_PATH }}
         run: |
-          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF
+          echo "Connecting to G-Portal FTP..."
+          echo "Reading remote result file list..."
+
+          lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF > remote_files.txt
           set ftp:ssl-allow no
           set net:timeout 30
           set net:max-retries 2
-          mirror --verbose --only-newer --include-glob *.json "$GPORTAL_RESULTS_PATH" data/results
+          cd "$GPORTAL_RESULTS_PATH"
+          cls -1 *.json
           bye
           EOF
+
+          echo "Selecting latest 10 result files..."
+          sort -r remote_files.txt | head -n 10 > latest_files.txt
+
+          echo "Latest files selected:"
+          cat latest_files.txt
+
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              echo "Downloading $file"
+
+              lftp -u "$GPORTAL_USER","$GPORTAL_PASSWORD" -p "$GPORTAL_PORT" "$GPORTAL_HOST" <<EOF
+          set ftp:ssl-allow no
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$GPORTAL_RESULTS_PATH"
+          get "$file" -o "data/results/$file"
+          bye
+          EOF
+
+            fi
+          done < latest_files.txt
 
       - name: Build manifest file
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
+          from datetime import datetime, timezone
 
           results_dir = Path("data/results")
           files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
 
           manifest = {
-              "updatedAt": "",
+              "updatedAt": datetime.now(timezone.utc).isoformat(),
+              "limit": 10,
               "results": [
                   {
                       "file": f"data/results/{p.name}",
@@ -63,19 +92,22 @@ jobs:
 
           Path("data").mkdir(exist_ok=True)
           Path("data/manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
           print(f"Manifest created with {len(files)} result files.")
+          for p in files:
+              print(f"- {p.name}")
           PY
 
-      - name: Commit updated result files
+      - name: Commit latest result files
         run: |
           git config user.name "IFWL Results Bot"
           git config user.email "actions@github.com"
 
-          git add data/results/*.json data/manifest.json || true
+          git add -A data/results data/manifest.json
 
           if git diff --cached --quiet; then
-            echo "No new result files to commit."
+            echo "No result file changes to commit."
           else
-            git commit -m "Update G-Portal ACC results"
+            git commit -m "Update latest G-Portal ACC results"
             git push
           fi
