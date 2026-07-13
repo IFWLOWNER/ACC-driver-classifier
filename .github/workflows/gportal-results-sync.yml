@@ -125,10 +125,42 @@ jobs:
             fi
           done < "latest_files_$SERVER_ID.txt"
 
+      # ======================================
+      # FIND PC PRO-AM RESULTS FOLDER - TESTER
+      # ======================================
+      - name: Find PC Pro-Am FTP results folder
+        env:
+          FTP_HOST: ${{ secrets.ASSETTO_PC_PROAM_HOST }}
+          FTP_PORT: ${{ secrets.ASSETTO_PC_PROAM_PORT }}
+          FTP_USER: ${{ secrets.ASSETTO_PC_PROAM_USER }}
+          FTP_PASSWORD: ${{ secrets.ASSETTO_PC_PROAM_PASSWORD }}
+        run: |
+          echo "Searching PC Pro-Am FTP folders..."
+
+          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > pc_ftp_tree.txt
+          set ftp:ssl-allow no
+          set net:timeout 30
+          set net:max-retries 2
+          pwd
+          cls -la
+          find .
+          bye
+          EOF
+
+          echo "Top of FTP tree:"
+          head -n 80 pc_ftp_tree.txt
+
+          echo "Possible results folders:"
+          grep -i "results" pc_ftp_tree.txt || true
+
+          echo "Possible server folders:"
+          grep -i "server" pc_ftp_tree.txt | head -n 100 || true
+
       # =========================
       # PC PRO-AM - ASSETTO HOSTING
       # =========================
       - name: Download latest 25 from PC Pro-Am
+        continue-on-error: true
         env:
           SERVER_ID: pc-proam
           SERVER_NAME: "IFWL | PC PRO AM SEASON 3"
