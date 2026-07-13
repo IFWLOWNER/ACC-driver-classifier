@@ -37,6 +37,16 @@
     .review-item strong{display:block;margin-bottom:5px}
 
 
+
+    .risk{font-weight:900}
+    .risk.low{color:#0e7a55}
+    .risk.mild{color:#9a6500}
+    .risk.medium{color:#c44a00}
+    .risk.high{color:#a10000}
+    .risk-note{display:block;font-size:11px;color:#666;font-weight:700;margin-top:3px}
+    .race-risk-info{padding:12px 16px;background:#f7f8f9;border-bottom:1px solid rgba(0,0,0,.08);font-size:13px;line-height:1.45;color:#333}
+    .race-risk-info strong{color:#111}
+
     .consistency{font-weight:900}
     .consistency.good{color:#0e7a55}
     .consistency.mid{color:#9a6500}
@@ -84,7 +94,7 @@
   <section class="hero"><div class="hero-inner"><h1>LIVE TIMINGS</h1><p>Live ACC timing and results tower for IFWL. Console Pro-Am, Console Beginner and Console Monday Funday results are synced into GitHub, then displayed here.</p></div></section>
   <div class="titlebar"><h2>LIVE TIMINGS / BETA</h2></div>
   <main>
-    <div class="notice">Want to know where you stand? Latest IFWL server timing files are pulled automatically, with comparisons between Beginner and Pro-Am pace where enough data exists, plus driver consistency based on fastest-to-slowest lap spread across all real laps, including invalid laps.</div>
+    <div class="notice">Want to know where you stand? Latest IFWL server timing files are pulled automatically, with comparisons between Beginner and Pro-Am pace where enough data exists, plus driver consistency and Race Risk based on invalid laps, lap spikes, lap spread, penalties and lost laps.</div>
     <div id="status"></div>
     <section class="quick-filter-wrap">
       <div class="quick-filter-card">
@@ -221,7 +231,7 @@
       </section>
     </section>
 
-    <section class="panel" id="race"><div class="panel-head"><div><h3>Race Finish Order</h3><small>Race sessions only</small></div><span class="badge dark">Race</span></div><div class="table-wrap"><table class="results-table"><thead><tr><th>Pos.</th><th>Driver</th><th>Track</th><th>Car No.</th><th>Best Lap</th><th>Total Time</th><th>Laps</th><th>Pit</th><th>Source</th></tr></thead><tbody id="raceBody"><tr><td colspan="9" class="empty">Loading race results...</td></tr></tbody></table></div></section>
+    <section class="panel" id="race"><div class="panel-head"><div><h3>Race Finish Order</h3><small>Race sessions only</small></div><span class="badge dark">Race</span></div><div class="race-risk-info"><strong>Race Risk %</strong> is a guide-only data score. It does not prove contact, blame or stewarding fault. It highlights unstable race patterns using invalid laps, lap-time spikes, lap spread, penalties, missed pit status and lost laps compared with the race leader.</div><div class="table-wrap"><table class="results-table"><thead><tr><th>Pos.</th><th>Driver</th><th>Track</th><th>Car No.</th><th>Best Lap</th><th>Total Time</th><th>Laps</th><th>Consistency</th><th>Race Risk %</th><th>Pit</th><th>Source</th></tr></thead><tbody id="raceBody"><tr><td colspan="11" class="empty">Loading race results...</td></tr></tbody></table></div></section>
 <section class="panel" id="beginnerReview">
       <div class="panel-head">
         <div>
@@ -393,19 +403,22 @@
 
       const laptime = Number(lap.laptime);
 
-      // Consistency intentionally includes both valid and invalid ACC laps.
-      // Invalid laps still show real driver control, track limit and mistake patterns.
+      // Consistency and Race Risk intentionally include both valid and invalid ACC laps.
+      // Invalid laps still show real driver control, track-limit and mistake patterns.
       // We only exclude impossible/broken ACC timing values.
       if(!isValidLap(laptime)) continue;
 
       const key = lapKey(lap.carId, lap.driverIndex);
-      if(!map.has(key)) map.set(key, []);
-      map.get(key).push(laptime);
+      if(!map.has(key)) map.set(key, {laps:[], invalid:0, valid:0, total:0});
+      const item = map.get(key);
+      item.laps.push(laptime);
+      item.total += 1;
+      if(lap.isValidForBest === false) item.invalid += 1;
+      else item.valid += 1;
     }
 
     return map;
   }
-
 
   function serverNameFromItem(item){
     return item.serverName || serverLabels[item.serverId] || item.serverId || 'Unknown server';
@@ -446,7 +459,12 @@
       lastLap:l.timing?.lastLap || 0,
       totalTime:l.timing?.totalTime || 0,
       lapCount:l.timing?.lapCount || 0,
-      consistencyStats: lapStats(sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || []),
+      lapInfo: sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[], invalid:0, valid:0, total:0},
+      allLapTimes: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[]}).laps,
+      invalidLapCount: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {invalid:0}).invalid,
+      recordedLapCount: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {total:0}).total,
+      carId: l.car?.carId,
+      consistencyStats: lapStats((sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[]}).laps),
       missingPit:l.missingMandatoryPitstop
     }));
 
@@ -721,10 +739,106 @@
     els.beginnerReviewBody.innerHTML = important.slice(0, 25).map(n => `<div class="sandbag-card"><span class="sandbag-tag ${n.type}">${esc(n.label)}</span><div><strong>${esc(n.title)}</strong><p>${esc(n.detail)}</p><span class="sandbag-reason">${esc(n.reason)}</span></div></div>`).join('');
   }
 
+
+  function riskClass(value){
+    if(!Number.isFinite(value)) return '';
+    if(value <= 15) return 'low';
+    if(value <= 35) return 'mild';
+    if(value <= 60) return 'medium';
+    return 'high';
+  }
+
+  function riskLabel(value){
+    if(!Number.isFinite(value)) return '-';
+    if(value <= 15) return 'Low';
+    if(value <= 35) return 'Mild';
+    if(value <= 60) return 'Medium';
+    return 'High';
+  }
+
+  function raceRiskForRow(row, raceSession, leaderLaps){
+    const laps = row.allLapTimes || [];
+    const lapCount = Number(row.lapCount || 0);
+    const invalidCount = Number(row.invalidLapCount || 0);
+    const totalRecorded = Number(row.recordedLapCount || laps.length || 0);
+
+    let score = 0;
+    const notes = [];
+
+    if(totalRecorded > 0){
+      const invalidRatio = invalidCount / totalRecorded;
+      score += Math.min(35, invalidRatio * 70);
+      if(invalidCount > 0) notes.push(`${invalidCount}/${totalRecorded} invalid laps`);
+    }
+
+    const stats = row.consistencyStats || {};
+    if(Number.isFinite(stats.consistency)){
+      score += Math.min(35, Math.max(0, 100 - stats.consistency) * 0.8);
+      if(stats.spread > 0) notes.push(`spread ${msTime(stats.spread)}`);
+    }
+
+    if(laps.length >= 3){
+      const med = median(laps);
+      const spikes = laps.filter(v => isValidLap(v) && med && v > med * 1.10).length;
+      if(spikes){
+        score += Math.min(25, spikes * 8);
+        notes.push(`${spikes} lap spike${spikes === 1 ? '' : 's'}`);
+      }
+    }
+
+    if(Array.isArray(raceSession?.data?.penalties)){
+      const carPenalties = raceSession.data.penalties.filter(p => String(p.carId) === String(row.carId));
+      if(carPenalties.length){
+        score += Math.min(25, carPenalties.length * 10);
+        notes.push(`${carPenalties.length} penalt${carPenalties.length === 1 ? 'y' : 'ies'}`);
+      }
+    }
+
+    if(Array.isArray(raceSession?.data?.post_race_penalties)){
+      const carPostPenalties = raceSession.data.post_race_penalties.filter(p => String(p.carId) === String(row.carId));
+      if(carPostPenalties.length){
+        score += Math.min(25, carPostPenalties.length * 10);
+        notes.push(`${carPostPenalties.length} post-race penalt${carPostPenalties.length === 1 ? 'y' : 'ies'}`);
+      }
+    }
+
+    if(row.missingPit === 1){
+      score += 20;
+      notes.push('missing pit');
+    }
+
+    if(leaderLaps && lapCount < leaderLaps){
+      const lost = leaderLaps - lapCount;
+      score += Math.min(30, lost * 10);
+      notes.push(`${lost} lap${lost === 1 ? '' : 's'} down`);
+    }
+
+    const risk = Math.max(0, Math.min(100, score));
+    return {
+      risk,
+      label: riskLabel(risk),
+      notes: notes.length ? notes.join(' · ') : 'stable race data'
+    };
+  }
+
+
   function renderRace(list){
     const races = list.filter(s => s.sessionType === 'R');
-    const rows = races.flatMap(s => s.rows.map((r, i) => ({...r, racePos:i+1, track:s.track, fileName:s.fileName, serverName:s.serverName}))).sort((a,b) => b.fileName.localeCompare(a.fileName) || a.racePos - b.racePos).slice(0,150);
-    els.raceBody.innerHTML = rows.map(r => `<tr><td class="pos">${r.racePos}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.carNo)}</td><td class="best">${msTime(r.bestLap)}</td><td>${msTime(r.totalTime)}</td><td>${esc(r.lapCount)}</td><td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td><td class="muted">${esc(r.serverName)} / ${esc(r.fileName)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No race result files found in the current filter.</td></tr>';
+    const raceRows = [];
+
+    for(const s of races){
+      const leaderLaps = Math.max(0, ...s.rows.map(r => Number(r.lapCount || 0)));
+      s.rows.forEach((r, i) => {
+        const risk = raceRiskForRow(r, s, leaderLaps);
+        raceRows.push({...r, racePos:i+1, track:s.track, fileName:s.fileName, serverName:s.serverName, risk});
+      });
+    }
+
+    const rows = raceRows
+      .sort((a,b) => b.fileName.localeCompare(a.fileName) || a.racePos - b.racePos)
+      .slice(0,200);
+
+    els.raceBody.innerHTML = rows.map(r => `<tr><td class="pos">${r.racePos}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.carNo)}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td>${msTime(r.totalTime)}</td><td>${esc(r.lapCount)}</td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td><td><span class="risk ${riskClass(r.risk?.risk)}">${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0) + '%' : '-'}</span><span class="risk-note">${esc(r.risk?.label || '-')} · ${esc(r.risk?.notes || '')}</span></td><td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td><td class="muted">${esc(r.serverName)} / ${esc(r.fileName)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">No race result files found in the current filter.</td></tr>';
   }
 
   function bestByDriverTrack(serverId){
