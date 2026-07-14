@@ -402,7 +402,7 @@
         <div class="empty">Loading Beginner pace review...</div>
       </div>
     </section>
-    <p class="footer-note">IFWL Live Timings page. Upload this file as <strong>rivals.html</strong> in your GitHub repo root. It expects the GitHub Action to create <strong>data/manifest.json</strong> and place result files in <strong>data/results/console-proam/</strong>, <strong>data/results/console-beginner/</strong>, <strong>data/results/pc-proam/</strong> and <strong>data/results/console-monday-funday/</strong>.</p>
+    <p class="footer-note">IFWL Live Timings page. Upload this file as <strong>rivals.html</strong> in your GitHub repo root. It expects the GitHub Action to create <strong>data/manifest.json</strong> and place result files in <strong>data/results/console-proam/</strong>, <strong>data/results/console-beginner/</strong>, <strong>data/results/pc-proam/</strong>, <strong>data/results/pc-beginner/</strong>, <strong>data/results/pc-monday-funday/</strong> and <strong>data/results/console-monday-funday/</strong>.</p>
   </main>
 <script>
 (() => {
@@ -424,6 +424,10 @@
     beginnerAllBody: document.getElementById('beginnerAllBody'),
     pcProamFastestBody: document.getElementById('pcProamFastestBody'),
     pcProamAllBody: document.getElementById('pcProamAllBody'),
+    pcBeginnerFastestBody: document.getElementById('pcBeginnerFastestBody'),
+    pcBeginnerAllBody: document.getElementById('pcBeginnerAllBody'),
+    pcMondayFundayFastestBody: document.getElementById('pcMondayFundayFastestBody'),
+    pcMondayFundayAllBody: document.getElementById('pcMondayFundayAllBody'),
     mondayFundayFastestBody: document.getElementById('mondayFundayFastestBody'),
     mondayFundayAllBody: document.getElementById('mondayFundayAllBody'),
     beginnerReviewBody: document.getElementById('beginnerReviewBody'),
@@ -454,12 +458,18 @@
 
   let manifestItems = [];
   let sessions = [];
+  const sessionCache = new Map();
+  const loadedServerIds = new Set();
+  let raceLoaded = false;
+  let reviewLoaded = false;
   const manifestUrl = 'data/manifest.json';
   const sessionNames = { FP:'Practice', FP1:'Practice 1', FP2:'Practice 2', Q:'Qualifying', R:'Race' };
   const serverLabels = {
     'console-proam': 'IFWL | CONSOLE PRO AM SEASON 3',
     'console-beginner': 'IFWL | CONSOLE BEGINNER SEASON 3',
     'pc-proam': 'IFWL | PC PRO AM SEASON 3',
+    'pc-beginner': 'IFWL | PC BEGINNER SEASON 3',
+    'pc-monday-funday': 'IFWL | PC MONDAY FUNDAY SEASON 3',
     'console-monday-funday': 'IFWL | CONSOLE MONDAY FUNDAY SEASON 3'
   };
   const carNames = {
@@ -665,9 +675,11 @@
   async function loadManifest(){
     clearError();
     els.sessionSelect.innerHTML = '<option>Loading manifest...</option>';
+
     try{
       const manifest = await fetchJsonFile(manifestUrl);
       const raw = manifest.results || manifest.files || [];
+
       manifestItems = raw.map(x => {
         if(typeof x === 'string') return { file:x, name:x.split('/').pop(), serverId:'unknown', serverName:'Unknown server' };
         return {
@@ -676,29 +688,99 @@
           serverId: x.serverId || 'unknown',
           serverName: x.serverName || serverLabels[x.serverId] || x.serverId || 'Unknown server'
         };
-      }).filter(x => x.file);
+      })
+      .filter(x => x.file && x.name && /_(FP|Q|R)\.json$/i.test(x.name));
 
-      if(!manifestItems.length) throw new Error('Manifest loaded, but no result files were listed.');
-      await loadFiles(manifestItems);
+      if(!manifestItems.length) throw new Error('Manifest loaded, but no ACC result files were listed.');
+
+      // Important: do NOT fetch every result JSON on page load.
+      // The page now loads data on demand when a section is opened.
+      sessions = [];
+      sessionCache.clear();
+      loadedServerIds.clear();
+      raceLoaded = false;
+      reviewLoaded = false;
+
+      renderAll();
+      resetLazyPanels();
     }catch(err){
       setError(`The page could not read ${manifestUrl}.\n\n${err.message}\n\nIf you are testing locally, use the manual upload box. If this is on GitHub Pages, make sure the sync workflow has committed data/manifest.json and the server folders inside data/results/.`);
+      manifestItems = [];
       sessions = [];
       renderAll();
     }
   }
 
+  async function loadSessionItem(item){
+    if(!item || !item.file) return null;
+    if(sessionCache.has(item.file)) return sessionCache.get(item.file);
+
+    const loaded = normaliseSession(await fetchJsonFile(item.file), item.file, item);
+    sessionCache.set(item.file, loaded);
+    return loaded;
+  }
+
   async function loadFiles(items){
-    els.sessionSelect.innerHTML = `<option>Loading ${items.length} result files...</option>`;
+    // Kept for manual/admin use, but no longer called on initial page load.
     const loaded = [];
     for(const item of items){
-      try{ loaded.push(normaliseSession(await fetchJsonFile(item.file), item.file, item)); }
+      try{
+        const session = await loadSessionItem(item);
+        if(session) loaded.push(session);
+      }
       catch(e){ console.warn('Skipping result file', item.file, e); }
     }
+
     sessions = loaded.sort((a,b) => {
       const byServer = a.serverName.localeCompare(b.serverName);
       return byServer || b.fileName.localeCompare(a.fileName);
     });
+
     renderAll();
+    return sessions;
+  }
+
+  function filteredManifestItems(){
+    const server = els.serverFilter.value;
+    const track = els.trackFilter.value;
+    const type = els.typeFilter.value;
+
+    return manifestItems.filter(item => {
+      if(server !== 'all' && item.serverId !== server) return false;
+      if(type !== 'all' && !String(item.name || '').toUpperCase().endsWith(`_${type}.JSON`)) return false;
+
+      // Track filtering is only reliable after a file has been loaded.
+      // Before that, keep the item visible to avoid expensive preload.
+      if(track !== 'all'){
+        const cached = sessionCache.get(item.file);
+        if(cached && cached.track !== track) return false;
+      }
+
+      return true;
+    });
+  }
+
+  async function loadSessionsForServer(serverId){
+    const type = els.typeFilter.value;
+    const track = els.trackFilter.value;
+
+    const items = manifestItems.filter(item => {
+      if(item.serverId !== serverId) return false;
+      if(type !== 'all' && !String(item.name || '').toUpperCase().endsWith(`_${type}.JSON`)) return false;
+      return true;
+    });
+
+    const loaded = [];
+    for(const item of items){
+      try{
+        const session = await loadSessionItem(item);
+        if(session && (track === 'all' || session.track === track)) loaded.push(session);
+      }
+      catch(e){ console.warn('Skipping result file', item.file, e); }
+    }
+
+    sessions = [...new Map([...sessions, ...loaded].map(s => [s.source, s])).values()];
+    return loaded;
   }
 
   function filteredSessions(){
@@ -716,33 +798,66 @@
     const currentServer = els.serverFilter.value || 'all';
     const currentTrack = els.trackFilter.value || 'all';
 
-    const servers = [...new Map(sessions.map(s => [s.serverId, s.serverName])).entries()].sort((a,b) => a[1].localeCompare(b[1]));
+    const serverSource = manifestItems.length
+      ? manifestItems.map(item => [item.serverId, item.serverName])
+      : sessions.map(s => [s.serverId, s.serverName]);
+
+    const servers = [...new Map(serverSource).entries()]
+      .filter(([id]) => id)
+      .sort((a,b) => String(a[1]).localeCompare(String(b[1])));
+
     els.serverFilter.innerHTML = '<option value="all">All servers</option>' + servers.map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
     if(servers.some(([id]) => id === currentServer)) els.serverFilter.value = currentServer;
+    else els.serverFilter.value = 'all';
 
-    const visibleForTrack = sessions.filter(s => els.serverFilter.value === 'all' || s.serverId === els.serverFilter.value);
-    const tracks = [...new Set(visibleForTrack.map(s => s.track).filter(Boolean))].sort();
+    const loadedForTracks = [...sessionCache.values()].filter(s => els.serverFilter.value === 'all' || s.serverId === els.serverFilter.value);
+    const tracks = [...new Set(loadedForTracks.map(s => s.track).filter(Boolean))].sort();
+
     els.trackFilter.innerHTML = '<option value="all">All tracks</option>' + tracks.map(t => `<option value="${esc(t)}">${esc(title(t))}</option>`).join('');
     if(tracks.includes(currentTrack)) els.trackFilter.value = currentTrack;
+    else els.trackFilter.value = 'all';
   }
 
-  function populateSessionSelect(list){
-    if(!list.length){ els.sessionSelect.innerHTML = '<option value="">No results found</option>'; return; }
+  function populateSessionSelect(items){
+    const list = items || filteredManifestItems();
+
+    if(!list.length){
+      els.sessionSelect.innerHTML = '<option value="">No results found</option>';
+      return;
+    }
+
     const previous = els.sessionSelect.value;
-    els.sessionSelect.innerHTML = '<option value="">Select a specific session...</option>' + list.map((s, i) => `<option value="${i}">${esc(s.serverName)} — ${esc(s.fileName)} — ${esc(title(s.track))} — ${esc(s.session)}</option>`).join('');
-    if(previous !== '' && Number(previous) < list.length) els.sessionSelect.value = previous;
+    els.sessionSelect.innerHTML = '<option value="">Select a specific session...</option>' + list.map(item => {
+      const idx = manifestItems.indexOf(item);
+      const loaded = sessionCache.get(item.file);
+      const trackText = loaded ? ` — ${esc(title(loaded.track))}` : '';
+      const typeText = item.name?.match(/_(FP|Q|R)\.json$/i)?.[1] || 'ACC';
+      return `<option value="${idx}">${esc(item.serverName)} — ${esc(item.name)}${trackText} — ${esc(typeText)}</option>`;
+    }).join('');
+
+    if(previous !== '' && [...els.sessionSelect.options].some(o => o.value === previous)) els.sessionSelect.value = previous;
     else els.sessionSelect.value = '';
   }
 
-  function renderSelected(list){
+  async function renderSelected(){
     const selectedValue = els.sessionSelect.value;
-    const s = selectedValue === '' ? null : list[Number(selectedValue)];
+    const item = selectedValue === '' ? null : manifestItems[Number(selectedValue)];
 
-    if(!s){
+    if(!item){
       els.selectedStats?.classList.add('hidden');
       els.leaderboardPanel?.classList.add('hidden');
       if(els.sessionBody) els.sessionBody.innerHTML = '<tr><td colspan="12" class="empty">Select a session above to inspect the individual file.</td></tr>';
       els.statSession.textContent = '-'; els.statServer.textContent = '-'; els.statTrack.textContent = '-'; els.statWet.textContent = '-'; els.statDrivers.textContent = '-'; els.statBest.textContent = '-'; els.statBestDriver.textContent = '-'; els.selectedMeta.textContent = '-'; els.selectedBadge.textContent = 'ACC';
+      return;
+    }
+
+    els.sessionBody.innerHTML = '<tr><td colspan="12" class="empty">Loading selected session...</td></tr>';
+
+    let s;
+    try{
+      s = await loadSessionItem(item);
+    }catch(e){
+      els.sessionBody.innerHTML = `<tr><td colspan="12" class="empty">Could not load ${esc(item.name)}.</td></tr>`;
       return;
     }
 
@@ -768,6 +883,10 @@
       const notes = [r.ballast ? `${r.ballast}kg ballast` : '', r.missingPit === 1 ? 'Missing pit' : '', r.missingPit === 0 ? 'Pit OK' : ''].filter(Boolean).join(' · ') || '-';
       return `<tr><td class="pos">${i+1}</td><td>${esc(r.carNo)}</td><td class="driver">${esc(r.driver)}</td><td><span class="badge">${esc(r.carGroup)}</span> ${esc(r.carName)}</td><td>${msTime(splits[0])}</td><td>${msTime(splits[1])}</td><td>${msTime(splits[2])}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td class="gap">${isValidLap(r.bestLap) && fastest ? gapTime(r.bestLap - fastest) : '-'}</td><td>${esc(r.lapCount)}</td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td><td class="muted">${esc(notes)}</td></tr>`;
     }).join('') || '<tr><td colspan="12" class="empty">No drivers found in this result file.</td></tr>';
+
+    populateFilters();
+    populateSessionSelect(filteredManifestItems());
+    els.sessionSelect.value = selectedValue;
   }
 
   function isValidLap(ms){
@@ -790,22 +909,75 @@
   function renderServerBoards(list){
     const proamRows = resultRows(list, 'console-proam');
     const beginnerRows = resultRows(list, 'console-beginner');
-    const pcProamRows = resultRows(list, 'pc-proam');
     const mondayRows = resultRows(list, 'console-monday-funday');
+    const pcProamRows = resultRows(list, 'pc-proam');
+    const pcBeginnerRows = resultRows(list, 'pc-beginner');
+    const pcMondayRows = resultRows(list, 'pc-monday-funday');
 
-    renderTimingTable(els.proamFastestBody, proamRows.slice(0, 100), 'No valid Console Pro-Am laps found in the current filter.');
-    renderTimingTable(els.proamAllBody, proamRows, 'No Console Pro-Am timings found in the current filter.');
+    if(els.proamFastestBody) renderTimingTable(els.proamFastestBody, proamRows.slice(0, 100), 'No valid Console Pro-Am laps found in the current filter.');
+    if(els.proamAllBody) renderTimingTable(els.proamAllBody, proamRows, 'No Console Pro-Am timings found in the current filter.');
 
-    renderTimingTable(els.beginnerFastestBody, beginnerRows.slice(0, 100), 'No valid Console Beginner laps found in the current filter.');
-    renderTimingTable(els.beginnerAllBody, beginnerRows, 'No Console Beginner timings found in the current filter.');
+    if(els.beginnerFastestBody) renderTimingTable(els.beginnerFastestBody, beginnerRows.slice(0, 100), 'No valid Console Beginner laps found in the current filter.');
+    if(els.beginnerAllBody) renderTimingTable(els.beginnerAllBody, beginnerRows, 'No Console Beginner timings found in the current filter.');
 
-    renderTimingTable(els.pcProamFastestBody, pcProamRows.slice(0, 100), 'No valid PC Pro-Am laps found in the current filter.');
-    renderTimingTable(els.pcProamAllBody, pcProamRows, 'No PC Pro-Am timings found in the current filter.');
+    if(els.mondayFundayFastestBody) renderTimingTable(els.mondayFundayFastestBody, mondayRows.slice(0, 100), 'No valid Console Monday Funday laps found in the current filter.');
+    if(els.mondayFundayAllBody) renderTimingTable(els.mondayFundayAllBody, mondayRows, 'No Console Monday Funday timings found in the current filter.');
 
-    renderTimingTable(els.mondayFundayFastestBody, mondayRows.slice(0, 100), 'No valid Console Monday Funday laps found in the current filter.');
-    renderTimingTable(els.mondayFundayAllBody, mondayRows, 'No Console Monday Funday timings found in the current filter.');
+    if(els.pcProamFastestBody) renderTimingTable(els.pcProamFastestBody, pcProamRows.slice(0, 100), 'No valid PC Pro-Am laps found in the current filter.');
+    if(els.pcProamAllBody) renderTimingTable(els.pcProamAllBody, pcProamRows, 'No PC Pro-Am timings found in the current filter.');
 
-    renderBeginnerReview(proamRows, beginnerRows);
+    if(els.pcBeginnerFastestBody) renderTimingTable(els.pcBeginnerFastestBody, pcBeginnerRows.slice(0, 100), 'No valid PC Beginner laps found in the current filter.');
+    if(els.pcBeginnerAllBody) renderTimingTable(els.pcBeginnerAllBody, pcBeginnerRows, 'No PC Beginner timings found in the current filter.');
+
+    if(els.pcMondayFundayFastestBody) renderTimingTable(els.pcMondayFundayFastestBody, pcMondayRows.slice(0, 100), 'No valid PC Monday Funday laps found in the current filter.');
+    if(els.pcMondayFundayAllBody) renderTimingTable(els.pcMondayFundayAllBody, pcMondayRows, 'No PC Monday Funday timings found in the current filter.');
+
+    // Staff review remains loaded on demand so it does not slow the page start.
+  }
+
+  async function renderServerPanel(serverId){
+    const bodyMap = {
+      'console-proam': [els.proamFastestBody, els.proamAllBody, 'Console Pro-Am'],
+      'console-beginner': [els.beginnerFastestBody, els.beginnerAllBody, 'Console Beginner'],
+      'console-monday-funday': [els.mondayFundayFastestBody, els.mondayFundayAllBody, 'Console Monday Funday'],
+      'pc-proam': [els.pcProamFastestBody, els.pcProamAllBody, 'PC Pro-Am'],
+      'pc-beginner': [els.pcBeginnerFastestBody, els.pcBeginnerAllBody, 'PC Beginner'],
+      'pc-monday-funday': [els.pcMondayFundayFastestBody, els.pcMondayFundayAllBody, 'PC Monday Funday']
+    };
+
+    const [fastestBody, allBody, label] = bodyMap[serverId] || [];
+    if(!fastestBody || !allBody) return;
+
+    fastestBody.innerHTML = `<tr><td colspan="12" class="empty">Loading ${esc(label)} fastest laps...</td></tr>`;
+    allBody.innerHTML = `<tr><td colspan="12" class="empty">Loading ${esc(label)} all timings...</td></tr>`;
+
+    const loaded = await loadSessionsForServer(serverId);
+    renderServerBoards(loaded);
+    loadedServerIds.add(serverId);
+  }
+
+  function resetLazyPanels(){
+    const placeholders = [
+      [els.proamFastestBody, 'Open Console Pro-Am to load fastest laps.'],
+      [els.proamAllBody, 'Open Console Pro-Am to load all timings.'],
+      [els.beginnerFastestBody, 'Open Console Beginner to load fastest laps.'],
+      [els.beginnerAllBody, 'Open Console Beginner to load all timings.'],
+      [els.mondayFundayFastestBody, 'Open Console Monday Funday to load fastest laps.'],
+      [els.mondayFundayAllBody, 'Open Console Monday Funday to load all timings.'],
+      [els.pcProamFastestBody, 'Open PC Pro-Am to load fastest laps.'],
+      [els.pcProamAllBody, 'Open PC Pro-Am to load all timings.'],
+      [els.pcBeginnerFastestBody, 'Open PC Beginner to load fastest laps.'],
+      [els.pcBeginnerAllBody, 'Open PC Beginner to load all timings.'],
+      [els.pcMondayFundayFastestBody, 'Open PC Monday Funday to load fastest laps.'],
+      [els.pcMondayFundayAllBody, 'Open PC Monday Funday to load all timings.']
+    ];
+
+    for(const [body, text] of placeholders){
+      if(body) body.innerHTML = `<tr><td colspan="12" class="empty">${esc(text)}</td></tr>`;
+    }
+
+    if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Open Race Finish Order to load race results.</td></tr>';
+    if(els.beginnerReviewBody) els.beginnerReviewBody.innerHTML = '<div class="empty">Open this panel to load Beginner pace review.</div>';
   }
 
   function median(values){
@@ -1462,6 +1634,74 @@
     els.insightsBody.innerHTML = insights.slice(0,20).map(i => `<div class="insight-card"><div><span class="insight-tag ${esc(i.type)}">${esc(i.label)}</span></div><div><strong>${esc(i.title)}</strong><p>${esc(i.text)}</p></div></div>`).join('');
   }
 
+  async function renderRaceLazy(){
+    if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Loading race results...</td></tr>';
+
+    const server = els.serverFilter.value;
+    const items = manifestItems.filter(item => {
+      if(server !== 'all' && item.serverId !== server) return false;
+      return /_R\.json$/i.test(item.name || item.file || '');
+    });
+
+    const loaded = [];
+    for(const item of items){
+      try{
+        const session = await loadSessionItem(item);
+        if(session) loaded.push(session);
+      }catch(e){ console.warn('Skipping race file', item.file, e); }
+    }
+
+    sessions = [...new Map([...sessions, ...loaded].map(s => [s.source, s])).values()];
+    renderRace(loaded.filter(s => {
+      const track = els.trackFilter.value;
+      return track === 'all' || s.track === track;
+    }));
+    raceLoaded = true;
+  }
+
+  async function renderBeginnerReviewLazy(){
+    if(els.beginnerReviewBody) els.beginnerReviewBody.innerHTML = '<div class="empty">Loading Beginner pace review...</div>';
+
+    const needed = manifestItems.filter(item =>
+      item.serverId === 'console-proam' ||
+      item.serverId === 'console-beginner' ||
+      item.serverId === 'pc-proam' ||
+      item.serverId === 'pc-beginner'
+    );
+
+    const loaded = [];
+    for(const item of needed){
+      try{
+        const session = await loadSessionItem(item);
+        if(session) loaded.push(session);
+      }catch(e){ console.warn('Skipping review file', item.file, e); }
+    }
+
+    sessions = [...new Map([...sessions, ...loaded].map(s => [s.source, s])).values()];
+
+    const proamRows = resultRows(loaded, 'console-proam');
+    const beginnerRows = resultRows(loaded, 'console-beginner');
+    renderBeginnerReview(proamRows, beginnerRows);
+
+    reviewLoaded = true;
+  }
+
+  function resetLoadedSections(){
+    loadedServerIds.clear();
+    raceLoaded = false;
+    reviewLoaded = false;
+    resetLazyPanels();
+
+    document.querySelectorAll('.server-panel:not(.collapsed)').forEach(panel => {
+      const serverId = panel.dataset.serverPanel;
+      if(serverId) renderServerPanel(serverId);
+    });
+
+    if(els.racePanel && !els.racePanel.classList.contains('collapsed')) renderRaceLazy();
+    const reviewPanel = document.getElementById('beginnerReview');
+    if(reviewPanel && !reviewPanel.classList.contains('collapsed')) renderBeginnerReviewLazy();
+  }
+
   function updateQuickButtons(){
     const current = els.serverFilter.value || 'all';
     if(!els.quickFilterButtons) return;
@@ -1471,41 +1711,92 @@
   function renderAll(){
     populateFilters();
     updateQuickButtons();
-    const list = filteredSessions();
-    populateSessionSelect(list);
-    renderSelected(list);
-    renderServerBoards(list);
-    renderRace(list);
+
+    const itemList = filteredManifestItems();
+    populateSessionSelect(itemList);
+
+    // Do not render every server/race board here.
+    // They are loaded when their panel is opened.
+    renderSelected();
   }
 
-  els.sessionSelect.addEventListener('change', () => renderSelected(filteredSessions()));
-  els.serverFilter.addEventListener('change', renderAll);
+  els.sessionSelect.addEventListener('change', () => renderSelected());
+
+  els.serverFilter.addEventListener('change', () => {
+    renderAll();
+    resetLoadedSections();
+  });
+
   if(els.quickFilterButtons){
     els.quickFilterButtons.forEach(btn => btn.addEventListener('click', () => {
       els.serverFilter.value = btn.dataset.serverQuick || 'all';
       els.trackFilter.value = 'all';
       els.typeFilter.value = 'all';
       renderAll();
+      resetLoadedSections();
       document.getElementById('sessions')?.scrollIntoView({behavior:'smooth', block:'start'});
     }));
   }
-  els.trackFilter.addEventListener('change', renderAll);
-  els.typeFilter.addEventListener('change', renderAll);
+
+  els.trackFilter.addEventListener('change', () => {
+    renderAll();
+    resetLoadedSections();
+  });
+
+  els.typeFilter.addEventListener('change', () => {
+    renderAll();
+    resetLoadedSections();
+  });
+
   els.reloadBtn.addEventListener('click', loadManifest);
-  els.latestBtn.addEventListener('click', () => { els.serverFilter.value='all'; els.trackFilter.value='all'; els.typeFilter.value='all'; renderAll(); els.sessionSelect.value='0'; renderSelected(filteredSessions()); });
+
+  els.latestBtn.addEventListener('click', () => {
+    els.serverFilter.value='all';
+    els.trackFilter.value='all';
+    els.typeFilter.value='all';
+    renderAll();
+    resetLoadedSections();
+  });
 
   els.manualFiles.addEventListener('change', async (ev) => {
     const picked = [...ev.target.files];
     const loaded = [];
+
     for(const f of picked){
       try{
         const lower = f.name.toLowerCase();
-        const serverId = lower.includes('monday') ? 'console-monday-funday' : lower.includes('pc-proam') || lower.includes('pc-pro-am') ? 'pc-proam' : lower.includes('beginner') ? 'console-beginner' : lower.includes('proam') || lower.includes('pro-am') ? 'console-proam' : 'manual';
-        loaded.push(normaliseSession(decodeJsonText(await f.text()), f.name, {serverId, serverName: serverLabels[serverId] || 'Manual upload'}));
+        const serverId = lower.includes('pc-monday') ? 'pc-monday-funday' :
+          lower.includes('pc-beginner') ? 'pc-beginner' :
+          lower.includes('monday') ? 'console-monday-funday' :
+          lower.includes('pc-proam') || lower.includes('pc-pro-am') ? 'pc-proam' :
+          lower.includes('beginner') ? 'console-beginner' :
+          lower.includes('proam') || lower.includes('pro-am') ? 'console-proam' :
+          'manual';
+
+        const item = {
+          file: `manual://${f.name}`,
+          name: f.name,
+          serverId,
+          serverName: serverLabels[serverId] || 'Manual upload'
+        };
+
+        const session = normaliseSession(decodeJsonText(await f.text()), item.file, item);
+        sessionCache.set(item.file, session);
+        manifestItems.unshift(item);
+        loaded.push(session);
       }
       catch(e){ setError(`Could not read ${f.name}: ${e.message}`); }
     }
-    if(loaded.length){ sessions = loaded.sort((a,b) => b.fileName.localeCompare(a.fileName)); clearError(); renderAll(); }
+
+    if(loaded.length){
+      sessions = [...loaded, ...sessions].sort((a,b) => b.fileName.localeCompare(a.fileName));
+      clearError();
+      renderAll();
+      resetLoadedSections();
+
+      // If race panel is open, refresh it so uploaded race files appear immediately.
+      if(els.racePanel && !els.racePanel.classList.contains('collapsed')) renderRaceLazy();
+    }
   });
 
 
@@ -1535,10 +1826,28 @@
       btn.type = 'button';
       btn.className = 'collapse-toggle';
       btn.textContent = 'Show';
-      btn.addEventListener('click', (ev) => {
+
+      btn.addEventListener('click', async (ev) => {
         ev.stopPropagation();
+
+        const opening = panel.classList.contains('collapsed');
         panel.classList.toggle('collapsed');
         btn.textContent = panel.classList.contains('collapsed') ? 'Show' : 'Hide';
+
+        if(!opening) return;
+
+        const serverId = panel.dataset.serverPanel;
+        if(serverId && !loadedServerIds.has(serverId)){
+          await renderServerPanel(serverId);
+        }
+
+        if(panel.id === 'race' && !raceLoaded){
+          await renderRaceLazy();
+        }
+
+        if(panel.id === 'beginnerReview' && !reviewLoaded){
+          await renderBeginnerReviewLazy();
+        }
       });
 
       head.appendChild(btn);
