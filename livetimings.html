@@ -47,6 +47,15 @@
     .race-mode-btn{border:0;border-radius:999px;padding:10px 14px;font-weight:900;text-transform:uppercase;cursor:pointer;background:#20242a;color:#fff}
     .race-mode-btn.active{background:var(--ifwl-teal)}
     #race.race-simple .race-detailed-col{display:none}
+
+    .panel.collapsed{box-shadow:0 10px 24px rgba(0,0,0,.10)}
+    .panel.collapsed .panel-head{border-radius:18px}
+    .svg-chart{width:100%;height:300px;display:block;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:14px}
+    .chart-title{font-size:13px;text-transform:uppercase;letter-spacing:.06em;font-weight:900;margin:0 0 8px;color:#222}
+    .chart-help{font-size:12px;color:#666;margin:0 0 10px;font-weight:700}
+    .chart-wrap{border:1px solid rgba(0,0,0,.1);border-radius:16px;background:#fafafa;padding:14px}
+    .race-chart-wide{grid-column:1/-1}
+
     .race-charts{padding:16px;background:#fff;border-bottom:1px solid rgba(0,0,0,.08)}
     .race-chart-grid{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:16px}
     .race-chart-card{border:1px solid rgba(0,0,0,.1);border-radius:14px;padding:14px;background:#fafafa}
@@ -627,6 +636,8 @@
 
     els.selectedStats?.classList.remove('hidden');
     els.leaderboardPanel?.classList.remove('hidden');
+    els.leaderboardPanel?.classList.remove('collapsed');
+    els.leaderboardPanel?.querySelector('.collapse-toggle') && (els.leaderboardPanel.querySelector('.collapse-toggle').textContent = 'Hide');
 
     const best = s.rows.filter(r => isValidLap(r.bestLap)).sort((a,b) => a.bestLap - b.bestLap)[0];
     els.statSession.textContent = s.session;
@@ -883,6 +894,138 @@
   }
 
 
+  function driverShort(name){
+    const clean = String(name || '').replace(/\s+-\s+IFWL$/i,'').trim();
+    return clean.length > 15 ? clean.slice(0, 13) + '…' : clean;
+  }
+
+  function svgText(x, y, text, size = 11, weight = 700, anchor = 'start'){
+    return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" fill="#111">${esc(text)}</text>`;
+  }
+
+  function renderRaceLapTrace(latestRows){
+    const rows = latestRows
+      .filter(r => Array.isArray(r.allLapTimes) && r.allLapTimes.length >= 2)
+      .slice(0, 12);
+
+    if(!rows.length){
+      return '<div class="chart-wrap race-chart-wide"><p class="chart-title">Lap-time trace</p><p class="chart-help">No lap-by-lap data available in this race file.</p></div>';
+    }
+
+    const allTimes = rows.flatMap(r => r.allLapTimes.filter(v => isValidLap(v)));
+    const minTime = Math.min(...allTimes);
+    const maxTime = Math.max(...allTimes);
+    const maxLaps = Math.max(...rows.map(r => r.allLapTimes.length));
+    const w = 1000, h = 310, left = 70, right = 25, top = 28, bottom = 42;
+    const plotW = w - left - right;
+    const plotH = h - top - bottom;
+    const range = Math.max(1, maxTime - minTime);
+
+    const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
+    const xFor = lap => left + ((lap - 1) / Math.max(1, maxLaps - 1)) * plotW;
+
+    const palette = ['#168f82','#9b3db5','#c44a00','#1a4a86','#a10000','#6a8f16','#8a5300','#34495e','#16a085','#7d3c98','#d35400','#2c3e50'];
+
+    const grid = [0, .25, .5, .75, 1].map(p => {
+      const y = top + p * plotH;
+      const val = maxTime - p * range;
+      return `<line x1="${left}" y1="${y}" x2="${w-right}" y2="${y}" stroke="#e6eaed" stroke-width="1"/>${svgText(8, y+4, msTime(val), 10, 700)}`;
+    }).join('');
+
+    const lines = rows.map((r, idx) => {
+      const pts = r.allLapTimes
+        .map((v, i) => isValidLap(v) ? `${xFor(i+1).toFixed(1)},${yFor(v).toFixed(1)}` : null)
+        .filter(Boolean)
+        .join(' ');
+      return `<polyline points="${pts}" fill="none" stroke="${palette[idx % palette.length]}" stroke-width="3" opacity=".88"><title>${esc(r.driver)}</title></polyline>`;
+    }).join('');
+
+    const labels = rows.slice(0, 8).map((r, idx) => {
+      const y = 18 + idx * 17;
+      return `<circle cx="${left + 8 + idx*115}" cy="${y-4}" r="5" fill="${palette[idx % palette.length]}"/>${svgText(left + 18 + idx*115, y, driverShort(r.driver), 10, 900)}`;
+    }).join('');
+
+    const axis = `<line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
+      <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
+      ${svgText(left, h-12, 'Lap 1', 11, 900)}
+      ${svgText(w-right, h-12, 'Lap '+maxLaps, 11, 900, 'end')}`;
+
+    return `<div class="chart-wrap race-chart-wide">
+      <p class="chart-title">Lap-time trace</p>
+      <p class="chart-help">Shows lap-by-lap pace for the top 12 drivers in the latest race file. Spikes usually mean errors, traffic, pits, damage or invalid/messy laps.</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Race lap time trace">
+        ${grid}${axis}${lines}${labels}
+      </svg>
+    </div>`;
+  }
+
+  function renderRacePositionGapChart(latestRows){
+    const rows = latestRows.filter(r => isValidLap(r.bestLap)).sort((a,b)=>a.racePos-b.racePos).slice(0, 30);
+    if(!rows.length){
+      return '<div class="chart-wrap"><p class="chart-title">Field best-lap gaps</p><p class="chart-help">No valid best lap data.</p></div>';
+    }
+
+    const fastest = Math.min(...rows.map(r => r.bestLap));
+    const maxGap = Math.max(1, ...rows.map(r => r.bestLap - fastest));
+    const w = 1000, h = 310, left = 52, right = 22, top = 25, bottom = 46;
+    const plotW = w - left - right;
+    const plotH = h - top - bottom;
+    const barW = Math.max(8, plotW / rows.length - 4);
+
+    const bars = rows.map((r, idx) => {
+      const gap = r.bestLap - fastest;
+      const bh = Math.max(3, (gap / maxGap) * plotH);
+      const x = left + idx * (plotW / rows.length);
+      const y = top + plotH - bh;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="#168f82"><title>${esc(r.driver)} ${gapTime(gap)}</title></rect>`;
+    }).join('');
+
+    return `<div class="chart-wrap">
+      <p class="chart-title">Field best-lap gaps</p>
+      <p class="chart-help">Each bar is that driver’s best-lap gap to the fastest driver in the latest race file.</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Field best lap gaps">
+        <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
+        <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
+        ${svgText(8, top+6, '+'+((maxGap/1000).toFixed(1))+'s', 10, 900)}
+        ${svgText(left, h-14, 'P1', 11, 900)}
+        ${svgText(w-right, h-14, 'Field', 11, 900, 'end')}
+        ${bars}
+      </svg>
+    </div>`;
+  }
+
+  function renderRaceConsistencyRiskChart(latestRows, mode){
+    const isRisk = mode === 'risk';
+    const rows = latestRows.slice(0, 30);
+    const w = 1000, h = 310, left = 58, right = 28, top = 28, bottom = 42;
+    const plotW = w - left - right;
+    const plotH = h - top - bottom;
+    const barW = Math.max(8, plotW / rows.length - 4);
+
+    const bars = rows.map((r, idx) => {
+      const value = isRisk ? Number(r.risk?.risk || 0) : Number(r.consistencyStats?.consistency || 0);
+      const bh = Math.max(3, (value / 100) * plotH);
+      const x = left + idx * (plotW / rows.length);
+      const y = top + plotH - bh;
+      const fill = isRisk ? (value > 60 ? '#a10000' : value > 35 ? '#c44a00' : '#168f82') : '#168f82';
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${fill}"><title>${esc(r.driver)} ${value.toFixed(0)}%</title></rect>`;
+    }).join('');
+
+    return `<div class="chart-wrap">
+      <p class="chart-title">${isRisk ? 'Race Risk distribution' : 'Consistency distribution'}</p>
+      <p class="chart-help">${isRisk ? 'Higher bars mean more unstable race data.' : 'Higher bars mean a tighter fastest-to-slowest lap spread.'}</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${isRisk ? 'Race risk distribution' : 'Consistency distribution'}">
+        <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
+        <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
+        ${svgText(18, top+5, '100%', 10, 900)}
+        ${svgText(28, h-bottom, '0%', 10, 900)}
+        ${svgText(left, h-14, 'P1', 11, 900)}
+        ${svgText(w-right, h-14, 'Field', 11, 900, 'end')}
+        ${bars}
+      </svg>
+    </div>`;
+  }
+
   function renderRaceCharts(rows){
     if(!els.raceCharts) return;
 
@@ -893,32 +1036,12 @@
 
     const latestKey = `${rows[0].serverName}|${rows[0].fileName}`;
     const latestRows = rows.filter(r => `${r.serverName}|${r.fileName}` === latestKey).sort((a,b) => a.racePos - b.racePos);
-    const fastest = Math.min(...latestRows.map(r => r.bestLap).filter(v => isValidLap(v)));
-    const chartRows = latestRows.slice(0, 24);
-
-    const perfBars = chartRows.map(r => {
-      const gap = isValidLap(r.bestLap) && fastest ? r.bestLap - fastest : 0;
-      const width = Math.max(5, Math.min(100, 100 - (gap / 1000 * 4)));
-      return `<div class="bar-row"><span class="bar-name">${esc(r.driver)}</span><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span><span class="bar-value">${gap ? gapTime(gap) : 'P1'}</span></div>`;
-    }).join('');
-
-    const consistencyBars = chartRows.map(r => {
-      const c = Number(r.consistencyStats?.consistency);
-      const width = Number.isFinite(c) ? Math.max(2, Math.min(100, c)) : 0;
-      return `<div class="bar-row"><span class="bar-name">${esc(r.driver)}</span><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span><span class="bar-value">${Number.isFinite(c) ? c.toFixed(0)+'%' : '-'}</span></div>`;
-    }).join('');
-
-    const riskBars = chartRows.map(r => {
-      const risk = Number(r.risk?.risk || 0);
-      const width = Math.max(2, Math.min(100, risk));
-      const cls = risk > 60 ? 'bad' : risk > 35 ? 'warn' : '';
-      return `<div class="bar-row"><span class="bar-name">${esc(r.driver)}</span><span class="bar-track"><span class="bar-fill ${cls}" style="width:${width}%"></span></span><span class="bar-value">${risk.toFixed(0)}%</span></div>`;
-    }).join('');
 
     els.raceCharts.innerHTML = `<div class="race-chart-grid">
-      <div class="race-chart-card"><h4>Best-lap performance</h4>${perfBars || '<div class="empty">No lap data.</div>'}</div>
-      <div class="race-chart-card"><h4>Consistency</h4>${consistencyBars || '<div class="empty">No consistency data.</div>'}</div>
-      <div class="race-chart-card"><h4>Race Risk</h4>${riskBars || '<div class="empty">No risk data.</div>'}</div>
+      ${renderRaceLapTrace(latestRows)}
+      ${renderRacePositionGapChart(latestRows)}
+      ${renderRaceConsistencyRiskChart(latestRows, 'consistency')}
+      ${renderRaceConsistencyRiskChart(latestRows, 'risk')}
     </div>`;
   }
 
@@ -1095,10 +1218,12 @@
       const head = panel.querySelector(':scope > .panel-head');
       if(!head || head.querySelector('.collapse-toggle')) return;
 
+      panel.classList.add('collapsed');
+
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'collapse-toggle';
-      btn.textContent = 'Hide';
+      btn.textContent = 'Show';
       btn.addEventListener('click', (ev) => {
         ev.stopPropagation();
         panel.classList.toggle('collapsed');
