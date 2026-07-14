@@ -44,6 +44,11 @@
     .panel.collapsed > :not(.panel-head){display:none!important}
     .panel-head{gap:12px}
     .race-actions{display:flex;flex-wrap:wrap;gap:10px;padding:14px 16px;background:#fff;border-bottom:1px solid rgba(0,0,0,.08)}
+    .race-file-controls{display:flex;flex-wrap:wrap;align-items:end;gap:12px;padding:14px 16px;background:#f7f8f9;border-bottom:1px solid rgba(0,0,0,.08)}
+    .race-file-field{flex:1 1 520px}
+    .race-file-field label{display:block;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:5px}
+    .race-file-field select{width:100%;padding:11px 12px;border:1px solid rgba(0,0,0,.16);border-radius:10px;background:#fff;color:#111;font-weight:800}
+    .race-file-summary{flex:1 1 100%;font-size:12px;color:#666;font-weight:800}
     .race-mode-btn{border:0;border-radius:999px;padding:10px 14px;font-weight:900;text-transform:uppercase;cursor:pointer;background:#20242a;color:#fff}
     .race-mode-btn.active{background:var(--ifwl-teal)}
     #race.race-simple .race-detailed-col{display:none}
@@ -370,11 +375,20 @@
         <button class="race-mode-btn active" id="raceSimpleBtn" type="button">Simple view</button>
         <button class="race-mode-btn" id="raceDetailedBtn" type="button">Detailed view</button>
       </div>
+      <div class="race-file-controls">
+        <div class="race-file-field">
+          <label for="raceFileSelect">Race result file</label>
+          <select id="raceFileSelect">
+            <option value="">Select a race result file...</option>
+          </select>
+        </div>
+        <div id="raceFileSummary" class="race-file-summary">Choose one race file. The finish order, graphs and driver details will all use that race only.</div>
+      </div>
       <div id="raceDriverFocus" class="driver-focus hidden">
         <div>
           <label for="raceDriverSelect">Driver detail</label>
           <select id="raceDriverSelect">
-            <option value="">Select a driver from the latest race...</option>
+            <option value="">Select a driver from the selected race...</option>
           </select>
         </div>
         <span class="server-view-note">Pick a driver to show their race-only breakdown.</span>
@@ -455,6 +469,8 @@
     raceCharts: document.getElementById('raceCharts'),
     raceSimpleBtn: document.getElementById('raceSimpleBtn'),
     raceDetailedBtn: document.getElementById('raceDetailedBtn'),
+    raceFileSelect: document.getElementById('raceFileSelect'),
+    raceFileSummary: document.getElementById('raceFileSummary'),
     raceDriverFocus: document.getElementById('raceDriverFocus'),
     raceDriverSelect: document.getElementById('raceDriverSelect'),
     raceDriverProfile: document.getElementById('raceDriverProfile'),
@@ -1114,7 +1130,7 @@
       if(body) body.innerHTML = `<tr><td colspan="12" class="empty">${esc(text)}</td></tr>`;
     }
 
-    if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Open Race Finish Order to load race results.</td></tr>';
+    if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Select a race result file above to show its finish order.</td></tr>';
     if(els.beginnerReviewBody) els.beginnerReviewBody.innerHTML = '<div class="empty">Open this panel to load Beginner pace review.</div>';
   }
 
@@ -1622,7 +1638,7 @@
     if(!els.raceDriverSelect) return;
 
     const current = els.raceDriverSelect.value;
-    els.raceDriverSelect.innerHTML = '<option value="">Select a driver from the latest race...</option>' + latestRows.map((r, i) => `<option value="${i}">${esc(r.racePos)}. ${esc(r.driver)} — ${esc(r.carName)} — Risk ${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0)+'%' : '-'}</option>`).join('');
+    els.raceDriverSelect.innerHTML = '<option value="">Select a driver from the selected race...</option>' + latestRows.map((r, i) => `<option value="${i}">${esc(r.racePos)}. ${esc(r.driver)} — ${esc(r.carName)} — Risk ${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0)+'%' : '-'}</option>`).join('');
 
     if(current !== '' && Number(current) < latestRows.length) els.raceDriverSelect.value = current;
     else els.raceDriverSelect.value = '';
@@ -1663,13 +1679,18 @@
       });
     }
 
-    const rows = raceRows
-      .sort((a,b) => b.fileName.localeCompare(a.fileName) || a.racePos - b.racePos)
-      .slice(0,200);
+    const rows = raceRows.sort((a,b) => a.racePos - b.racePos);
 
     renderRaceCharts(rows);
 
-    els.raceBody.innerHTML = rows.map(r => `<tr><td class="pos">${r.racePos}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.carNo)}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td>${msTime(r.totalTime)}</td><td>${esc(r.lapCount)}</td><td class="race-detailed-col"><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td><td class="race-detailed-col"><span class="risk ${riskClass(r.risk?.risk)}">${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0) + '%' : '-'}</span><span class="risk-note">${esc(r.risk?.label || '-')} · ${esc(r.risk?.notes || '')}</span></td><td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td><td class="muted">${esc(r.serverName)} / ${esc(r.fileName)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">No race result files found in the current filter.</td></tr>';
+    const selectedRace = races[0];
+    if(els.raceFileSummary){
+      els.raceFileSummary.textContent = selectedRace
+        ? `${selectedRace.serverName} · ${title(selectedRace.track)} · ${humanSessionDate(selectedRace.fileName)} · ${rows.length} drivers`
+        : 'Choose one race file. The finish order, graphs and driver details will all use that race only.';
+    }
+
+    els.raceBody.innerHTML = rows.map(r => `<tr><td class="pos">${r.racePos}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.carNo)}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td>${msTime(r.totalTime)}</td><td>${esc(r.lapCount)}</td><td class="race-detailed-col"><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td><td class="race-detailed-col"><span class="risk ${riskClass(r.risk?.risk)}">${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0) + '%' : '-'}</span><span class="risk-note">${esc(r.risk?.label || '-')} · ${esc(r.risk?.notes || '')}</span></td><td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td><td class="muted">${esc(r.serverName)} / ${esc(r.fileName)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">No race results were found in the selected file.</td></tr>';
   }
 
   function bestByDriverTrack(serverId){
@@ -1772,28 +1793,69 @@
     els.insightsBody.innerHTML = insights.slice(0,20).map(i => `<div class="insight-card"><div><span class="insight-tag ${esc(i.type)}">${esc(i.label)}</span></div><div><strong>${esc(i.title)}</strong><p>${esc(i.text)}</p></div></div>`).join('');
   }
 
-  async function renderRaceLazy(){
-    if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Loading race results...</td></tr>';
-
+  function raceManifestItems(){
     const server = els.serverFilter.value;
-    const items = manifestItems.filter(item => {
+    return manifestItems.filter(item => {
       if(server !== 'all' && item.serverId !== server) return false;
       return /_R\.json$/i.test(item.name || item.file || '');
-    });
+    }).sort(newestFirst);
+  }
 
-    const loaded = [];
-    for(const item of items){
-      try{
-        const session = await loadSessionItem(item);
-        if(session) loaded.push(session);
-      }catch(e){ console.warn('Skipping race file', item.file, e); }
+  function refreshRaceFileOptions(){
+    if(!els.raceFileSelect) return;
+
+    const previous = els.raceFileSelect.value;
+    const items = raceManifestItems();
+    els.raceFileSelect.innerHTML = '<option value="">Select a race result file...</option>' + items.map(item => {
+      const cached = sessionCache.get(item.file);
+      const trackText = cached ? ` · ${title(cached.track)}` : '';
+      return `<option value="${esc(item.file)}">${esc(item.serverName)} · ${esc(humanSessionDate(item))}${esc(trackText)}</option>`;
+    }).join('');
+
+    if(items.some(item => item.file === previous)) els.raceFileSelect.value = previous;
+    else els.raceFileSelect.value = '';
+
+    if(!items.length && els.raceFileSummary){
+      els.raceFileSummary.textContent = 'No race files match the current server filter.';
+    }else if(!els.raceFileSelect.value && els.raceFileSummary){
+      els.raceFileSummary.textContent = 'Choose one race file. The finish order, graphs and driver details will all use that race only.';
+    }
+  }
+
+  async function renderRaceLazy(){
+    const selectedFile = els.raceFileSelect?.value || '';
+
+    if(!selectedFile){
+      if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Select a race result file above to show its finish order.</td></tr>';
+      if(els.raceCharts) els.raceCharts.innerHTML = '<div class="empty">Select a race file to load its graphs.</div>';
+      populateRaceDriverSelect([]);
+      if(els.raceDriverProfile) els.raceDriverProfile.innerHTML = '<div class="empty">Select a race file, then choose a driver.</div>';
+      raceLoaded = true;
+      return;
     }
 
-    sessions = [...new Map([...sessions, ...loaded].map(s => [s.source, s])).values()];
-    renderRace(loaded.filter(s => {
-      const track = els.trackFilter.value;
-      return track === 'all' || s.track === track;
-    }));
+    if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Loading selected race result...</td></tr>';
+    if(els.raceFileSummary) els.raceFileSummary.textContent = 'Loading selected race file...';
+
+    const item = manifestItems.find(entry => entry.file === selectedFile);
+    if(!item){
+      if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">The selected race file is no longer available.</td></tr>';
+      raceLoaded = true;
+      return;
+    }
+
+    try{
+      const session = await loadSessionItem(item);
+      sessions = [...new Map([...sessions, session].map(s => [s.source, s])).values()];
+      renderRace(session && session.sessionType === 'R' ? [session] : []);
+      refreshRaceFileOptions();
+      els.raceFileSelect.value = selectedFile;
+    }catch(e){
+      console.warn('Could not load selected race file', item.file, e);
+      if(els.raceBody) els.raceBody.innerHTML = `<tr><td colspan="11" class="empty">Could not load this race file: ${esc(e.message)}</td></tr>`;
+      if(els.raceFileSummary) els.raceFileSummary.textContent = 'The selected race file could not be loaded.';
+    }
+
     raceLoaded = true;
   }
 
@@ -1849,6 +1911,7 @@
   function renderAll(){
     populateFilters();
     refreshServerSectionOptions();
+    refreshRaceFileOptions();
     updateQuickButtons();
 
     const itemList = filteredManifestItems();
@@ -2100,6 +2163,10 @@
 
   els.raceSimpleBtn?.addEventListener('click', () => setRaceMode('simple'));
   els.raceDetailedBtn?.addEventListener('click', () => setRaceMode('detailed'));
+  els.raceFileSelect?.addEventListener('change', async () => {
+    raceLoaded = false;
+    await renderRaceLazy();
+  });
   initServerSectionFilters();
   initServerViewTabs();
   initCollapsiblePanels();
