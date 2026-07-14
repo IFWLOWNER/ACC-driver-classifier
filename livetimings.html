@@ -54,6 +54,20 @@
     .server-view-btn{border:0;border-radius:999px;padding:10px 14px;font-weight:900;text-transform:uppercase;cursor:pointer;background:#20242a;color:#fff}
     .server-view-btn.active{background:var(--ifwl-teal)}
     .server-view-note{font-size:12px;color:#666;font-weight:700;margin-left:auto;align-self:center}
+    .server-section-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:end;padding:14px 16px;background:#f7f8f9;border-bottom:1px solid rgba(0,0,0,.08)}
+    .server-section-filter{min-width:220px;flex:1 1 240px}
+    .server-section-filter label{display:block;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#666;margin-bottom:5px}
+    .server-section-filter select{width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,.16);border-radius:10px;background:#fff;color:#111;font-weight:800}
+    .server-section-summary{font-size:12px;color:#666;font-weight:800;flex:1 1 100%;margin-top:2px}
+    .server-section-filter input{width:100%;padding:10px 12px;border:1px solid rgba(0,0,0,.16);border-radius:10px;background:#fff;color:#111;font-weight:800}
+    .server-loading-progress{flex:1 1 100%;height:9px;border-radius:999px;background:#e1e6e8;overflow:hidden;display:none}
+    .server-loading-progress.active{display:block}
+    .server-loading-progress span{display:block;height:100%;width:0;background:var(--ifwl-teal);transition:width .18s ease}
+    .podium-1{background:linear-gradient(90deg,rgba(255,215,0,.24),transparent 42%)!important}
+    .podium-2{background:linear-gradient(90deg,rgba(170,180,190,.24),transparent 42%)!important}
+    .podium-3{background:linear-gradient(90deg,rgba(205,127,50,.22),transparent 42%)!important}
+    .podium-medal{display:inline-grid;place-items:center;min-width:25px;height:25px;border-radius:999px;font-size:11px;font-weight:900;margin-right:5px;background:#eceff1;color:#222}
+    .podium-1 .podium-medal{background:#f3cf34}.podium-2 .podium-medal{background:#c7cdd2}.podium-3 .podium-medal{background:#c8894e;color:#fff}
     .server-timing-view.hidden{display:none!important}
 
     .driver-analytics-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-top:14px}
@@ -479,17 +493,66 @@
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const title = s => String(s || '').replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
 
+  function fileTimestamp(value){
+    const name = String(value?.name || value?.fileName || value?.source || value || '').split('/').pop();
+    const match = name.match(/^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/);
+    if(!match) return 0;
+    const [,yy,mm,dd,hh,mi,ss] = match;
+    return Date.UTC(2000 + Number(yy), Number(mm) - 1, Number(dd), Number(hh), Number(mi), Number(ss));
+  }
+
+  function newestFirst(a,b){
+    return fileTimestamp(b) - fileTimestamp(a) || String(b.name || b.fileName || '').localeCompare(String(a.name || a.fileName || ''));
+  }
+
+  function sessionCode(value){
+    const name = String(value?.name || value?.fileName || value?.source || value || '').split('/').pop();
+    const raw = name.match(/_(FP|FP1|FP2|Q|R)\.json$/i)?.[1]?.toUpperCase() || '';
+    return raw.startsWith('FP') ? 'P' : raw;
+  }
+
+  function humanSessionDate(value){
+    const stamp = fileTimestamp(value);
+    if(!stamp) return String(value?.name || value?.fileName || value || 'Unknown session');
+    const date = new Date(stamp);
+    const text = new Intl.DateTimeFormat('en-GB', {day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'UTC'}).format(date);
+    return `${text} — ${sessionCode(value) || 'ACC'}`;
+  }
+
+  const CACHE_PREFIX = 'ifwl-rivals-result-v2:';
+  const CACHE_MAX_AGE = 6 * 60 * 60 * 1000;
+  function readBrowserCache(path){
+    try{
+      const cached = JSON.parse(localStorage.getItem(CACHE_PREFIX + path) || 'null');
+      if(!cached || !cached.savedAt || Date.now() - cached.savedAt > CACHE_MAX_AGE) return null;
+      return cached.data;
+    }catch(_){ return null; }
+  }
+  function writeBrowserCache(path, data){
+    try{ localStorage.setItem(CACHE_PREFIX + path, JSON.stringify({savedAt:Date.now(), data})); }catch(_){}
+  }
+  function clearResultBrowserCache(){
+    try{ Object.keys(localStorage).filter(k => k.startsWith(CACHE_PREFIX)).forEach(k => localStorage.removeItem(k)); }catch(_){}
+  }
+
   function decodeJsonText(text){
     let clean = text.replace(/^\uFEFF/, '');
     if(clean.includes('\u0000')) clean = clean.replace(/\u0000/g, '');
     return JSON.parse(clean);
   }
 
-  async function fetchJsonFile(path){
+  async function fetchJsonFile(path, options = {}){
+    const useCache = path !== manifestUrl && options.force !== true;
+    if(useCache){
+      const cached = readBrowserCache(path);
+      if(cached) return cached;
+    }
     const res = await fetch(path + (path.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache:'no-store' });
     if(!res.ok) throw new Error(`Could not load ${path} (${res.status})`);
     const text = await res.text();
-    return decodeJsonText(text);
+    const data = decodeJsonText(text);
+    if(useCache) writeBrowserCache(path, data);
+    return data;
   }
 
   function msTime(ms){
@@ -689,7 +752,8 @@
           serverName: x.serverName || serverLabels[x.serverId] || x.serverId || 'Unknown server'
         };
       })
-      .filter(x => x.file && x.name && /_(FP|Q|R)\.json$/i.test(x.name));
+      .filter(x => x.file && x.name && /_(FP|Q|R)\.json$/i.test(x.name))
+      .sort(newestFirst);
 
       if(!manifestItems.length) throw new Error('Manifest loaded, but no ACC result files were listed.');
 
@@ -760,27 +824,43 @@
     });
   }
 
-  async function loadSessionsForServer(serverId){
+  async function loadSessionsForServer(serverId, sessionChoice = 'latest', onProgress = null){
     const type = els.typeFilter.value;
     const track = els.trackFilter.value;
 
-    const items = manifestItems.filter(item => {
+    let items = manifestItems.filter(item => {
       if(item.serverId !== serverId) return false;
       if(type !== 'all' && !String(item.name || '').toUpperCase().endsWith(`_${type}.JSON`)) return false;
       return true;
-    });
+    }).sort(newestFirst);
+
+    if(sessionChoice === 'latest') items = items.slice(0, 1);
+    else if(sessionChoice && sessionChoice !== 'all') items = items.filter(item => item.file === sessionChoice);
 
     const loaded = [];
-    for(const item of items){
-      try{
-        const session = await loadSessionItem(item);
-        if(session && (track === 'all' || session.track === track)) loaded.push(session);
-      }
-      catch(e){ console.warn('Skipping result file', item.file, e); }
+    let completed = 0;
+    const batchSize = 4;
+    onProgress?.(0, items.length);
+
+    for(let i = 0; i < items.length; i += batchSize){
+      const batch = items.slice(i, i + batchSize);
+      const results = await Promise.all(batch.map(async item => {
+        try{
+          const session = await loadSessionItem(item);
+          return session && (track === 'all' || session.track === track) ? session : null;
+        }catch(e){
+          console.warn('Skipping result file', item.file, e);
+          return null;
+        }finally{
+          completed += 1;
+          onProgress?.(completed, items.length);
+        }
+      }));
+      loaded.push(...results.filter(Boolean));
     }
 
     sessions = [...new Map([...sessions, ...loaded].map(s => [s.source, s])).values()];
-    return loaded;
+    return loaded.sort(newestFirst);
   }
 
   function filteredSessions(){
@@ -819,7 +899,7 @@
   }
 
   function populateSessionSelect(items){
-    const list = items || filteredManifestItems();
+    const list = [...(items || filteredManifestItems())].sort(newestFirst);
 
     if(!list.length){
       els.sessionSelect.innerHTML = '<option value="">No results found</option>';
@@ -831,8 +911,7 @@
       const idx = manifestItems.indexOf(item);
       const loaded = sessionCache.get(item.file);
       const trackText = loaded ? ` — ${esc(title(loaded.track))}` : '';
-      const typeText = item.name?.match(/_(FP|Q|R)\.json$/i)?.[1] || 'ACC';
-      return `<option value="${idx}">${esc(item.serverName)} — ${esc(item.name)}${trackText} — ${esc(typeText)}</option>`;
+      return `<option value="${idx}">${esc(item.serverName)} — ${esc(humanSessionDate(item))}${trackText}</option>`;
     }).join('');
 
     if(previous !== '' && [...els.sessionSelect.options].some(o => o.value === previous)) els.sessionSelect.value = previous;
@@ -901,38 +980,72 @@
       .flatMap(s => s.rows.map(r => ({...r, serverId:s.serverId, serverName:s.serverName, session:s.session, track:s.track, fileName:s.fileName})))
       .filter(r => isValidLap(r.bestLap) && validSplits(r.bestSplits));
   }
-  function renderTimingTable(body, rows, emptyText){
-    const sorted = rows.sort((a,b) => a.bestLap - b.bestLap);
-    const fastest = sorted[0]?.bestLap || 0;
-    body.innerHTML = sorted.map((r, i) => `<tr><td class="pos">${i+1}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${i?gapTime(r.bestLap-fastest):''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps` : 'Need 2+ laps'}</span></td><td class="muted">${esc(r.serverName || 'Unknown server')} / ${esc(r.fileName)}</td></tr>`).join('') || `<tr><td colspan="12" class="empty">${esc(emptyText)}</td></tr>`;
+  function personalBestRows(rows){
+    const best = new Map();
+    for(const row of rows){
+      const key = `${String(row.driverKey || row.driver).toLowerCase()}|${String(row.track).toLowerCase()}`;
+      const current = best.get(key);
+      if(!current || row.bestLap < current.bestLap) best.set(key, row);
+    }
+    return [...best.values()];
   }
-  function renderServerBoards(list){
-    const proamRows = resultRows(list, 'console-proam');
-    const beginnerRows = resultRows(list, 'console-beginner');
-    const mondayRows = resultRows(list, 'console-monday-funday');
-    const pcProamRows = resultRows(list, 'pc-proam');
-    const pcBeginnerRows = resultRows(list, 'pc-beginner');
-    const pcMondayRows = resultRows(list, 'pc-monday-funday');
 
-    if(els.proamFastestBody) renderTimingTable(els.proamFastestBody, proamRows.slice(0, 100), 'No valid Console Pro-Am laps found in the current filter.');
-    if(els.proamAllBody) renderTimingTable(els.proamAllBody, proamRows, 'No Console Pro-Am timings found in the current filter.');
+  function sessionPodiumMap(rows){
+    const groups = new Map();
+    for(const row of rows){
+      const key = row.source || `${row.track}|${row.session}`;
+      if(!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+    const rankMap = new Map();
+    for(const group of groups.values()){
+      const race = group[0]?.sessionType === 'R';
+      const ordered = [...group].sort((a,b) => race ? (a.pos - b.pos) : (a.bestLap - b.bestLap));
+      ordered.slice(0,3).forEach((row,index) => rankMap.set(row, index + 1));
+    }
+    return rankMap;
+  }
 
-    if(els.beginnerFastestBody) renderTimingTable(els.beginnerFastestBody, beginnerRows.slice(0, 100), 'No valid Console Beginner laps found in the current filter.');
-    if(els.beginnerAllBody) renderTimingTable(els.beginnerAllBody, beginnerRows, 'No Console Beginner timings found in the current filter.');
+  function renderTimingTable(body, rows, emptyText, options = {}){
+    const {sortMode='latest', limit=50, search='', personalBests=false} = options;
+    let filtered = personalBests ? personalBestRows(rows) : [...rows];
+    const term = String(search || '').trim().toLowerCase();
+    if(term) filtered = filtered.filter(r => String(r.driver).toLowerCase().includes(term));
 
-    if(els.mondayFundayFastestBody) renderTimingTable(els.mondayFundayFastestBody, mondayRows.slice(0, 100), 'No valid Console Monday Funday laps found in the current filter.');
-    if(els.mondayFundayAllBody) renderTimingTable(els.mondayFundayAllBody, mondayRows, 'No Console Monday Funday timings found in the current filter.');
+    const sorted = filtered.sort((a,b) => {
+      if(sortMode === 'fastest') return a.bestLap - b.bestLap || newestFirst(a,b);
+      return newestFirst(a,b) || a.bestLap - b.bestLap;
+    });
+    const podiums = sessionPodiumMap(sorted);
+    const fastest = sorted.reduce((best,row) => !best || row.bestLap < best ? row.bestLap : best, 0);
+    const visibleRows = limit > 0 ? sorted.slice(0, limit) : sorted;
+    body.innerHTML = visibleRows.map((r, i) => {
+      const podium = podiums.get(r) || 0;
+      const posLabel = podium ? `<span class="podium-medal">P${podium}</span>${i+1}` : `${i+1}`;
+      return `<tr class="${podium ? `podium-${podium}` : ''}"><td class="pos">${posLabel}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${fastest && r.bestLap !== fastest ? gapTime(r.bestLap-fastest) : ''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps` : 'Need 2+ laps'}</span></td><td class="muted">${esc(humanSessionDate(r))} · ${esc(r.serverName || 'Unknown server')}</td></tr>`;
+    }).join('') || `<tr><td colspan="12" class="empty">${esc(emptyText)}</td></tr>`;
+  }
 
-    if(els.pcProamFastestBody) renderTimingTable(els.pcProamFastestBody, pcProamRows.slice(0, 100), 'No valid PC Pro-Am laps found in the current filter.');
-    if(els.pcProamAllBody) renderTimingTable(els.pcProamAllBody, pcProamRows, 'No PC Pro-Am timings found in the current filter.');
+  function renderServerBoards(list, serverId = null, controls = {}){
+    const boardMap = {
+      'console-proam': [els.proamFastestBody, els.proamAllBody, 'Console Pro-Am'],
+      'console-beginner': [els.beginnerFastestBody, els.beginnerAllBody, 'Console Beginner'],
+      'console-monday-funday': [els.mondayFundayFastestBody, els.mondayFundayAllBody, 'Console Monday Funday'],
+      'pc-proam': [els.pcProamFastestBody, els.pcProamAllBody, 'PC Pro-Am'],
+      'pc-beginner': [els.pcBeginnerFastestBody, els.pcBeginnerAllBody, 'PC Beginner'],
+      'pc-monday-funday': [els.pcMondayFundayFastestBody, els.pcMondayFundayAllBody, 'PC Monday Funday']
+    };
 
-    if(els.pcBeginnerFastestBody) renderTimingTable(els.pcBeginnerFastestBody, pcBeginnerRows.slice(0, 100), 'No valid PC Beginner laps found in the current filter.');
-    if(els.pcBeginnerAllBody) renderTimingTable(els.pcBeginnerAllBody, pcBeginnerRows, 'No PC Beginner timings found in the current filter.');
-
-    if(els.pcMondayFundayFastestBody) renderTimingTable(els.pcMondayFundayFastestBody, pcMondayRows.slice(0, 100), 'No valid PC Monday Funday laps found in the current filter.');
-    if(els.pcMondayFundayAllBody) renderTimingTable(els.pcMondayFundayAllBody, pcMondayRows, 'No PC Monday Funday timings found in the current filter.');
-
-    // Staff review remains loaded on demand so it does not slow the page start.
+    const ids = serverId ? [serverId] : Object.keys(boardMap);
+    for(const id of ids){
+      const [fastestBody, allBody, label] = boardMap[id] || [];
+      if(!fastestBody || !allBody) continue;
+      const rows = resultRows(list, id);
+      renderTimingTable(fastestBody, rows, `No valid ${label} laps found in the current filter.`, {...controls, limit:controls.limit || 50});
+      renderTimingTable(allBody, rows, `No ${label} timings found in the current filter.`, controls);
+      const personalBody = document.querySelector(`[data-server-panel="${id}"] [data-view-panel="personal"] tbody`);
+      if(personalBody) renderTimingTable(personalBody, rows, `No ${label} personal bests found.`, {...controls, personalBests:true});
+    }
   }
 
   async function renderServerPanel(serverId){
@@ -948,11 +1061,33 @@
     const [fastestBody, allBody, label] = bodyMap[serverId] || [];
     if(!fastestBody || !allBody) return;
 
+    const panel = document.querySelector(`[data-server-panel="${serverId}"]`);
+    const sessionChoice = panel?.querySelector('[data-section-session]')?.value || 'latest';
+    const sortMode = panel?.querySelector('[data-section-sort]')?.value || 'latest';
+    const limit = Number(panel?.querySelector('[data-section-limit]')?.value || 50);
+    const search = panel?.querySelector('[data-section-search]')?.value || '';
+    const progress = panel?.querySelector('[data-section-progress]');
+    const progressBar = progress?.querySelector('span');
+
     fastestBody.innerHTML = `<tr><td colspan="12" class="empty">Loading ${esc(label)} fastest laps...</td></tr>`;
     allBody.innerHTML = `<tr><td colspan="12" class="empty">Loading ${esc(label)} all timings...</td></tr>`;
+    progress?.classList.add('active');
 
-    const loaded = await loadSessionsForServer(serverId);
-    renderServerBoards(loaded);
+    const loaded = await loadSessionsForServer(serverId, sessionChoice, (done,total) => {
+      if(progressBar) progressBar.style.width = `${total ? Math.round((done/total)*100) : 0}%`;
+      const summary = panel?.querySelector('[data-section-summary]');
+      if(summary && total) summary.textContent = `Loading result files: ${done} of ${total}`;
+    });
+    progress?.classList.remove('active');
+    renderServerBoards(loaded, serverId, {sortMode, limit, search});
+
+    const summary = panel?.querySelector('[data-section-summary]');
+    if(summary){
+      const fileCount = new Set(loaded.map(s => s.source)).size;
+      const rowCount = resultRows(loaded, serverId).length;
+      summary.textContent = `${fileCount} session file${fileCount === 1 ? '' : 's'} shown · ${rowCount} timing${rowCount === 1 ? '' : 's'} loaded · ${limit ? `showing up to ${limit}` : 'showing all'}${search ? ` · driver search: ${search}` : ''}`;
+    }
+
     loadedServerIds.add(serverId);
   }
 
@@ -1710,6 +1845,7 @@
 
   function renderAll(){
     populateFilters();
+    refreshServerSectionOptions();
     updateQuickButtons();
 
     const itemList = filteredManifestItems();
@@ -1748,7 +1884,7 @@
     resetLoadedSections();
   });
 
-  els.reloadBtn.addEventListener('click', loadManifest);
+  els.reloadBtn.addEventListener('click', () => { clearResultBrowserCache(); sessionCache.clear(); loadManifest(); });
 
   els.latestBtn.addEventListener('click', () => {
     els.serverFilter.value='all';
@@ -1800,6 +1936,100 @@
   });
 
 
+
+  function initServerSectionFilters(){
+    document.querySelectorAll('.server-panel').forEach(panel => {
+      const actions = panel.querySelector(':scope > .server-view-actions');
+      const serverId = panel.dataset.serverPanel;
+      if(!actions || !serverId || panel.querySelector('.server-section-filters')) return;
+
+      const controls = document.createElement('div');
+      controls.className = 'server-section-filters';
+      controls.innerHTML = `
+        <div class="server-section-filter">
+          <label>Sessions to show</label>
+          <select data-section-session>
+            <option value="latest">Latest session only</option>
+            <option value="all">All available sessions</option>
+          </select>
+        </div>
+        <div class="server-section-filter">
+          <label>Sort listings</label>
+          <select data-section-sort>
+            <option value="latest">Latest sessions first</option>
+            <option value="fastest">Fastest lap first</option>
+          </select>
+        </div>
+        <div class="server-section-filter">
+          <label>Results shown</label>
+          <select data-section-limit>
+            <option value="25">25 results</option>
+            <option value="50" selected>50 results</option>
+            <option value="100">100 results</option>
+            <option value="0">Show all</option>
+          </select>
+        </div>
+        <div class="server-section-filter">
+          <label>Find a driver</label>
+          <input data-section-search type="search" placeholder="Search driver name...">
+        </div>
+        <div class="server-loading-progress" data-section-progress><span></span></div>
+        <div class="server-section-summary" data-section-summary>Latest session will be shown when this section is opened.</div>`;
+
+      actions.insertAdjacentElement('afterend', controls);
+
+      const sessionSelect = controls.querySelector('[data-section-session]');
+      const items = manifestItems.filter(item => item.serverId === serverId).sort(newestFirst);
+      for(const item of items){
+        const option = document.createElement('option');
+        option.value = item.file;
+        option.textContent = humanSessionDate(item);
+        sessionSelect.appendChild(option);
+      }
+
+      controls.querySelectorAll('select').forEach(select => select.addEventListener('change', async () => {
+        if(panel.classList.contains('collapsed')) return;
+        await renderServerPanel(serverId);
+      }));
+      const searchInput = controls.querySelector('[data-section-search]');
+      let searchTimer;
+      searchInput?.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => { if(!panel.classList.contains('collapsed')) renderServerPanel(serverId); }, 250);
+      });
+
+      const personalBtn = document.createElement('button');
+      personalBtn.type = 'button';
+      personalBtn.className = 'server-view-btn';
+      personalBtn.dataset.serverView = 'personal';
+      personalBtn.textContent = 'Personal Bests';
+      actions.insertBefore(personalBtn, actions.querySelector('.server-view-note'));
+
+      const personalView = document.createElement('div');
+      personalView.className = 'server-timing-view hidden';
+      personalView.dataset.viewPanel = 'personal';
+      personalView.innerHTML = `<div class="table-wrap"><table class="results-table"><thead><tr><th>Pos.</th><th>Driver</th><th>Track</th><th>Session</th><th>Car No.</th><th>Car</th><th>S1</th><th>S2</th><th>S3</th><th>Best Lap</th><th>Consistency</th><th>Source</th></tr></thead><tbody><tr><td colspan="12" class="empty">Open this section to load personal bests.</td></tr></tbody></table></div>`;
+      panel.appendChild(personalView);
+    });
+  }
+
+
+  function refreshServerSectionOptions(){
+    document.querySelectorAll('.server-panel').forEach(panel => {
+      const serverId = panel.dataset.serverPanel;
+      const select = panel.querySelector('[data-section-session]');
+      if(!serverId || !select) return;
+      const previous = select.value || 'latest';
+      select.innerHTML = '<option value="latest">Latest session only</option><option value="all">All available sessions</option>';
+      manifestItems.filter(item => item.serverId === serverId).sort(newestFirst).forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.file;
+        option.textContent = humanSessionDate(item);
+        select.appendChild(option);
+      });
+      select.value = [...select.options].some(option => option.value === previous) ? previous : 'latest';
+    });
+  }
 
   function initServerViewTabs(){
     document.querySelectorAll('.server-panel').forEach(panel => {
@@ -1867,6 +2097,7 @@
 
   els.raceSimpleBtn?.addEventListener('click', () => setRaceMode('simple'));
   els.raceDetailedBtn?.addEventListener('click', () => setRaceMode('detailed'));
+  initServerSectionFilters();
   initServerViewTabs();
   initCollapsiblePanels();
 
