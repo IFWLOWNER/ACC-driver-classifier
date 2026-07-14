@@ -1,4 +1,4 @@
-name: Test PC Pro-Am ACC Results
+name: Test PC ACC Results - 2 Each
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 jobs:
-  test-pc-proam:
+  test-pc-results:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,37 +19,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lftp
 
-      - name: List PC Pro-Am FTP folder
-        env:
-          FTP_HOST: ${{ secrets.ASSETTO_PC_PROAM_HOST }}
-          FTP_PORT: ${{ secrets.ASSETTO_PC_PROAM_PORT }}
-          FTP_USER: ${{ secrets.ASSETTO_PC_PROAM_USER }}
-          FTP_PASSWORD: ${{ secrets.ASSETTO_PC_PROAM_PASSWORD }}
-          FTP_RESULTS_PATH: ${{ secrets.ASSETTO_PC_PROAM_RESULTS_PATH }}
+      - name: Clear PC test folders
         run: |
-          echo "Connecting to PC Pro-Am FTP..."
-          echo "Expected path from secret: $FTP_RESULTS_PATH"
+          rm -rf data/results/pc-proam
+          rm -rf data/results/pc-beginner
+          rm -rf data/results/pc-monday-funday
 
-          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > pc_proam_ftp_list.txt
-          set ftp:ssl-allow no
-          set net:timeout 30
-          set net:max-retries 2
-          cd "$FTP_RESULTS_PATH"
-          pwd
-          cls -1 *.json
-          bye
-          EOF
+          mkdir -p data/results/pc-proam
+          mkdir -p data/results/pc-beginner
+          mkdir -p data/results/pc-monday-funday
 
-          echo "===== FIRST 80 JSON FILES FOUND ====="
-          head -n 80 pc_proam_ftp_list.txt
-
-          echo "===== LATEST RACE FILES FOUND ====="
-          grep -E "_R\.json$" pc_proam_ftp_list.txt | sort -r | head -n 25 || true
-
-          echo "===== LATEST PRACTICE / QUALI FILES FOUND ====="
-          grep -E "_(FP|Q)\.json$" pc_proam_ftp_list.txt | sort -r | head -n 25 || true
-
-      - name: Download latest 25 race and latest 25 practice/quali from PC Pro-Am
+      # =========================
+      # PC PRO-AM
+      # =========================
+      - name: Download latest 2 from PC Pro-Am
         env:
           SERVER_ID: pc-proam
           SERVER_NAME: "IFWL | PC PRO AM SEASON 3"
@@ -59,13 +42,10 @@ jobs:
           FTP_PASSWORD: ${{ secrets.ASSETTO_PC_PROAM_PASSWORD }}
           FTP_RESULTS_PATH: ${{ secrets.ASSETTO_PC_PROAM_RESULTS_PATH }}
         run: |
-          echo "Downloading limited PC Pro-Am results only..."
+          echo "Connecting to PC Pro-Am FTP..."
           echo "Using path: $FTP_RESULTS_PATH"
 
-          rm -rf data/results/pc-proam
-          mkdir -p data/results/pc-proam
-
-          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > remote_files_pc_proam.txt
+          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
           set ftp:ssl-allow no
           set cmd:fail-exit yes
           set net:timeout 30
@@ -75,18 +55,11 @@ jobs:
           bye
           EOF
 
-          echo "Selecting latest 25 race files and latest 25 practice/quali files only..."
+          echo "Selecting latest 2 PC Pro-Am result files..."
+          grep -E "_(FP|Q|R)\.json$" "remote_files_$SERVER_ID.txt" | sort -r | head -n 2 > "download_files_$SERVER_ID.txt" || true
 
-          grep -E "_R\.json$" remote_files_pc_proam.txt | sort -r | head -n 25 > race_files_pc_proam.txt || true
-          grep -E "_(FP|Q)\.json$" remote_files_pc_proam.txt | sort -r | head -n 25 > session_files_pc_proam.txt || true
-
-          cat race_files_pc_proam.txt session_files_pc_proam.txt | awk 'NF' | sort -r | uniq > download_files_pc_proam.txt
-
-          echo "Files selected for download:"
-          cat download_files_pc_proam.txt
-
-          echo "Total files selected:"
-          wc -l download_files_pc_proam.txt
+          echo "Files selected:"
+          cat "download_files_$SERVER_ID.txt"
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
@@ -98,48 +71,153 @@ jobs:
           set net:timeout 30
           set net:max-retries 2
           cd "$FTP_RESULTS_PATH"
-          get "$file" -o "data/results/pc-proam/$file"
+          get "$file" -o "data/results/$SERVER_ID/$file"
           bye
           EOF
 
             fi
-          done < download_files_pc_proam.txt
+          done < "download_files_$SERVER_ID.txt"
 
-      - name: Build PC Pro-Am only manifest
+      # =========================
+      # PC BEGINNER
+      # =========================
+      - name: Download latest 2 from PC Beginner
+        env:
+          SERVER_ID: pc-beginner
+          SERVER_NAME: "IFWL | PC BEGINNER SEASON 3"
+          FTP_HOST: ${{ secrets.ASSETTO_PC_BEGINNER_HOST }}
+          FTP_PORT: ${{ secrets.ASSETTO_PC_BEGINNER_PORT }}
+          FTP_USER: ${{ secrets.ASSETTO_PC_BEGINNER_USER }}
+          FTP_PASSWORD: ${{ secrets.ASSETTO_PC_BEGINNER_PASSWORD }}
+          FTP_RESULTS_PATH: ${{ secrets.ASSETTO_PC_BEGINNER_RESULTS_PATH }}
+        run: |
+          echo "Connecting to PC Beginner FTP..."
+          echo "Using path: $FTP_RESULTS_PATH"
+
+          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
+          set ftp:ssl-allow no
+          set cmd:fail-exit yes
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$FTP_RESULTS_PATH"
+          cls -1 *.json
+          bye
+          EOF
+
+          echo "Selecting latest 2 PC Beginner result files..."
+          grep -E "_(FP|Q|R)\.json$" "remote_files_$SERVER_ID.txt" | sort -r | head -n 2 > "download_files_$SERVER_ID.txt" || true
+
+          echo "Files selected:"
+          cat "download_files_$SERVER_ID.txt"
+
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              echo "Downloading PC Beginner file: $file"
+
+              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
+          set ftp:ssl-allow no
+          set cmd:fail-exit yes
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$FTP_RESULTS_PATH"
+          get "$file" -o "data/results/$SERVER_ID/$file"
+          bye
+          EOF
+
+            fi
+          done < "download_files_$SERVER_ID.txt"
+
+      # =========================
+      # PC MONDAY FUNDAY
+      # =========================
+      - name: Download latest 2 from PC Monday Funday
+        env:
+          SERVER_ID: pc-monday-funday
+          SERVER_NAME: "IFWL | PC MONDAY FUNDAY SEASON 3"
+          FTP_HOST: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_HOST }}
+          FTP_PORT: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_PORT }}
+          FTP_USER: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_USER }}
+          FTP_PASSWORD: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_PASSWORD }}
+          FTP_RESULTS_PATH: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_RESULTS_PATH }}
+        run: |
+          echo "Connecting to PC Monday Funday FTP..."
+          echo "Using path: $FTP_RESULTS_PATH"
+
+          lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
+          set ftp:ssl-allow no
+          set cmd:fail-exit yes
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$FTP_RESULTS_PATH"
+          cls -1 *.json
+          bye
+          EOF
+
+          echo "Selecting latest 2 PC Monday Funday result files..."
+          grep -E "_(FP|Q|R)\.json$" "remote_files_$SERVER_ID.txt" | sort -r | head -n 2 > "download_files_$SERVER_ID.txt" || true
+
+          echo "Files selected:"
+          cat "download_files_$SERVER_ID.txt"
+
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              echo "Downloading PC Monday Funday file: $file"
+
+              lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
+          set ftp:ssl-allow no
+          set cmd:fail-exit yes
+          set net:timeout 30
+          set net:max-retries 2
+          cd "$FTP_RESULTS_PATH"
+          get "$file" -o "data/results/$SERVER_ID/$file"
+          bye
+          EOF
+
+            fi
+          done < "download_files_$SERVER_ID.txt"
+
+      # =========================
+      # BUILD TEST MANIFEST
+      # =========================
+      - name: Build PC test manifest
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
           from datetime import datetime, timezone
 
-          server_id = "pc-proam"
-          server_name = "IFWL | PC PRO AM SEASON 3"
-
-          results_dir = Path("data/results") / server_id
-          files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
+          servers = {
+              "pc-proam": "IFWL | PC PRO AM SEASON 3",
+              "pc-beginner": "IFWL | PC BEGINNER SEASON 3",
+              "pc-monday-funday": "IFWL | PC MONDAY FUNDAY SEASON 3"
+          }
 
           results = []
 
-          for p in files:
-              session_type = "race" if p.name.endswith("_R.json") else "session"
+          for server_id, server_name in servers.items():
+              results_dir = Path("data/results") / server_id
+              files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
 
-              results.append({
-                  "serverId": server_id,
-                  "serverName": server_name,
-                  "file": f"data/results/{server_id}/{p.name}",
-                  "name": p.name,
-                  "sessionKind": session_type
-              })
+              for p in files:
+                  session_type = "race" if p.name.endswith("_R.json") else "session"
+
+                  results.append({
+                      "serverId": server_id,
+                      "serverName": server_name,
+                      "file": f"data/results/{server_id}/{p.name}",
+                      "name": p.name,
+                      "sessionKind": session_type
+                  })
 
           manifest = {
               "updatedAt": datetime.now(timezone.utc).isoformat(),
-              "raceLimitForTest": 25,
-              "nonRaceLimitForTest": 25,
+              "testLimitPerServer": 2,
               "servers": [
                   {
                       "serverId": server_id,
                       "serverName": server_name
                   }
+                  for server_id, server_name in servers.items()
               ],
               "results": results
           }
@@ -150,27 +228,29 @@ jobs:
               encoding="utf-8"
           )
 
-          race_count = sum(1 for item in results if item["sessionKind"] == "race")
-          non_race_count = sum(1 for item in results if item["sessionKind"] != "race")
+          print(f"PC test manifest created with {len(results)} total files.")
 
-          print(f"PC Pro-Am manifest created with {len(results)} files.")
-          print(f"Race files: {race_count}")
-          print(f"Practice/quali files: {non_race_count}")
+          for server_id, server_name in servers.items():
+              count = sum(1 for item in results if item["serverId"] == server_id)
+              print(f"{server_name}: {count} files")
 
           for item in results:
-              print(f"- {item['name']}")
+              print(f"- {item['serverName']} / {item['name']}")
           PY
 
-      - name: Commit PC Pro-Am test results
+      # =========================
+      # COMMIT TEST RESULTS
+      # =========================
+      - name: Commit PC test results
         run: |
           git config user.name "IFWL Results Bot"
           git config user.email "actions@github.com"
 
-          git add -A data/results/pc-proam data/manifest.json
+          git add -A data/results/pc-proam data/results/pc-beginner data/results/pc-monday-funday data/manifest.json
 
           if git diff --cached --quiet; then
-            echo "No PC Pro-Am result file changes to commit."
+            echo "No PC test result file changes to commit."
           else
-            git commit -m "Test limited PC Pro-Am ACC results sync"
+            git commit -m "Test PC ACC results sync"
             git push
           fi
