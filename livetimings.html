@@ -55,6 +55,25 @@
     .server-view-btn.active{background:var(--ifwl-teal)}
     .server-view-note{font-size:12px;color:#666;font-weight:700;margin-left:auto;align-self:center}
     .server-timing-view.hidden{display:none!important}
+
+    .driver-analytics-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-top:14px}
+    .sector-panel,.delta-panel,.summary-panel{background:#fafafa;border:1px solid rgba(0,0,0,.1);border-radius:16px;padding:14px}
+    .sector-panel h4,.delta-panel h4,.summary-panel h4{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.06em}
+    .sector-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+    .sector-box{border-radius:14px;padding:12px;border:1px solid rgba(0,0,0,.08);background:#fff}
+    .sector-box strong{display:block;font-size:13px;text-transform:uppercase;margin-bottom:5px}
+    .sector-box .time{display:block;font-size:20px;font-weight:900}
+    .sector-box .delta{display:block;font-size:12px;font-weight:800;margin-top:3px}
+    .sector-box.green{box-shadow:inset 0 0 0 3px rgba(22,143,130,.28)}
+    .sector-box.orange{box-shadow:inset 0 0 0 3px rgba(196,74,0,.28)}
+    .sector-box.red{box-shadow:inset 0 0 0 3px rgba(161,0,0,.28)}
+    .sector-legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;font-weight:800;color:#555;margin-top:10px}
+    .legend-dot{display:inline-block;width:10px;height:10px;border-radius:999px;margin-right:5px}
+    .legend-dot.green{background:#168f82}.legend-dot.orange{background:#c44a00}.legend-dot.red{background:#a10000}
+    .summary-text{font-size:14px;line-height:1.45;font-weight:800;color:#222}
+    .driver-profile-card small{display:block;margin-top:4px;color:#666;font-weight:800}
+    @media(max-width:900px){.driver-analytics-grid{grid-template-columns:1fr}.sector-strip{grid-template-columns:1fr}}
+
     .driver-focus{padding:14px 16px;background:#fff;border-bottom:1px solid rgba(0,0,0,.08);display:flex;flex-wrap:wrap;align-items:end;gap:12px}
     .driver-focus label{display:block;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:5px}
     .driver-focus select{min-width:280px;padding:10px 12px;border:1px solid rgba(0,0,0,.16);border-radius:10px;font-weight:800;background:#fff}
@@ -316,7 +335,7 @@
         <div class="empty">Select a driver to view their detailed race profile.</div>
       </div>
       <div id="raceCharts" class="race-charts hidden">
-        <div class="empty">Detailed race graphs will appear when race data is loaded.</div>
+        <div class="empty">Detailed race graphs and driver profiles will appear when race data is loaded.</div>
       </div>
       <div class="table-wrap">
         <table class="results-table">
@@ -510,19 +529,30 @@
       if(!lap) continue;
 
       const laptime = Number(lap.laptime);
-
-      // Consistency and Race Risk intentionally include both valid and invalid ACC laps.
-      // Invalid laps still show real driver control, track-limit and mistake patterns.
-      // We only exclude impossible/broken ACC timing values.
       if(!isValidLap(laptime)) continue;
 
       const key = lapKey(lap.carId, lap.driverIndex);
-      if(!map.has(key)) map.set(key, {laps:[], invalid:0, valid:0, total:0});
+      if(!map.has(key)) map.set(key, {laps:[], invalid:0, valid:0, total:0, lapObjects:[], bestSplits:[null,null,null]});
+
       const item = map.get(key);
+      const splitValues = Array.isArray(lap.splits) ? lap.splits.map(Number) : [];
+
       item.laps.push(laptime);
+      item.lapObjects.push({
+        laptime,
+        splits: splitValues,
+        isValidForBest: lap.isValidForBest !== false
+      });
+
       item.total += 1;
       if(lap.isValidForBest === false) item.invalid += 1;
       else item.valid += 1;
+
+      splitValues.forEach((v, idx) => {
+        if(idx < 3 && isValidLap(v) && (!item.bestSplits[idx] || v < item.bestSplits[idx])){
+          item.bestSplits[idx] = v;
+        }
+      });
     }
 
     return map;
@@ -567,8 +597,10 @@
       lastLap:l.timing?.lastLap || 0,
       totalTime:l.timing?.totalTime || 0,
       lapCount:l.timing?.lapCount || 0,
-      lapInfo: sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[], invalid:0, valid:0, total:0},
+      lapInfo: sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[], invalid:0, valid:0, total:0, lapObjects:[], bestSplits:[null,null,null]},
       allLapTimes: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[]}).laps,
+      lapObjects: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {lapObjects:[]}).lapObjects,
+      bestRaceSplits: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {bestSplits:[null,null,null]}).bestSplits,
       invalidLapCount: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {invalid:0}).invalid,
       recordedLapCount: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {total:0}).total,
       carId: l.car?.carId,
@@ -1072,6 +1104,119 @@
     </div>`;
   }
 
+  function fieldBestSplits(rows){
+    const best = [null,null,null];
+
+    rows.forEach(r => {
+      (r.bestRaceSplits || []).forEach((v, idx) => {
+        if(idx < 3 && isValidLap(v) && (!best[idx] || v < best[idx])) best[idx] = v;
+      });
+    });
+
+    return best;
+  }
+
+  function sectorColour(delta, sectorIndex, driverBestIndex){
+    if(driverBestIndex === sectorIndex) return 'green';
+    if(delta <= 350) return 'green';
+    if(delta <= 900) return 'orange';
+    return 'red';
+  }
+
+  function renderSectorAnalysis(row, latestRows){
+    const fieldBest = fieldBestSplits(latestRows);
+    const splits = row.bestRaceSplits || [null,null,null];
+
+    const validSplits = splits.map((v, i) => isValidLap(v) && fieldBest[i] ? {idx:i, delta:v-fieldBest[i], value:v} : null);
+    const driverBestIndex = validSplits
+      .filter(Boolean)
+      .sort((a,b) => a.delta - b.delta)[0]?.idx ?? -1;
+
+    const boxes = [0,1,2].map(i => {
+      const v = splits[i];
+      const fb = fieldBest[i];
+      const delta = isValidLap(v) && fb ? v - fb : null;
+      const colour = delta === null ? '' : sectorColour(delta, i, driverBestIndex);
+      return `<div class="sector-box ${colour}">
+        <strong>S${i+1}</strong>
+        <span class="time">${isValidLap(v) ? msTime(v) : '-'}</span>
+        <span class="delta">${delta === null ? 'No field comparison' : `${delta >= 0 ? '+' : ''}${(delta/1000).toFixed(3)} vs field best`}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="sector-panel">
+      <h4>Sector performance</h4>
+      <p class="chart-help">Green is strongest / close to field-best, orange shows improvement area, red shows the biggest time loss.</p>
+      <div class="sector-strip">${boxes}</div>
+      <div class="sector-legend">
+        <span><i class="legend-dot green"></i>Strong</span>
+        <span><i class="legend-dot orange"></i>Improve</span>
+        <span><i class="legend-dot red"></i>Weakest</span>
+      </div>
+    </div>`;
+  }
+
+  function renderLapDeltaChart(row){
+    const laps = (row.lapObjects || []).filter(l => isValidLap(l.laptime));
+    if(laps.length < 2){
+      return '<div class="delta-panel"><h4>Lap delta chart</h4><div class="empty">Need at least 2 laps for a delta chart.</div></div>';
+    }
+
+    const avg = laps.reduce((a,b)=>a+b.laptime,0) / laps.length;
+    const maxAbs = Math.max(1, ...laps.map(l => Math.abs(l.laptime - avg)));
+    const w = 1000, h = 260, left = 65, right = 25, top = 28, bottom = 42;
+    const plotW = w-left-right, plotH = h-top-bottom;
+    const zeroY = top + plotH/2;
+    const xFor = i => left + (i / Math.max(1, laps.length-1)) * plotW;
+    const yFor = delta => zeroY - (delta / maxAbs) * (plotH/2);
+
+    const points = laps.map((l,i) => `${xFor(i).toFixed(1)},${yFor(l.laptime-avg).toFixed(1)}`).join(' ');
+    const dots = laps.map((l,i) => {
+      const delta = l.laptime - avg;
+      const colour = delta <= 0 ? '#168f82' : '#c44a00';
+      const invalidStroke = l.isValidForBest ? '' : ' stroke="#a10000" stroke-width="4"';
+      return `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(delta).toFixed(1)}" r="5" fill="${colour}"${invalidStroke}><title>Lap ${i+1}: ${delta>=0?'+':''}${(delta/1000).toFixed(3)} vs average</title></circle>`;
+    }).join('');
+
+    return `<div class="delta-panel">
+      <h4>Lap delta chart</h4>
+      <p class="chart-help">Each point shows that lap compared to the driver’s own average. Red outline means invalid lap.</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Lap delta chart">
+        <line x1="${left}" y1="${zeroY}" x2="${w-right}" y2="${zeroY}" stroke="#111" stroke-width="2"/>
+        <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
+        <polyline points="${points}" fill="none" stroke="#168f82" stroke-width="3" opacity=".75"/>
+        ${dots}
+        ${svgText(8, top+5, '+'+(maxAbs/1000).toFixed(1)+'s', 10, 900)}
+        ${svgText(10, zeroY+4, 'AVG', 10, 900)}
+        ${svgText(8, h-bottom, '-'+(maxAbs/1000).toFixed(1)+'s', 10, 900)}
+        ${svgText(left, h-12, 'Lap 1', 11, 900)}
+        ${svgText(w-right, h-12, 'Lap '+laps.length, 11, 900, 'end')}
+      </svg>
+    </div>`;
+  }
+
+  function driverSummaryText(row, latestRows){
+    const splits = row.bestRaceSplits || [];
+    const fieldBest = fieldBestSplits(latestRows);
+    const sectorLosses = [0,1,2].map(i => ({
+      sector:`S${i+1}`,
+      loss: isValidLap(splits[i]) && fieldBest[i] ? splits[i]-fieldBest[i] : null
+    })).filter(x => x.loss !== null).sort((a,b)=>b.loss-a.loss);
+
+    const bestSector = [...sectorLosses].sort((a,b)=>a.loss-b.loss)[0];
+    const worstSector = sectorLosses[0];
+    const invalid = Number(row.invalidLapCount || 0);
+    const total = Number(row.recordedLapCount || 0);
+
+    const parts = [];
+    if(bestSector) parts.push(`Strongest sector: ${bestSector.sector} (${bestSector.loss>=0?'+':''}${(bestSector.loss/1000).toFixed(3)} vs field best).`);
+    if(worstSector) parts.push(`Biggest improvement area: ${worstSector.sector} (${worstSector.loss>=0?'+':''}${(worstSector.loss/1000).toFixed(3)} vs field best).`);
+    if(total) parts.push(`Invalid laps: ${invalid}/${total}.`);
+    if(row.risk?.notes) parts.push(`Race Risk notes: ${row.risk.notes}.`);
+
+    return parts.join(' ');
+  }
+
   function renderDriverRaceProfile(row){
     if(!els.raceDriverProfile) return;
 
@@ -1081,14 +1226,18 @@
       return;
     }
 
+    const latestRows = window.__latestRaceRows || [];
     const laps = (row.allLapTimes || []).filter(v => isValidLap(v));
     const best = laps.length ? Math.min(...laps) : 0;
     const slowest = laps.length ? Math.max(...laps) : 0;
     const risk = row.risk || {risk:NaN,label:'-',notes:'No data'};
     const consistency = row.consistencyStats?.consistency;
+    const invalid = Number(row.invalidLapCount || 0);
+    const recorded = Number(row.recordedLapCount || 0);
+    const invalidPct = recorded ? (invalid / recorded) * 100 : NaN;
 
-    const points = laps.map((v, i) => ({lap:i+1, value:v}));
     let chart = '<div class="empty">No lap trace available for this driver.</div>';
+    const points = laps.map((v, i) => ({lap:i+1, value:v}));
 
     if(points.length >= 2){
       const w = 1000, h = 230, left = 70, right = 25, top = 25, bottom = 40;
@@ -1105,17 +1254,27 @@
 
     els.raceDriverProfile.classList.remove('hidden');
     els.raceDriverProfile.innerHTML = `<div class="driver-profile-grid">
-      <div class="driver-profile-card"><span>Driver</span><strong>${esc(row.driver)}</strong></div>
-      <div class="driver-profile-card"><span>Best lap</span><strong>${best ? msTime(best) : '-'}</strong></div>
-      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong></div>
-      <div class="driver-profile-card"><span>Race Risk</span><strong>${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'}</strong></div>
-      <div class="driver-profile-card"><span>Lap spread</span><strong>${best && slowest ? msTime(slowest-best) : '-'}</strong></div>
+      <div class="driver-profile-card"><span>Driver</span><strong>${esc(row.driver)}</strong><small>P${esc(row.racePos)} · ${esc(row.carName)}</small></div>
+      <div class="driver-profile-card"><span>Best lap</span><strong>${best ? msTime(best) : '-'}</strong><small>${row.bestLap ? 'Leaderboard: '+msTime(row.bestLap) : ''}</small></div>
+      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps counted</small></div>
+      <div class="driver-profile-card"><span>Race Risk</span><strong>${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'}</strong><small>${esc(risk.label || '-')}</small></div>
+      <div class="driver-profile-card"><span>Invalid laps</span><strong>${recorded ? `${invalid}/${recorded}` : '-'}</strong><small>${Number.isFinite(invalidPct) ? invalidPct.toFixed(1)+'%' : ''}</small></div>
+      <div class="driver-profile-card"><span>Lap spread</span><strong>${best && slowest ? msTime(slowest-best) : '-'}</strong><small>Fastest to slowest</small></div>
+      <div class="driver-profile-card"><span>Average lap</span><strong>${row.consistencyStats?.avg ? msTime(row.consistencyStats.avg) : '-'}</strong><small>All real laps</small></div>
+      <div class="driver-profile-card"><span>Laps completed</span><strong>${esc(row.lapCount)}</strong><small>Race result laps</small></div>
+      <div class="driver-profile-card"><span>Pit status</span><strong>${row.missingPit === 1 ? 'Missing' : row.missingPit === 0 ? 'OK' : '-'}</strong><small>From ACC result</small></div>
+      <div class="driver-profile-card"><span>Total time</span><strong>${msTime(row.totalTime)}</strong><small>Race finish time</small></div>
     </div>
-    <p class="driver-profile-reasons"><strong>Risk notes:</strong> ${esc(risk.notes || 'stable race data')}</p>
+    <div class="summary-panel"><h4>Race summary</h4><p class="summary-text">${esc(driverSummaryText(row, latestRows))}</p></div>
+    <div class="driver-analytics-grid">
+      ${renderSectorAnalysis(row, latestRows)}
+      ${renderLapDeltaChart(row)}
+    </div>
     ${chart}`;
   }
 
   function populateRaceDriverSelect(latestRows){
+    window.__latestRaceRows = latestRows || [];
     if(!els.raceDriverSelect) return;
 
     const current = els.raceDriverSelect.value;
