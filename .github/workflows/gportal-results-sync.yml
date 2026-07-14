@@ -21,17 +21,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lftp
 
-      - name: Clear local results folders
+      - name: Prepare local results folders
         run: |
-          rm -rf data/results
           mkdir -p data/results/console-proam
           mkdir -p data/results/console-beginner
           mkdir -p data/results/console-monday-funday
 
+          echo "Removing old non-race files only..."
+          find data/results/console-proam -type f -name "*.json" ! -name "*_R.json" -delete || true
+          find data/results/console-beginner -type f -name "*.json" ! -name "*_R.json" -delete || true
+          find data/results/console-monday-funday -type f -name "*.json" ! -name "*_R.json" -delete || true
+
+          echo "Existing race result files are being preserved."
+
       # =========================
       # CONSOLE PRO-AM - G-PORTAL
       # =========================
-      - name: Download latest 25 from Console Pro-Am
+      - name: Download latest 25 non-race and all race files from Console Pro-Am
         env:
           SERVER_ID: console-proam
           SERVER_NAME: "IFWL | CONSOLE PRO AM SEASON 3"
@@ -54,10 +60,15 @@ jobs:
           bye
           EOF
 
-          sort -r "remote_files_$SERVER_ID.txt" | head -n 25 > "latest_files_$SERVER_ID.txt"
+          echo "Selecting all race files and latest 25 non-race files..."
 
-          echo "Latest Console Pro-Am files selected:"
-          cat "latest_files_$SERVER_ID.txt"
+          grep -E "_R\.json$" "remote_files_$SERVER_ID.txt" | sort -r > "race_files_$SERVER_ID.txt" || true
+          grep -Ev "_R\.json$" "remote_files_$SERVER_ID.txt" | sort -r | head -n 25 > "latest_nonrace_files_$SERVER_ID.txt" || true
+
+          cat "race_files_$SERVER_ID.txt" "latest_nonrace_files_$SERVER_ID.txt" | awk 'NF' | sort -r | uniq > "download_files_$SERVER_ID.txt"
+
+          echo "Files selected for Console Pro-Am:"
+          cat "download_files_$SERVER_ID.txt"
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
@@ -74,12 +85,12 @@ jobs:
           EOF
 
             fi
-          done < "latest_files_$SERVER_ID.txt"
+          done < "download_files_$SERVER_ID.txt"
 
       # =============================
       # CONSOLE BEGINNER - G-PORTAL
       # =============================
-      - name: Download latest 25 from Console Beginner
+      - name: Download latest 25 non-race and all race files from Console Beginner
         env:
           SERVER_ID: console-beginner
           SERVER_NAME: "IFWL | CONSOLE BEGINNER SEASON 3"
@@ -102,10 +113,15 @@ jobs:
           bye
           EOF
 
-          sort -r "remote_files_$SERVER_ID.txt" | head -n 25 > "latest_files_$SERVER_ID.txt"
+          echo "Selecting all race files and latest 25 non-race files..."
 
-          echo "Latest Console Beginner files selected:"
-          cat "latest_files_$SERVER_ID.txt"
+          grep -E "_R\.json$" "remote_files_$SERVER_ID.txt" | sort -r > "race_files_$SERVER_ID.txt" || true
+          grep -Ev "_R\.json$" "remote_files_$SERVER_ID.txt" | sort -r | head -n 25 > "latest_nonrace_files_$SERVER_ID.txt" || true
+
+          cat "race_files_$SERVER_ID.txt" "latest_nonrace_files_$SERVER_ID.txt" | awk 'NF' | sort -r | uniq > "download_files_$SERVER_ID.txt"
+
+          echo "Files selected for Console Beginner:"
+          cat "download_files_$SERVER_ID.txt"
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
@@ -122,12 +138,12 @@ jobs:
           EOF
 
             fi
-          done < "latest_files_$SERVER_ID.txt"
+          done < "download_files_$SERVER_ID.txt"
 
       # ================================
       # CONSOLE MONDAY FUNDAY - G-PORTAL
       # ================================
-      - name: Download latest 25 from Console Monday Funday
+      - name: Download latest 25 non-race and all race files from Console Monday Funday
         env:
           SERVER_ID: console-monday-funday
           SERVER_NAME: "IFWL | CONSOLE MONDAY FUNDAY SEASON 3"
@@ -150,10 +166,15 @@ jobs:
           bye
           EOF
 
-          sort -r "remote_files_$SERVER_ID.txt" | head -n 25 > "latest_files_$SERVER_ID.txt"
+          echo "Selecting all race files and latest 25 non-race files..."
 
-          echo "Latest Console Monday Funday files selected:"
-          cat "latest_files_$SERVER_ID.txt"
+          grep -E "_R\.json$" "remote_files_$SERVER_ID.txt" | sort -r > "race_files_$SERVER_ID.txt" || true
+          grep -Ev "_R\.json$" "remote_files_$SERVER_ID.txt" | sort -r | head -n 25 > "latest_nonrace_files_$SERVER_ID.txt" || true
+
+          cat "race_files_$SERVER_ID.txt" "latest_nonrace_files_$SERVER_ID.txt" | awk 'NF' | sort -r | uniq > "download_files_$SERVER_ID.txt"
+
+          echo "Files selected for Console Monday Funday:"
+          cat "download_files_$SERVER_ID.txt"
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
@@ -170,7 +191,7 @@ jobs:
           EOF
 
             fi
-          done < "latest_files_$SERVER_ID.txt"
+          done < "download_files_$SERVER_ID.txt"
 
       # =========================
       # BUILD MANIFEST
@@ -195,16 +216,20 @@ jobs:
               files = sorted(results_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
 
               for p in files:
+                  session_type = "race" if p.name.endswith("_R.json") else "session"
+
                   results.append({
                       "serverId": server_id,
                       "serverName": server_name,
                       "file": f"data/results/{server_id}/{p.name}",
-                      "name": p.name
+                      "name": p.name,
+                      "sessionKind": session_type
                   })
 
           manifest = {
               "updatedAt": datetime.now(timezone.utc).isoformat(),
-              "limitPerServer": 25,
+              "nonRaceLimitPerServer": 25,
+              "raceFilesPreserved": True,
               "servers": [
                   {
                       "serverId": server_id,
@@ -221,7 +246,13 @@ jobs:
               encoding="utf-8"
           )
 
+          race_count = sum(1 for item in results if item["sessionKind"] == "race")
+          non_race_count = sum(1 for item in results if item["sessionKind"] != "race")
+
           print(f"Manifest created with {len(results)} total result files.")
+          print(f"Race files preserved/listed: {race_count}")
+          print(f"Non-race files listed: {non_race_count}")
+
           for item in results:
               print(f"- {item['serverName']} / {item['name']}")
           PY
