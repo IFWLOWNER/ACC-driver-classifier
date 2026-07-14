@@ -19,9 +19,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lftp
 
-      # =========================
-      # PC PRO-AM FTP TEST
-      # =========================
       - name: List PC Pro-Am FTP folder
         env:
           FTP_HOST: ${{ secrets.ASSETTO_PC_PROAM_HOST }}
@@ -39,21 +36,20 @@ jobs:
           set net:max-retries 2
           cd "$FTP_RESULTS_PATH"
           pwd
-          cls -la
           cls -1 *.json
           bye
           EOF
 
-          echo "===== PC PRO-AM FTP OUTPUT ====="
-          cat pc_proam_ftp_list.txt
+          echo "===== FIRST 80 JSON FILES FOUND ====="
+          head -n 80 pc_proam_ftp_list.txt
 
-          echo "===== JSON FILES FOUND ====="
-          grep -i "\.json" pc_proam_ftp_list.txt || true
+          echo "===== LATEST RACE FILES FOUND ====="
+          grep -E "_R\.json$" pc_proam_ftp_list.txt | sort -r | head -n 25 || true
 
-      # =========================
-      # DOWNLOAD PC PRO-AM RESULTS
-      # =========================
-      - name: Download latest 25 from PC Pro-Am
+          echo "===== LATEST PRACTICE / QUALI FILES FOUND ====="
+          grep -E "_(FP|Q)\.json$" pc_proam_ftp_list.txt | sort -r | head -n 25 || true
+
+      - name: Download latest 25 race and latest 25 practice/quali from PC Pro-Am
         env:
           SERVER_ID: pc-proam
           SERVER_NAME: "IFWL | PC PRO AM SEASON 3"
@@ -63,7 +59,7 @@ jobs:
           FTP_PASSWORD: ${{ secrets.ASSETTO_PC_PROAM_PASSWORD }}
           FTP_RESULTS_PATH: ${{ secrets.ASSETTO_PC_PROAM_RESULTS_PATH }}
         run: |
-          echo "Downloading PC Pro-Am results..."
+          echo "Downloading limited PC Pro-Am results only..."
           echo "Using path: $FTP_RESULTS_PATH"
 
           rm -rf data/results/pc-proam
@@ -79,18 +75,18 @@ jobs:
           bye
           EOF
 
-          echo "Remote files found:"
-          cat remote_files_pc_proam.txt
+          echo "Selecting latest 25 race files and latest 25 practice/quali files only..."
 
-          echo "Selecting all race files and latest 25 non-race files..."
+          grep -E "_R\.json$" remote_files_pc_proam.txt | sort -r | head -n 25 > race_files_pc_proam.txt || true
+          grep -E "_(FP|Q)\.json$" remote_files_pc_proam.txt | sort -r | head -n 25 > session_files_pc_proam.txt || true
 
-          grep -E "_R\.json$" remote_files_pc_proam.txt | sort -r > race_files_pc_proam.txt || true
-          grep -Ev "_R\.json$" remote_files_pc_proam.txt | sort -r | head -n 25 > latest_nonrace_files_pc_proam.txt || true
-
-          cat race_files_pc_proam.txt latest_nonrace_files_pc_proam.txt | awk 'NF' | sort -r | uniq > download_files_pc_proam.txt
+          cat race_files_pc_proam.txt session_files_pc_proam.txt | awk 'NF' | sort -r | uniq > download_files_pc_proam.txt
 
           echo "Files selected for download:"
           cat download_files_pc_proam.txt
+
+          echo "Total files selected:"
+          wc -l download_files_pc_proam.txt
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
@@ -109,9 +105,6 @@ jobs:
             fi
           done < download_files_pc_proam.txt
 
-      # =========================
-      # BUILD PC-ONLY MANIFEST
-      # =========================
       - name: Build PC Pro-Am only manifest
         run: |
           python3 - <<'PY'
@@ -140,8 +133,8 @@ jobs:
 
           manifest = {
               "updatedAt": datetime.now(timezone.utc).isoformat(),
-              "nonRaceLimitPerServer": 25,
-              "raceFilesPreserved": True,
+              "raceLimitForTest": 25,
+              "nonRaceLimitForTest": 25,
               "servers": [
                   {
                       "serverId": server_id,
@@ -162,15 +155,12 @@ jobs:
 
           print(f"PC Pro-Am manifest created with {len(results)} files.")
           print(f"Race files: {race_count}")
-          print(f"Non-race files: {non_race_count}")
+          print(f"Practice/quali files: {non_race_count}")
 
           for item in results:
               print(f"- {item['name']}")
           PY
 
-      # =========================
-      # COMMIT PC TEST RESULTS
-      # =========================
       - name: Commit PC Pro-Am test results
         run: |
           git config user.name "IFWL Results Bot"
@@ -181,6 +171,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No PC Pro-Am result file changes to commit."
           else
-            git commit -m "Test PC Pro-Am ACC results sync"
+            git commit -m "Test limited PC Pro-Am ACC results sync"
             git push
           fi
