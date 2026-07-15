@@ -2387,7 +2387,25 @@
   function cellText(r,i){return r.children[i]?.textContent?.replace(/ME$/,'').trim()||'-'}
   function parseLap(t){const m=String(t).match(/(\d{1,2}):(\d{2})\.(\d{3})/);return m?(+m[1]*60000)+(+m[2]*1000)+(+m[3]):0}
   function fmt(ms){if(!ms)return'-';return `${String(Math.floor(ms/60000)).padStart(2,'0')}:${String(Math.floor(ms%60000/1000)).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`}
-  function renderProfile(){if(!window.IFWL_TIMINGS_DETAILED){body.innerHTML='<div class="empty">My Driver Home requires Bronze, Silver or Gold Patreon access, or authorised staff access.</div>';return}if(!chosen){body.innerHTML='<div class="empty">Select your driver name above, or press This is me beside your name in any timing table.</div>';return}const mine=rows().filter(r=>norm(rowDriverName(r))===norm(chosen));const details=[];mine.forEach(r=>{const cells=[...r.children];let track='-',session='-',car='-',lap='-',consistency='-';if(cells.length>=12){track=cellText(r,2);session=cellText(r,3);car=cellText(r,5);lap=cellText(r,9);consistency=cellText(r,10)}else if(cells.length>=11){track=cellText(r,2);car=cellText(r,3);lap=cellText(r,4);consistency=cellText(r,7)}details.push({track,session,car,lap,consistency})});const uniqueTracks=new Set(details.map(x=>x.track).filter(x=>x&&x!=='-'));const laps=details.map(x=>parseLap(x.lap)).filter(Boolean);const best=laps.length?Math.min(...laps):0;const cons=details.map(x=>parseFloat(x.consistency)).filter(Number.isFinite);const avg=cons.length?cons.reduce((a,b)=>a+b,0)/cons.length:null;const detailedOk=window.IFWL_TIMINGS_DETAILED;body.innerHTML=`<div class="my-profile-grid"><div class="my-profile-stat"><span>Driver</span><strong>${esc(chosen)}</strong></div><div class="my-profile-stat"><span>Visible results</span><strong>${mine.length}</strong></div><div class="my-profile-stat"><span>Tracks</span><strong>${uniqueTracks.size}</strong></div><div class="my-profile-stat"><span>Best visible lap</span><strong>${fmt(best)}</strong></div><div class="my-profile-stat"><span>Average consistency</span><strong>${detailedOk&&avg!==null?avg.toFixed(1)+'%':'Patreon'}</strong></div></div><div class="my-driver-list"><table><thead><tr><th>Track</th><th>Session</th><th>Car</th><th>Best lap</th><th>Consistency</th></tr></thead><tbody>${details.slice(0,100).map(x=>`<tr><td>${esc(x.track)}</td><td>${esc(x.session)}</td><td>${esc(x.car)}</td><td>${esc(x.lap)}</td><td>${detailedOk?esc(x.consistency):'Patreon detailed access'}</td></tr>`).join('')||'<tr><td colspan="5">Open or load timing sections to add results.</td></tr>'}</tbody></table></div>`}
+  function renderProfile(){
+    // IFWL FIX: Patreon Driver Home must not be overwritten by the old/basic renderer.
+    // The old renderer was causing the detailed Patreon dashboard to appear briefly, then get replaced.
+    // For detailed users, always hand control to the deep analytics renderer once it exists.
+    if(window.IFWL_TIMINGS_DETAILED === true){
+      if(typeof window.IFWL_renderDeepDriverHome === 'function'){
+        window.IFWL_renderDeepDriverHome();
+        return;
+      }
+      if(body){
+        body.innerHTML = '<div class="premium-empty">Loading full Patreon Driver Home analytics...</div>';
+      }
+      return;
+    }
+
+    if(body){
+      body.innerHTML = '<div class="empty">My Driver Home requires Bronze, Silver or Gold Patreon access, or authorised staff access.</div>';
+    }
+  }
   save?.addEventListener('click',()=>{if(!window.IFWL_TIMINGS_DETAILED){showModal('My Driver Home is a Patreon and authorised staff feature.');return}const v=select.value;if(!v){showModal('Select your driver name first.');return}chosen=v;safeStore(storageKey(),chosen);highlight();renderProfile()});unset?.addEventListener('click',()=>{chosen='';removeStore(storageKey());if(select)select.value='';highlight();renderProfile()});select?.addEventListener('change',()=>{chosen=select.value;highlight();renderProfile()});
   load?.addEventListener('click',async()=>{if(!window.IFWL_TIMINGS_DETAILED){showModal('My Driver Home is a Patreon and authorised staff feature.');return}load.disabled=true;load.textContent='Loading profile...';const panels=[...document.querySelectorAll('.server-panel,#race')];for(const panel of panels){if(panel.classList.contains('collapsed')){panel.querySelector('.collapse-toggle')?.click();await new Promise(r=>setTimeout(r,350))}}setTimeout(()=>{rebuild();load.disabled=false;load.textContent='Load all my entries';q('myDriverPanel')?.scrollIntoView({behavior:'smooth',block:'start'})},900)});
   const observer=new MutationObserver(()=>{clearTimeout(window.__ifwlDriverTimer);window.__ifwlDriverTimer=setTimeout(rebuild,200)});document.querySelector('main')&&observer.observe(document.querySelector('main'),{childList:true,subtree:true});window.addEventListener('ifwl-auth-changed',()=>{chosen=readStore(storageKey())||'';rebuild()});setTimeout(rebuild,800);
@@ -2451,15 +2469,6 @@
     }); return out;
   }
   function renderPremiumAnalytics(){
-    // IFWL PATCH: keep the 2958-line deep Driver Home as the source of truth.
-    // The older compact premium renderer used to overwrite the detailed dropdown/graph dashboard.
-    // Redirect all premium refreshes into the deep renderer instead.
-    if(window.IFWL_TIMINGS_DETAILED === true && typeof window.IFWL_renderDeepDriverHome === 'function'){
-      window.IFWL_renderDeepDriverHome();
-      const box=q('premiumDriverAnalytics');
-      if(box) box.innerHTML='';
-      return;
-    }
     const box=q('premiumDriverAnalytics');if(!box||!window.IFWL_TIMINGS_DETAILED)return;const chosen=chosenName();if(!chosen){box.innerHTML='<div class="premium-empty">Search for your ACC name above, then press <strong>Mark this as me</strong>.</div>';return}
     const data=collectMine();if(!data.length){box.innerHTML='<div class="premium-empty">No loaded entries match this driver yet. Loading all active timing sections may take a few moments.</div>';return}
     const tracks=[...new Set(data.map(x=>x.track).filter(x=>x&&x!=='-'))],sessions=[...new Set(data.map(x=>x.session).filter(Boolean))];const laps=data.map(x=>parseLap(x.lap)).filter(Boolean);const cons=data.map(x=>parsePct(x.cons)).filter(Number.isFinite);const risks=data.map(x=>parsePct(x.risk)).filter(Number.isFinite);
@@ -2962,7 +2971,6 @@
 })();
 </script>
 <!-- /IFWL PATCH: Patreon Driver Home deep analytics. -->
-<!-- IFWL PATCH: 2958-base no-flicker guard applied. -->
 
 </body>
 </html>
