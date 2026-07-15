@@ -2408,7 +2408,23 @@
   }
   save?.addEventListener('click',()=>{if(!window.IFWL_TIMINGS_DETAILED){showModal('My Driver Home is a Patreon and authorised staff feature.');return}const v=select.value;if(!v){showModal('Select your driver name first.');return}chosen=v;safeStore(storageKey(),chosen);highlight();renderProfile()});unset?.addEventListener('click',()=>{chosen='';removeStore(storageKey());if(select)select.value='';highlight();renderProfile()});select?.addEventListener('change',()=>{chosen=select.value;highlight();renderProfile()});
   load?.addEventListener('click',async()=>{if(!window.IFWL_TIMINGS_DETAILED){showModal('My Driver Home is a Patreon and authorised staff feature.');return}load.disabled=true;load.textContent='Loading profile...';const panels=[...document.querySelectorAll('.server-panel,#race')];for(const panel of panels){if(panel.classList.contains('collapsed')){panel.querySelector('.collapse-toggle')?.click();await new Promise(r=>setTimeout(r,350))}}setTimeout(()=>{rebuild();load.disabled=false;load.textContent='Load all my entries';q('myDriverPanel')?.scrollIntoView({behavior:'smooth',block:'start'})},900)});
-  const observer=new MutationObserver(()=>{clearTimeout(window.__ifwlDriverTimer);window.__ifwlDriverTimer=setTimeout(rebuild,200)});document.querySelector('main')&&observer.observe(document.querySelector('main'),{childList:true,subtree:true});window.addEventListener('ifwl-auth-changed',()=>{chosen=readStore(storageKey())||'';rebuild()});setTimeout(rebuild,800);
+  /* Watch timing tables only. Never rebuild because Driver Home itself changed.
+     Rebuilding the profile after its own <details> content was inserted created
+     a render loop which replaced every open dropdown roughly 200ms later. */
+  const observer=new MutationObserver(mutations=>{
+    const timingDataChanged=mutations.some(mutation=>{
+      const target=mutation.target?.nodeType===1?mutation.target:mutation.target?.parentElement;
+      if(!target) return false;
+      if(target.closest?.('#myDriverPanel')) return false;
+      return !!target.closest?.('.results-table tbody');
+    });
+    if(!timingDataChanged) return;
+    clearTimeout(window.__ifwlDriverTimer);
+    window.__ifwlDriverTimer=setTimeout(rebuild,200);
+  });
+  document.querySelector('main')&&observer.observe(document.querySelector('main'),{childList:true,subtree:true});
+  window.addEventListener('ifwl-auth-changed',()=>{chosen=readStore(storageKey())||'';rebuild()});
+  setTimeout(rebuild,800);
 })();
 </script>
 
@@ -2492,7 +2508,24 @@
   }
   window.addEventListener('ifwl-auth-changed',e=>applyAccess(e.detail?.meta||window.IFWL_TIMINGS_META));
   q('saveMyDriverBtn')?.addEventListener('click',()=>setTimeout(renderPremiumAnalytics,120));q('unsetMyDriverBtn')?.addEventListener('click',()=>setTimeout(renderPremiumAnalytics,120));q('myDriverSelect')?.addEventListener('change',()=>setTimeout(renderPremiumAnalytics,120));
-  const obs=new MutationObserver(()=>{clearTimeout(window.__premiumRender);window.__premiumRender=setTimeout(()=>{if(window.IFWL_TIMINGS_DETAILED){filterDriverSelect(q('myDriverSearch')?.value||'');renderPremiumAnalytics()}},250)});document.querySelector('main')&&obs.observe(document.querySelector('main'),{childList:true,subtree:true});
+  /* Premium summary watches timing table rows only. Ignoring its own panel
+     prevents a second self-triggering MutationObserver render loop. */
+  const obs=new MutationObserver(mutations=>{
+    const timingDataChanged=mutations.some(mutation=>{
+      const target=mutation.target?.nodeType===1?mutation.target:mutation.target?.parentElement;
+      if(!target||target.closest?.('#myDriverPanel'))return false;
+      return !!target.closest?.('.results-table tbody');
+    });
+    if(!timingDataChanged)return;
+    clearTimeout(window.__premiumRender);
+    window.__premiumRender=setTimeout(()=>{
+      if(window.IFWL_TIMINGS_DETAILED){
+        filterDriverSelect(q('myDriverSearch')?.value||'');
+        renderPremiumAnalytics();
+      }
+    },250);
+  });
+  document.querySelector('main')&&obs.observe(document.querySelector('main'),{childList:true,subtree:true});
   setTimeout(()=>applyAccess(window.IFWL_TIMINGS_META||null),1200);
 })();
 </script>
@@ -2879,7 +2912,7 @@
     if(!mainBody && !premiumBox) return;
     if(!driver){
       const html = '<div class="premium-empty">Search for your ACC name above, then press <strong>Mark this as me</strong>.</div>';
-      if(mainBody) mainBody.innerHTML = html;
+      if(mainBody){ mainBody.innerHTML = html; delete mainBody.dataset.ifwlDriverRenderSignature; }
       if(premiumBox) premiumBox.innerHTML = '';
       return;
     }
@@ -2887,10 +2920,21 @@
     const entries = collectDriverRows(driver);
     if(!entries.length){
       const html = `<div class="premium-empty">No loaded entries match <strong>${esc(driver)}</strong> yet. Press Load all my entries or open timing sections so the page can read your rows.</div>`;
-      if(mainBody) mainBody.innerHTML = html;
+      if(mainBody){ mainBody.innerHTML = html; delete mainBody.dataset.ifwlDriverRenderSignature; }
       if(premiumBox) premiumBox.innerHTML = '';
       return;
     }
+
+    /* Stable render signature: repeated observer callbacks must not replace
+       identical dropdown nodes. Replacing the nodes resets native <details>
+       state and was the direct cause of the open-then-disappear flicker. */
+    const renderSignature = [driver, ...entries.map(entry => entry.key)].join('||');
+    if(mainBody?.dataset.ifwlDriverRenderSignature === renderSignature && mainBody.querySelector('.ifwl-deep-home')){
+      return;
+    }
+    const previousOpenStates = mainBody
+      ? [...mainBody.querySelectorAll('.ifwl-entry-detail')].map(detail => detail.open)
+      : [];
 
     const tracks = groupByTrack(entries);
     const best = bestMs(entries.map(entry => entry.bestMs));
@@ -2933,7 +2977,15 @@
       <div class="ifwl-entry-list"><h5>Every loaded entry — dropdown detail</h5>${entryHtml}</div>
     </div>`;
 
-    if(mainBody) mainBody.innerHTML = output;
+    if(mainBody){
+      mainBody.innerHTML = output;
+      mainBody.dataset.ifwlDriverRenderSignature = renderSignature;
+      /* A genuine timing-data refresh may require a new render. Preserve the
+         user's expanded rows by restoring each previous dropdown state. */
+      [...mainBody.querySelectorAll('.ifwl-entry-detail')].forEach((detail,index)=>{
+        if(previousOpenStates[index]) setDriverDetailState(detail,true);
+      });
+    }
     if(premiumBox) premiumBox.innerHTML = '';
   }
 
@@ -2998,8 +3050,18 @@
 
   const main = document.querySelector('main');
   if(main){
-    const observer = new MutationObserver(() => {
-      if(window.IFWL_TIMINGS_DETAILED === true) scheduleDeepRender();
+    const observer = new MutationObserver(mutations => {
+      if(window.IFWL_TIMINGS_DETAILED !== true) return;
+      const timingDataChanged = mutations.some(mutation => {
+        const target = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
+        if(!target) return false;
+        /* Critical: ignore all mutations created by Driver Home itself.
+           Otherwise setting mainBody.innerHTML schedules another render, which
+           replaces the open <details> node and produces the visible flicker. */
+        if(target.closest?.('#myDriverPanel')) return false;
+        return !!target.closest?.('.results-table tbody');
+      });
+      if(timingDataChanged) scheduleDeepRender();
     });
     observer.observe(main, {childList:true, subtree:true});
   }
