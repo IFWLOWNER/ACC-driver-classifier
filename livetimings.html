@@ -187,7 +187,7 @@
     .quick-filter-btn.active{background:linear-gradient(135deg,var(--ifwl-teal-deep),var(--ifwl-teal));color:#03211c;border-color:transparent}
     .quick-filter-btn.purple.active{background:linear-gradient(135deg,var(--ifwl-purple-deep),var(--ifwl-purple));color:#fff;border-color:transparent}
     .quick-filter-help{font-size:12px;color:var(--text-muted);margin-top:10px;font-weight:600}
-    .sandbag-summary{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;padding:14px 16px;border-bottom:1px solid var(--ifwl-line-soft);background:#0d1116}
+    .sandbag-summary{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:12px;padding:14px 16px;border-bottom:1px solid var(--ifwl-line-soft);background:#0d1116}
     .sandbag-stat{background:var(--panel-bg);border:1px solid var(--ifwl-line);border-radius:14px;padding:12px}
     .sandbag-stat span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:800;color:var(--text-muted)}
     .sandbag-stat strong{display:block;font-size:22px;margin-top:4px;color:var(--text-primary)}
@@ -202,6 +202,7 @@
     .sandbag-card strong{display:block;margin-bottom:6px;font-size:15px;color:var(--text-primary)}
     .sandbag-card p{margin:0;color:var(--text-muted);line-height:1.45}
     .sandbag-reason{display:block;margin-top:6px;color:var(--text-dim);font-size:12px;font-weight:600}
+    @media(max-width:1100px){.sandbag-summary{grid-template-columns:repeat(3,1fr)}}
     @media(max-width:900px){.sandbag-summary{grid-template-columns:1fr 1fr}.sandbag-card{grid-template-columns:1fr}.quick-filter-buttons{display:grid;grid-template-columns:1fr 1fr}.quick-filter-btn{padding:11px 10px;font-size:12px}}
 
     @media(max-width:900px){.nav{padding:0 18px}.nav-links{display:none}.top-strip{padding:0 18px}.hero-inner,.titlebar{padding-left:18px;padding-right:18px}main{width:calc(100vw - 28px)}.toolbar{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.titlebar h2{font-size:28px}.logo img{height:28px;max-width:220px}}
@@ -762,19 +763,20 @@
 <section class="panel" id="beginnerReview">
       <div class="panel-head">
         <div>
-          <h3>Beginner Pace & Sandbagging Review</h3>
-          <small>Guide-only review using Console Beginner vs Console Pro-Am pace. This is not an automatic accusation.</small>
+          <h3>All-Server Pace & Sandbagging Review</h3>
+          <small>Guide-only review across every server - Console and PC, Beginner, Pro-Am and Monday Funday. Cross-checks each driver's pace between categories and over time. This is not an automatic accusation.</small>
         </div>
         <span class="badge purple">Staff Review</span>
       </div>
       <div class="staff-only-note">Staff-only report. Visible only to logged-in Owner and Ops accounts.</div><div id="sandbagSummary" class="sandbag-summary">
-        <div class="sandbag-stat"><span>Move-up reviews</span><strong id="moveUpCount">0</strong></div>
-        <div class="sandbag-stat"><span>Pace anomalies</span><strong id="paceAnomalyCount">0</strong></div>
+        <div class="sandbag-stat"><span>Sandbagging watches</span><strong id="moveUpCount">0</strong></div>
+        <div class="sandbag-stat"><span>Pace mismatches</span><strong id="paceAnomalyCount">0</strong></div>
+        <div class="sandbag-stat"><span>Rapid pace increases</span><strong id="paceIncreaseCount">0</strong></div>
         <div class="sandbag-stat"><span>Drivers checked</span><strong id="driversCheckedCount">0</strong></div>
-        <div class="sandbag-stat"><span>Comparison tracks</span><strong id="comparisonTrackCount">0</strong></div>
+        <div class="sandbag-stat"><span>Servers checked</span><strong id="comparisonTrackCount">0</strong></div>
       </div>
       <div id="beginnerReviewBody" class="sandbag-list">
-        <div class="empty">Loading Beginner pace review...</div>
+        <div class="empty">Loading all-server pace review...</div>
       </div>
     </section>
     <p class="footer-note">IFWL Live Timings page. Upload this file as <strong>livetimings.html</strong> in your GitHub repo root. It expects the GitHub Action to create <strong>data/manifest.json</strong> and place result files in <strong>data/results/console-proam/</strong>, <strong>data/results/console-beginner/</strong>, <strong>data/results/pc-proam/</strong>, <strong>data/results/pc-beginner/</strong>, <strong>data/results/pc-monday-funday/</strong> and <strong>data/results/console-monday-funday/</strong>.</p>
@@ -811,6 +813,7 @@
     paceAnomalyCount: document.getElementById('paceAnomalyCount'),
     driversCheckedCount: document.getElementById('driversCheckedCount'),
     comparisonTrackCount: document.getElementById('comparisonTrackCount'),
+    paceIncreaseCount: document.getElementById('paceIncreaseCount'),
     raceBody: document.getElementById('raceBody'),
     racePanel: document.getElementById('race'),
     raceCharts: document.getElementById('raceCharts'),
@@ -1503,7 +1506,7 @@
     if(els.beginnerReviewBody) els.beginnerReviewBody.innerHTML = '<div class="empty">Open this panel to load Beginner pace review.</div>';
     // Clear the summary stat boxes too, so they never show stale numbers (e.g. "105
     // drivers checked") sitting above a body that says data hasn't loaded yet.
-    setReviewCounts(0, 0, 0, 0);
+    setReviewCounts(0, 0, 0, 0, 0);
   }
 
   function median(values){
@@ -1512,113 +1515,160 @@
     const mid = Math.floor(arr.length/2);
     return arr.length % 2 ? arr[mid] : (arr[mid-1] + arr[mid]) / 2;
   }
-  function setReviewCounts(move, anomaly, drivers, tracks){
-    if(els.moveUpCount) els.moveUpCount.textContent = move;
-    if(els.paceAnomalyCount) els.paceAnomalyCount.textContent = anomaly;
+  function setReviewCounts(sandbag, mismatch, drivers, servers, increases){
+    if(els.moveUpCount) els.moveUpCount.textContent = sandbag;
+    if(els.paceAnomalyCount) els.paceAnomalyCount.textContent = mismatch;
     if(els.driversCheckedCount) els.driversCheckedCount.textContent = drivers;
-    if(els.comparisonTrackCount) els.comparisonTrackCount.textContent = tracks;
+    if(els.comparisonTrackCount) els.comparisonTrackCount.textContent = servers;
+    if(els.paceIncreaseCount) els.paceIncreaseCount.textContent = increases;
   }
 
-  function renderBeginnerReview(proamRows, beginnerRows){
+  function driverNameKey(name){
+    return String(name || '').trim().toLowerCase();
+  }
+
+  function platformOfServer(serverId){
+    return String(serverId || '').startsWith('pc-') ? 'PC' : 'Console';
+  }
+
+  function categoryOfServer(serverId){
+    const id = String(serverId || '');
+    if(id.includes('beginner')) return 'Beginner';
+    if(id.includes('monday-funday')) return 'Monday Funday';
+    if(id.includes('proam')) return 'Pro-Am';
+    return 'Unknown';
+  }
+
+  function renderBeginnerReview(allRows){
     if(!els.beginnerReviewBody) return;
 
-    const beginnerDriverKeys = new Set(beginnerRows.map(r => `${r.driverKey || r.driver}|${r.track}`));
-    const proamTracks = new Set(proamRows.map(r => r.track));
-    setReviewCounts(0, 0, beginnerDriverKeys.size, proamTracks.size);
+    const driverKeys = new Set(allRows.map(r => driverNameKey(r.driver)).filter(Boolean));
+    const serverIdsSeen = new Set(allRows.map(r => r.serverId));
+    setReviewCounts(0, 0, driverKeys.size, serverIdsSeen.size, 0);
 
-    if(!beginnerRows.length){
-      els.beginnerReviewBody.innerHTML = '<div class="sandbag-card"><span class="sandbag-tag info">No data</span><div><strong>No Console Beginner data loaded yet.</strong><p>Run the sync workflow and make sure data/results/console-beginner/ has result files.</p></div></div>';
+    if(!allRows.length){
+      els.beginnerReviewBody.innerHTML = '<div class="sandbag-card"><span class="sandbag-tag info">No data</span><div><strong>No result data loaded yet from any server.</strong><p>Run the sync workflow and make sure the data/results/&lt;server&gt;/ folders have result files, then reopen this panel.</p></div></div>';
       return;
     }
 
-    if(!proamRows.length){
-      els.beginnerReviewBody.innerHTML = '<div class="sandbag-card"><span class="sandbag-tag info">No comparison</span><div><strong>No Console Pro-Am comparison data loaded yet.</strong><p>Beginner pace cannot be compared against Pro-Am until Console Pro-Am result files are available.</p></div></div>';
-      return;
-    }
-
-    const proamByTrack = new Map();
-    for(const r of proamRows){
-      if(!proamByTrack.has(r.track)) proamByTrack.set(r.track, []);
-      proamByTrack.get(r.track).push(r.bestLap);
-    }
-
-    const beginnerByDriverTrack = new Map();
-    for(const r of beginnerRows){
-      const key = `${r.driverKey || r.driver}|${r.track}`;
-      if(!beginnerByDriverTrack.has(key)) beginnerByDriverTrack.set(key, []);
-      beginnerByDriverTrack.get(key).push(r);
+    // Group every row by normalised driver name so the same person is recognised
+    // across every server and platform they have raced on - not just Console.
+    const byDriver = new Map();
+    for(const r of allRows){
+      const key = driverNameKey(r.driver);
+      if(!key) continue;
+      if(!byDriver.has(key)) byDriver.set(key, []);
+      byDriver.get(key).push(r);
     }
 
     const notes = [];
-    let moveCount = 0;
-    let anomalyCount = 0;
+    let sandbagCount = 0;
+    let mismatchCount = 0;
+    let increaseCount = 0;
 
-    for(const [key, rows] of beginnerByDriverTrack.entries()){
-      const [, driver, track] = key.split('|||');
-      const sorted = rows.filter(r => isValidLap(r.bestLap)).sort((a,b) => a.bestLap-b.bestLap);
-      if(!sorted.length) continue;
+    for(const [, rows] of byDriver.entries()){
+      const displayName = rows[0]?.driver || 'Unknown driver';
+      const validRows = rows.filter(r => isValidLap(r.bestLap));
+      if(!validRows.length) continue;
 
-      const best = sorted[0];
-      const ownMedian = median(sorted.map(r => r.bestLap));
-      const proamMedian = median(proamByTrack.get(track) || []);
-
-      if(proamMedian){
-        const diffPct = ((best.bestLap - proamMedian) / proamMedian) * 100;
-
-        if(diffPct <= 0){
-          moveCount++;
-          notes.push({
-            type:'move',
-            label:'Move-up review',
-            title:`${driver} is faster than the Console Pro-Am median at ${title(track)}`,
-            detail:`Beginner best: ${msTime(best.bestLap)}. Pro-Am median: ${msTime(proamMedian)}.`,
-            reason:'This suggests the driver may be above Beginner pace for this track. Staff should review racecraft, consistency and attendance before moving anyone.'
-          });
-        }else if(diffPct <= 1.2){
-          moveCount++;
-          notes.push({
-            type:'move',
-            label:'Move-up review',
-            title:`${driver} is within ${diffPct.toFixed(2)}% of Console Pro-Am median pace at ${title(track)}`,
-            detail:`Beginner best: ${msTime(best.bestLap)}. Pro-Am median: ${msTime(proamMedian)}.`,
-            reason:'This is close enough to Pro-Am pace to warrant a staff review, especially if it repeats across multiple tracks.'
-          });
-        }
-      }else{
-        notes.push({
-          type:'info',
-          label:'No comparison',
-          title:`${driver} has Beginner laps at ${title(track)}, but no Pro-Am reference exists yet`,
-          detail:`Beginner best: ${msTime(best.bestLap)}.`,
-          reason:'No action suggested. A Pro-Am reference lap for the same track is needed before comparison.'
-        });
+      // --- Cross-category pace comparison: same driver, same track, same platform,
+      //     different category (Beginner / Pro-Am / Monday Funday). This is the
+      //     "1 minute in Beginner but seconds faster in Monday Funday" check,
+      //     generalised across every server rather than hardcoded to two of them. ---
+      const byPlatformTrack = new Map();
+      for(const r of validRows){
+        const groupKey = `${platformOfServer(r.serverId)}|||${r.track}`;
+        if(!byPlatformTrack.has(groupKey)) byPlatformTrack.set(groupKey, []);
+        byPlatformTrack.get(groupKey).push(r);
       }
 
-      if(sorted.length >= 4 && ownMedian){
-        const slow = sorted.filter(r => ((r.bestLap - ownMedian) / ownMedian) * 100 >= 5);
-        if(slow.length >= 2){
-          anomalyCount++;
-          const slowest = slow.sort((a,b) => b.bestLap-a.bestLap)[0];
+      for(const [groupKey, groupRows] of byPlatformTrack.entries()){
+        const [platform, track] = groupKey.split('|||');
+        const byCategory = new Map();
+        for(const r of groupRows){
+          const cat = categoryOfServer(r.serverId);
+          const existing = byCategory.get(cat);
+          if(!existing || r.bestLap < existing.bestLap) byCategory.set(cat, r);
+        }
+        if(byCategory.size < 2) continue; // need at least two categories to compare
+
+        const entries = [...byCategory.entries()];
+        const fastest = entries.reduce((a,b) => a[1].bestLap <= b[1].bestLap ? a : b);
+        const slowest = entries.reduce((a,b) => a[1].bestLap >= b[1].bestLap ? a : b);
+        if(fastest[0] === slowest[0]) continue;
+
+        const gapPct = ((slowest[1].bestLap - fastest[1].bestLap) / fastest[1].bestLap) * 100;
+        if(gapPct < 4) continue; // small, expected category variance - not worth flagging
+
+        const slowRow = slowest[1];
+        const fastRow = fastest[1];
+        const slowRisk = raceRiskForRow(slowRow, null, 0);
+
+        if(slowest[0] === 'Beginner'){
+          sandbagCount++;
           notes.push({
             type:'warn',
-            label:'Pace anomaly',
-            title:`${driver} has repeated large pace variation at ${title(track)}`,
-            detail:`Best: ${msTime(best.bestLap)}. Own median: ${msTime(ownMedian)}. Slowest flagged session: ${msTime(slowest.bestLap)}.`,
-            reason:'This is not proof of sandbagging. It flags a pattern worth checking against traffic, damage, fuel, setup, learning, server testing or incomplete sessions.'
+            label:'Sandbagging watch',
+            title:`${displayName} is ${gapPct.toFixed(1)}% slower in ${platform} Beginner than their own ${fastest[0]} pace at ${title(track)}`,
+            detail:`Beginner best: ${msTime(slowRow.bestLap)} (${esc(slowRow.serverName)}). ${fastest[0]} best: ${msTime(fastRow.bestLap)} (${esc(fastRow.serverName)}). Consistency in Beginner: ${consistencyText(slowRow.consistencyStats?.consistency, slowRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
+            reason:'This driver has demonstrated meaningfully faster pace elsewhere on the same platform and track. Not proof of deliberate sandbagging, but worth a racecraft and attendance review before treating this as genuine Beginner pace.'
+          });
+        }else{
+          mismatchCount++;
+          notes.push({
+            type:'move',
+            label:'Pace mismatch',
+            title:`${displayName} shows a ${gapPct.toFixed(1)}% pace gap between ${fastest[0]} and ${slowest[0]} at ${title(track)} (${platform})`,
+            detail:`${fastest[0]} best: ${msTime(fastRow.bestLap)} (${esc(fastRow.serverName)}). ${slowest[0]} best: ${msTime(slowRow.bestLap)} (${esc(slowRow.serverName)}). Session Risk in the slower category: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
+            reason:'Neither category here is the protected Beginner tier, so this ranks below a Sandbagging watch - but a large, repeated gap between two categories for the same driver is still worth a look.'
           });
         }
+      }
+
+      // --- Rapid pace increase: same driver, same server/category, same track,
+      //     compared over time (earliest vs most recent). Not inherently suspicious -
+      //     genuine improvement is normal - but staff asked to see this too. ---
+      const byServerTrack = new Map();
+      for(const r of validRows){
+        const groupKey = `${r.serverId}|||${r.track}`;
+        if(!byServerTrack.has(groupKey)) byServerTrack.set(groupKey, []);
+        byServerTrack.get(groupKey).push(r);
+      }
+
+      for(const [groupKey, groupRows] of byServerTrack.entries()){
+        if(groupRows.length < 3) continue; // need a real trend, not just one pair of files
+        const [, track] = groupKey.split('|||');
+        const sortedByTime = [...groupRows].sort((a,b) => fileTimestamp(a) - fileTimestamp(b));
+        const earliest = sortedByTime[0];
+        const mostRecent = sortedByTime[sortedByTime.length - 1];
+        if(earliest === mostRecent || !isValidLap(earliest.bestLap)) continue;
+
+        const improvementPct = ((earliest.bestLap - mostRecent.bestLap) / earliest.bestLap) * 100;
+        if(improvementPct < 3) continue;
+
+        increaseCount++;
+        const recentRisk = raceRiskForRow(mostRecent, null, 0);
+        notes.push({
+          type:'move',
+          label:'Rapid pace increase',
+          title:`${displayName} improved ${improvementPct.toFixed(1)}% at ${title(track)} in ${esc(mostRecent.serverName)}`,
+          detail:`Earliest recorded best: ${msTime(earliest.bestLap)} (${humanSessionDate(earliest)}). Most recent best: ${msTime(mostRecent.bestLap)} (${humanSessionDate(mostRecent)}). Consistency now: ${consistencyText(mostRecent.consistencyStats?.consistency, mostRecent.consistencyStats?.count)}. Session Risk: ${Number.isFinite(recentRisk.risk) ? recentRisk.risk.toFixed(0)+'%' : '-'} (${recentRisk.label}).`,
+          reason:'Not automatically suspicious - genuine improvement is normal and worth celebrating. Flagged so staff have visibility on drivers whose pace is changing quickly, in either direction.'
+        });
       }
     }
 
-    setReviewCounts(moveCount, anomalyCount, beginnerDriverKeys.size, proamTracks.size);
+    setReviewCounts(sandbagCount, mismatchCount, driverKeys.size, serverIdsSeen.size, increaseCount);
 
-    const important = notes.filter(n => n.type !== 'info');
-    if(!important.length){
-      els.beginnerReviewBody.innerHTML = '<div class="sandbag-card"><span class="sandbag-tag ok">No flags</span><div><strong>No clear move-up or sandbagging review flags in the latest synced files.</strong><p>This only checks the latest files currently loaded. Staff judgement still matters, especially around racecraft and attendance history.</p></div></div>';
+    if(!notes.length){
+      els.beginnerReviewBody.innerHTML = '<div class="sandbag-card"><span class="sandbag-tag ok">No flags</span><div><strong>No sandbagging, pace mismatch or rapid pace increase flags in the latest synced files.</strong><p>This only checks the files currently loaded across all six servers. Staff judgement still matters, especially around racecraft and attendance history.</p></div></div>';
       return;
     }
 
-    els.beginnerReviewBody.innerHTML = important.slice(0, 25).map(n => `<div class="sandbag-card"><span class="sandbag-tag ${n.type}">${esc(n.label)}</span><div><strong>${esc(n.title)}</strong><p>${esc(n.detail)}</p><span class="sandbag-reason">${esc(n.reason)}</span></div></div>`).join('');
+    const typeOrder = {warn:0, move:1, info:2};
+    const sortedNotes = [...notes].sort((a,b) => (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9));
+
+    els.beginnerReviewBody.innerHTML = sortedNotes.slice(0, 60).map(n => `<div class="sandbag-card"><span class="sandbag-tag ${n.type}">${esc(n.label)}</span><div><strong>${esc(n.title)}</strong><p>${esc(n.detail)}</p><span class="sandbag-reason">${esc(n.reason)}</span></div></div>`).join('');
   }
 
 
@@ -2253,14 +2303,11 @@
   }
 
   async function renderBeginnerReviewLazy(){
-    if(els.beginnerReviewBody) els.beginnerReviewBody.innerHTML = '<div class="empty">Loading Beginner pace review...</div>';
+    if(els.beginnerReviewBody) els.beginnerReviewBody.innerHTML = '<div class="empty">Loading all-server pace review...</div>';
 
-    const needed = manifestItems.filter(item =>
-      item.serverId === 'console-proam' ||
-      item.serverId === 'console-beginner' ||
-      item.serverId === 'pc-proam' ||
-      item.serverId === 'pc-beginner'
-    );
+    // Checks every one of the six known servers, not just Console - this is what
+    // "ensure drivers from all servers are checked" actually requires.
+    const needed = manifestItems.filter(item => IFWL_KNOWN_SERVER_IDS.includes(item.serverId));
 
     const loaded = [];
     for(const item of needed){
@@ -2272,9 +2319,8 @@
 
     sessions = [...new Map([...sessions, ...loaded].map(s => [s.source, s])).values()];
 
-    const proamRows = resultRows(loaded, 'console-proam');
-    const beginnerRows = resultRows(loaded, 'console-beginner');
-    renderBeginnerReview(proamRows, beginnerRows);
+    const allRows = resultRows(loaded, null);
+    renderBeginnerReview(allRows);
 
     reviewLoaded = true;
   }
