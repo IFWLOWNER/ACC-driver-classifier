@@ -490,7 +490,21 @@
       <div class="field"><label>Session type</label><select id="typeFilter"><option value="all">All sessions</option><option value="FP">Practice</option><option value="Q">Qualifying</option><option value="R">Race</option></select></div>
       <div class="buttons"><button class="btn teal" id="reloadBtn">Refresh</button><button class="btn purple" id="latestBtn">Latest</button></div>
     </section>
-    <section class="upload"><strong>Manual test upload:</strong> use this only when testing locally. On GitHub, the page reads the synced files from <code>data/manifest.json</code>.<br><input type="file" id="manualFiles" accept=".json" multiple /></section>
+    <section class="upload"><strong>Manual test upload:</strong> use this only when testing locally. On GitHub, the page reads the synced files from <code>data/manifest.json</code>.<br>
+      <div style="margin:10px 0">
+        <label for="manualServerSelect" style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted,#93a1a9);margin-bottom:5px">Assign uploaded file(s) to</label>
+        <select id="manualServerSelect" style="padding:9px 11px;border:1px solid var(--ifwl-line,rgba(255,255,255,.1));border-radius:8px;background:#0d1116;color:var(--text-primary,#edf2f3);font-weight:700;min-width:260px">
+          <option value="auto">Auto-detect from filename (old behaviour)</option>
+          <option value="console-proam">Console Pro-Am</option>
+          <option value="console-beginner">Console Beginner</option>
+          <option value="console-monday-funday">Console Monday Funday</option>
+          <option value="pc-proam">PC Pro-Am</option>
+          <option value="pc-beginner">PC Beginner</option>
+          <option value="pc-monday-funday">PC Monday Funday</option>
+        </select>
+        <div style="font-size:11px;color:var(--text-muted,#93a1a9);margin-top:5px;font-weight:600">Real ACC result filenames (e.g. 260716_161809_FP.json) don't contain the server name, so auto-detect can't place them into a category box. Pick the category explicitly instead.</div>
+      </div>
+      <input type="file" id="manualFiles" accept=".json" multiple /></section>
     <section class="stats hidden" id="selectedStats">
       <div class="stat"><span>Selected session</span><strong id="statSession">-</strong><small id="statServer">-</small></div>
       <div class="stat"><span>Track</span><strong id="statTrack">-</strong><small id="statWet">-</small></div>
@@ -2297,17 +2311,24 @@
   els.manualFiles.addEventListener('change', async (ev) => {
     const picked = [...ev.target.files];
     const loaded = [];
+    const explicitServerId = document.getElementById('manualServerSelect')?.value || 'auto';
 
     for(const f of picked){
       try{
         const lower = f.name.toLowerCase();
-        const serverId = lower.includes('pc-monday') ? 'pc-monday-funday' :
+        // Real ACC result filenames never encode which server they came from (that's
+        // normally implied by the folder they're synced into) - so when a specific
+        // category is picked from the dropdown, that always wins. Filename guessing is
+        // only used as a fallback when "Auto-detect" is explicitly chosen.
+        const serverId = explicitServerId !== 'auto' ? explicitServerId : (
+          lower.includes('pc-monday') ? 'pc-monday-funday' :
           lower.includes('pc-beginner') ? 'pc-beginner' :
           lower.includes('monday') ? 'console-monday-funday' :
           lower.includes('pc-proam') || lower.includes('pc-pro-am') ? 'pc-proam' :
           lower.includes('beginner') ? 'console-beginner' :
           lower.includes('proam') || lower.includes('pro-am') ? 'console-proam' :
-          'manual';
+          'manual'
+        );
 
         const item = {
           file: `manual://${f.name}`,
