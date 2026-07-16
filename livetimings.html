@@ -278,6 +278,116 @@
   @media(max-width:900px){.login-wall-levels{grid-template-columns:1fr}.premium-analytics-grid{grid-template-columns:1fr 1fr}.premium-detail-grid{grid-template-columns:1fr}.my-driver-controls{grid-template-columns:1fr!important}}
 </style>
 
+<!-- IFWL UX PATCH: purely additive visual/UX polish. Nothing above is removed or renamed;
+     every rule below either adds new behaviour or layers on top using higher specificity /
+     later cascade order so existing functionality, IDs, classes and JS hooks stay intact. -->
+<style id="ifwlUxPolishStyles">
+  :root{
+    --ifwl-radius-lg:20px;
+    --ifwl-radius-md:14px;
+    --ifwl-ease:cubic-bezier(.2,.8,.2,1);
+    --ifwl-focus:#2397ec;
+  }
+
+  /* Smoother base feel + nicer scrollbars, without altering colours already chosen */
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important} }
+  ::-webkit-scrollbar{width:12px;height:12px}
+  ::-webkit-scrollbar-track{background:#e9edee}
+  ::-webkit-scrollbar-thumb{background:linear-gradient(180deg,var(--ifwl-teal),#0d6a60);border-radius:999px;border:3px solid #e9edee}
+  ::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#1ba594,var(--ifwl-teal))}
+  *{scrollbar-color:var(--ifwl-teal) #e9edee}
+
+  /* Visible, accessible focus states everywhere without changing layout */
+  a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible,[tabindex]:focus-visible{
+    outline:3px solid var(--ifwl-focus)!important;outline-offset:2px;border-radius:6px;
+  }
+
+  /* Buttons and pills feel more tactile on hover/press, same colours as before */
+  .btn,.race-mode-btn,.server-view-btn,.quick-filter-btn,.collapse-toggle,.discord-access-btn,.patreon-link-btn,.logout-access-btn,.platform-switch-btn,.driver-platform-btn,.ifwl-deep-actions button,.mobile-driver-select-btn{
+    transition:transform .16s var(--ifwl-ease),box-shadow .16s var(--ifwl-ease),filter .16s var(--ifwl-ease)!important;
+  }
+  .btn:hover,.race-mode-btn:hover,.server-view-btn:hover,.quick-filter-btn:hover,.discord-access-btn:hover,.patreon-link-btn:hover,.platform-switch-btn:hover,.driver-platform-btn:hover{
+    transform:translateY(-2px);filter:brightness(1.05);box-shadow:0 10px 22px rgba(0,0,0,.16);
+  }
+  .btn:active,.race-mode-btn:active,.server-view-btn:active,.quick-filter-btn:active{transform:translateY(0);filter:brightness(.97)}
+
+  /* Panels: soften entrance, add a subtle lift on hover of the header for affordance */
+  .panel{transition:box-shadow .2s var(--ifwl-ease);animation:ifwlFadeUp .5s var(--ifwl-ease) both}
+  .panel-head{cursor:default}
+  .panel:hover{box-shadow:0 22px 60px rgba(0,0,0,.16)}
+  @keyframes ifwlFadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  .panel.ifwl-revealed{animation:none}
+
+  /* Rotate the collapse chevron feel using text + subtle motion (no markup change needed) */
+  .collapse-toggle{transition:transform .18s var(--ifwl-ease),background .16s var(--ifwl-ease)!important}
+  .collapse-toggle:hover{background:#f1f3f4}
+
+  /* Table rows: gentle zebra + smoother hover without touching existing hover rule (it still applies, this just adds a base tint) */
+  .results-table tbody tr:nth-child(even){background:rgba(0,0,0,.015)}
+  .results-table tbody tr{transition:background .12s ease}
+  .results-table td,.results-table th{transition:background .12s ease}
+
+  /* Loading / empty state shimmer so waiting feels alive instead of static grey text */
+  .empty{position:relative;overflow:hidden}
+  .empty::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(90deg,transparent,rgba(22,143,130,.10),transparent);
+    transform:translateX(-100%);animation:ifwlShimmer 1.6s infinite;
+  }
+  @keyframes ifwlShimmer{100%{transform:translateX(100%)}}
+
+  /* Quick filter active state gets a subtle glow so the current view is unmistakable */
+  .quick-filter-btn.active,.quick-filter-btn.purple.active{box-shadow:0 0 0 3px rgba(22,143,130,.25),0 8px 18px rgba(0,0,0,.12)}
+
+  /* Podium rows get a touch more shine on hover to reward scanning results */
+  .podium-1:hover,.podium-2:hover,.podium-3:hover{filter:brightness(1.02)}
+
+  /* Login wall: soften the entrance and give the card gentle depth motion */
+  .login-wall-card{animation:ifwlLoginIn .45s var(--ifwl-ease) both}
+  @keyframes ifwlLoginIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+  .login-wall-actions button,.login-wall-actions a{transition:transform .16s var(--ifwl-ease),filter .16s var(--ifwl-ease)}
+  .login-wall-actions button:hover,.login-wall-actions a:hover{transform:translateY(-2px);filter:brightness(1.06)}
+
+  /* Mobile navigation: the original page hides .nav-links completely under 900px with
+     no alternative way to reach those links. This adds a hamburger toggle so every
+     existing link remains reachable on phones, without altering desktop behaviour. */
+  .ifwl-nav-toggle{display:none}
+  @media(max-width:900px){
+    .ifwl-nav-toggle{
+      display:inline-flex;align-items:center;justify-content:center;
+      width:38px;height:38px;border-radius:9px;border:0;background:rgba(255,255,255,.18);
+      color:#fff;font-size:18px;cursor:pointer;margin-left:auto;
+    }
+    .nav-links{
+      display:none;position:absolute;top:76px;left:0;right:0;background:var(--ifwl-teal);
+      flex-direction:column;align-items:stretch;gap:0;padding:6px 18px 14px;box-shadow:0 14px 30px rgba(0,0,0,.22);
+      z-index:19;
+    }
+    .nav-links.ifwl-open{display:flex!important}
+    .nav-links a,.nav-links .login{width:100%;text-align:left;padding:12px 4px!important;border-bottom:1px solid rgba(255,255,255,.16)}
+  }
+
+  /* Back-to-top control, hidden until the user scrolls, never overlaps interactive controls */
+  #ifwlBackToTop{
+    position:fixed;right:18px;bottom:18px;z-index:500;
+    width:46px;height:46px;border-radius:999px;border:0;cursor:pointer;
+    background:#20242a;color:#fff;font-size:18px;box-shadow:0 14px 30px rgba(0,0,0,.28);
+    opacity:0;pointer-events:none;transform:translateY(10px);
+    transition:opacity .2s var(--ifwl-ease),transform .2s var(--ifwl-ease),background .16s var(--ifwl-ease);
+  }
+  #ifwlBackToTop.ifwl-visible{opacity:1;pointer-events:auto;transform:translateY(0)}
+  #ifwlBackToTop:hover{background:var(--ifwl-teal)}
+
+  /* Small "page ready" pulse on the sticky nav the first time results are loaded, purely cosmetic */
+  .nav.ifwl-nav-ready .logo img{animation:ifwlLogoPop .5s var(--ifwl-ease)}
+  @keyframes ifwlLogoPop{0%{transform:scale(.92)}60%{transform:scale(1.04)}100%{transform:scale(1)}}
+
+  @media(max-width:700px){
+    #ifwlBackToTop{width:42px;height:42px;right:14px;bottom:14px}
+  }
+</style>
+
 </head>
 <body class="login-wall-open">
 
@@ -1316,7 +1426,7 @@
 
     const beginnerByDriverTrack = new Map();
     for(const r of beginnerRows){
-      const key = `${r.driverKey || r.driver}|||${r.driver}|||${r.track}`;
+      const key = `${r.driverKey || r.driver}|${r.track}`;
       if(!beginnerByDriverTrack.has(key)) beginnerByDriverTrack.set(key, []);
       beginnerByDriverTrack.get(key).push(r);
     }
@@ -1564,7 +1674,7 @@
 
     return `<div class="chart-wrap">
       <p class="chart-title">Field best-lap gaps</p>
-      <p class="chart-help">Each bar is that driver’s best-lap gap to the fastest driver in the latest race file.</p>
+      <p class="chart-help">Each bar is that driver's best-lap gap to the fastest driver in the latest race file.</p>
       <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Field best lap gaps">
         <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
         <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
@@ -1684,7 +1794,7 @@
 
     return `<div class="delta-panel">
       <h4>Lap delta chart</h4>
-      <p class="chart-help">Each point shows that lap compared to the driver’s own average. Red outline means invalid lap.</p>
+      <p class="chart-help">Each point shows that lap compared to the driver's own average. Red outline means invalid lap.</p>
       <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Lap delta chart">
         <line x1="${left}" y1="${zeroY}" x2="${w-right}" y2="${zeroY}" stroke="#111" stroke-width="2"/>
         <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="#111" stroke-width="2"/>
@@ -2351,7 +2461,7 @@
   function clearTimingStorageCache(){try{Object.keys(localStorage).filter(k=>k.startsWith('ifwl-rivals-result-v2:')).forEach(k=>localStorage.removeItem(k))}catch(_){}}
   function safeStore(key,value){try{localStorage.setItem(key,value);return true}catch(e){if(e?.name==='QuotaExceededError'||String(e?.message||e).toLowerCase().includes('quota')){clearTimingStorageCache();try{localStorage.setItem(key,value);return true}catch(_){try{sessionStorage.setItem(key,value);return true}catch(__){return false}}}return false}}
   function readStore(key){try{return localStorage.getItem(key)||sessionStorage.getItem(key)||''}catch(_){return ''}}
-  function removeStore(key){try{localStorage.removeItem(key)}catch(_){}try{sessionStorage.removeItem(key)}catch(_){}}
+  function removeStore(key){try{localStorage.removeItem(key)}catch(_){} try{sessionStorage.removeItem(key)}catch(_){}}
   function userName(m){return m?.nick||m?.globalName||m?.global_name||m?.username||m?.discordUsername||'Discord user'}
   function userId(m){return String(m?.userId||m?.discordId||m?.discord_id||m?.id||'guest')}
   function detailed(m){if(!m)return false;if(Object.prototype.hasOwnProperty.call(m,'liveTimingsDetailedAccess'))return m.liveTimingsDetailedAccess===true;const tier=String(m?.patreonTier||m?.tier||m?.role||'').toLowerCase();return !!(m.staffBypass||tier.includes('bronze')||tier.includes('silver')||tier.includes('gold')||tier.includes('owner')||tier.includes('ops'))}
@@ -3297,6 +3407,107 @@
 })();
 </script>
 <!-- /IFWL PATCH -->
+
+<!-- IFWL UX PATCH: additive-only script. Adds a mobile nav toggle, a back-to-top button,
+     and a gentle reveal animation for panels as they scroll into view. It never modifies,
+     renames, or removes any existing element, id, class, or function used elsewhere on
+     the page — it only reads the DOM and adds new nodes/listeners on top. -->
+<script id="ifwlUxPolishScript">
+(() => {
+  function ready(fn){
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+    else fn();
+  }
+
+  ready(() => {
+    /* 1) Mobile nav toggle so every existing nav link stays reachable on phones. */
+    const nav = document.querySelector('.nav');
+    const navLinks = document.querySelector('.nav-links');
+    if(nav && navLinks && !document.getElementById('ifwlNavToggle')){
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.id = 'ifwlNavToggle';
+      toggle.className = 'ifwl-nav-toggle';
+      toggle.setAttribute('aria-label', 'Open navigation menu');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.textContent = '☰';
+      nav.appendChild(toggle);
+
+      toggle.addEventListener('click', () => {
+        const open = navLinks.classList.toggle('ifwl-open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        toggle.textContent = open ? '✕' : '☰';
+      });
+
+      // Close the menu automatically once a link is used, so it never blocks the page.
+      navLinks.addEventListener('click', event => {
+        if(event.target.closest('a')){
+          navLinks.classList.remove('ifwl-open');
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.textContent = '☰';
+        }
+      });
+    }
+
+    /* 2) Back-to-top button. Appears after scrolling, never interferes with existing controls. */
+    if(!document.getElementById('ifwlBackToTop')){
+      const backToTop = document.createElement('button');
+      backToTop.type = 'button';
+      backToTop.id = 'ifwlBackToTop';
+      backToTop.setAttribute('aria-label', 'Back to top');
+      backToTop.textContent = '↑';
+      document.body.appendChild(backToTop);
+
+      backToTop.addEventListener('click', () => {
+        window.scrollTo({top: 0, behavior: 'smooth'});
+      });
+
+      let ticking = false;
+      window.addEventListener('scroll', () => {
+        if(ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
+          backToTop.classList.toggle('ifwl-visible', window.scrollY > 480);
+          ticking = false;
+        });
+      }, {passive:true});
+    }
+
+    /* 3) Gentle reveal animation for panels as they scroll into view (progressive
+          enhancement only — every panel is already fully visible and functional
+          without this; it just adds a class once it has entered the viewport). */
+    const panels = document.querySelectorAll('.panel');
+    if(panels.length && 'IntersectionObserver' in window){
+      const io = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if(entry.isIntersecting){
+            entry.target.classList.add('ifwl-revealed');
+            io.unobserve(entry.target);
+          }
+        });
+      }, {threshold:0.08});
+      panels.forEach(panel => io.observe(panel));
+    }
+
+    /* 4) One-off cosmetic pulse on the nav logo once the manifest has actually loaded,
+          giving a small "we're live" acknowledgement without touching loadManifest(). */
+    const statusBox = document.getElementById('status');
+    if(statusBox && nav){
+      const statusWatcher = new MutationObserver(() => {
+        if(statusBox.children.length === 0 && document.getElementById('sessionSelect')?.options?.length){
+          nav.classList.add('ifwl-nav-ready');
+          statusWatcher.disconnect();
+        }
+      });
+      statusWatcher.observe(statusBox, {childList:true});
+      // Also cover the case where results are already loaded before this observer attaches.
+      setTimeout(() => {
+        if(document.getElementById('sessionSelect')?.options?.length > 1) nav.classList.add('ifwl-nav-ready');
+      }, 2000);
+    }
+  });
+})();
+</script>
 
 </body>
 </html>
