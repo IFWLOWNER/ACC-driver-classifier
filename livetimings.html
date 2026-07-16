@@ -844,7 +844,13 @@
 
   function decodeJsonText(text){
     let clean = text.replace(/^\uFEFF/, '');
-    if(clean.includes('\u0000')) clean = clean.replace(/\u0000/g, '');
+    // ACC's sync export occasionally embeds raw control characters (not just \u0000)
+    // inside string values (e.g. corrupted/garbled driver names). Any raw character in
+    // the 0x00-0x1F range breaks JSON.parse with "Bad control character in string
+    // literal" and causes the whole result file to be skipped. These files are minified
+    // single-line JSON, so stripping stray control characters entirely is safe and does
+    // not affect meaningful formatting.
+    if(/[\u0000-\u001F]/.test(clean)) clean = clean.replace(/[\u0000-\u001F]/g, '');
     return JSON.parse(clean);
   }
 
@@ -1423,6 +1429,9 @@
 
     if(els.raceBody) els.raceBody.innerHTML = '<tr><td colspan="11" class="empty">Select a race result file above to show its finish order.</td></tr>';
     if(els.beginnerReviewBody) els.beginnerReviewBody.innerHTML = '<div class="empty">Open this panel to load Beginner pace review.</div>';
+    // Clear the summary stat boxes too, so they never show stale numbers (e.g. "105
+    // drivers checked") sitting above a body that says data hasn't loaded yet.
+    setReviewCounts(0, 0, 0, 0);
   }
 
   function median(values){
