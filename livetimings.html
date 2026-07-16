@@ -3555,5 +3555,134 @@
 })();
 </script>
 
+<!-- IFWL STAFF PREVIEW PATCH: additive-only. Lets a confirmed real staff member preview
+     what an Active Racer or a logged-out visitor sees, using the exact same body-class
+     gates the page already relies on (body:not(.patreon-access), body:not(.staff-access),
+     etc). It can only ever hide things that are normally visible to staff — it never sets
+     window.IFWL_TIMINGS_DETAILED or window.IFWL_TIMINGS_STAFF to true, so it cannot be
+     used by anyone to gain access they don't already have. The control itself is only
+     ever inserted into the page if window.IFWL_TIMINGS_STAFF is genuinely true, so
+     regular members never see it exists. -->
+<style id="ifwlStaffPreviewStyles">
+  #ifwlPreviewBanner{position:fixed;top:0;left:0;right:0;z-index:999999;background:linear-gradient(90deg,#3a1450,#5b1f78);color:#fff;padding:10px 16px;font-family:var(--font-mono,monospace);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;justify-content:center;gap:14px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  #ifwlPreviewBanner strong{color:#ffd166}
+  #ifwlPreviewBanner button{border:0;border-radius:999px;padding:6px 12px;background:#fff;color:#2a0a3d;font-weight:800;text-transform:uppercase;font-size:11px;cursor:pointer}
+  #ifwlStaffPreviewToggle{position:fixed;left:18px;bottom:18px;z-index:600;background:#12161c;border:1px solid var(--ifwl-line,rgba(255,255,255,.1));border-radius:12px;padding:10px 12px;box-shadow:0 12px 28px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:5px;font-family:var(--font-body,Arial,sans-serif)}
+  #ifwlStaffPreviewToggle label{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--text-muted,#93a1a9);letter-spacing:.05em}
+  #ifwlStaffPreviewToggle select{background:#0d1116;color:var(--text-primary,#edf2f3);border:1px solid var(--ifwl-line,rgba(255,255,255,.1));border-radius:8px;padding:6px 8px;font-size:12px;font-weight:700}
+  @media(max-width:700px){#ifwlStaffPreviewToggle{left:10px;bottom:10px}#ifwlPreviewBanner{font-size:11px;padding:8px 10px}}
+</style>
+<script id="ifwlStaffPreviewScript">
+(() => {
+  const q = id => document.getElementById(id);
+  function ready(fn){ if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
+
+  function setAccountBar(titleHtml, text, locked){
+    const title = q('ifwlAccountTitle');
+    const txt = q('ifwlAccountText');
+    const bar = q('ifwlAccountBar');
+    if(title) title.innerHTML = titleHtml;
+    if(txt) txt.textContent = text;
+    if(bar) bar.classList.toggle('patreon-locked', !!locked);
+  }
+
+  function showBanner(label){
+    let banner = q('ifwlPreviewBanner');
+    if(!banner){
+      banner = document.createElement('div');
+      banner.id = 'ifwlPreviewBanner';
+      document.body.prepend(banner);
+    }
+    banner.innerHTML = `<span>Preview mode — viewing as <strong>${label}</strong>. Your real staff/Patreon access is unaffected.</span><button type="button" id="ifwlExitPreviewBtn">Exit preview</button>`;
+    q('ifwlExitPreviewBtn').addEventListener('click', () => location.reload());
+    // Nudge the sticky nav down so it docks under the banner instead of behind it.
+    document.body.style.paddingTop = '40px';
+    const nav = document.querySelector('.nav');
+    if(nav) nav.style.top = '40px';
+  }
+
+  function currentName(){
+    const meta = window.IFWL_TIMINGS_META || {};
+    return meta.nick || meta.globalName || meta.global_name || meta.username || 'Driver';
+  }
+
+  function applyPreview(tier){
+    const name = currentName();
+
+    if(tier === 'active'){
+      // Simulates a logged-in Discord member who holds Active Racer but no Patreon tier.
+      window.IFWL_TIMINGS_DETAILED = false;
+      window.IFWL_TIMINGS_STAFF = false;
+      document.body.classList.remove('patreon-access', 'staff-access', 'premium-home');
+      document.body.classList.add('discord-logged-in', 'simple-access', 'access-authorised');
+      document.documentElement.classList.remove('login-wall-open');
+      document.body.classList.remove('login-wall-open');
+      q('ifwlLoginWall')?.classList.add('hidden');
+      setAccountBar(
+        `Logged in as ${name} <span class="access-pill locked">Active Racer access</span>`,
+        'Discord login confirmed. Bronze, Silver or Gold Patreon access was not detected for this preview.',
+        true
+      );
+    }
+
+    if(tier === 'public'){
+      // Simulates a visitor who has not logged in at all — shows the real login wall.
+      window.IFWL_TIMINGS_DETAILED = false;
+      window.IFWL_TIMINGS_STAFF = false;
+      document.body.classList.remove('patreon-access', 'staff-access', 'premium-home', 'simple-access', 'discord-logged-in', 'access-authorised');
+      document.documentElement.classList.add('login-wall-open');
+      document.body.classList.add('login-wall-open');
+      q('ifwlLoginWall')?.classList.remove('hidden');
+      const msg = q('loginWallMessage');
+      if(msg) msg.textContent = 'Login with Discord to enter. You must hold the IFWL Active Racer role, or an eligible Patreon/staff role.';
+      setAccountBar(
+        'Public timing access <span class="access-pill locked">Detailed locked</span>',
+        'Login with Discord. Bronze, Silver and Gold Patreon members unlock detailed timing information.',
+        true
+      );
+    }
+
+    // Force the Race panel back to its simple view — setRaceMode() itself already checks
+    // window.IFWL_TIMINGS_DETAILED, so clicking the existing button is enough to re-lock it.
+    q('raceSimpleBtn')?.click();
+  }
+
+  function buildControl(){
+    if(q('ifwlStaffPreviewToggle')) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'ifwlStaffPreviewToggle';
+    wrap.innerHTML = `
+      <label for="ifwlPreviewSelect">Staff preview (only visible to you)</label>
+      <select id="ifwlPreviewSelect">
+        <option value="real">My real access</option>
+        <option value="active">Active Racer (no Patreon)</option>
+        <option value="public">Logged out / public visitor</option>
+      </select>`;
+    document.body.appendChild(wrap);
+
+    q('ifwlPreviewSelect').addEventListener('change', event => {
+      const value = event.target.value;
+      if(value === 'real'){ location.reload(); return; }
+      const label = value === 'active' ? 'Active Racer (no Patreon)' : 'Logged out / public visitor';
+      applyPreview(value);
+      showBanner(label);
+    });
+  }
+
+  ready(() => {
+    let attempts = 0;
+    const timer = setInterval(() => {
+      attempts += 1;
+      if(window.IFWL_TIMINGS_STAFF === true){
+        buildControl();
+        clearInterval(timer);
+      } else if(attempts > 30){
+        clearInterval(timer); // Not a staff account in this session — never show the control.
+      }
+    }, 400);
+  });
+})();
+</script>
+
 </body>
 </html>
