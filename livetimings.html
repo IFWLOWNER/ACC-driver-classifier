@@ -3073,5 +3073,230 @@
 </script>
 <!-- /IFWL PATCH: Patreon Driver Home deep analytics. -->
 
+
+<!-- IFWL PATCH: Patreon platform onboarding, driver assignment and PC/Console result views. -->
+<style id="ifwlPlatformOnboardingStyles">
+  .set-me-inline{display:none!important}
+  .platform-results-switch{background:rgba(255,255,255,.94);border:1px solid var(--ifwl-line);border-radius:18px;box-shadow:var(--shadow);padding:16px;margin:0 0 22px}
+  .platform-results-switch h3{margin:0 0 6px;font-size:18px;text-transform:uppercase}
+  .platform-results-switch p{margin:0 0 12px;color:#5a646d;font-size:13px;font-weight:700;line-height:1.45}
+  .platform-switch-buttons{display:flex;flex-wrap:wrap;gap:10px}
+  .platform-switch-btn,.driver-platform-btn{border:0;border-radius:999px;padding:12px 18px;background:#20242a;color:#fff;font-size:12px;font-weight:900;text-transform:uppercase;cursor:pointer}
+  .platform-switch-btn.active,.driver-platform-btn.active{background:var(--ifwl-teal)}
+  .platform-switch-btn[data-platform="pc"].active,.driver-platform-btn[data-platform="pc"].active{background:var(--ifwl-purple)}
+  .driver-onboarding{padding:18px;background:linear-gradient(135deg,#eefaf8,#fff7fd);border-bottom:1px solid rgba(0,0,0,.08)}
+  .driver-onboarding h4{margin:0 0 7px;font-size:21px;text-transform:uppercase}
+  .driver-onboarding p{margin:0;color:#48535e;font-weight:750;line-height:1.5}
+  .driver-platform-choice{display:flex;flex-wrap:wrap;gap:10px;margin-top:15px}
+  .driver-platform-info{margin-top:13px;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid rgba(0,0,0,.09);font-size:13px;font-weight:800;color:#27323a}
+  .driver-platform-info.hidden{display:none!important}
+  .driver-assignment-hidden{display:none!important}
+  .platform-empty-message{padding:24px;text-align:center;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:14px;color:#64707a;font-weight:800;margin-bottom:20px}
+  body.platform-view-pc .server-panel[data-server-panel^="console-"]{display:none!important}
+  body.platform-view-console .server-panel[data-server-panel^="pc-"]{display:none!important}
+  body.platform-view-pc .quick-filter-btn[data-server-quick^="console-"],body.platform-view-console .quick-filter-btn[data-server-quick^="pc-"]{display:none!important}
+  body.premium-home .quick-filter-wrap{display:none!important}
+  @media(max-width:700px){.platform-switch-buttons,.driver-platform-choice{display:grid;grid-template-columns:1fr 1fr}.platform-switch-btn,.driver-platform-btn{width:100%}}
+</style>
+<script id="ifwlPlatformOnboardingScript">
+(() => {
+  const q = id => document.getElementById(id);
+  const norm = value => String(value || '').trim().replace(/\s+/g,' ').toLowerCase();
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let selectedPlatform = '';
+  let lastMeta = null;
+
+  function discordName(meta){
+    return meta?.nick || meta?.globalName || meta?.global_name || meta?.username || meta?.discordUsername || 'Driver';
+  }
+  function discordId(meta){
+    return String(meta?.userId || meta?.discordId || meta?.discord_id || meta?.id || 'guest');
+  }
+  function platformKey(){ return 'IFWL_TIMINGS_PLATFORM:' + discordId(lastMeta); }
+  function driverKey(){ return 'IFWL_TIMINGS_MY_DRIVER:' + discordId(lastMeta); }
+  function read(key){ try{return localStorage.getItem(key) || sessionStorage.getItem(key) || ''}catch(_){return ''} }
+  function write(key,value){ try{localStorage.setItem(key,value)}catch(_){try{sessionStorage.setItem(key,value)}catch(__){}} }
+  function remove(key){ try{localStorage.removeItem(key)}catch(_){} try{sessionStorage.removeItem(key)}catch(_){} }
+
+  function roleStrings(meta){
+    const values = [meta?.patreonTier,meta?.tier,meta?.role,meta?.accessLevel,meta?.staffRole,meta?.memberRole];
+    if(Array.isArray(meta?.roles)) values.push(...meta.roles.map(r => typeof r === 'string' ? r : (r?.name || r?.role || '')));
+    if(Array.isArray(meta?.discordRoles)) values.push(...meta.discordRoles.map(r => typeof r === 'string' ? r : (r?.name || r?.role || '')));
+    return values.filter(Boolean).join(' ').toLowerCase();
+  }
+  function ensureStaffVisibility(meta){
+    const roles = roleStrings(meta);
+    const staff = !!(meta && (meta.staffBypass || meta.canModerateTunes || meta.isStaff || meta.staff === true || /(owner|ops|admin|staff|head steward|steward|management|manager|moderator)/i.test(roles)));
+    if(staff){
+      window.IFWL_TIMINGS_STAFF = true;
+      document.body.classList.add('staff-access');
+      q('beginnerReview')?.classList.remove('hidden');
+    }
+  }
+
+  function createResultsSwitch(){
+    const main = document.querySelector('main');
+    const split = document.querySelector('.split-grid');
+    if(!main || !split || q('platformResultsSwitch')) return;
+    const box = document.createElement('section');
+    box.id = 'platformResultsSwitch';
+    box.className = 'platform-results-switch';
+    box.innerHTML = '<h3>Choose results platform</h3><p>Show the three PC servers, the three console servers, or all six server boxes.</p><div class="platform-switch-buttons"><button type="button" class="platform-switch-btn" data-platform="pc">Show PC results</button><button type="button" class="platform-switch-btn" data-platform="console">Show console results</button><button type="button" class="platform-switch-btn" data-platform="all">Show all six</button></div>';
+    split.before(box);
+    box.addEventListener('click', event => {
+      const button = event.target.closest('.platform-switch-btn');
+      if(!button) return;
+      setResultsPlatform(button.dataset.platform, true);
+    });
+  }
+
+  function setResultsPlatform(platform, savePreference){
+    const view = ['pc','console','all'].includes(platform) ? platform : 'all';
+    document.body.classList.toggle('platform-view-pc', view === 'pc');
+    document.body.classList.toggle('platform-view-console', view === 'console');
+    document.querySelectorAll('.platform-switch-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.platform === view));
+    if(savePreference && view !== 'all') write(platformKey(), view);
+    const visible = view === 'all' ? 'all six PC and console server boxes' : `the three ${view === 'pc' ? 'PC' : 'console'} server boxes`;
+    const box = q('platformResultsSwitch');
+    if(box) box.querySelector('p').textContent = `Currently showing ${visible}.`;
+  }
+
+  function platformDriverNames(platform){
+    const prefix = platform === 'pc' ? 'pc-' : 'console-';
+    const names = [];
+    document.querySelectorAll(`.server-panel[data-server-panel^="${prefix}"] .results-table tbody tr .driver`).forEach(cell => {
+      const clone = cell.cloneNode(true);
+      clone.querySelectorAll('button,.mobile-driver-select-btn').forEach(el => el.remove());
+      const name = clone.textContent.replace(/ME$/i,'').trim();
+      if(name) names.push(name);
+    });
+    return [...new Set(names)].sort((a,b) => a.localeCompare(b));
+  }
+
+  function populatePlatformDrivers(platform){
+    const select = q('myDriverSelect');
+    if(!select) return;
+    const savedDriver = read(driverKey());
+    const names = platformDriverNames(platform);
+    select.innerHTML = '<option value="">Select your name...</option>' + names.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+    const match = names.find(name => norm(name) === norm(savedDriver));
+    if(match) select.value = match;
+    const info = q('driverPlatformInfo');
+    if(info){
+      info.classList.remove('hidden');
+      info.textContent = names.length
+        ? `Please select your name from the list of drivers for ${platform === 'pc' ? 'PC' : 'console'}.`
+        : `The ${platform === 'pc' ? 'PC' : 'console'} timing files are still loading. The driver list will populate automatically.`;
+    }
+    const controls = q('myDriverAssignmentControls');
+    controls?.classList.remove('driver-assignment-hidden');
+  }
+
+  function setDriverPlatform(platform, savePreference = true){
+    if(!['pc','console'].includes(platform)) return;
+    selectedPlatform = platform;
+    if(savePreference) write(platformKey(), platform);
+    document.querySelectorAll('.driver-platform-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.platform === platform));
+    setResultsPlatform(platform, savePreference);
+    populatePlatformDrivers(platform);
+  }
+
+  function buildDriverOnboarding(meta){
+    const panel = q('myDriverPanel');
+    if(!panel) return;
+    let onboarding = q('driverPlatformOnboarding');
+    if(!onboarding){
+      onboarding = document.createElement('div');
+      onboarding.id = 'driverPlatformOnboarding';
+      onboarding.className = 'driver-onboarding';
+      onboarding.innerHTML = '<h4 id="driverWelcomeTitle">Hello Driver</h4><p>Please select if you are a PC or a console driver.</p><div class="driver-platform-choice"><button type="button" class="driver-platform-btn" data-platform="pc">I am a PC driver</button><button type="button" class="driver-platform-btn" data-platform="console">I am a console driver</button></div><div id="driverPlatformInfo" class="driver-platform-info hidden"></div>';
+      panel.querySelector('.panel-head')?.after(onboarding);
+      onboarding.addEventListener('click', event => {
+        const button = event.target.closest('.driver-platform-btn');
+        if(button) setDriverPlatform(button.dataset.platform, true);
+      });
+    }
+    q('driverWelcomeTitle').textContent = `Hello ${discordName(meta)}`;
+
+    const help = panel.querySelector('.my-driver-help');
+    if(help) help.textContent = 'Choose PC or console first, then select your name from the matching driver list to assign your Driver Home.';
+    const controls = panel.querySelector('.my-driver-controls');
+    if(controls){
+      controls.id = 'myDriverAssignmentControls';
+      controls.classList.add('driver-assignment-hidden');
+      const label = controls.querySelector('label[for="myDriverSelect"]');
+      if(label) label.textContent = 'Select your driver name';
+    }
+    const save = q('saveMyDriverBtn'); if(save) save.textContent = 'Assign this driver to me';
+    const unset = q('unsetMyDriverBtn'); if(unset) unset.textContent = 'Change / unset my driver';
+    q('myDriverSearch')?.closest('.driver-search-wrap')?.classList.add('hidden');
+    document.querySelectorAll('.set-me-inline').forEach(btn => btn.remove());
+  }
+
+  function refreshPlatformList(){
+    if(!selectedPlatform) return;
+    const select = q('myDriverSelect');
+    const current = select?.value || read(driverKey());
+    populatePlatformDrivers(selectedPlatform);
+    if(select && current){
+      const match = [...select.options].find(option => norm(option.value) === norm(current));
+      if(match) select.value = match.value;
+    }
+  }
+
+  function activate(meta){
+    lastMeta = meta || window.IFWL_TIMINGS_META || null;
+    ensureStaffVisibility(lastMeta);
+    createResultsSwitch();
+    if(!lastMeta || !window.IFWL_TIMINGS_DETAILED){
+      setResultsPlatform('all', false);
+      return;
+    }
+    buildDriverOnboarding(lastMeta);
+    const savedPlatform = read(platformKey());
+    const savedDriver = read(driverKey());
+    if(['pc','console'].includes(savedPlatform)){
+      setDriverPlatform(savedPlatform, false);
+      if(savedDriver) q('myDriverAssignmentControls')?.classList.remove('driver-assignment-hidden');
+    }else{
+      setResultsPlatform('all', false);
+    }
+    const accountTitle = q('ifwlAccountTitle');
+    const accountText = q('ifwlAccountText');
+    if(accountTitle) accountTitle.innerHTML = `Hello ${esc(discordName(lastMeta))} <span class="access-pill granted">Full detailed access</span>`;
+    if(accountText) accountText.textContent = 'Please choose PC or console, then select your driver name to connect your Patreon Driver Home.';
+  }
+
+  q('saveMyDriverBtn')?.addEventListener('click', () => {
+    const select = q('myDriverSelect');
+    if(select?.value){
+      write(driverKey(), select.value);
+      const info = q('driverPlatformInfo');
+      if(info) info.textContent = `${select.value} is now assigned to your ${selectedPlatform === 'pc' ? 'PC' : 'console'} Driver Home.`;
+    }
+  }, true);
+  q('unsetMyDriverBtn')?.addEventListener('click', () => {
+    remove(driverKey());
+    const select = q('myDriverSelect'); if(select) select.value = '';
+    q('myDriverAssignmentControls')?.classList.remove('driver-assignment-hidden');
+    const info = q('driverPlatformInfo');
+    if(info) info.textContent = `Please select your name from the list of drivers for ${selectedPlatform === 'pc' ? 'PC' : 'console'}.`;
+  }, true);
+
+  window.addEventListener('ifwl-auth-changed', event => setTimeout(() => activate(event.detail?.meta), 0));
+  const observer = new MutationObserver(mutations => {
+    if(!selectedPlatform) return;
+    const changed = mutations.some(m => {
+      const target = m.target?.nodeType === 1 ? m.target : m.target?.parentElement;
+      return target && !target.closest('#myDriverPanel') && target.closest('.server-panel .results-table tbody');
+    });
+    if(changed){ clearTimeout(window.__ifwlPlatformRefresh); window.__ifwlPlatformRefresh = setTimeout(refreshPlatformList, 250); }
+  });
+  document.querySelector('main') && observer.observe(document.querySelector('main'), {childList:true,subtree:true});
+  setTimeout(() => activate(window.IFWL_TIMINGS_META || null), 1300);
+})();
+</script>
+<!-- /IFWL PATCH -->
+
 </body>
 </html>
