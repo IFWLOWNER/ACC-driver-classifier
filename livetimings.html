@@ -269,6 +269,7 @@
     body:not(.patreon-access) #race .race-risk-info,
     body:not(.patreon-access) #race .race-detailed-col,
     body:not(.staff-access) #beginnerReview{display:none!important}
+    body:not(.staff-access) #staffSessionInspector{display:none!important}
     body:not(.discord-logged-in) #myDriverPanel,
     body:not(.patreon-access) #myDriverPanel{display:none!important}
     body:not(.patreon-access) #race.race-detailed #raceCharts,
@@ -467,6 +468,47 @@
   <main>
     <div class="notice">Want to know where you stand? Latest IFWL server timing files are pulled automatically, with comparisons between Beginner and Pro-Am pace where enough data exists, plus driver consistency and Race Risk based on invalid laps, lap spikes, lap spread, penalties and lost laps.</div>
     <div id="status"></div>
+
+    <section class="panel" id="staffSessionInspector">
+      <div class="panel-head">
+        <div><h3>Staff Session Inspector</h3><small>Upload any single Practice, Qualifying or Race file to see full detail for every driver immediately - no waiting for the next sync.</small></div>
+        <span class="badge purple">Staff only</span>
+      </div>
+      <div class="staff-only-note">Staff-only tool. Not visible to Patreon members, Active Racers, or the public - only logged-in Owner and Ops accounts.</div>
+      <div class="race-file-controls">
+        <div class="race-file-field">
+          <label for="staffInspectorFile">Upload a session result file</label>
+          <input type="file" id="staffInspectorFile" accept=".json" />
+        </div>
+        <div id="staffInspectorSummary" class="race-file-summary">Upload one Practice, Qualifying or Race .json file to see its full breakdown here - Session Risk, consistency, sectors and lap charts, for whichever session type it is.</div>
+      </div>
+      <div id="staffInspectorFocus" class="driver-focus hidden">
+        <div>
+          <label for="staffInspectorDriverSelect">Driver detail</label>
+          <select id="staffInspectorDriverSelect">
+            <option value="">Select a driver from the uploaded session...</option>
+          </select>
+        </div>
+        <span class="server-view-note">Pick a driver to show their full breakdown for this session.</span>
+      </div>
+      <div id="staffInspectorProfile" class="driver-profile hidden">
+        <div class="empty">Select a driver to view their detailed session profile.</div>
+      </div>
+      <div id="staffInspectorCharts" class="race-charts hidden">
+        <div class="empty">Field-wide graphs will appear here once a file is uploaded.</div>
+      </div>
+      <div class="table-wrap">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th>Pos.</th><th>Driver</th><th>Track</th><th>Session</th><th>Car No.</th><th>Car</th><th>Best Lap</th>
+              <th>Consistency</th><th>Session Risk %</th><th>Pit</th><th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="staffInspectorBody"><tr><td colspan="11" class="empty">Upload a session file above to populate this table.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
     <section class="quick-filter-wrap">
       <div class="quick-filter-card">
         <div class="quick-filter-title">Quick server filter</div>
@@ -1762,7 +1804,7 @@
     </div>`;
   }
 
-  function renderRaceConsistencyRiskChart(latestRows, mode){
+  function renderRaceConsistencyRiskChart(latestRows, mode, titleOverride, helpOverride){
     const isRisk = mode === 'risk';
     const rows = latestRows.slice(0, 30);
     const w = 1000, h = 310, left = 58, right = 28, top = 28, bottom = 42;
@@ -1779,10 +1821,13 @@
       return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${fill}"><title>${esc(r.driver)} ${value.toFixed(0)}%</title></rect>`;
     }).join('');
 
+    const chartTitle = titleOverride || (isRisk ? 'Race Risk distribution' : 'Consistency distribution');
+    const chartHelp = helpOverride || (isRisk ? 'Higher bars mean more unstable race data.' : 'Higher bars mean a tighter fastest-to-slowest lap spread.');
+
     return `<div class="chart-wrap">
-      <p class="chart-title">${isRisk ? 'Race Risk distribution' : 'Consistency distribution'}</p>
-      <p class="chart-help">${isRisk ? 'Higher bars mean more unstable race data.' : 'Higher bars mean a tighter fastest-to-slowest lap spread.'}</p>
-      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${isRisk ? 'Race risk distribution' : 'Consistency distribution'}">
+      <p class="chart-title">${esc(chartTitle)}</p>
+      <p class="chart-help">${esc(chartHelp)}</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(chartTitle)}">
         <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
         <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
         ${svgText(18, top+5, '100%', 10, 900)}
@@ -2526,6 +2571,189 @@
   initServerSectionFilters();
   initServerViewTabs();
   initCollapsiblePanels();
+
+  // ===================== Staff Session Inspector =====================
+  // Additive staff-only tool: upload any single Practice, Qualifying or Race file
+  // and see an instant, full breakdown for every driver in it - reusing the exact
+  // same sector/consistency/chart engine as the Race Finish Order panel, but
+  // labelled "Session Risk" throughout since it applies to any session type, not
+  // just races. raceRiskForRow() already degrades gracefully for non-race files:
+  // passing leaderLaps=0 simply skips the race-only "laps down vs leader" factor.
+  let staffInspectorRows = [];
+
+  function staffSessionSummaryText(row, latestRows){
+    const splits = row.bestRaceSplits || [];
+    const fieldBest = fieldBestSplits(latestRows);
+    const sectorLosses = [0,1,2].map(i => ({
+      sector:`S${i+1}`,
+      loss: isValidLap(splits[i]) && fieldBest[i] ? splits[i]-fieldBest[i] : null
+    })).filter(x => x.loss !== null).sort((a,b)=>b.loss-a.loss);
+
+    const bestSector = [...sectorLosses].sort((a,b)=>a.loss-b.loss)[0];
+    const worstSector = sectorLosses[0];
+    const invalid = Number(row.invalidLapCount || 0);
+    const total = Number(row.recordedLapCount || 0);
+
+    const parts = [];
+    if(bestSector) parts.push(`Strongest sector: ${bestSector.sector} (${bestSector.loss>=0?'+':''}${(bestSector.loss/1000).toFixed(3)} vs field best).`);
+    if(worstSector) parts.push(`Biggest improvement area: ${worstSector.sector} (${worstSector.loss>=0?'+':''}${(worstSector.loss/1000).toFixed(3)} vs field best).`);
+    if(total) parts.push(`Invalid laps: ${invalid}/${total}.`);
+    if(row.risk?.notes) parts.push(`Session Risk notes: ${row.risk.notes}.`);
+
+    return parts.join(' ');
+  }
+
+  function buildStaffInspectorRows(session){
+    // The race-only "laps down vs leader" risk factor only makes sense for actual
+    // races - practice/qualifying naturally have different lap counts per driver
+    // and that's not a risk signal. Passing leaderLaps=0 for non-race sessions
+    // makes raceRiskForRow() skip that factor entirely, cleanly, with no other change.
+    const leaderLaps = session.sessionType === 'R'
+      ? Math.max(0, ...session.rows.map(r => Number(r.lapCount || 0)))
+      : 0;
+
+    return session.rows.map(r => ({
+      ...r,
+      racePos: r.pos,
+      risk: raceRiskForRow(r, session, leaderLaps)
+    })).sort((a,b) => a.racePos - b.racePos);
+  }
+
+  function renderStaffInspectorDriverProfile(row){
+    const profile = document.getElementById('staffInspectorProfile');
+    if(!profile) return;
+
+    if(!row){
+      profile.classList.add('hidden');
+      profile.innerHTML = '<div class="empty">Select a driver to view their detailed session profile.</div>';
+      return;
+    }
+
+    const laps = (row.allLapTimes || []).filter(v => isValidLap(v));
+    const best = laps.length ? Math.min(...laps) : 0;
+    const slowest = laps.length ? Math.max(...laps) : 0;
+    const risk = row.risk || {risk:NaN,label:'-',notes:'No data'};
+    const consistency = row.consistencyStats?.consistency;
+    const invalid = Number(row.invalidLapCount || 0);
+    const recorded = Number(row.recordedLapCount || 0);
+    const invalidPct = recorded ? (invalid / recorded) * 100 : NaN;
+
+    let chart = '<div class="empty">No lap trace available for this driver.</div>';
+    const points = laps.map((v, i) => ({lap:i+1, value:v}));
+
+    if(points.length >= 2){
+      const w = 1000, h = 230, left = 70, right = 25, top = 25, bottom = 40;
+      const plotW = w - left - right;
+      const plotH = h - top - bottom;
+      const minTime = Math.min(...laps);
+      const maxTime = Math.max(...laps);
+      const range = Math.max(1, maxTime - minTime);
+      const xFor = lap => left + ((lap - 1) / Math.max(1, points.length - 1)) * plotW;
+      const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
+      const pts = points.map(p => `${xFor(p.lap).toFixed(1)},${yFor(p.value).toFixed(1)}`).join(' ');
+      chart = `<div class="single-driver-chart"><p class="chart-title">Driver lap trace</p><svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Driver lap trace"><line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/><line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>${svgText(10, top+5, msTime(maxTime), 10, 900)}${svgText(10, h-bottom, msTime(minTime), 10, 900)}<polyline points="${pts}" fill="none" stroke="#1fd6bd" stroke-width="4"/><circle cx="${xFor(1)}" cy="${yFor(points[0].value)}" r="5" fill="#1fd6bd"/><circle cx="${xFor(points.length)}" cy="${yFor(points[points.length-1].value)}" r="5" fill="#1fd6bd"/>${svgText(left, h-12, 'Lap 1', 11, 900)}${svgText(w-right, h-12, 'Lap '+points.length, 11, 900, 'end')}</svg></div>`;
+    }
+
+    profile.classList.remove('hidden');
+    profile.innerHTML = `<div class="driver-profile-grid">
+      <div class="driver-profile-card"><span>Driver</span><strong>${esc(row.driver)}</strong><small>P${esc(row.racePos)} · ${esc(row.carName)}</small></div>
+      <div class="driver-profile-card"><span>Best lap</span><strong>${best ? msTime(best) : '-'}</strong><small>${row.bestLap ? 'Leaderboard: '+msTime(row.bestLap) : ''}</small></div>
+      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps counted</small></div>
+      <div class="driver-profile-card"><span>Session Risk</span><strong>${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'}</strong><small>${esc(risk.label || '-')}</small></div>
+      <div class="driver-profile-card"><span>Invalid laps</span><strong>${recorded ? `${invalid}/${recorded}` : '-'}</strong><small>${Number.isFinite(invalidPct) ? invalidPct.toFixed(1)+'%' : ''}</small></div>
+      <div class="driver-profile-card"><span>Lap spread</span><strong>${best && slowest ? msTime(slowest-best) : '-'}</strong><small>Fastest to slowest</small></div>
+      <div class="driver-profile-card"><span>Average lap</span><strong>${row.consistencyStats?.avg ? msTime(row.consistencyStats.avg) : '-'}</strong><small>All real laps</small></div>
+      <div class="driver-profile-card"><span>Laps completed</span><strong>${esc(row.lapCount)}</strong><small>Session result laps</small></div>
+      <div class="driver-profile-card"><span>Pit status</span><strong>${row.missingPit === 1 ? 'Missing' : row.missingPit === 0 ? 'OK' : '-'}</strong><small>From ACC result</small></div>
+      <div class="driver-profile-card"><span>Total time</span><strong>${msTime(row.totalTime)}</strong><small>Session finish time</small></div>
+    </div>
+    <div class="summary-panel"><h4>Session summary</h4><p class="summary-text">${esc(staffSessionSummaryText(row, staffInspectorRows))}</p></div>
+    <div class="driver-analytics-grid">
+      ${renderSectorAnalysis(row, staffInspectorRows)}
+      ${renderLapDeltaChart(row)}
+    </div>
+    ${chart}`;
+  }
+
+  function populateStaffInspectorDriverSelect(rows){
+    const select = document.getElementById('staffInspectorDriverSelect');
+    if(!select) return;
+
+    select.innerHTML = '<option value="">Select a driver from the uploaded session...</option>' + rows.map((r, i) => `<option value="${i}">${esc(r.racePos)}. ${esc(r.driver)} — ${esc(r.carName)} — Session Risk ${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0)+'%' : '-'}</option>`).join('');
+    select.value = '';
+
+    renderStaffInspectorDriverProfile(null);
+    select.onchange = () => renderStaffInspectorDriverProfile(select.value === '' ? null : rows[Number(select.value)]);
+  }
+
+  function renderStaffInspectorCharts(rows){
+    const charts = document.getElementById('staffInspectorCharts');
+    if(!charts) return;
+
+    if(!rows.length){
+      charts.innerHTML = '<div class="empty">No data available for detailed graphs.</div>';
+      return;
+    }
+
+    charts.classList.remove('hidden');
+    charts.innerHTML = `<div class="race-chart-grid">
+      ${renderRaceLapTrace(rows)}
+      ${renderRacePositionGapChart(rows)}
+      ${renderRaceConsistencyRiskChart(rows, 'consistency')}
+      ${renderRaceConsistencyRiskChart(rows, 'risk', 'Session Risk distribution', 'Higher bars mean more unstable session data - based on invalid laps, lap spikes, lap spread and, for races only, laps lost to the leader.')}
+    </div>`;
+  }
+
+  function renderStaffInspectorTable(session, rows){
+    const body = document.getElementById('staffInspectorBody');
+    if(!body) return;
+
+    body.innerHTML = rows.map(r => `<tr>
+      <td class="pos">${r.racePos}</td>
+      <td class="driver">${esc(r.driver)}</td>
+      <td>${esc(title(r.track))}</td>
+      <td>${esc(session.session)}</td>
+      <td>${esc(r.carNo)}</td>
+      <td>${esc(r.carName)}</td>
+      <td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td>
+      <td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td>
+      <td><span class="risk ${riskClass(r.risk?.risk)}">${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0) + '%' : '-'}</span><span class="risk-note">${esc(r.risk?.label || '-')} · ${esc(r.risk?.notes || '')}</span></td>
+      <td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td>
+      <td class="muted">${esc(session.fileName || session.source || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="11" class="empty">No drivers found in this result file.</td></tr>';
+  }
+
+  function renderStaffInspectorSession(session, fileName){
+    staffInspectorRows = buildStaffInspectorRows(session);
+
+    const summary = document.getElementById('staffInspectorSummary');
+    if(summary){
+      summary.textContent = `${session.session} · ${title(session.track)} · ${staffInspectorRows.length} drivers · ${fileName}`;
+    }
+
+    document.getElementById('staffInspectorFocus')?.classList.remove('hidden');
+    renderStaffInspectorTable(session, staffInspectorRows);
+    populateStaffInspectorDriverSelect(staffInspectorRows);
+    renderStaffInspectorCharts(staffInspectorRows);
+  }
+
+  document.getElementById('staffInspectorFile')?.addEventListener('change', async (ev) => {
+    const file = ev.target.files[0];
+    if(!file) return;
+
+    const summary = document.getElementById('staffInspectorSummary');
+    if(summary) summary.textContent = `Loading ${file.name}...`;
+
+    try{
+      const data = decodeJsonText(await file.text());
+      const session = normaliseSession(data, `staff-inspector://${file.name}`, {serverId:'staff-inspector', serverName:'Staff Session Inspector upload'});
+      renderStaffInspectorSession(session, file.name);
+    }catch(e){
+      if(summary) summary.textContent = `Could not read ${file.name}: ${e.message}`;
+      const body = document.getElementById('staffInspectorBody');
+      if(body) body.innerHTML = `<tr><td colspan="11" class="empty">Could not read this file: ${esc(e.message)}</td></tr>`;
+    }
+  });
 
 
   loadManifest();
