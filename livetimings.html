@@ -985,14 +985,11 @@
   function normaliseSession(data, source, item = {}){
     const lines = (data.sessionResult && data.sessionResult.leaderBoardLines) || [];
     const sessionLapMap = lapMapForSession(data);
-    const sourceLower = String(source || '').toLowerCase();
-    const serverId = item.serverId || (
-      sourceLower.includes('console-monday-funday') || sourceLower.includes('monday') ? 'console-monday-funday' :
-      sourceLower.includes('pc-proam') || sourceLower.includes('pc-pro-am') ? 'pc-proam' :
-      sourceLower.includes('console-beginner') ? 'console-beginner' :
-      sourceLower.includes('console-proam') || sourceLower.includes('console-pro-am') ? 'console-proam' :
-      'unknown'
-    );
+    // Reuses the same authoritative, path-based folder detection as loadManifest() —
+    // this used to be a hand-rolled substring chain with no branch for pc-beginner at
+    // all, and one that mis-matched any "monday" path (including pc-monday-funday)
+    // straight to console-monday-funday. serverIdFromPath() fixes both.
+    const serverId = item.serverId || serverIdFromPath(source) || 'unknown';
     const serverName = serverNameFromItem({...item, serverId});
     const rows = lines.filter(l => !l.bIsSpectator).map((l, i) => ({
       pos:i+1,
@@ -1048,6 +1045,18 @@
   function setError(msg){ els.status.innerHTML = `<div class="error">${esc(msg)}</div>`; }
   function clearError(){ els.status.innerHTML = ''; }
 
+  // The manifest's own serverId field (if any) is no longer trusted on its own — the
+  // folder a file actually lives in is unambiguous ground truth and can't be wrong,
+  // so it always wins when it matches one of the six real result folders. This is
+  // what guarantees a panel like PC Pro-Am can only ever pull data/results/pc-proam/
+  // files, regardless of anything the GitHub Action manifest generator tags them with.
+  const IFWL_KNOWN_SERVER_IDS = ['console-proam', 'console-beginner', 'console-monday-funday', 'pc-proam', 'pc-beginner', 'pc-monday-funday'];
+  function serverIdFromPath(path){
+    const match = String(path || '').match(/([a-z0-9-]+)\/[^/]+$/i);
+    const folder = match ? match[1].toLowerCase() : '';
+    return IFWL_KNOWN_SERVER_IDS.includes(folder) ? folder : '';
+  }
+
   async function loadManifest(){
     clearError();
     els.sessionSelect.innerHTML = '<option>Loading manifest...</option>';
@@ -1057,12 +1066,19 @@
       const raw = manifest.results || manifest.files || [];
 
       manifestItems = raw.map(x => {
-        if(typeof x === 'string') return { file:x, name:x.split('/').pop(), serverId:'unknown', serverName:'Unknown server' };
+        if(typeof x === 'string'){
+          const derived = serverIdFromPath(x);
+          const serverId = derived || 'unknown';
+          return { file:x, name:x.split('/').pop(), serverId, serverName: serverLabels[serverId] || serverId || 'Unknown server' };
+        }
+        const filePath = x.file || x.path || x.name;
+        const derived = serverIdFromPath(filePath);
+        const serverId = derived || x.serverId || 'unknown';
         return {
-          file: x.file || x.path || x.name,
-          name: x.name || (x.file || x.path || '').split('/').pop(),
-          serverId: x.serverId || 'unknown',
-          serverName: x.serverName || serverLabels[x.serverId] || x.serverId || 'Unknown server'
+          file: filePath,
+          name: x.name || (filePath || '').split('/').pop(),
+          serverId,
+          serverName: x.serverName || serverLabels[serverId] || serverId || 'Unknown server'
         };
       })
       .filter(x => x.file && x.name && /_(FP|Q|R)\.json$/i.test(x.name))
