@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      NON_RACE_LIMIT: 25
-      RACE_LIMIT: 25
+      NON_RACE_LIMIT: 15
+      RACE_LIMIT: 15
 
       # Console Pro-Am - G-Portal
       CONSOLE_PROAM_HOST: ${{ secrets.GPORTAL_CONSOLE_PROAM_HOST }}
@@ -104,9 +104,11 @@ jobs:
 
             mkdir -p "data/results/$SERVER_ID"
 
-            lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt"
+            # Note: fail-exit is intentionally NOT set on this listing session. If a
+            # single server is briefly unreachable, we want to log it and move on to
+            # the next server rather than aborting the whole scheduled run.
+            lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF > "remote_files_$SERVER_ID.txt" || true
           set ftp:ssl-allow no
-          set cmd:fail-exit yes
           set net:timeout 30
           set net:max-retries 2
           cd "$FTP_RESULTS_PATH"
@@ -116,6 +118,11 @@ jobs:
 
             echo "Remote JSON file count:"
             wc -l "remote_files_$SERVER_ID.txt" || true
+
+            if [ ! -s "remote_files_$SERVER_ID.txt" ]; then
+              echo "No files listed for $SERVER_NAME (server may be temporarily unreachable). Skipping this server for this run."
+              return 0
+            fi
 
             echo "Selecting latest $RACE_LIMIT race files and latest $NON_RACE_LIMIT practice/quali files."
 
@@ -135,36 +142,44 @@ jobs:
             echo "Total selected:"
             wc -l "download_files_$SERVER_ID.txt"
 
-            while IFS= read -r file; do
-              if [ -n "$file" ]; then
-                echo "Downloading $SERVER_NAME file: $file"
+            if [ ! -s "download_files_$SERVER_ID.txt" ]; then
+              echo "Nothing new to download for $SERVER_NAME."
+              return 0
+            fi
 
-                lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF
+            # Single FTP session per server instead of one brand-new connection per
+            # file. With up to 30 files per server across 6 servers, the old
+            # one-connection-per-file approach could open ~300 separate FTP sessions
+            # in one run, which is the main reason the whole workflow took around ten
+            # minutes. mget pulls every selected file for this server in one session.
+            # fail-exit is intentionally left off here too, so one missing/renamed
+            # file on the remote server can't wipe out the rest of this server's
+            # batch (or abort the whole workflow) - lftp logs it and carries on.
+            MGET_ARGS=$(awk '{printf "%s ", $0}' "download_files_$SERVER_ID.txt")
+
+            lftp -u "$FTP_USER","$FTP_PASSWORD" -p "$FTP_PORT" "$FTP_HOST" <<EOF || echo "Warning: one or more files failed to download for $SERVER_NAME, continuing."
           set ftp:ssl-allow no
-          set cmd:fail-exit yes
           set xfer:clobber yes
           set net:timeout 30
           set net:max-retries 2
           cd "$FTP_RESULTS_PATH"
-          get "$file" -o "data/results/$SERVER_ID/$file"
+          lcd "data/results/$SERVER_ID"
+          mget $MGET_ARGS
           bye
           EOF
-
-              fi
-            done < "download_files_$SERVER_ID.txt"
           }
 
-          download_server "console-proam" "IFWL | CONSOLE PRO AM SEASON 3" "$CONSOLE_PROAM_HOST" "$CONSOLE_PROAM_PORT" "$CONSOLE_PROAM_USER" "$CONSOLE_PROAM_PASSWORD" "$CONSOLE_PROAM_RESULTS_PATH"
+          download_server "console-proam" "IFWL | CONSOLE PRO AM SEASON 3" "$CONSOLE_PROAM_HOST" "$CONSOLE_PROAM_PORT" "$CONSOLE_PROAM_USER" "$CONSOLE_PROAM_PASSWORD" "$CONSOLE_PROAM_RESULTS_PATH" || true
 
-          download_server "console-beginner" "IFWL | CONSOLE BEGINNER SEASON 3" "$CONSOLE_BEGINNER_HOST" "$CONSOLE_BEGINNER_PORT" "$CONSOLE_BEGINNER_USER" "$CONSOLE_BEGINNER_PASSWORD" "$CONSOLE_BEGINNER_RESULTS_PATH"
+          download_server "console-beginner" "IFWL | CONSOLE BEGINNER SEASON 3" "$CONSOLE_BEGINNER_HOST" "$CONSOLE_BEGINNER_PORT" "$CONSOLE_BEGINNER_USER" "$CONSOLE_BEGINNER_PASSWORD" "$CONSOLE_BEGINNER_RESULTS_PATH" || true
 
-          download_server "console-monday-funday" "IFWL | CONSOLE MONDAY FUNDAY SEASON 3" "$CONSOLE_MONDAY_FUNDAY_HOST" "$CONSOLE_MONDAY_FUNDAY_PORT" "$CONSOLE_MONDAY_FUNDAY_USER" "$CONSOLE_MONDAY_FUNDAY_PASSWORD" "$CONSOLE_MONDAY_FUNDAY_RESULTS_PATH"
+          download_server "console-monday-funday" "IFWL | CONSOLE MONDAY FUNDAY SEASON 3" "$CONSOLE_MONDAY_FUNDAY_HOST" "$CONSOLE_MONDAY_FUNDAY_PORT" "$CONSOLE_MONDAY_FUNDAY_USER" "$CONSOLE_MONDAY_FUNDAY_PASSWORD" "$CONSOLE_MONDAY_FUNDAY_RESULTS_PATH" || true
 
-          download_server "pc-proam" "IFWL | PC PRO AM SEASON 3" "$PC_PROAM_HOST" "$PC_PROAM_PORT" "$PC_PROAM_USER" "$PC_PROAM_PASSWORD" "$PC_PROAM_RESULTS_PATH"
+          download_server "pc-proam" "IFWL | PC PRO AM SEASON 3" "$PC_PROAM_HOST" "$PC_PROAM_PORT" "$PC_PROAM_USER" "$PC_PROAM_PASSWORD" "$PC_PROAM_RESULTS_PATH" || true
 
-          download_server "pc-beginner" "IFWL | PC BEGINNER SEASON 3" "$PC_BEGINNER_HOST" "$PC_BEGINNER_PORT" "$PC_BEGINNER_USER" "$PC_BEGINNER_PASSWORD" "$PC_BEGINNER_RESULTS_PATH"
+          download_server "pc-beginner" "IFWL | PC BEGINNER SEASON 3" "$PC_BEGINNER_HOST" "$PC_BEGINNER_PORT" "$PC_BEGINNER_USER" "$PC_BEGINNER_PASSWORD" "$PC_BEGINNER_RESULTS_PATH" || true
 
-          download_server "pc-monday-funday" "IFWL | PC MONDAY FUNDAY SEASON 3" "$PC_MONDAY_FUNDAY_HOST" "$PC_MONDAY_FUNDAY_PORT" "$PC_MONDAY_FUNDAY_USER" "$PC_MONDAY_FUNDAY_PASSWORD" "$PC_MONDAY_FUNDAY_RESULTS_PATH"
+          download_server "pc-monday-funday" "IFWL | PC MONDAY FUNDAY SEASON 3" "$PC_MONDAY_FUNDAY_HOST" "$PC_MONDAY_FUNDAY_PORT" "$PC_MONDAY_FUNDAY_USER" "$PC_MONDAY_FUNDAY_PASSWORD" "$PC_MONDAY_FUNDAY_RESULTS_PATH" || true
 
       - name: Build manifest file
         run: |
@@ -206,8 +221,8 @@ jobs:
           manifest = {
               "updatedAt": datetime.now(timezone.utc).isoformat(),
               "syncIntervalMinutes": 30,
-              "nonRaceLimitPerServer": 25,
-              "raceLimitDownloadedPerRun": 25,
+              "nonRaceLimitPerServer": 15,
+              "raceLimitDownloadedPerRun": 15,
               "raceFilesPreserved": True,
               "servers": [
                   {
