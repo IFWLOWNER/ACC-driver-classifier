@@ -522,7 +522,7 @@
           <button class="quick-filter-btn purple" data-server-quick="pc-beginner">PC Beginner</button>
           <button class="quick-filter-btn purple" data-server-quick="pc-monday-funday">PC Monday Funday</button>
         </div>
-        <div class="quick-filter-help">Use these to jump the whole page into one server view. Consistency uses all real laps, including invalid laps, and is now based on fastest-to-slowest lap spread. The normal dropdowns below still work for track and session type.</div>
+        <div class="quick-filter-help">Use these to jump the whole page into one server view. Consistency is based on the spread of each driver's clean laps (mandatory pit-entry/exit laps, the first lap, and statistical outliers are excluded first, so one unusual lap can't dominate the score) - see the "% within 1%" figure under each score for how tightly banded a driver's pace really was. The normal dropdowns below still work for track and session type.</div>
       </div>
     </section>
 
@@ -967,39 +967,92 @@
     return `${value.toFixed(1)}%`;
   }
 
-  function lapStats(values){
-    const laps = values.filter(v => isValidLap(v)).sort((a,b) => a-b);
+  function consistencyNoteText(stats){
+    if(!stats || !(stats.count >= 2)) return 'Need 2+ laps';
+    const parts = [`${stats.count} laps`];
+    if(stats.spread > 0) parts.push(`spread ${msTime(stats.spread)}`);
+    if(Number.isFinite(stats.tightBandPct)) parts.push(`${stats.tightBandPct.toFixed(0)}% within 1%`);
+    if(stats.outlierCount > 0) parts.push(`${stats.outlierCount} outlier${stats.outlierCount === 1 ? '' : 's'} excluded`);
+    return parts.join(' · ');
+  }
 
-    if(laps.length < 2){
+  function lapStats(values){
+    // ============================================================
+    // IFWL CONSISTENCY INDEX
+    // A deliberately more rigorous approach than either the old spread-based
+    // score (fastest-to-slowest range - fragile, one bad lap can dominate it)
+    // or a simple "best lap vs average of the rest" (better, but still a fixed
+    // "laps slower than N seconds are ignored" cutoff doesn't scale between a
+    // 60-second lap and a 2-minute lap).
+    //
+    // This instead:
+    //  1. Drops the first recorded lap (out-lap / formation-style lap) when
+    //     there's enough data left for that to still make sense.
+    //  2. Removes statistical outliers using the median absolute deviation
+    //     (MAD) with a modified z-score - a technique that scales itself to
+    //     each driver's own pace, rather than a fixed absolute threshold.
+    //  3. Scores consistency from the standard deviation of the remaining
+    //     clean laps (coefficient of variation), which reflects the whole
+    //     session's pace spread fairly instead of being dictated by a single
+    //     lap.
+    //  4. Adds a second, intuitive figure - Tight-Band % - the share of clean
+    //     laps within 1% of the driver's own median pace.
+    // ============================================================
+    const ordered = values.filter(v => isValidLap(v));
+    const withoutFirst = ordered.length > 4 ? ordered.slice(1) : ordered;
+
+    if(withoutFirst.length < 2){
+      const laps = ordered.sort((a,b) => a-b);
       return {
-        count:laps.length,
+        count: laps.length,
         best: laps[0] || 0,
         avg: laps[0] || 0,
-        spread:0,
-        consistency:NaN
+        spread: 0,
+        consistency: NaN,
+        stdDev: 0,
+        cov: 0,
+        tightBandPct: NaN,
+        outlierCount: 0
       };
     }
 
-    const best = laps[0];
-    const slowest = laps[laps.length - 1];
-    const spread = slowest - best;
-    const avg = laps.reduce((a,b)=>a+b,0) / laps.length;
+    const med = median(withoutFirst);
+    const deviations = withoutFirst.map(v => Math.abs(v - med));
+    const mad = median(deviations) || 1;
+    const modifiedZ = v => (0.6745 * (v - med)) / mad;
+    const clean = withoutFirst.filter(v => Math.abs(modifiedZ(v)) <= 3.5);
+    const outlierCount = withoutFirst.length - clean.length;
+    const finalLaps = clean.length >= 2 ? clean : withoutFirst;
 
-    // League-style consistency score based on spread against the driver's own best
-    // lap in that session. Only genuinely valid laps are passed in here (the caller
-    // filters out mandatory pit-entry/exit laps first), so a required pit stop no
-    // longer drags a driver's consistency down - this used to include every lap
-    // regardless of validity, which unfairly tanked consistency on any race with a
-    // mandatory pit window.
-    // Example: 10s spread on a 100s best lap = 90% consistency.
-    const consistency = Math.max(0, Math.min(100, 100 - ((spread / best) * 100)));
+    const sorted = [...finalLaps].sort((a,b) => a-b);
+    const best = sorted[0];
+    const slowest = sorted[sorted.length - 1];
+    const spread = slowest - best;
+    const avg = finalLaps.reduce((a,b)=>a+b,0) / finalLaps.length;
+
+    const variance = finalLaps.reduce((sum,v) => sum + Math.pow(v - avg, 2), 0) / finalLaps.length;
+    const stdDev = Math.sqrt(variance);
+    const cov = avg ? (stdDev / avg) * 100 : 0;
+
+    // Example: a driver whose clean laps vary by well under 1% of their own
+    // average pace scores in the high 90s. One that swings by several percent
+    // lap to lap scores much lower - reflecting genuine inconsistency across
+    // the whole run, not just whichever single lap happened to be slowest.
+    const consistency = Math.max(0, Math.min(100, 100 - (cov * 18)));
+
+    const band = med * 0.01;
+    const tightBandPct = (finalLaps.filter(v => Math.abs(v - med) <= band).length / finalLaps.length) * 100;
 
     return {
-      count:laps.length,
+      count: finalLaps.length,
       best,
       avg,
       spread,
-      consistency
+      consistency,
+      stdDev,
+      cov,
+      tightBandPct,
+      outlierCount
     };
   }
 
@@ -1359,7 +1412,7 @@
     els.sessionBody.innerHTML = s.rows.map((r, i) => {
       const splits = r.bestSplits || [];
       const notes = [r.ballast ? `${r.ballast}kg ballast` : '', r.missingPit === 1 ? 'Missing pit' : '', r.missingPit === 0 ? 'Pit OK' : ''].filter(Boolean).join(' · ') || '-';
-      return `<tr><td class="pos">${i+1}</td><td>${esc(r.carNo)}</td><td class="driver">${esc(r.driver)}</td><td><span class="badge">${esc(r.carGroup)}</span> ${esc(r.carName)}</td><td>${msTime(splits[0])}</td><td>${msTime(splits[1])}</td><td>${msTime(splits[2])}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td class="gap">${isValidLap(r.bestLap) && fastest ? gapTime(r.bestLap - fastest) : '-'}</td><td>${esc(r.lapCount)}</td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td><td class="muted">${esc(notes)}</td></tr>`;
+      return `<tr><td class="pos">${i+1}</td><td>${esc(r.carNo)}</td><td class="driver">${esc(r.driver)}</td><td><span class="badge">${esc(r.carGroup)}</span> ${esc(r.carName)}</td><td>${msTime(splits[0])}</td><td>${msTime(splits[1])}</td><td>${msTime(splits[2])}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td class="gap">${isValidLap(r.bestLap) && fastest ? gapTime(r.bestLap - fastest) : '-'}</td><td>${esc(r.lapCount)}</td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${consistencyNoteText(r.consistencyStats)}</span></td><td class="muted">${esc(notes)}</td></tr>`;
     }).join('') || '<tr><td colspan="12" class="empty">No drivers found in this result file.</td></tr>';
 
     populateFilters();
@@ -1424,7 +1477,7 @@
     body.innerHTML = visibleRows.map((r, i) => {
       const podium = podiums.get(r) || 0;
       const posLabel = podium ? `<span class="podium-medal">P${podium}</span>${i+1}` : `${i+1}`;
-      return `<tr class="${podium ? `podium-${podium}` : ''}"><td class="pos">${posLabel}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${fastest && r.bestLap !== fastest ? gapTime(r.bestLap-fastest) : ''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps` : 'Need 2+ laps'}</span></td><td class="muted">${esc(humanSessionDate(r))} · ${esc(r.serverName || 'Unknown server')}</td></tr>`;
+      return `<tr class="${podium ? `podium-${podium}` : ''}"><td class="pos">${posLabel}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${fastest && r.bestLap !== fastest ? gapTime(r.bestLap-fastest) : ''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${consistencyNoteText(r.consistencyStats)}</span></td><td class="muted">${esc(humanSessionDate(r))} · ${esc(r.serverName || 'Unknown server')}</td></tr>`;
     }).join('') || `<tr><td colspan="12" class="empty">${esc(emptyText)}</td></tr>`;
   }
 
@@ -2081,7 +2134,7 @@
     els.raceDriverProfile.innerHTML = `<div class="driver-profile-grid">
       <div class="driver-profile-card"><span>Driver</span><strong>${esc(row.driver)}</strong><small>P${esc(row.racePos)} · ${esc(row.carName)}</small></div>
       <div class="driver-profile-card"><span>Best lap</span><strong>${best ? msTime(best) : '-'}</strong><small>${row.bestLap ? 'Leaderboard: '+msTime(row.bestLap) : ''}</small></div>
-      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps counted</small></div>
+      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps${Number.isFinite(row.consistencyStats?.tightBandPct) ? ` · ${row.consistencyStats.tightBandPct.toFixed(0)}% within 1%` : ''}</small></div>
       <div class="driver-profile-card"><span>Race Risk</span><strong>${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'}</strong><small>${esc(risk.label || '-')}</small></div>
       <div class="driver-profile-card"><span>Invalid laps</span><strong>${recorded ? `${invalid}/${recorded}` : '-'}</strong><small>${Number.isFinite(invalidPct) ? invalidPct.toFixed(1)+'%' : ''}</small></div>
       <div class="driver-profile-card"><span>Lap spread</span><strong>${best && slowest ? msTime(slowest-best) : '-'}</strong><small>Fastest to slowest</small></div>
@@ -2155,7 +2208,7 @@
         : 'Choose one race file. The finish order, graphs and driver details will all use that race only.';
     }
 
-    els.raceBody.innerHTML = rows.map((r, driverIndex) => `<tr data-race-driver-index="${driverIndex}"><td class="pos">${r.racePos}</td><td class="driver">${esc(r.driver)}<button class="mobile-driver-select-btn" type="button" data-race-driver-select="${driverIndex}">View driver details</button></td><td>${esc(title(r.track))}</td><td>${esc(r.carNo)}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td>${msTime(r.totalTime)}</td><td>${esc(r.lapCount)}</td><td class="race-detailed-col"><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td><td class="race-detailed-col"><span class="risk ${riskClass(r.risk?.risk)}">${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0) + '%' : '-'}</span><span class="risk-note">${esc(r.risk?.label || '-')} · ${esc(r.risk?.notes || '')}</span></td><td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td><td class="muted">${esc(r.serverName)} / ${esc(r.fileName)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">No race results were found in the selected file.</td></tr>';
+    els.raceBody.innerHTML = rows.map((r, driverIndex) => `<tr data-race-driver-index="${driverIndex}"><td class="pos">${r.racePos}</td><td class="driver">${esc(r.driver)}<button class="mobile-driver-select-btn" type="button" data-race-driver-select="${driverIndex}">View driver details</button></td><td>${esc(title(r.track))}</td><td>${esc(r.carNo)}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td>${msTime(r.totalTime)}</td><td>${esc(r.lapCount)}</td><td class="race-detailed-col"><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${consistencyNoteText(r.consistencyStats)}</span></td><td class="race-detailed-col"><span class="risk ${riskClass(r.risk?.risk)}">${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0) + '%' : '-'}</span><span class="risk-note">${esc(r.risk?.label || '-')} · ${esc(r.risk?.notes || '')}</span></td><td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td><td class="muted">${esc(r.serverName)} / ${esc(r.fileName)}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">No race results were found in the selected file.</td></tr>';
 
     els.raceBody.querySelectorAll('[data-race-driver-select]').forEach(button => {
       button.addEventListener('click', () => {
@@ -2745,7 +2798,7 @@
     profile.innerHTML = `<div class="driver-profile-grid">
       <div class="driver-profile-card"><span>Driver</span><strong>${esc(row.driver)}</strong><small>P${esc(row.racePos)} · ${esc(row.carName)}</small></div>
       <div class="driver-profile-card"><span>Best lap</span><strong>${best ? msTime(best) : '-'}</strong><small>${row.bestLap ? 'Leaderboard: '+msTime(row.bestLap) : ''}</small></div>
-      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps counted</small></div>
+      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps${Number.isFinite(row.consistencyStats?.tightBandPct) ? ` · ${row.consistencyStats.tightBandPct.toFixed(0)}% within 1%` : ''}</small></div>
       <div class="driver-profile-card"><span>Session Risk</span><strong>${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'}</strong><small>${esc(risk.label || '-')}</small></div>
       <div class="driver-profile-card"><span>Invalid laps</span><strong>${recorded ? `${invalid}/${recorded}` : '-'}</strong><small>${Number.isFinite(invalidPct) ? invalidPct.toFixed(1)+'%' : ''}</small></div>
       <div class="driver-profile-card"><span>Lap spread</span><strong>${best && slowest ? msTime(slowest-best) : '-'}</strong><small>Fastest to slowest</small></div>
@@ -2804,7 +2857,7 @@
       <td>${esc(r.carNo)}</td>
       <td>${esc(r.carName)}</td>
       <td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td>
-      <td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${r.consistencyStats?.count >= 2 ? `${r.consistencyStats.count} laps · spread ${msTime(r.consistencyStats.spread)}` : 'Need 2+ laps'}</span></td>
+      <td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${consistencyNoteText(r.consistencyStats)}</span></td>
       <td><span class="risk ${riskClass(r.risk?.risk)}">${Number.isFinite(r.risk?.risk) ? r.risk.risk.toFixed(0) + '%' : '-'}</span><span class="risk-note">${esc(r.risk?.label || '-')} · ${esc(r.risk?.notes || '')}</span></td>
       <td>${r.missingPit === 1 ? 'Missing pit' : r.missingPit === 0 ? 'OK' : '-'}</td>
       <td class="muted">${esc(session.fileName || session.source || '')}</td>
