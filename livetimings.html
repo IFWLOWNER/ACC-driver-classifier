@@ -985,9 +985,12 @@
     const spread = slowest - best;
     const avg = laps.reduce((a,b)=>a+b,0) / laps.length;
 
-    // Stricter league-style consistency score:
-    // includes valid + invalid real laps, ignores only impossible ACC junk values.
-    // Based on total spread against the driver's best lap in that session.
+    // League-style consistency score based on spread against the driver's own best
+    // lap in that session. Only genuinely valid laps are passed in here (the caller
+    // filters out mandatory pit-entry/exit laps first), so a required pit stop no
+    // longer drags a driver's consistency down - this used to include every lap
+    // regardless of validity, which unfairly tanked consistency on any race with a
+    // mandatory pit window.
     // Example: 10s spread on a 100s best lap = 90% consistency.
     const consistency = Math.max(0, Math.min(100, 100 - ((spread / best) * 100)));
 
@@ -1011,16 +1014,24 @@
       if(!isValidLap(laptime)) continue;
 
       const key = lapKey(lap.carId, lap.driverIndex);
-      if(!map.has(key)) map.set(key, {laps:[], invalid:0, valid:0, total:0, lapObjects:[], bestSplits:[null,null,null]});
+      if(!map.has(key)) map.set(key, {laps:[], validLaps:[], invalid:0, valid:0, total:0, lapObjects:[], bestSplits:[null,null,null]});
 
       const item = map.get(key);
       const splitValues = Array.isArray(lap.splits) ? lap.splits.map(Number) : [];
+      const isValidForBest = lap.isValidForBest !== false;
 
       item.laps.push(laptime);
+      // Laps ACC itself marks isValidForBest:false are, in practice, almost always
+      // the mandatory pit-entry/pit-exit laps (and occasionally a genuine track-limits
+      // violation). Either way they are not representative of clean-lap pace, so they
+      // are kept out of validLaps - which is what consistency spread is calculated
+      // from - while still being kept in "laps" for full lap-trace charts and in the
+      // invalid/valid/total counters used for the "X/Y invalid laps" badge.
+      if(isValidForBest) item.validLaps.push(laptime);
       item.lapObjects.push({
         laptime,
         splits: splitValues,
-        isValidForBest: lap.isValidForBest !== false
+        isValidForBest
       });
 
       item.total += 1;
@@ -1080,7 +1091,7 @@
       invalidLapCount: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {invalid:0}).invalid,
       recordedLapCount: (sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {total:0}).total,
       carId: l.car?.carId,
-      consistencyStats: lapStats((sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[]}).laps),
+      consistencyStats: lapStats((sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {validLaps:[]}).validLaps),
       missingPit:l.missingMandatoryPitstop
     }));
 
@@ -1365,7 +1376,7 @@
   function resultRows(list, serverId){
     return list
       .filter(s => !serverId || s.serverId === serverId)
-      .flatMap(s => s.rows.map(r => ({...r, serverId:s.serverId, serverName:s.serverName, session:s.session, track:s.track, fileName:s.fileName})))
+      .flatMap(s => s.rows.map(r => ({...r, serverId:s.serverId, serverName:s.serverName, session:s.session, track:s.track, fileName:s.fileName, wet:s.wet})))
       // ACC does not always populate all three best-sector values in every result file.
       // Keep any row with a valid best lap and display missing sectors as "-" instead
       // of incorrectly removing the complete driver result.
@@ -1539,6 +1550,19 @@
     return 'Unknown';
   }
 
+  // ACC's dedicated server result files only expose one weather field - a wet/dry
+  // flag for the whole session (no ambient/track temperature, grip or rain
+  // intensity is available). This surfaces that flag wherever a comparison is made,
+  // rather than guessing at conditions the export simply doesn't contain.
+  function conditionLabel(row){
+    return row?.wet ? 'wet' : 'dry';
+  }
+
+  function conditionCaution(rowA, rowB){
+    if(!!rowA?.wet === !!rowB?.wet) return '';
+    return ' Note: these two laps were set in different track conditions (one wet, one dry) - that alone can explain some or all of this gap, so weigh it accordingly.';
+  }
+
   function renderBeginnerReview(allRows){
     if(!els.beginnerReviewBody) return;
 
@@ -1603,6 +1627,7 @@
         const slowRow = slowest[1];
         const fastRow = fastest[1];
         const slowRisk = raceRiskForRow(slowRow, null, 0);
+        const caution = conditionCaution(slowRow, fastRow);
 
         if(slowest[0] === 'Beginner'){
           sandbagCount++;
@@ -1610,8 +1635,8 @@
             type:'warn',
             label:'Sandbagging watch',
             title:`${displayName} is ${gapPct.toFixed(1)}% slower in ${platform} Beginner than their own ${fastest[0]} pace at ${title(track)}`,
-            detail:`Beginner best: ${msTime(slowRow.bestLap)} (${esc(slowRow.serverName)}). ${fastest[0]} best: ${msTime(fastRow.bestLap)} (${esc(fastRow.serverName)}). Consistency in Beginner: ${consistencyText(slowRow.consistencyStats?.consistency, slowRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
-            reason:'This driver has demonstrated meaningfully faster pace elsewhere on the same platform and track. Not proof of deliberate sandbagging, but worth a racecraft and attendance review before treating this as genuine Beginner pace.'
+            detail:`Beginner best: ${msTime(slowRow.bestLap)} in the ${conditionLabel(slowRow)} (${esc(slowRow.serverName)}). ${fastest[0]} best: ${msTime(fastRow.bestLap)} in the ${conditionLabel(fastRow)} (${esc(fastRow.serverName)}). Consistency in Beginner: ${consistencyText(slowRow.consistencyStats?.consistency, slowRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
+            reason:`This driver has demonstrated meaningfully faster pace elsewhere on the same platform and track. Not proof of deliberate sandbagging, but worth a racecraft and attendance review before treating this as genuine Beginner pace.${caution}`
           });
         }else{
           mismatchCount++;
@@ -1619,8 +1644,8 @@
             type:'move',
             label:'Pace mismatch',
             title:`${displayName} shows a ${gapPct.toFixed(1)}% pace gap between ${fastest[0]} and ${slowest[0]} at ${title(track)} (${platform})`,
-            detail:`${fastest[0]} best: ${msTime(fastRow.bestLap)} (${esc(fastRow.serverName)}). ${slowest[0]} best: ${msTime(slowRow.bestLap)} (${esc(slowRow.serverName)}). Session Risk in the slower category: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
-            reason:'Neither category here is the protected Beginner tier, so this ranks below a Sandbagging watch - but a large, repeated gap between two categories for the same driver is still worth a look.'
+            detail:`${fastest[0]} best: ${msTime(fastRow.bestLap)} in the ${conditionLabel(fastRow)} (${esc(fastRow.serverName)}). ${slowest[0]} best: ${msTime(slowRow.bestLap)} in the ${conditionLabel(slowRow)} (${esc(slowRow.serverName)}). Session Risk in the slower category: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
+            reason:`Neither category here is the protected Beginner tier, so this ranks below a Sandbagging watch - but a large, repeated gap between two categories for the same driver is still worth a look.${caution}`
           });
         }
       }
@@ -1648,12 +1673,13 @@
 
         increaseCount++;
         const recentRisk = raceRiskForRow(mostRecent, null, 0);
+        const increaseCaution = conditionCaution(earliest, mostRecent);
         notes.push({
           type:'move',
           label:'Rapid pace increase',
           title:`${displayName} improved ${improvementPct.toFixed(1)}% at ${title(track)} in ${esc(mostRecent.serverName)}`,
-          detail:`Earliest recorded best: ${msTime(earliest.bestLap)} (${humanSessionDate(earliest)}). Most recent best: ${msTime(mostRecent.bestLap)} (${humanSessionDate(mostRecent)}). Consistency now: ${consistencyText(mostRecent.consistencyStats?.consistency, mostRecent.consistencyStats?.count)}. Session Risk: ${Number.isFinite(recentRisk.risk) ? recentRisk.risk.toFixed(0)+'%' : '-'} (${recentRisk.label}).`,
-          reason:'Not automatically suspicious - genuine improvement is normal and worth celebrating. Flagged so staff have visibility on drivers whose pace is changing quickly, in either direction.'
+          detail:`Earliest recorded best: ${msTime(earliest.bestLap)} in the ${conditionLabel(earliest)} (${humanSessionDate(earliest)}). Most recent best: ${msTime(mostRecent.bestLap)} in the ${conditionLabel(mostRecent)} (${humanSessionDate(mostRecent)}). Consistency now: ${consistencyText(mostRecent.consistencyStats?.consistency, mostRecent.consistencyStats?.count)}. Session Risk: ${Number.isFinite(recentRisk.risk) ? recentRisk.risk.toFixed(0)+'%' : '-'} (${recentRisk.label}).`,
+          reason:`Not automatically suspicious - genuine improvement is normal and worth celebrating. Flagged so staff have visibility on drivers whose pace is changing quickly, in either direction.${increaseCaution}`
         });
       }
     }
@@ -1689,18 +1715,32 @@
   }
 
   function raceRiskForRow(row, raceSession, leaderLaps){
-    const laps = row.allLapTimes || [];
+    const lapObjects = row.lapObjects || [];
+    const cleanLaps = lapObjects.filter(l => l.isValidForBest !== false && isValidLap(l.laptime)).map(l => l.laptime);
+    const invalidLapObjects = lapObjects.filter(l => l.isValidForBest === false);
     const lapCount = Number(row.lapCount || 0);
-    const invalidCount = Number(row.invalidLapCount || 0);
-    const totalRecorded = Number(row.recordedLapCount || laps.length || 0);
+    const totalRecorded = Number(row.recordedLapCount || lapObjects.length || 0);
 
     let score = 0;
     const notes = [];
 
-    if(totalRecorded > 0){
-      const invalidRatio = invalidCount / totalRecorded;
+    // An invalid lap that is dramatically slower than this driver's own clean pace is
+    // almost always a mandatory pit-entry/pit-exit lap (the pit lane speed limit and
+    // the stop itself add far more time than any track-limits cut ever would) - that's
+    // a required part of the race, not a driving fault, so it shouldn't count against
+    // risk. An invalid lap close to normal pace is far more likely a genuine
+    // track-limits/rule violation, which is still a legitimate risk signal.
+    const cleanMedian = cleanLaps.length ? median(cleanLaps) : 0;
+    const pitLikelyCount = invalidLapObjects.filter(l => cleanMedian && isValidLap(l.laptime) && l.laptime > cleanMedian * 1.15).length;
+    const genuineInvalidCount = invalidLapObjects.length - pitLikelyCount;
+
+    if(totalRecorded > 0 && genuineInvalidCount > 0){
+      const invalidRatio = genuineInvalidCount / totalRecorded;
       score += Math.min(35, invalidRatio * 70);
-      if(invalidCount > 0) notes.push(`${invalidCount}/${totalRecorded} invalid laps`);
+      notes.push(`${genuineInvalidCount}/${totalRecorded} invalid laps`);
+    }
+    if(pitLikelyCount > 0){
+      notes.push(`${pitLikelyCount} likely pit lap${pitLikelyCount === 1 ? '' : 's'} excluded from risk`);
     }
 
     const stats = row.consistencyStats || {};
@@ -1709,9 +1749,9 @@
       if(stats.spread > 0) notes.push(`spread ${msTime(stats.spread)}`);
     }
 
-    if(laps.length >= 3){
-      const med = median(laps);
-      const spikes = laps.filter(v => isValidLap(v) && med && v > med * 1.10).length;
+    if(cleanLaps.length >= 3){
+      const med = median(cleanLaps);
+      const spikes = cleanLaps.filter(v => med && v > med * 1.10).length;
       if(spikes){
         score += Math.min(25, spikes * 8);
         notes.push(`${spikes} lap spike${spikes === 1 ? '' : 's'}`);
@@ -2661,6 +2701,7 @@
     return session.rows.map(r => ({
       ...r,
       racePos: r.pos,
+      wet: session.wet,
       risk: raceRiskForRow(r, session, leaderLaps)
     })).sort((a,b) => a.racePos - b.racePos);
   }
@@ -2712,6 +2753,7 @@
       <div class="driver-profile-card"><span>Laps completed</span><strong>${esc(row.lapCount)}</strong><small>Session result laps</small></div>
       <div class="driver-profile-card"><span>Pit status</span><strong>${row.missingPit === 1 ? 'Missing' : row.missingPit === 0 ? 'OK' : '-'}</strong><small>From ACC result</small></div>
       <div class="driver-profile-card"><span>Total time</span><strong>${msTime(row.totalTime)}</strong><small>Session finish time</small></div>
+      <div class="driver-profile-card"><span>Conditions</span><strong>${row.wet ? 'Wet' : 'Dry'}</strong><small>Whole-session flag from ACC</small></div>
     </div>
     <div class="summary-panel"><h4>Session summary</h4><p class="summary-text">${esc(staffSessionSummaryText(row, staffInspectorRows))}</p></div>
     <div class="driver-analytics-grid">
@@ -2774,7 +2816,7 @@
 
     const summary = document.getElementById('staffInspectorSummary');
     if(summary){
-      summary.textContent = `${session.session} · ${title(session.track)} · ${staffInspectorRows.length} drivers · ${fileName}`;
+      summary.textContent = `${session.session} · ${title(session.track)} · ${session.wet ? 'Wet session' : 'Dry session'} · ${staffInspectorRows.length} drivers · ${fileName}`;
     }
 
     document.getElementById('staffInspectorFocus')?.classList.remove('hidden');
