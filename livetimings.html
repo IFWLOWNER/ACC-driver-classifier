@@ -327,6 +327,23 @@
     .race-teams-notes{padding:10px 14px 14px}
     .race-teams-notes textarea{width:100%;min-height:56px;padding:10px 12px;border:1px solid var(--ifwl-line);border-radius:9px;background:#12161c;color:var(--text-primary);font-weight:600;font-family:var(--font-body);resize:vertical}
     @media(max-width:900px){.race-teams-columns{grid-template-columns:1fr}}
+    .race-teams-view-btn{border:0;border-radius:8px;padding:7px 11px;font-size:11px;font-weight:800;text-transform:uppercase;cursor:pointer;background:linear-gradient(135deg,var(--ifwl-teal-deep),var(--ifwl-teal));color:#03211c}
+    .race-teams-detail{padding:16px}
+    .race-teams-detail-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px}
+    .race-teams-detail-head h3{margin:0;font-size:20px;text-transform:uppercase;color:var(--text-primary)}
+    .race-teams-back-btn{border:1px solid var(--ifwl-line);border-radius:999px;padding:9px 16px;font-weight:800;text-transform:uppercase;font-size:12px;cursor:pointer;background:#1a2027;color:#fff;margin-left:auto}
+    .race-teams-detail-notes{margin-bottom:16px}
+    .race-teams-driver-card{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:16px;margin-bottom:16px;overflow:hidden}
+    .race-teams-driver-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(90deg,rgba(31,214,189,.1),transparent)}
+    .race-teams-driver-head strong{font-size:17px;color:var(--text-primary)}
+    .race-teams-driver-simgrid{display:flex;align-items:center;gap:8px;margin-left:auto}
+    .race-teams-driver-simgrid label{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--text-muted)}
+    .race-teams-driver-simgrid input{width:220px;padding:8px 10px;border:1px solid var(--ifwl-line);border-radius:8px;background:#12161c;color:var(--text-primary);font-size:12px}
+    .race-teams-driver-simgrid a{color:var(--ifwl-teal);font-size:12px;font-weight:800;text-decoration:none}
+    .race-teams-driver-summary{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:10px;padding:0 16px 14px}
+    .race-teams-driver-summary .ifwl-deep-metric{margin:0}
+    @media(max-width:1100px){.race-teams-driver-summary{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:650px){.race-teams-driver-summary{grid-template-columns:1fr 1fr}}
     @media(max-width:900px){.account-bar{width:calc(100vw - 28px)}.my-driver-controls{grid-template-columns:1fr}.my-profile-grid{grid-template-columns:1fr 1fr}}
 
   </style>
@@ -575,14 +592,16 @@
         <div id="raceTeamsStatus" class="race-file-summary">Open this panel to load race team data.</div>
       </div>
 
-      <div class="race-teams-columns">
+      <div id="raceTeamsDetailView" class="race-teams-detail hidden"></div>
+
+      <div class="race-teams-columns" id="raceTeamsColumns">
         <div class="race-teams-scouting">
           <h4>Top Picks <span class="race-teams-subtle">— ranked across the whole platform</span></h4>
           <p class="chart-help">Combines pace, consistency and recent activity into one transparent score. This ranks everyone in the loaded data for this platform, not just drivers already on a team - use it to scout new talent.</p>
           <div class="table-wrap">
             <table class="results-table">
-              <thead><tr><th>#</th><th>Driver</th><th>Pace</th><th>Consistency</th><th>Session Risk</th><th>Sessions</th><th>Last active</th><th>Score</th><th></th></tr></thead>
-              <tbody id="raceTeamsTopPicksBody"><tr><td colspan="9" class="empty">Open this panel to load Top Picks.</td></tr></tbody>
+              <thead><tr><th>#</th><th>Driver</th><th>Pace</th><th>Consistency</th><th>Session Risk</th><th>Sessions</th><th>Last active</th><th>Score</th></tr></thead>
+              <tbody id="raceTeamsTopPicksBody"><tr><td colspan="8" class="empty">Open this panel to load Top Picks.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -3333,11 +3352,20 @@
     return [...idx.values()].map(rows => rows[0]?.driver).filter(Boolean).sort((a,b) => a.localeCompare(b));
   }
 
+  function rtDriverName(d){
+    return typeof d === 'string' ? d : String(d?.name || '');
+  }
+
+  function rtDriverSimgrid(d){
+    return typeof d === 'string' ? '' : String(d?.simgridLink || '');
+  }
+
   function rtRenderTeamCard(team){
     const platformLabel = team.platform === 'console' ? 'Console' : 'PC';
     const idx = raceTeamsDriverIndex.get(raceTeamsPlatform) || new Map();
 
-    const driverRows = (team.drivers || []).map(name => {
+    const driverRows = (team.drivers || []).map(d => {
+      const name = rtDriverName(d);
       const rows = idx.get(driverNameKey(name));
       const summary = rows ? rtSummarizeDriver(rows) : null;
       return `<div class="race-teams-driver-row">
@@ -3357,6 +3385,7 @@
         <span class="badge purple">${platformLabel}</span>
         <span class="race-teams-subtle">${(team.drivers||[]).length} driver${(team.drivers||[]).length === 1 ? '' : 's'}</span>
         <div class="race-teams-team-actions">
+          <button type="button" class="race-teams-view-btn" data-rt-view-full="1">View full team</button>
           <button type="button" data-rt-rename="1">Rename</button>
           <button type="button" class="danger" data-rt-delete="1">Delete team</button>
         </div>
@@ -3384,6 +3413,10 @@
       });
       if(result.id) team.id = result.id;
       rtRenderRosterList();
+      const detail = document.getElementById('raceTeamsDetailView');
+      if(detail && !detail.classList.contains('hidden') && detail.dataset.rtCurrentTeam === team.id){
+        rtRenderTeamDetail(team);
+      }
       if(status) status.textContent = `${statusVerb || 'Saved'} · ${new Date().toLocaleTimeString()}`;
     }catch(e){
       if(status) status.textContent = `Could not save "${team.name}": ${e.message}`;
@@ -3400,7 +3433,7 @@
     searchInput?.addEventListener('input', () => {
       const term = searchInput.value.trim().toLowerCase();
       if(!term){ suggestions.classList.add('hidden'); suggestions.innerHTML = ''; return; }
-      const already = new Set((team.drivers || []).map(driverNameKey));
+      const already = new Set((team.drivers || []).map(d => driverNameKey(rtDriverName(d))));
       const names = rtAllDriverNamesForPlatform().filter(n => n.toLowerCase().includes(term) && !already.has(driverNameKey(n)));
       if(!names.length){ suggestions.classList.add('hidden'); suggestions.innerHTML = ''; return; }
       suggestions.innerHTML = names.slice(0, 20).map(n => `<button type="button" data-rt-pick="${esc(n)}">${esc(n)}</button>`).join('');
@@ -3410,7 +3443,7 @@
     suggestions?.addEventListener('click', async (e) => {
       const btn = e.target.closest('[data-rt-pick]');
       if(!btn) return;
-      team.drivers = [...(team.drivers || []), btn.dataset.rtPick];
+      team.drivers = [...(team.drivers || []), { name: btn.dataset.rtPick, simgridLink: '' }];
       if(searchInput) searchInput.value = '';
       suggestions.classList.add('hidden');
       suggestions.innerHTML = '';
@@ -3420,10 +3453,12 @@
     card.querySelectorAll('[data-rt-remove]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const name = btn.dataset.rtRemove;
-        team.drivers = (team.drivers || []).filter(d => driverNameKey(d) !== driverNameKey(name));
+        team.drivers = (team.drivers || []).filter(d => driverNameKey(rtDriverName(d)) !== driverNameKey(name));
         await rtPersistTeam(team, 'Driver removed');
       });
     });
+
+    card.querySelector('[data-rt-view-full]')?.addEventListener('click', () => rtOpenTeamDetail(team));
 
     card.querySelector('[data-rt-rename]')?.addEventListener('click', async () => {
       const newName = window.prompt('Rename team', team.name);
@@ -3455,6 +3490,129 @@
         await rtPersistTeam(team, 'Notes saved');
       }, 900);
     });
+  }
+
+  function rtCloseTeamDetail(){
+    const detail = document.getElementById('raceTeamsDetailView');
+    const columns = document.getElementById('raceTeamsColumns');
+    if(detail){ detail.classList.add('hidden'); detail.innerHTML = ''; delete detail.dataset.rtCurrentTeam; }
+    if(columns) columns.style.display = '';
+  }
+
+  function rtOpenTeamDetail(team){
+    const detail = document.getElementById('raceTeamsDetailView');
+    const columns = document.getElementById('raceTeamsColumns');
+    if(!detail) return;
+    if(columns) columns.style.display = 'none';
+    detail.classList.remove('hidden');
+    detail.dataset.rtCurrentTeam = team.id;
+    rtRenderTeamDetail(team);
+    detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Full per-driver breakdown for the Team Detail view. Every session that
+  // driver has run on this platform gets its own dropdown, reusing the exact
+  // same sector-analysis and lap-delta-chart renderers used everywhere else on
+  // the page - the sector comparison uses every loaded row at that same track
+  // across the whole platform as the "field", so it's a fair comparison.
+  function rtRenderDriverDetailCard(team, driverEntry){
+    const idx = raceTeamsDriverIndex.get(raceTeamsPlatform) || new Map();
+    const allPlatformRows = [...idx.values()].flat();
+    const name = rtDriverName(driverEntry);
+    const simgrid = rtDriverSimgrid(driverEntry);
+    const rows = idx.get(driverNameKey(name)) || [];
+    const summary = rows.length ? rtSummarizeDriver(rows) : null;
+    const sortedRows = [...rows].sort((a,b) => fileTimestamp(b) - fileTimestamp(a));
+    const safeId = 'rt-simgrid-' + name.replace(/[^a-z0-9]/gi, '').slice(0, 40);
+
+    const sessionEntries = sortedRows.map(row => {
+      const trackRows = allPlatformRows.filter(r => r.track === row.track);
+      const risk = raceRiskForRow(row, null, 0);
+
+      return `<details class="ifwl-entry-detail">
+        <summary>
+          <span>${esc(title(row.track))}</span>
+          <span>${esc(row.session)}</span>
+          <span>${esc(row.serverName)}</span>
+          <span class="lap">${isValidLap(row.bestLap) ? msTime(row.bestLap) : '-'}</span>
+          <span>${consistencyText(row.consistencyStats?.consistency, row.consistencyStats?.count)}</span>
+          <span class="risk ${riskClass(risk.risk)}">${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'% risk' : 'Details'}</span>
+        </summary>
+        <div class="ifwl-entry-body">
+          <div class="ifwl-entry-metrics">
+            <div class="ifwl-entry-metric"><span>Track</span><strong>${esc(title(row.track))}</strong></div>
+            <div class="ifwl-entry-metric"><span>Session</span><strong>${esc(row.session)}</strong></div>
+            <div class="ifwl-entry-metric"><span>Best lap</span><strong>${isValidLap(row.bestLap) ? msTime(row.bestLap) : '-'}</strong></div>
+            <div class="ifwl-entry-metric"><span>Date</span><strong>${esc(humanSessionDate(row))}</strong></div>
+            <div class="ifwl-entry-metric"><span>Source</span><strong>${esc(row.serverName)}</strong></div>
+            <div class="ifwl-entry-metric"><span>Conditions</span><strong>${row.wet ? 'Wet' : 'Dry'}</strong></div>
+          </div>
+          <div class="driver-analytics-grid">
+            ${renderSectorAnalysis(row, trackRows)}
+            ${renderLapDeltaChart(row)}
+          </div>
+        </div>
+      </details>`;
+    }).join('') || '<div class="empty">No sessions loaded yet for this driver on this platform.</div>';
+
+    return `<div class="race-teams-driver-card" data-rt-driver-card="${esc(name)}">
+      <div class="race-teams-driver-head">
+        <strong>${esc(name)}</strong>
+        <div class="race-teams-driver-simgrid">
+          <label for="${safeId}">SimGrid</label>
+          <input type="text" id="${safeId}" placeholder="https://simgrid.com/..." value="${esc(simgrid)}" data-rt-simgrid-input="${esc(name)}">
+          ${simgrid ? `<a href="${esc(simgrid)}" target="_blank" rel="noopener">Open ↗</a>` : ''}
+        </div>
+      </div>
+      <div class="race-teams-driver-summary">
+        <div class="ifwl-deep-metric"><span>Best lap</span><strong>${summary && summary.bestLapOverall ? msTime(summary.bestLapOverall) : '-'}</strong></div>
+        <div class="ifwl-deep-metric"><span>Avg consistency</span><strong>${summary && Number.isFinite(summary.avgConsistency) ? summary.avgConsistency.toFixed(1)+'%' : '-'}</strong></div>
+        <div class="ifwl-deep-metric"><span>Avg Session Risk</span><strong>${summary && Number.isFinite(summary.avgRisk) ? summary.avgRisk.toFixed(0)+'%' : '-'}</strong></div>
+        <div class="ifwl-deep-metric"><span>Sessions</span><strong>${summary ? summary.sessionCount : 0}</strong></div>
+        <div class="ifwl-deep-metric"><span>Tracks</span><strong>${summary ? summary.trackCount : 0}</strong></div>
+        <div class="ifwl-deep-metric"><span>Last active</span><strong style="font-size:13px">${summary ? esc(summary.mostRecentLabel) : '-'}</strong></div>
+      </div>
+      <div class="ifwl-entry-list" style="padding:0 16px 16px">${sessionEntries}</div>
+    </div>`;
+  }
+
+  function rtWireDriverDetailCard(team, driverEntry){
+    const name = rtDriverName(driverEntry);
+    const input = document.querySelector(`[data-rt-simgrid-input="${window.CSS && CSS.escape ? CSS.escape(name) : name}"]`);
+    if(!input) return;
+    let timer;
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const i = (team.drivers || []).findIndex(d => rtDriverName(d) === name);
+        if(i === -1) return;
+        team.drivers[i] = { name, simgridLink: input.value.trim() };
+        await rtPersistTeam(team, 'SimGrid link saved');
+      }, 900);
+    });
+  }
+
+  function rtRenderTeamDetail(team){
+    const detail = document.getElementById('raceTeamsDetailView');
+    if(!detail) return;
+
+    const platformLabel = team.platform === 'console' ? 'Console' : 'PC';
+    const driverCardsHtml = (team.drivers || []).map(d => rtRenderDriverDetailCard(team, d)).join('')
+      || '<div class="empty">No drivers added yet. Go back and search-add drivers to this team.</div>';
+
+    detail.innerHTML = `
+      <div class="race-teams-detail-head">
+        <h3>${esc(team.name)}</h3>
+        <span class="badge purple">${platformLabel}</span>
+        <span class="race-teams-subtle">${(team.drivers||[]).length} driver${(team.drivers||[]).length === 1 ? '' : 's'}</span>
+        <button type="button" class="race-teams-back-btn" id="raceTeamsBackBtn">← Back to all teams</button>
+      </div>
+      ${team.notes ? `<div class="race-teams-detail-notes"><div class="ifwl-note-box">${esc(team.notes)}</div></div>` : ''}
+      ${driverCardsHtml}
+    `;
+
+    document.getElementById('raceTeamsBackBtn')?.addEventListener('click', rtCloseTeamDetail);
+    (team.drivers || []).forEach(d => rtWireDriverDetailCard(team, d));
   }
 
   function rtRenderRosterList(){
