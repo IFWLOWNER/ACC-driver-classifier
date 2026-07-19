@@ -1751,6 +1751,7 @@
 
     const panel = document.querySelector(`[data-server-panel="${serverId}"]`);
     const sessionChoice = panel?.querySelector('[data-section-session]')?.value || 'all';
+    const trackSelect = panel?.querySelector('[data-section-track]');
     const sortMode = panel?.querySelector('[data-section-sort]')?.value || 'latest';
     const limit = Number(panel?.querySelector('[data-section-limit]')?.value || 50);
     const search = panel?.querySelector('[data-section-search]')?.value || '';
@@ -1767,13 +1768,28 @@
       if(summary && total) summary.textContent = `Loading result files: ${done} of ${total}`;
     });
     progress?.classList.remove('active');
-    renderServerBoards(loaded, serverId, {sortMode, limit, search});
+
+    // Track names are only known once files are actually loaded (they live inside
+    // the session data, not the manifest), so this list is built here from
+    // whatever this specific server's own data actually contains - PC Pro-Am
+    // only ever shows PC Pro-Am's tracks, Console Beginner only its own, etc.
+    if(trackSelect){
+      const previousTrack = trackSelect.value;
+      const tracks = [...new Set(loaded.map(s => s.track).filter(Boolean))].sort((a,b) => title(a).localeCompare(title(b)));
+      trackSelect.innerHTML = '<option value="all">All tracks</option>' + tracks.map(t => `<option value="${esc(t)}">${esc(title(t))}</option>`).join('');
+      trackSelect.value = tracks.includes(previousTrack) ? previousTrack : 'all';
+    }
+
+    const trackChoice = trackSelect?.value || 'all';
+    const trackFiltered = trackChoice === 'all' ? loaded : loaded.filter(s => s.track === trackChoice);
+
+    renderServerBoards(trackFiltered, serverId, {sortMode, limit, search});
 
     const summary = panel?.querySelector('[data-section-summary]');
     if(summary){
-      const fileCount = new Set(loaded.map(s => s.source)).size;
-      const rowCount = resultRows(loaded, serverId).length;
-      summary.textContent = `${fileCount} session file${fileCount === 1 ? '' : 's'} shown · ${rowCount} timing${rowCount === 1 ? '' : 's'} loaded · ${limit ? `showing up to ${limit}` : 'showing all'}${search ? ` · driver search: ${search}` : ''}`;
+      const fileCount = new Set(trackFiltered.map(s => s.source)).size;
+      const rowCount = resultRows(trackFiltered, serverId).length;
+      summary.textContent = `${fileCount} session file${fileCount === 1 ? '' : 's'} shown · ${rowCount} timing${rowCount === 1 ? '' : 's'} loaded · ${limit ? `showing up to ${limit}` : 'showing all'}${trackChoice !== 'all' ? ` · track: ${title(trackChoice)}` : ''}${search ? ` · driver search: ${search}` : ''}`;
     }
 
     loadedServerIds.add(serverId);
@@ -3112,6 +3128,12 @@
           <select data-section-session>
             <option value="all" selected>All available sessions</option>
             <option value="latest">Latest session only</option>
+          </select>
+        </div>
+        <div class="server-section-filter">
+          <label>Show by track</label>
+          <select data-section-track>
+            <option value="all" selected>All tracks</option>
           </select>
         </div>
         <div class="server-section-filter">
