@@ -161,6 +161,14 @@ table.dir-table td{padding:10px 12px;border-bottom:1px solid var(--ifwl-line-sof
 table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 .empty{padding:26px;text-align:center;color:var(--text-muted);font-weight:600}
 
+/* performance stats + tiered ticket history */
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:18px}
+@media(max-width:700px){.stats-grid{grid-template-columns:1fr}}
+.stat-card{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:16px}
+.stat-card span{display:block;color:var(--text-muted);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.stat-card strong{display:block;margin-top:8px;font-size:24px;font-family:var(--font-mono);color:var(--ifwl-teal)}
+.ticket-count-badge{font-size:15px;font-weight:700}
+.ticket-count-badge strong{color:var(--ifwl-teal);font-family:var(--font-mono);font-size:20px}
 /* gold-only ticket history */
 .ticket-row{display:grid;grid-template-columns:130px 1fr 110px;gap:12px;padding:13px 18px;border-bottom:1px solid var(--ifwl-line-soft);align-items:start}
 .ticket-row strong{display:block;margin-bottom:3px}
@@ -297,8 +305,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </section>
 
   <section class="panel" id="ticketHistoryPanel">
-    <div class="panel-head"><div><h3>My Steward Ticket History</h3><small>Incidents and protests tied to your licence</small></div><span class="badge purple">Gold only</span></div>
-    <div id="ticketHistoryLocked" class="locked-note">Ticket history is a Gold Patreon feature. Upgrade on Patreon to see your full steward record here.</div>
+    <div class="panel-head"><div><h3>Performance &amp; Steward Record</h3><small>Your on-track scoring and incident history</small></div><span class="badge purple" id="ticketPanelBadge">Full detail: Gold only</span></div>
+
+    <div id="statsCards" class="stats-grid hidden">
+      <div class="stat-card"><span>Overall Score</span><strong id="statOverallScore">-</strong></div>
+      <div class="stat-card"><span>Consistency Avg</span><strong id="statConsistency">-</strong></div>
+      <div class="stat-card"><span>Race Risk Avg</span><strong id="statRaceRisk">-</strong></div>
+    </div>
+
+    <div id="ticketCountOnly" class="panel-body hidden">
+      <div class="ticket-count-badge">You have <strong id="ticketCountNumber">0</strong> steward ticket(s) on record.</div>
+      <p class="field-hint">Overall Score, Consistency Average, Race Risk Average and full incident detail unlock with Gold Patreon. <a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="color:var(--ifwl-purple)">Join Patreon</a></p>
+    </div>
+
     <div id="ticketHistoryBody" class="hidden"></div>
   </section>
 
@@ -486,12 +505,26 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return apiPost('updateLicenceProfile', patch);
   }
 
-  async function fetchMyTickets(driverProfile){
+  // Server contract for ?tickets=1&token=... :
+  //   Gold or Staff  -> { ticketCount, tickets:[...full incident detail...], stats:{overallScore, consistencyAvg, raceRiskAvg} }
+  //   Everyone else  -> { ticketCount }  (no ticket detail, no stats - tier enforced server-side, not just hidden in CSS)
+  // Matching logic server-side: pull the driver's accDriverNames[], then for every
+  // ticket check if accused/reporter contains a string that includes one of those
+  // names (substring match, not exact - car numbers change between seasons).
+  async function fetchTicketData(driverProfile){
+    const gold = window.IFWL_GOLD || window.IFWL_STAFF;
     if(USE_DEMO_FALLBACK){
-      // No real ticket linkage in demo mode - shown empty with an explanatory note.
-      return [];
+      // Demo mode has no real ticket linkage yet, so it fabricates a small,
+      // clearly-labelled example so the two tiers are visibly different.
+      const demoTickets = [
+        {season:'Season 1', track:'Imola', ruleBreach:'RP8st — Rear-End Collision (Braking Zone) (15s)', fullIncident:'Example ticket for demo purposes only.', status:'Finalised'},
+      ];
+      if(gold){
+        return { ticketCount: demoTickets.length, tickets: demoTickets, stats: { overallScore: 78.4, consistencyAvg: 91.2, raceRiskAvg: 12.6 } };
+      }
+      return { ticketCount: demoTickets.length };
     }
-    return (await apiGet('tickets')).tickets || [];
+    return apiGet('tickets');
   }
 
   async function fetchDirectory(){
@@ -545,12 +578,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('myLicenceSub').textContent = `Licence ${p.licenceNumber} · linked to live timing results by driver name`;
   }
 
-  function renderTickets(tickets){
-    const gold = window.IFWL_GOLD;
-    q('ticketHistoryLocked').classList.toggle('hidden', !!gold);
+  function renderTicketData(data){
+    const gold = window.IFWL_GOLD || window.IFWL_STAFF;
+    q('ticketPanelBadge').textContent = gold ? 'Full detail unlocked' : 'Full detail: Gold only';
+    q('statsCards').classList.toggle('hidden', !gold);
+    q('ticketCountOnly').classList.toggle('hidden', !!gold);
+    q('ticketHistoryBody').classList.toggle('hidden', !gold);
+
+    if(!gold){
+      q('ticketCountNumber').textContent = data.ticketCount ?? 0;
+      return;
+    }
+
+    const s = data.stats || {};
+    q('statOverallScore').textContent = s.overallScore != null ? s.overallScore : '-';
+    q('statConsistency').textContent = s.consistencyAvg != null ? s.consistencyAvg + '%' : '-';
+    q('statRaceRisk').textContent = s.raceRiskAvg != null ? s.raceRiskAvg + '%' : '-';
+
+    const tickets = data.tickets || [];
     const body = q('ticketHistoryBody');
-    body.classList.toggle('hidden', !gold);
-    if(!gold) return;
     if(!tickets.length){ body.innerHTML = '<div class="empty">No steward tickets on record. Clean sheet.</div>'; return; }
     body.innerHTML = tickets.map(t=>{
       const statusClass = /final/i.test(t.status)?'finalised': /dismiss/i.test(t.status)?'dismissed':'pending';
@@ -584,8 +630,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function init(){
     currentProfile = await fetchMyProfile();
     if(currentProfile) renderCard(currentProfile);
-    const tickets = await fetchMyTickets(currentProfile);
-    renderTickets(tickets);
+    const ticketData = await fetchTicketData(currentProfile);
+    renderTicketData(ticketData);
     const dir = await fetchDirectory();
     renderDirectory(dir);
 
