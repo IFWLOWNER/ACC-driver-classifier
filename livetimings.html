@@ -479,6 +479,7 @@
   .results-table tbody tr:nth-child(even){background:rgba(255,255,255,.015)}
   .results-table tbody tr{transition:background .12s ease}
   .results-table td,.results-table th{transition:background .12s ease}
+  .timing-track-group td{background:linear-gradient(90deg,rgba(31,214,189,.16),rgba(31,214,189,.02));color:var(--ifwl-teal);font-weight:900;text-transform:uppercase;font-size:12px;letter-spacing:.04em;padding:9px 12px;border-bottom:2px solid rgba(31,214,189,.35)}
 
   /* Loading / empty state shimmer so waiting feels alive instead of static grey text */
   .empty{position:relative;overflow:hidden}
@@ -1669,16 +1670,47 @@
     if(term) filtered = filtered.filter(r => String(r.driver).toLowerCase().includes(term));
 
     const sorted = filtered.sort((a,b) => {
-      if(sortMode === 'fastest') return a.bestLap - b.bestLap || newestFirst(a,b);
+      if(sortMode === 'fastest'){
+        // Group by track first - a fast lap on a short track is naturally a
+        // lower millisecond value than any lap on a long track, so sorting by
+        // raw lap time alone buried every long-track result under every
+        // short-track one (and with a fixed result limit, long tracks could
+        // vanish from the list entirely). Grouping gives every track its own
+        // fastest-to-slowest block instead of one meaningless mixed ranking.
+        const trackCompare = String(a.track||'').localeCompare(String(b.track||''));
+        if(trackCompare !== 0) return trackCompare;
+        return a.bestLap - b.bestLap || newestFirst(a,b);
+      }
       return newestFirst(a,b) || a.bestLap - b.bestLap;
     });
+
     const podiums = sessionPodiumMap(sorted);
-    const fastest = sorted.reduce((best,row) => !best || row.bestLap < best ? row.bestLap : best, 0);
+
+    // Gap should always be measured against the fastest lap at the SAME
+    // track - a gap to the fastest lap across every track mixed together
+    // was never a meaningful number, regardless of sort mode.
+    const fastestByTrack = new Map();
+    for(const r of sorted){
+      const cur = fastestByTrack.get(r.track);
+      if(!cur || r.bestLap < cur) fastestByTrack.set(r.track, r.bestLap);
+    }
+
     const visibleRows = limit > 0 ? sorted.slice(0, limit) : sorted;
-    body.innerHTML = visibleRows.map((r, i) => {
+
+    let lastTrack = null;
+    let posInGroup = 0;
+    body.innerHTML = visibleRows.map((r) => {
+      let trackHeaderRow = '';
+      if(sortMode === 'fastest' && r.track !== lastTrack){
+        trackHeaderRow = `<tr class="timing-track-group"><td colspan="12">${esc(title(r.track))}</td></tr>`;
+        lastTrack = r.track;
+        posInGroup = 0;
+      }
+      posInGroup++;
       const podium = podiums.get(r) || 0;
-      const posLabel = podium ? `<span class="podium-medal">P${podium}</span>${i+1}` : `${i+1}`;
-      return `<tr class="${podium ? `podium-${podium}` : ''}"><td class="pos">${posLabel}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${fastest && r.bestLap !== fastest ? gapTime(r.bestLap-fastest) : ''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${consistencyNoteText(r.consistencyStats)}</span></td><td class="muted">${esc(humanSessionDate(r))} · ${esc(r.serverName || 'Unknown server')}</td></tr>`;
+      const posLabel = podium ? `<span class="podium-medal">P${podium}</span>${posInGroup}` : `${posInGroup}`;
+      const trackFastest = fastestByTrack.get(r.track) || 0;
+      return `${trackHeaderRow}<tr class="${podium ? `podium-${podium}` : ''}"><td class="pos">${posLabel}</td><td class="driver">${esc(r.driver)}</td><td>${esc(title(r.track))}</td><td>${esc(r.session)}</td><td>${esc(r.carNo)}</td><td>${esc(r.carName)}</td><td>${msTime(r.bestSplits[0])}</td><td>${msTime(r.bestSplits[1])}</td><td>${msTime(r.bestSplits[2])}</td><td class="best">${msTime(r.bestLap)} <span class="gap">${trackFastest && r.bestLap !== trackFastest ? gapTime(r.bestLap-trackFastest) : ''}</span></td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${consistencyNoteText(r.consistencyStats)}</span></td><td class="muted">${esc(humanSessionDate(r))} · ${esc(r.serverName || 'Unknown server')}</td></tr>`;
     }).join('') || `<tr><td colspan="12" class="empty">${esc(emptyText)}</td></tr>`;
   }
 
@@ -1825,6 +1857,28 @@
   // someone who's suspiciously fast for Beginner (or slow for Pro-Am) even if
   // they've never personally raced in the other category, which the existing
   // same-driver cross-category check above cannot do on its own.
+  //
+  // FIX (following a real false-positive report): a minimum of 3 laps was far
+  // too fragile - a median from just 3-5 laps can be dragged a long way by a
+  // single anomalous lap, which is exactly what produced two genuine Pro-Am
+  // "alien" drivers reading as merely 2.6-3.4% off a Beginner median that was
+  // itself unreliable. Two changes: outlier-trim each category's lap pool
+  // first (same MAD-based method already used for consistency scoring), and
+  // require a real sample size (8+ laps after trimming) before a benchmark is
+  // trusted at all - below that, the benchmark simply doesn't exist yet and
+  // no flag can fire off it.
+  const MIN_BENCHMARK_SAMPLE = 8;
+
+  function trimBenchmarkOutliers(values){
+    if(values.length < 5) return values; // too few to safely detect outliers - leave as-is
+    const med = median(values);
+    const deviations = values.map(v => Math.abs(v - med));
+    const mad = median(deviations) || 1;
+    const modifiedZ = v => (0.6745 * (v - med)) / mad;
+    const clean = values.filter(v => Math.abs(modifiedZ(v)) <= 3.5);
+    return clean.length >= 3 ? clean : values;
+  }
+
   function computeCategoryBenchmarks(allRows){
     const groups = new Map();
     for(const r of allRows){
@@ -1841,11 +1895,15 @@
 
     const benchmarks = new Map();
     for(const [key, g] of groups.entries()){
+      const cleanBeginner = trimBenchmarkOutliers(g.beginner);
+      const cleanProam = trimBenchmarkOutliers(g.proam);
       benchmarks.set(key, {
-        beginnerMedian: g.beginner.length >= 3 ? median(g.beginner) : null,
-        proamMedian: g.proam.length >= 3 ? median(g.proam) : null,
-        beginnerCount: g.beginner.length,
-        proamCount: g.proam.length
+        beginnerMedian: cleanBeginner.length >= MIN_BENCHMARK_SAMPLE ? median(cleanBeginner) : null,
+        proamMedian: cleanProam.length >= MIN_BENCHMARK_SAMPLE ? median(cleanProam) : null,
+        beginnerCount: cleanBeginner.length,
+        proamCount: cleanProam.length,
+        beginnerRawCount: g.beginner.length,
+        proamRawCount: g.proam.length
       });
     }
     return benchmarks;
@@ -1864,7 +1922,7 @@
       .sort((a,b) => a.track.localeCompare(b.track) || a.condition.localeCompare(b.condition));
 
     if(!rows.length){
-      els.categoryBenchmarksBody.innerHTML = '<div class="empty">Not enough Beginner + Pro-Am data yet at any shared track and condition (need 3+ laps in each category).</div>';
+      els.categoryBenchmarksBody.innerHTML = '<div class="empty">Not enough Beginner + Pro-Am data yet at any shared track and condition (need 8+ laps in each category after outlier trimming).</div>';
       return;
     }
 
