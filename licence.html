@@ -709,7 +709,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       }
       return all[id];
     }
-    try { return await apiGet('licenceProfile'); }
+    try { return (await apiGet('licenceProfile')).profile || null; }
     catch(e){ console.warn(e.message); return null; }
   }
 
@@ -721,7 +721,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       demoSet('profiles', all);
       return all[id];
     }
-    return apiPost('updateLicenceProfile', patch);
+    return (await apiPost('updateLicenceProfile', patch)).profile;
   }
 
   // Ticket count/detail still needs the Cloud Function - tickets are real
@@ -1463,10 +1463,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }catch(e){ q('sgSaveStatus').textContent = 'Could not save: ' + e.message; }
   });
 
-  initTierManager();
-  renderRequestQueue();
-  renderTierCheckboxes();
-  renderSimgridEventList();
+  // These four calls used to fire immediately as the script parsed - before
+  // the Discord login flow had finished and before window.IFWL_AUTH had a
+  // session token to return. That's what produced empty ?token= requests
+  // and 401s even for genuine staff accounts. They now wait for the same
+  // 'ifwl-auth-changed' event the rest of the page already uses, and only
+  // run once staff access is actually confirmed.
+  let staffPanelsInited = false;
+  function initStaffPanels(){
+    if(staffPanelsInited || !window.IFWL_STAFF) return;
+    staffPanelsInited = true;
+    initTierManager();
+    renderRequestQueue();
+    renderTierCheckboxes();
+    renderSimgridEventList();
+  }
+  window.addEventListener('ifwl-auth-changed', initStaffPanels);
+  if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
 })();
 </script>
 
