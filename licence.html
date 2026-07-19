@@ -209,6 +209,7 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .race-event-card{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;border:1px solid var(--ifwl-line);border-radius:14px;padding:12px;margin-bottom:10px;background:#0d1116}
 .race-event-card img{width:120px;height:68px;object-fit:cover;border-radius:8px;background:#1a2027;display:block}
 .platform-badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;background:rgba(31,214,189,.14);color:var(--ifwl-teal)}
+.points-pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:10.5px;font-weight:900;text-transform:uppercase;background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
 @media(max-width:700px){.race-event-card{grid-template-columns:1fr;text-align:center}.race-event-card img{width:100%;height:120px;margin:0 auto}}
 body:not(.licence-gold) .gold-only-field{display:none!important}
 body:not(.licence-silver-plus) .silver-only-field{display:none!important}
@@ -276,7 +277,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <div class="licence-name" id="licenceName">&mdash;</div>
             <div class="licence-number" id="licenceNumber">IFWL-0000-00000</div>
             <div class="licence-team" id="licenceTeamLabel">No race team</div>
-            <div class="licence-bottom"><span class="tier-pill" id="licenceCardTierPill">No Licence</span></div>
+            <div class="licence-bottom"><span class="tier-pill" id="licenceCardTierPill">No Licence</span><span class="points-pill" id="licencePointsPill" style="display:none">0 pts</span></div>
           </div>
         </div>
         <p class="field-hint" style="text-align:center;margin-top:10px">This card updates live as you edit your profile.</p>
@@ -806,6 +807,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     applyTierPill(q('licenceCardTierPill'), p.tier || 'No Licence');
     applyTierPill(q('myTierPill'), p.tier || 'No Licence');
     applyTierCard(p.tier || 'No Licence');
+    const pointsPill = q('licencePointsPill');
+    const points = Number(p.licencePoints || 0);
+    pointsPill.style.display = points > 0 ? 'inline-block' : 'none';
+    pointsPill.textContent = `${points} pt${points===1?'':'s'}`;
     const photo = p.avatarMode==='upload' && p.photoUploadUrl ? p.photoUploadUrl
                 : p.avatarMode==='url' && p.avatarUrl ? p.avatarUrl
                 : (p.discordAvatarUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="88" height="88"><rect width="88" height="88" fill="%231a2027"/></svg>');
@@ -845,9 +850,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('statConsistency').textContent = stats.consistencyAvg != null ? stats.consistencyAvg + '%' : '-';
       q('statRaceRisk').textContent = stats.riskAvg != null ? stats.riskAvg + '%' : '-';
     }
-    q('statsHint').textContent = stats
-      ? `From ${stats.sessionCount} session(s) across ${stats.trackCount} track(s) · most recent: ${stats.mostRecentLabel}`
-      : 'No session data found yet for your linked ACC driver name(s) - mark yourself as your driver in Live Timings first.';
+    q('statsHint').innerHTML = stats
+      ? `From ${stats.sessionCount} session(s) across ${stats.trackCount} track(s) · most recent: ${stats.mostRecentLabel} · <a href="livetimings.html" style="color:var(--ifwl-teal)">Update your driver link in Live Timings</a>`
+      : 'No session data found yet for your linked ACC driver name(s) - <a href="livetimings.html" style="color:var(--ifwl-teal)">head to Live Timings and mark yourself as your driver</a>, then come back here.';
 
     const tickets = ticketInfo?.tickets || [];
     const body = q('ticketHistoryBody');
@@ -944,7 +949,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const form = new FormData();
     form.append('file', file);
     form.append('kind', kind);
-    const r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}`, { method:'POST', body: form });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let r;
+    try{
+      r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}`, { method:'POST', body: form, signal: controller.signal });
+    }catch(err){
+      if(err.name === 'AbortError') throw new Error('Upload timed out after 30s - check the Cloud Function logs for rtLicenceImageUpload.');
+      throw err;
+    }finally{
+      clearTimeout(timeout);
+    }
     const d = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(d?.error || 'Upload failed');
     return { url: d.url, ref: 'url' };
@@ -1238,6 +1253,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return window.IFWL_Api.apiPost('staffLicenceBan', { driverId: id, lift: true });
   }
 
+  // Points live on the same licence doc as everything else - it's already
+  // the driver's unique licence record, so there's no second place points
+  // need to be "linked" to. delta can be positive or negative; total never
+  // goes below zero.
+  async function staffAdjustPoints(id, delta, reason){
+    if(!Number.isFinite(delta) || delta === 0) throw new Error('Points delta must be a non-zero number.');
+    if(!reason) throw new Error('A reason is required for any points change.');
+    if(USE_DEMO_FALLBACK()){
+      const all = demoGet('profiles', {});
+      const p = all[id]; if(!p) throw new Error('Driver not found');
+      const before = Number(p.licencePoints || 0);
+      const after = Math.max(0, before + delta);
+      p.pointsHistory = p.pointsHistory || [];
+      p.pointsHistory.push({ delta, before, after, reason, date: new Date().toISOString(), setBy: 'staff' });
+      p.licencePoints = after;
+      all[id] = p; demoSet('profiles', all);
+      return after;
+    }
+    return (await window.IFWL_Api.apiPost('staffLicencePoints', { driverId: id, delta, reason })).licencePoints;
+  }
+
   function renderResults(rows){
     const wrap = q('staffSearchResults');
     if(!rows.length){ wrap.innerHTML = '<div class="empty">No matches.</div>'; return; }
@@ -1281,6 +1317,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn ghost" id="edApplyBanBtn" type="button" style="background:rgba(255,84,100,.16);color:var(--ifwl-red)">Apply ban</button>
         <span class="save-status" id="edBanStatus"></span>
       `}
+      <hr style="border-color:var(--ifwl-line);margin:18px 0">
+      <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Licence points</label>
+      <div class="request-card" style="margin-bottom:12px">
+        <strong style="font-size:22px;font-family:var(--font-mono);color:var(--ifwl-amber)">${Number(p.licencePoints||0)}</strong>
+        <div class="req-meta">Current total &middot; ${(p.pointsHistory||[]).length} change(s) on record</div>
+      </div>
+      <div class="field-group"><label>Points to add or remove</label><input type="number" id="edPointsDelta" placeholder="e.g. 3 to add, -3 to remove"></div>
+      <div class="field-group"><label>Reason</label><input type="text" id="edPointsReason" placeholder="e.g. Race 2 incident - avoidable contact"></div>
+      <button class="btn ghost" id="edPointsBtn" type="button">Apply points change</button>
+      <span class="save-status" id="edPointsStatus"></span>
+      ${(p.pointsHistory||[]).length ? `<div style="margin-top:12px">${[...p.pointsHistory].reverse().map(h=>`<div class="note-item">${h.delta>0?'+':''}${h.delta} pts &middot; ${h.reason}<div class="note-meta">${h.setBy||'staff'} · ${new Date(h.date||h.dateMs||Date.now()).toLocaleString()}</div></div>`).join('')}</div>` : ''}
     `;
     q('edSaveBtn').addEventListener('click', async ()=>{
       q('edSaveStatus').textContent = 'Saving...';
@@ -1306,6 +1353,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       if(!confirm('Lift this ban now?')) return;
       try{ await staffLiftBan(id); openEditor(id); }
       catch(e){ alert('Could not lift ban: ' + e.message); }
+    });
+    q('edPointsBtn')?.addEventListener('click', async ()=>{
+      const delta = Number(q('edPointsDelta').value);
+      const reason = q('edPointsReason').value.trim();
+      q('edPointsStatus').textContent = 'Applying...';
+      try{ await staffAdjustPoints(id, delta, reason); openEditor(id); }
+      catch(e){ q('edPointsStatus').textContent = e.message; }
     });
   }
 
