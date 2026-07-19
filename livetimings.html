@@ -309,6 +309,7 @@
     .race-teams-list{display:flex;flex-direction:column;gap:12px}
     .race-teams-team-card{border:1px solid var(--ifwl-line);border-radius:14px;background:var(--panel-bg);overflow:hidden}
     .race-teams-team-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;background:linear-gradient(90deg,rgba(198,91,232,.12),transparent)}
+    .rt-expand-toggle{border:0;background:none;color:var(--ifwl-teal);font-size:16px;cursor:pointer;width:22px;height:22px;line-height:1;flex-shrink:0}
     .race-teams-team-head strong{font-size:15px;color:var(--text-primary)}
     .race-teams-team-head .badge{margin-left:2px}
     .race-teams-team-actions{margin-left:auto;display:flex;gap:8px}
@@ -349,7 +350,7 @@
     .rt-events-section{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;margin-bottom:16px}
     .rt-events-section h4{margin:0 0 6px;font-size:15px;text-transform:uppercase;color:var(--text-primary)}
     .rt-event-card{background:var(--panel-bg);border:1px solid var(--ifwl-line);border-radius:14px;margin-top:14px;overflow:hidden}
-    .rt-event-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;background:linear-gradient(90deg,rgba(198,91,232,.12),transparent)}
+    .rt-event-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:16px 14px;min-height:54px;background:linear-gradient(90deg,rgba(198,91,232,.12),transparent);background-repeat:no-repeat;border-radius:14px 14px 0 0}
     .rt-event-head strong{font-size:15px;color:var(--text-primary)}
     .rt-event-head a{color:var(--ifwl-teal);font-size:12px;font-weight:800;text-decoration:none}
     .rt-event-head button{margin-left:auto;border:1px solid rgba(255,84,100,.4);background:rgba(255,84,100,.16);color:#ffb3ba;border-radius:8px;padding:7px 11px;font-size:11px;font-weight:800;text-transform:uppercase;cursor:pointer}
@@ -3266,6 +3267,7 @@
   let raceTeamsPlatform = 'pc';
   let raceTeamsRosters = [];
   const raceTeamsDriverIndex = new Map(); // 'pc' | 'console' -> Map(driverKey -> rows[])
+  const raceTeamsExpandedIds = new Set(); // team ids currently expanded in the roster list
   const raceTeamsEventsByTeam = new Map(); // teamId -> events[]
 
   let myStintsLoaded = false;
@@ -3504,6 +3506,7 @@
   function rtRenderTeamCard(team){
     const platformLabel = team.platform === 'console' ? 'Console' : 'PC';
     const idx = raceTeamsDriverIndex.get(raceTeamsPlatform) || new Map();
+    const isExpanded = raceTeamsExpandedIds.has(team.id);
 
     const driverRows = (team.drivers || []).map(d => {
       const name = rtDriverName(d);
@@ -3522,6 +3525,7 @@
 
     return `<div class="race-teams-team-card" data-rt-team-id="${esc(team.id)}">
       <div class="race-teams-team-head">
+        <button type="button" class="rt-expand-toggle" data-rt-expand-toggle="1" aria-label="Expand team">${isExpanded ? '▾' : '▸'}</button>
         <strong>${esc(team.name)}</strong>
         <span class="badge purple">${platformLabel}</span>
         <span class="race-teams-subtle">${(team.drivers||[]).length} driver${(team.drivers||[]).length === 1 ? '' : 's'}</span>
@@ -3531,13 +3535,15 @@
           <button type="button" class="danger" data-rt-delete="1">Delete team</button>
         </div>
       </div>
-      <div class="race-teams-driver-search">
-        <input type="text" placeholder="Search a driver to add..." data-rt-search-input="1" autocomplete="off">
-        <div class="race-teams-driver-suggestions hidden" data-rt-suggestions="1"></div>
-      </div>
-      <div class="race-teams-driver-list">${driverRows}</div>
-      <div class="race-teams-notes">
-        <textarea placeholder="Notes about this team..." data-rt-notes="1">${esc(team.notes || '')}</textarea>
+      <div class="race-teams-team-body ${isExpanded ? '' : 'hidden'}" data-rt-team-body="1">
+        <div class="race-teams-driver-search">
+          <input type="text" placeholder="Search a driver to add..." data-rt-search-input="1" autocomplete="off">
+          <div class="race-teams-driver-suggestions hidden" data-rt-suggestions="1"></div>
+        </div>
+        <div class="race-teams-driver-list">${driverRows}</div>
+        <div class="race-teams-notes">
+          <textarea placeholder="Notes about this team..." data-rt-notes="1">${esc(team.notes || '')}</textarea>
+        </div>
       </div>
     </div>`;
   }
@@ -3567,6 +3573,12 @@
   function rtWireTeamCard(team){
     const card = document.querySelector(`[data-rt-team-id="${window.CSS && CSS.escape ? CSS.escape(team.id) : team.id}"]`);
     if(!card) return;
+
+    card.querySelector('[data-rt-expand-toggle]')?.addEventListener('click', () => {
+      if(raceTeamsExpandedIds.has(team.id)) raceTeamsExpandedIds.delete(team.id);
+      else raceTeamsExpandedIds.add(team.id);
+      rtRenderRosterList();
+    });
 
     const searchInput = card.querySelector('[data-rt-search-input]');
     const suggestions = card.querySelector('[data-rt-suggestions]');
@@ -3916,6 +3928,15 @@
   }, 1500);
 
   // ---- Captain-side: event card (availability grid, stint allocation, acknowledgements) ----
+  // Shared style for the SimGrid event image, used as a full background banner
+  // behind the event header (both captain and driver views) rather than a
+  // small thumbnail - a dark gradient overlay keeps the header text readable
+  // over an arbitrary photo.
+  function rtEventBannerStyle(event){
+    if(!event.simgridImageUrl) return '';
+    return `background-image:linear-gradient(90deg,rgba(13,17,22,.92),rgba(13,17,22,.55)),url('${event.simgridImageUrl.replace(/'/g, "%27")}');background-size:cover;background-position:center`;
+  }
+
   function rtRenderEventCard(team, event){
     const drivers = (team.drivers || []).map(rtDriverName).filter(Boolean);
     const stintCount = Number(event.stintCount || 0);
@@ -3958,8 +3979,7 @@
     }).join('') || '<div class="empty">No stint plan finalised yet.</div>';
 
     return `<div class="rt-event-card" data-rt-event-id="${esc(event.id)}">
-      <div class="rt-event-head">
-        ${event.simgridImageUrl ? `<img src="${esc(event.simgridImageUrl)}" alt="" style="width:64px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0">` : ''}
+      <div class="rt-event-head" style="${esc(rtEventBannerStyle(event))}">
         <strong>Race #${esc(event.raceNumber || '-')} — ${esc(event.car || 'Car TBC')}</strong>
         ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
         <span class="badge ${event.finalized ? 'purple' : ''}">${event.finalized ? 'Finalised' : 'Planning'}</span>
@@ -4162,8 +4182,7 @@
       .map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`)
       .join(', ');
 
-    const header = `<div class="rt-event-head" style="border-radius:14px 14px 0 0">
-      ${event.simgridImageUrl ? `<img src="${esc(event.simgridImageUrl)}" alt="" style="width:96px;height:54px;object-fit:cover;border-radius:8px;flex-shrink:0">` : ''}
+    const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
       <strong>Race #${esc(event.raceNumber || '-')} — ${esc(event.car || 'Car TBC')}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
       <span class="badge ${event.finalized ? 'purple' : ''}">${event.finalized ? 'Finalised' : 'Planning'}</span>
