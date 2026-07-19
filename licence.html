@@ -187,8 +187,8 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 .staff-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px}
 @media(max-width:900px){.staff-grid{grid-template-columns:1fr}}
 
-body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #licenceRequestPanel{display:none!important}
-body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel{display:none!important}
+body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #availableRacesPanel{display:none!important}
+body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel{display:none!important}
 .tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:#0d1116;margin-bottom:8px}
 .tier-row input[type="text"]{border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-primary);border-radius:7px;padding:8px 10px;font-size:13px}
 .tier-row input[type="color"]{width:44px;height:32px;border:1px solid var(--ifwl-line);border-radius:7px;background:none;padding:0;cursor:pointer}
@@ -201,6 +201,15 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .request-status-pill.pending{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
 .request-status-pill.approved{background:rgba(51,217,155,.16);color:var(--ifwl-green)}
 .request-status-pill.declined{background:rgba(255,84,100,.16);color:var(--ifwl-red)}
+.staff-notice{border-radius:14px;padding:14px 16px;margin:14px 18px 0;font-size:13px;font-weight:600;line-height:1.55}
+.staff-notice p{margin:0}
+.staff-notice button{margin-top:10px}
+.staff-notice.tier{background:linear-gradient(90deg,rgba(31,214,189,.14),transparent);border-left:5px solid var(--ifwl-teal);color:#d7f5ef}
+.staff-notice.ban{background:linear-gradient(90deg,rgba(255,84,100,.16),transparent);border-left:5px solid var(--ifwl-red);color:#ffd7da}
+.race-event-card{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center;border:1px solid var(--ifwl-line);border-radius:14px;padding:12px;margin-bottom:10px;background:#0d1116}
+.race-event-card img{width:120px;height:68px;object-fit:cover;border-radius:8px;background:#1a2027;display:block}
+.platform-badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;background:rgba(31,214,189,.14);color:var(--ifwl-teal)}
+@media(max-width:700px){.race-event-card{grid-template-columns:1fr;text-align:center}.race-event-card img{width:100%;height:120px;margin:0 auto}}
 body:not(.licence-gold) .gold-only-field{display:none!important}
 body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 .footer-note{font-size:12px;color:var(--text-dim);text-align:center;margin-top:26px;line-height:1.5}
@@ -255,6 +264,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   <section class="panel" id="myLicencePanel">
     <div class="panel-head"><div><h3>My Licence</h3><small id="myLicenceSub">Loading your profile&hellip;</small></div><span class="tier-pill" id="myTierPill">-</span></div>
+    <div id="staffNoticeBlock"></div>
     <div class="licence-wrap">
       <div>
         <div class="licence-card" id="licenceCardOuter">
@@ -311,11 +321,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
       </div>
     </div>
-  </section>
 
-  <section class="panel" id="licenceRequestPanel">
-    <div class="panel-head"><div><h3>Request a Licence Review</h3><small>Ask staff to review you for a higher tier without waiting on race data</small></div></div>
-    <div class="panel-body">
+    <hr style="border-color:var(--ifwl-line);margin:24px 18px 0">
+    <div class="panel-body" style="padding-top:18px">
+      <h4 style="margin:0 0 4px;text-transform:uppercase;font-size:14px;letter-spacing:.04em;color:var(--text-primary)">Request a Licence Review</h4>
+      <p class="field-hint" style="margin:0 0 14px">Ask staff to review you for a higher tier without waiting on race data.</p>
       <div id="requestStatusBlock"></div>
       <div id="requestFormBlock">
         <div class="field-group">
@@ -329,6 +339,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn purple" id="submitRequestBtn" type="button">Submit request</button>
       </div>
     </div>
+  </section>
+
+  <section class="panel" id="availableRacesPanel">
+    <div class="panel-head"><div><h3>Available Races</h3><small>Invite-only SimGrid events open to your current licence tier</small></div></div>
+    <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
   </section>
 
   <section class="panel" id="ticketHistoryPanel">
@@ -399,6 +414,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <section class="panel" id="requestQueuePanel">
     <div class="panel-head"><div><h3>Staff: Licence Requests</h3><small>Members asking for a manual tier review</small></div><span class="badge purple">Staff only</span></div>
     <div id="requestQueueBody" class="panel-body"><div class="empty">Loading requests...</div></div>
+  </section>
+
+  <section class="panel" id="simgridEventsPanel">
+    <div class="panel-head"><div><h3>Staff: SimGrid Events</h3><small>Invite-only races unlocked by licence tier</small></div><span class="badge purple">Staff only</span></div>
+    <div class="panel-body">
+      <div class="field-group"><label>Event title</label><input type="text" id="sgTitle" placeholder="e.g. IFWL Beginner Invitational - Round 3"></div>
+      <div class="field-group"><label>SimGrid event link</label><input type="url" id="sgLink" placeholder="https://thesimgrid.com/events/..."></div>
+      <div class="field-group"><label>Platform</label><select id="sgPlatform">
+        <option value="both">Console + PC</option>
+        <option value="console">Console only</option>
+        <option value="pc">PC only</option>
+      </select></div>
+      <div class="field-group"><label>Available to which tiers?</label><div id="sgTierChecks"></div></div>
+      <div class="field-group"><label>Notes (optional)</label><input type="text" id="sgNotes" placeholder="e.g. Grid limited to 24 cars"></div>
+      <button class="btn teal" id="sgSaveBtn" type="button">Add event</button>
+      <span class="save-status" id="sgSaveStatus"></span>
+      <hr style="border-color:var(--ifwl-line);margin:18px 0">
+      <div id="sgEventList"></div>
+    </div>
   </section>
 
   <p class="footer-note">IFWL Licence Centre &middot; tickets, tiers and results are linked automatically from live timing and stewarding data.</p>
@@ -593,6 +627,50 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   window.IFWL_TierAPI = { DEFAULT_TIERS, fetchTierList, saveTierList };
   window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest };
+  window.IFWL_USE_DEMO_FALLBACK = USE_DEMO_FALLBACK;
+  window.IFWL_Api = { apiGet, apiPost };
+
+  // Server contract:
+  //   ?myAvailableRaces=1&token=...                      (GET, driver - filtered server-side to their current tier)
+  //   ?staffSimgridEventList=1&token=...                 (GET, staff)
+  //   ?staffSimgridEventSave=1&token=... {eventId?,title,simgridLink,platform,tiers[],notes}  (POST, staff)
+  //   ?staffSimgridEventDelete=1&token=... {eventId}      (POST, staff - soft delete)
+  // The og:image preview is fetched server-side from SimGrid's own page, same
+  // trick already used for Race Team Events - browsers can't do this directly (CORS).
+  async function fetchAvailableRaces(){
+    if(USE_DEMO_FALLBACK){
+      const tier = currentProfile?.tier || 'No Licence';
+      return demoGet('simgridEvents', []).filter(e => e.active !== false && (e.tiers||[]).includes(tier));
+    }
+    return (await apiGet('myAvailableRaces')).events || [];
+  }
+  async function fetchAllSimgridEvents(){
+    if(USE_DEMO_FALLBACK) return demoGet('simgridEvents', []).filter(e => e.active !== false);
+    return (await apiGet('staffSimgridEventList')).events || [];
+  }
+  async function saveSimgridEvent(payload){
+    if(USE_DEMO_FALLBACK){
+      const all = demoGet('simgridEvents', []);
+      if(payload.eventId){
+        const idx = all.findIndex(e => e.id === payload.eventId);
+        if(idx >= 0) all[idx] = {...all[idx], ...payload};
+      } else {
+        all.push({...payload, id:'sg_'+Date.now(), active:true, createdAtMs:Date.now()});
+      }
+      demoSet('simgridEvents', all);
+      return all;
+    }
+    return apiPost('staffSimgridEventSave', payload);
+  }
+  async function deleteSimgridEvent(eventId){
+    if(USE_DEMO_FALLBACK){
+      const all = demoGet('simgridEvents', []).map(e => e.id === eventId ? {...e, active:false} : e);
+      demoSet('simgridEvents', all);
+      return true;
+    }
+    return apiPost('staffSimgridEventDelete', { eventId });
+  }
+  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent };
 
   function nextLicenceNumber(){
     const meta = demoGet('counter', {next:1});
@@ -912,6 +990,54 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
   }
 
+  // A staff-driven tier change is surfaced as a dismissible banner, remembered
+  // per-driver in localStorage so it only shows once. A ban is NOT dismissible
+  // the same way - it re-appears on every visit for as long as it's active,
+  // computed fresh from ban.endsAtMs vs now rather than a stored flag, so it
+  // can never get stuck showing (or hidden) after the ban actually lapses.
+  function seenKey(){ return 'IFWL_LICENCE_SEEN_TIER:' + window.IFWL_AUTH.userId(window.IFWL_META); }
+  function renderStaffNotices(p){
+    const wrap = q('staffNoticeBlock');
+    const notices = [];
+
+    const history = Array.isArray(p.tierHistory) ? p.tierHistory : [];
+    const last = history[history.length - 1];
+    const lastSeenTier = localStorage.getItem(seenKey());
+    if(last && last.setBy === 'staff' && lastSeenTier !== p.tier && history.length > 1){
+      const previousTier = history[history.length - 2]?.tier || 'No Licence';
+      notices.push(`<div class="staff-notice tier" data-notice="tier"><p>IFWL Staff have changed your licence from <strong>${previousTier}</strong> to <strong>${p.tier}</strong>.${last.reason ? ` Reason: ${last.reason}` : ''}</p><button class="btn ghost" data-dismiss-tier>Got it</button></div>`);
+    }
+
+    if(p.ban && p.ban.endsAtMs && p.ban.endsAtMs > Date.now()){
+      const daysLeft = Math.max(1, Math.ceil((p.ban.endsAtMs - Date.now()) / 86400000));
+      notices.push(`<div class="staff-notice ban"><p>You are currently <strong>banned</strong> for ${p.ban.days} day(s), until ${new Date(p.ban.endsAtMs).toLocaleString()} (${daysLeft} day(s) remaining).${p.ban.reason ? ` Reason: ${p.ban.reason}` : ''}</p></div>`);
+    }
+
+    wrap.innerHTML = notices.join('');
+    wrap.querySelector('[data-dismiss-tier]')?.addEventListener('click', () => {
+      localStorage.setItem(seenKey(), p.tier);
+      wrap.querySelector('[data-notice="tier"]')?.remove();
+    });
+  }
+
+  function renderAvailableRaces(events){
+    const body = q('availableRacesBody');
+    if(!events.length){ body.innerHTML = '<div class="empty">No invite-only races available for your current tier yet.</div>'; return; }
+    const placeholder = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><rect width="120" height="68" fill="#1a2027"/></svg>');
+    body.innerHTML = events.map(e => {
+      const platformLabel = e.platform === 'console' ? 'Console' : e.platform === 'pc' ? 'PC' : 'Console + PC';
+      return `<div class="race-event-card">
+        <img src="${e.simgridImageUrl || placeholder}" alt="">
+        <div>
+          <span class="platform-badge">${platformLabel}</span>
+          <strong style="display:block;margin-top:6px">${e.title}</strong>
+          ${e.notes ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${e.notes}</p>` : ''}
+        </div>
+        <a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>
+      </div>`;
+    }).join('');
+  }
+
   async function init(){
     currentTiers = await window.IFWL_TierAPI.fetchTierList();
     renderTierLegend();
@@ -919,9 +1045,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     currentProfile = await fetchMyProfile();
     currentProfile = await resolveStoredImages(currentProfile);
-    if(currentProfile) renderCard(currentProfile);
+    if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
     const [ticketInfo, perfStats] = await Promise.all([fetchTicketInfo(), fetchPerformanceStats(currentProfile)]);
     renderTicketData(ticketInfo, perfStats);
+    renderAvailableRaces(await fetchAvailableRaces());
     const dir = await fetchDirectory();
     renderDirectory(dir);
     await renderMyRequestPanel();
@@ -1021,6 +1148,91 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
     return `rgba(${r},${g},${b},${alpha})`;
   }
+  const USE_DEMO_FALLBACK = () => window.IFWL_USE_DEMO_FALLBACK;
+
+  // Server contract (see index.js):
+  //   ?staffLicenceSearch=1&token=...&q=...
+  //   ?staffLicenceSave=1&token=...      {driverId, name, tier, reason, raceTeam}
+  //   ?staffLicenceNoteAdd=1&token=...   {driverId, text}
+  //   ?staffLicenceNoteList=1&token=...&driverId=...
+  //   ?staffLicenceIssue=1&token=...     {discordId, name}
+  async function staffSearch(term){
+    if(USE_DEMO_FALLBACK()){
+      const all = Object.values(demoGet('profiles', {}));
+      return !term ? all : all.filter(p=>(p.name||'').toLowerCase().includes(term) || (p.licenceNumber||'').toLowerCase().includes(term));
+    }
+    return (await window.IFWL_Api.apiGet('staffLicenceSearch', `&q=${encodeURIComponent(term)}`)).drivers || [];
+  }
+  async function staffFetchProfile(id){
+    if(USE_DEMO_FALLBACK()) return demoGet('profiles', {})[id] || null;
+    return (await window.IFWL_Api.apiGet('staffLicenceGet', `&driverId=${encodeURIComponent(id)}`)).profile || null;
+  }
+  async function staffFetchNotes(id){
+    if(USE_DEMO_FALLBACK()) return (demoGet('notes', {})[id] || []);
+    return (await window.IFWL_Api.apiGet('staffLicenceNoteList', `&driverId=${encodeURIComponent(id)}`)).notes || [];
+  }
+  async function staffSaveProfile(id, patch){
+    if(USE_DEMO_FALLBACK()){
+      const all = demoGet('profiles', {});
+      const p = all[id]; if(!p) throw new Error('Driver not found');
+      if(patch.tier && patch.tier !== p.tier){
+        p.tierHistory = p.tierHistory || [];
+        p.tierHistory.push({ tier: patch.tier, date: new Date().toISOString(), reason: patch.reason || 'No reason given', setBy: 'staff' });
+      }
+      p.name = patch.name; p.tier = patch.tier; p.raceTeam = patch.raceTeam;
+      all[id] = p; demoSet('profiles', all);
+      return p;
+    }
+    return window.IFWL_Api.apiPost('staffLicenceSave', { driverId: id, ...patch });
+  }
+  async function staffAddNote(id, text){
+    if(USE_DEMO_FALLBACK()){
+      const notesAll = demoGet('notes', {});
+      notesAll[id] = notesAll[id] || [];
+      notesAll[id].push({ text, by: 'You (staff)', date: new Date().toISOString() });
+      demoSet('notes', notesAll);
+      return notesAll[id];
+    }
+    return window.IFWL_Api.apiPost('staffLicenceNoteAdd', { driverId: id, text });
+  }
+  async function staffIssueLicence(discordId, name){
+    if(USE_DEMO_FALLBACK()){
+      throw new Error('In demo mode, new drivers get a profile automatically the first time they log in - there is nothing to manually issue yet.');
+    }
+    return window.IFWL_Api.apiPost('staffLicenceIssue', { discordId, name });
+  }
+
+  // Ban length is capped 1-100 days both here and server-side - the server
+  // check is the real boundary, this is just so staff get an instant error
+  // instead of waiting on a round trip for an out-of-range value.
+  async function staffApplyBan(id, days, reason){
+    if(!Number.isFinite(days) || days < 1 || days > 100){
+      throw new Error('Ban length must be between 1 and 100 days.');
+    }
+    if(USE_DEMO_FALLBACK()){
+      const all = demoGet('profiles', {});
+      const p = all[id]; if(!p) throw new Error('Driver not found');
+      const nowMs = Date.now();
+      p.ban = { days, reason, startedAtMs: nowMs, endsAtMs: nowMs + days * 86400000, setBy: 'staff' };
+      p.banHistory = p.banHistory || [];
+      p.banHistory.push({ action: 'banned', days, reason, date: new Date().toISOString(), by: 'staff' });
+      all[id] = p; demoSet('profiles', all);
+      return p.ban;
+    }
+    return window.IFWL_Api.apiPost('staffLicenceBan', { driverId: id, days, reason });
+  }
+  async function staffLiftBan(id){
+    if(USE_DEMO_FALLBACK()){
+      const all = demoGet('profiles', {});
+      const p = all[id]; if(!p) throw new Error('Driver not found');
+      p.banHistory = p.banHistory || [];
+      p.banHistory.push({ action: 'lifted', date: new Date().toISOString(), by: 'staff' });
+      p.ban = null;
+      all[id] = p; demoSet('profiles', all);
+      return true;
+    }
+    return window.IFWL_Api.apiPost('staffLicenceBan', { driverId: id, lift: true });
+  }
 
   function renderResults(rows){
     const wrap = q('staffSearchResults');
@@ -1030,10 +1242,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   async function openEditor(id){
-    const all = demoGet('profiles', {});
-    const p = all[id]; if(!p) return;
-    const notesAll = demoGet('notes', {});
-    const notes = notesAll[id] || [];
+    const p = await staffFetchProfile(id);
+    if(!p){ q('staffEditorWrap').innerHTML = '<div class="empty">Could not load that driver.</div>'; return; }
+    const notes = await staffFetchNotes(id);
     const tiers = await window.IFWL_TierAPI.fetchTierList();
     const sortedTiers = [...tiers].sort((a,b)=>(a.order??0)-(b.order??0));
     const wrap = q('staffEditorWrap');
@@ -1045,39 +1256,68 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="field-group"><label>Reason for tier change</label><input type="text" id="edReason" placeholder="e.g. Clean run of 10 races, promoted to Amateur"></div>
       <div class="field-group"><label>Race team</label><input type="text" id="edTeam" value="${p.raceTeam||''}"></div>
       <button class="btn teal" id="edSaveBtn" type="button">Save profile</button>
+      <span class="save-status" id="edSaveStatus"></span>
       <hr style="border-color:var(--ifwl-line);margin:18px 0">
       <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Staff notes (never visible to the driver)</label>
-      <div id="edNotesList">${notes.map(n=>`<div class="note-item">${n.text}<div class="note-meta">${n.by} · ${new Date(n.date).toLocaleString()}</div></div>`).join('') || '<div class="empty">No notes yet.</div>'}</div>
+      <div id="edNotesList">${notes.map(n=>`<div class="note-item">${n.text}<div class="note-meta">${n.by} · ${new Date(n.date||n.createdAtMs||Date.now()).toLocaleString()}</div></div>`).join('') || '<div class="empty">No notes yet.</div>'}</div>
       <div class="field-group" style="margin-top:10px"><textarea id="edNewNote" placeholder="Add a private note..."></textarea></div>
       <button class="btn ghost" id="edAddNoteBtn" type="button">Add note</button>
+      <hr style="border-color:var(--ifwl-line);margin:18px 0">
+      <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Ban / suspend</label>
+      ${p.ban && p.ban.endsAtMs > Date.now() ? `
+        <div class="request-card">
+          <span class="request-status-pill declined">Banned</span>
+          <div class="req-meta">${p.ban.days} day(s) &middot; ends ${new Date(p.ban.endsAtMs).toLocaleString()}</div>
+          ${p.ban.reason ? `<p style="color:var(--text-muted);font-size:13px;margin:6px 0 0">${p.ban.reason}</p>` : ''}
+          <button class="btn ghost" id="edLiftBanBtn" type="button" style="margin-top:8px">Lift ban</button>
+        </div>
+      ` : `
+        <div class="field-group"><label>Ban length (1-100 days)</label><input type="number" id="edBanDays" min="1" max="100" value="7"></div>
+        <div class="field-group"><label>Reason</label><input type="text" id="edBanReason" placeholder="e.g. Repeated intentional collisions"></div>
+        <button class="btn ghost" id="edApplyBanBtn" type="button" style="background:rgba(255,84,100,.16);color:var(--ifwl-red)">Apply ban</button>
+        <span class="save-status" id="edBanStatus"></span>
+      `}
     `;
-    q('edSaveBtn').addEventListener('click', ()=>{
-      const newTier = q('edTier').value;
-      if(newTier !== p.tier){
-        p.tierHistory = p.tierHistory || [];
-        p.tierHistory.push({tier:newTier, date:new Date().toISOString(), reason:q('edReason').value||'No reason given', setBy:'staff'});
-      }
-      p.name = q('edName').value; p.tier = newTier; p.raceTeam = q('edTeam').value;
-      all[id] = p; demoSet('profiles', all);
-      alert('Saved. (Wire this button to ?staffLicence=1 once the backend action exists.)');
+    q('edSaveBtn').addEventListener('click', async ()=>{
+      q('edSaveStatus').textContent = 'Saving...';
+      try{
+        await staffSaveProfile(id, { name: q('edName').value, tier: q('edTier').value, reason: q('edReason').value, raceTeam: q('edTeam').value });
+        q('edSaveStatus').textContent = 'Saved.';
+        setTimeout(()=>{ if(q('edSaveStatus')) q('edSaveStatus').textContent=''; }, 2000);
+      }catch(e){ q('edSaveStatus').textContent = 'Could not save: ' + e.message; }
     });
-    q('edAddNoteBtn').addEventListener('click', ()=>{
+    q('edAddNoteBtn').addEventListener('click', async ()=>{
       const text = q('edNewNote').value.trim(); if(!text) return;
-      notesAll[id] = notesAll[id] || [];
-      notesAll[id].push({text, by:'You (staff)', date:new Date().toISOString()});
-      demoSet('notes', notesAll);
-      openEditor(id);
+      try{ await staffAddNote(id, text); openEditor(id); }
+      catch(e){ alert('Could not add note: ' + e.message); }
+    });
+    q('edApplyBanBtn')?.addEventListener('click', async ()=>{
+      const days = Number(q('edBanDays').value);
+      const reason = q('edBanReason').value.trim();
+      q('edBanStatus').textContent = 'Applying...';
+      try{ await staffApplyBan(id, days, reason); openEditor(id); }
+      catch(e){ q('edBanStatus').textContent = e.message; }
+    });
+    q('edLiftBanBtn')?.addEventListener('click', async ()=>{
+      if(!confirm('Lift this ban now?')) return;
+      try{ await staffLiftBan(id); openEditor(id); }
+      catch(e){ alert('Could not lift ban: ' + e.message); }
     });
   }
 
-  q('staffSearchInput')?.addEventListener('input', e=>{
+  q('staffSearchInput')?.addEventListener('input', async e=>{
     const term = e.target.value.toLowerCase();
-    const all = Object.values(demoGet('profiles', {}));
-    const matches = !term ? all : all.filter(p=>(p.name||'').toLowerCase().includes(term) || (p.licenceNumber||'').toLowerCase().includes(term));
-    renderResults(matches);
+    renderResults(await staffSearch(term));
   });
-  q('staffIssueNewBtn')?.addEventListener('click', ()=>{
-    alert('This creates a new licence doc via ?staffLicence=1 (issue action) once the backend exists. In demo mode, new drivers get a profile automatically the first time they log in.');
+  q('staffIssueNewBtn')?.addEventListener('click', async ()=>{
+    const discordId = prompt('Discord ID of the driver to issue a licence for:');
+    if(!discordId) return;
+    const name = prompt('Driver display name:') || 'IFWL Driver';
+    try{
+      const result = await staffIssueLicence(discordId.trim(), name);
+      alert(`Licence issued: ${result.licenceNumber || '(demo mode)'}`);
+      renderResults(await staffSearch(''));
+    }catch(e){ alert(e.message); }
   });
 
   /* ---- Manage Licence Tiers ---- */
@@ -1178,8 +1418,55 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }));
   }
 
+  /* ---- Manage SimGrid Events ---- */
+  async function renderTierCheckboxes(){
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+    const sorted = [...tiers].sort((a,b)=>(a.order??0)-(b.order??0));
+    q('sgTierChecks').innerHTML = sorted.map(t =>
+      `<label style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;margin-bottom:6px;font-size:12px;font-weight:700;color:var(--text-muted)"><input type="checkbox" value="${t.name}" class="sg-tier-check"> ${t.name}</label>`
+    ).join('');
+  }
+
+  async function renderSimgridEventList(){
+    const events = await window.IFWL_SimgridAPI.fetchAllSimgridEvents();
+    const wrap = q('sgEventList');
+    if(!events.length){ wrap.innerHTML = '<div class="empty">No SimGrid events yet.</div>'; return; }
+    wrap.innerHTML = events.map(e => `
+      <div class="note-item">
+        <strong>${e.title}</strong>
+        <div class="note-meta">${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
+        <div style="margin-top:8px"><button class="btn ghost" data-delete-event="${e.id}">Delete</button></div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-delete-event]').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('Delete this event? Drivers will stop seeing it in Available Races.')) return;
+      try{ await window.IFWL_SimgridAPI.deleteSimgridEvent(btn.dataset.deleteEvent); await renderSimgridEventList(); }
+      catch(e){ alert('Could not delete: ' + e.message); }
+    }));
+  }
+
+  q('sgSaveBtn')?.addEventListener('click', async () => {
+    const title = q('sgTitle').value.trim();
+    const simgridLink = q('sgLink').value.trim();
+    const platform = q('sgPlatform').value;
+    const tiers = [...document.querySelectorAll('.sg-tier-check:checked')].map(el => el.value);
+    const notes = q('sgNotes').value.trim();
+    if(!title || !simgridLink || !tiers.length){ q('sgSaveStatus').textContent = 'Title, link and at least one tier are required.'; return; }
+    q('sgSaveStatus').textContent = 'Saving...';
+    try{
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ title, simgridLink, platform, tiers, notes });
+      q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
+      document.querySelectorAll('.sg-tier-check').forEach(el => el.checked = false);
+      q('sgSaveStatus').textContent = 'Saved.';
+      await renderSimgridEventList();
+      setTimeout(()=>{ if(q('sgSaveStatus')) q('sgSaveStatus').textContent=''; }, 2000);
+    }catch(e){ q('sgSaveStatus').textContent = 'Could not save: ' + e.message; }
+  });
+
   initTierManager();
   renderRequestQueue();
+  renderTierCheckboxes();
+  renderSimgridEventList();
 })();
 </script>
 
