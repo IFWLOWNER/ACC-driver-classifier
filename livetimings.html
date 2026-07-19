@@ -5500,30 +5500,69 @@
     return meta.nick || meta.globalName || meta.global_name || meta.username || 'Driver';
   }
 
-  function applyPreview(tier){
-    const name = currentName();
-
-    if(tier === 'active'){
-      // Simulates a logged-in Discord member who holds Active Racer but no Patreon tier.
-      window.IFWL_TIMINGS_DETAILED = false;
-      window.IFWL_TIMINGS_STAFF = false;
-      document.body.classList.remove('patreon-access', 'staff-access', 'premium-home');
-      document.body.classList.add('discord-logged-in', 'simple-access', 'access-authorised');
-      document.documentElement.classList.remove('login-wall-open');
-      document.body.classList.remove('login-wall-open');
-      q('ifwlLoginWall')?.classList.add('hidden');
-      setAccountBar(
-        `Logged in as ${name} <span class="access-pill locked">Active Racer access</span>`,
-        'Discord login confirmed. Bronze, Silver or Gold Patreon access was not detected for this preview.',
-        true
-      );
+  // Every access flag/class this page currently checks, per simulated tier.
+  // Rebuilt as a single config table (rather than one-off class removals) so
+  // adding a future access tier or class only means one new entry here -
+  // the previous version silently missed newly-added classes like
+  // raceteam-access/raceteamdriver-access/session-detail-access, which is
+  // exactly the bug this fixes.
+  const PREVIEW_TIERS = {
+    active: {
+      label: 'Active Racer (no Patreon)',
+      detailed: false, staff: false, raceteam: false, raceteamdriver: false, sessionDetail: false,
+      pillText: 'Active Racer access',
+      bodyText: 'Discord login confirmed. Bronze, Silver or Gold Patreon access was not detected for this preview.'
+    },
+    raceteamacc: {
+      label: 'Race Team ACC (driver)',
+      detailed: false, staff: false, raceteam: false, raceteamdriver: true, sessionDetail: false,
+      pillText: 'Race Team ACC access',
+      bodyText: 'Race Team ACC role - My Race Team Stints is unlocked. This role alone does not unlock detailed Live Timings.'
+    },
+    assessor: {
+      label: 'Team Assessor',
+      detailed: false, staff: false, raceteam: true, raceteamdriver: false, sessionDetail: false,
+      pillText: 'Assessor access',
+      bodyText: 'Assessor role - full IFWL Race Teams management is unlocked. This role alone does not unlock detailed Live Timings or staff-only reports.'
+    },
+    bronze: {
+      label: 'Bronze Patreon',
+      detailed: true, staff: false, raceteam: false, raceteamdriver: false, sessionDetail: false,
+      pillText: 'Bronze detailed access',
+      bodyText: 'Bronze Patreon - detailed timing information is unlocked. The Full Session Breakdown on any session type is Silver/Gold only.'
+    },
+    silver: {
+      label: 'Silver Patreon',
+      detailed: true, staff: false, raceteam: false, raceteamdriver: false, sessionDetail: true,
+      pillText: 'Silver detailed access',
+      bodyText: 'Silver Patreon - detailed timing information plus the Full Session Breakdown on any session type.'
+    },
+    gold: {
+      label: 'Gold Patreon',
+      detailed: true, staff: false, raceteam: false, raceteamdriver: false, sessionDetail: true,
+      pillText: 'Gold detailed access',
+      bodyText: 'Gold Patreon - detailed timing information plus the Full Session Breakdown on any session type.'
+    },
+    public: {
+      label: 'Logged out / public visitor',
+      loginWall: true
     }
+  };
 
-    if(tier === 'public'){
-      // Simulates a visitor who has not logged in at all — shows the real login wall.
+  const ALL_PREVIEW_CLASSES = ['patreon-access', 'staff-access', 'premium-home', 'simple-access', 'discord-logged-in', 'access-authorised', 'raceteam-access', 'raceteamdriver-access', 'session-detail-access'];
+
+  function applyPreview(tierKey){
+    const name = currentName();
+    const cfg = PREVIEW_TIERS[tierKey];
+    if(!cfg) return;
+
+    document.body.classList.remove(...ALL_PREVIEW_CLASSES);
+    document.documentElement.classList.remove('login-wall-open');
+    document.body.classList.remove('login-wall-open');
+
+    if(cfg.loginWall){
       window.IFWL_TIMINGS_DETAILED = false;
       window.IFWL_TIMINGS_STAFF = false;
-      document.body.classList.remove('patreon-access', 'staff-access', 'premium-home', 'simple-access', 'discord-logged-in', 'access-authorised');
       document.documentElement.classList.add('login-wall-open');
       document.body.classList.add('login-wall-open');
       q('ifwlLoginWall')?.classList.remove('hidden');
@@ -5534,10 +5573,27 @@
         'Login with Discord. Bronze, Silver and Gold Patreon members unlock detailed timing information.',
         true
       );
+      q('raceSimpleBtn')?.click();
+      return;
     }
 
-    // Force the Race panel back to its simple view — setRaceMode() itself already checks
-    // window.IFWL_TIMINGS_DETAILED, so clicking the existing button is enough to re-lock it.
+    window.IFWL_TIMINGS_DETAILED = !!cfg.detailed;
+    window.IFWL_TIMINGS_STAFF = !!cfg.staff;
+
+    q('ifwlLoginWall')?.classList.add('hidden');
+    document.body.classList.add('discord-logged-in', 'access-authorised', cfg.detailed ? 'premium-home' : 'simple-access');
+    if(cfg.detailed) document.body.classList.add('patreon-access');
+    if(cfg.staff) document.body.classList.add('staff-access');
+    if(cfg.raceteam) document.body.classList.add('raceteam-access');
+    if(cfg.raceteamdriver) document.body.classList.add('raceteamdriver-access');
+    if(cfg.sessionDetail) document.body.classList.add('session-detail-access');
+
+    setAccountBar(
+      `Logged in as ${name} <span class="access-pill ${cfg.detailed ? 'granted' : 'locked'}">${cfg.pillText}</span>`,
+      cfg.bodyText,
+      !cfg.detailed
+    );
+
     q('raceSimpleBtn')?.click();
   }
 
@@ -5545,21 +5601,20 @@
     if(q('ifwlStaffPreviewToggle')) return;
     const wrap = document.createElement('div');
     wrap.id = 'ifwlStaffPreviewToggle';
+    const options = Object.entries(PREVIEW_TIERS).map(([key, cfg]) => `<option value="${key}">${cfg.label}</option>`).join('');
     wrap.innerHTML = `
       <label for="ifwlPreviewSelect">Staff preview (only visible to you)</label>
       <select id="ifwlPreviewSelect">
         <option value="real">My real access</option>
-        <option value="active">Active Racer (no Patreon)</option>
-        <option value="public">Logged out / public visitor</option>
+        ${options}
       </select>`;
     document.body.appendChild(wrap);
 
     q('ifwlPreviewSelect').addEventListener('change', event => {
       const value = event.target.value;
       if(value === 'real'){ location.reload(); return; }
-      const label = value === 'active' ? 'Active Racer (no Patreon)' : 'Logged out / public visitor';
       applyPreview(value);
-      showBanner(label);
+      showBanner(PREVIEW_TIERS[value]?.label || value);
     });
   }
 
