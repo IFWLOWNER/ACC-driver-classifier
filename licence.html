@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="ifwl-stats-engine.js"></script>
 <style>
 /* ============================================================
    IFWL LICENCE CENTRE
@@ -120,7 +121,7 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .licence-wrap{display:grid;grid-template-columns:340px 1fr;gap:22px;padding:18px}
 @media(max-width:880px){.licence-wrap{grid-template-columns:1fr}}
 .licence-card{border-radius:20px;padding:3px;background:linear-gradient(135deg,var(--ifwl-teal),var(--ifwl-purple));box-shadow:var(--shadow)}
-.licence-card.tier-pro{background:linear-gradient(135deg,#eaf3ff,#c65be8,#1fd6bd,#eaf3ff);background-size:300% 300%;animation:foil 7s ease infinite}
+.licence-card.foil{background:linear-gradient(135deg,#eaf3ff,#c65be8,#1fd6bd,#eaf3ff);background-size:300% 300%;animation:foil 7s ease infinite}
 @keyframes foil{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 .licence-card-inner{border-radius:18px;background:#0d1116;padding:18px;position:relative;min-height:210px;background-size:cover;background-position:center}
 .licence-card-inner::before{content:"";position:absolute;inset:0;border-radius:18px;background:linear-gradient(180deg,rgba(8,10,13,.35),rgba(8,10,13,.92));pointer-events:none}
@@ -186,8 +187,20 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 .staff-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px}
 @media(max-width:900px){.staff-grid{grid-template-columns:1fr}}
 
-body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #directoryPanel{display:none!important}
-body:not(.staff-access) #staffPanel{display:none!important}
+body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #licenceRequestPanel{display:none!important}
+body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel{display:none!important}
+.tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:#0d1116;margin-bottom:8px}
+.tier-row input[type="text"]{border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-primary);border-radius:7px;padding:8px 10px;font-size:13px}
+.tier-row input[type="color"]{width:44px;height:32px;border:1px solid var(--ifwl-line);border-radius:7px;background:none;padding:0;cursor:pointer}
+.tier-row label.foil-toggle{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--text-muted);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.tier-row .icon-btn{border:0;background:#242a32;color:#fff;border-radius:7px;width:30px;height:30px;cursor:pointer;font-weight:800}
+.request-card{border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;margin-bottom:10px;background:#0d1116}
+.request-card .req-meta{font-size:11.5px;color:var(--text-dim);margin-top:4px}
+.request-card .req-actions{display:flex;gap:8px;margin-top:10px}
+.request-status-pill{display:inline-block;padding:4px 9px;border-radius:999px;font-size:10.5px;font-weight:800;text-transform:uppercase}
+.request-status-pill.pending{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
+.request-status-pill.approved{background:rgba(51,217,155,.16);color:var(--ifwl-green)}
+.request-status-pill.declined{background:rgba(255,84,100,.16);color:var(--ifwl-red)}
 body:not(.licence-gold) .gold-only-field{display:none!important}
 body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 .footer-note{font-size:12px;color:var(--text-dim);text-align:center;margin-top:26px;line-height:1.5}
@@ -235,17 +248,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   <section class="panel">
     <div class="panel-head"><div><h3>Licence Tiers</h3><small>How drivers move up the ladder</small></div></div>
-    <div class="tier-legend">
-      <div class="tier-chip t-none"><div class="swatch"></div><strong>No Licence</strong><span>Registered but not yet raced a scored session.</span></div>
-      <div class="tier-chip t-prov"><div class="swatch"></div><strong>Provisional</strong><span>Completed onboarding, awaiting first clean results.</span></div>
-      <div class="tier-chip t-beg"><div class="swatch"></div><strong>GT3 Beginner</strong><span>Cleared for Beginner-class races.</span></div>
-      <div class="tier-chip t-am"><div class="swatch"></div><strong>GT3 Amateur</strong><span>Consistent pace and a clean incident record.</span></div>
-      <div class="tier-chip t-pro"><div class="swatch"></div><strong>GT3 Pro</strong><span>Top tier &mdash; proven pace across a full season.</span></div>
+    <div class="tier-legend" id="tierLegendBody">
+      <div class="empty">Loading tier list...</div>
     </div>
   </section>
 
   <section class="panel" id="myLicencePanel">
-    <div class="panel-head"><div><h3>My Licence</h3><small id="myLicenceSub">Loading your profile&hellip;</small></div><span class="tier-pill none" id="myTierPill">-</span></div>
+    <div class="panel-head"><div><h3>My Licence</h3><small id="myLicenceSub">Loading your profile&hellip;</small></div><span class="tier-pill" id="myTierPill">-</span></div>
     <div class="licence-wrap">
       <div>
         <div class="licence-card" id="licenceCardOuter">
@@ -257,7 +266,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <div class="licence-name" id="licenceName">&mdash;</div>
             <div class="licence-number" id="licenceNumber">IFWL-0000-00000</div>
             <div class="licence-team" id="licenceTeamLabel">No race team</div>
-            <div class="licence-bottom"><span class="tier-pill none" id="licenceCardTierPill">No Licence</span></div>
+            <div class="licence-bottom"><span class="tier-pill" id="licenceCardTierPill">No Licence</span></div>
           </div>
         </div>
         <p class="field-hint" style="text-align:center;margin-top:10px">This card updates live as you edit your profile.</p>
@@ -304,6 +313,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel" id="licenceRequestPanel">
+    <div class="panel-head"><div><h3>Request a Licence Review</h3><small>Ask staff to review you for a higher tier without waiting on race data</small></div></div>
+    <div class="panel-body">
+      <div id="requestStatusBlock"></div>
+      <div id="requestFormBlock">
+        <div class="field-group">
+          <label>Requested tier</label>
+          <select id="requestTierSelect"></select>
+        </div>
+        <div class="field-group">
+          <label>Why should staff review you for this tier?</label>
+          <textarea id="requestReasonInput" placeholder="e.g. clean racing record on another platform, results here don't reflect my current pace, etc."></textarea>
+        </div>
+        <button class="btn purple" id="submitRequestBtn" type="button">Submit request</button>
+      </div>
+    </div>
+  </section>
+
   <section class="panel" id="ticketHistoryPanel">
     <div class="panel-head"><div><h3>Performance &amp; Steward Record</h3><small>Your on-track scoring and incident history</small></div><span class="badge purple" id="ticketPanelBadge">Full detail: Gold only</span></div>
 
@@ -312,6 +339,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="stat-card"><span>Consistency Avg</span><strong id="statConsistency">-</strong></div>
       <div class="stat-card"><span>Race Risk Avg</span><strong id="statRaceRisk">-</strong></div>
     </div>
+    <p id="statsHint" class="field-hint" style="padding:0 18px 12px"></p>
 
     <div id="ticketCountOnly" class="panel-body hidden">
       <div class="ticket-count-badge">You have <strong id="ticketCountNumber">0</strong> steward ticket(s) on record.</div>
@@ -327,11 +355,6 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <input type="text" id="dirSearch" placeholder="Search driver name or licence number...">
       <select id="dirTierFilter">
         <option value="">All tiers</option>
-        <option value="No Licence">No Licence</option>
-        <option value="Provisional">Provisional</option>
-        <option value="GT3 Beginner">GT3 Beginner</option>
-        <option value="GT3 Amateur">GT3 Amateur</option>
-        <option value="GT3 Pro">GT3 Pro</option>
       </select>
     </div>
     <div class="table-wrap">
@@ -358,6 +381,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="empty">Select a driver from the search results to edit their profile.</div>
       </div>
     </div>
+  </section>
+
+  <section class="panel" id="tierManagePanel">
+    <div class="panel-head"><div><h3>Staff: Manage Licence Tiers</h3><small>Add, reorder, recolour or retire tiers &mdash; no code changes needed</small></div><span class="badge purple">Staff only</span></div>
+    <div class="staff-only-note">Changes here affect the tier legend, every dropdown and every driver card as soon as you save.</div>
+    <div class="panel-body">
+      <div id="tierEditorRows"></div>
+      <button class="btn ghost" id="addTierRowBtn" type="button" style="margin-top:6px">+ Add tier</button>
+      <div class="save-row" style="margin-top:14px">
+        <button class="btn teal" id="saveTiersBtn" type="button">Save tier list</button>
+        <span class="save-status" id="tierSaveStatus"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="requestQueuePanel">
+    <div class="panel-head"><div><h3>Staff: Licence Requests</h3><small>Members asking for a manual tier review</small></div><span class="badge purple">Staff only</span></div>
+    <div id="requestQueueBody" class="panel-body"><div class="empty">Loading requests...</div></div>
   </section>
 
   <p class="footer-note">IFWL Licence Centre &middot; tickets, tiers and results are linked automatically from live timing and stewarding data.</p>
@@ -453,6 +494,106 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function demoGet(k,fallback){try{const v=localStorage.getItem(demoKey(k));return v?JSON.parse(v):fallback}catch(_){return fallback}}
   function demoSet(k,v){try{localStorage.setItem(demoKey(k),JSON.stringify(v))}catch(_){}}
 
+  // Tiers used to be a fixed list baked into this file - now they're just data,
+  // editable from the Staff: Manage Licence Tiers panel. `order` controls ladder
+  // position (lowest first); `foil` optionally gives a tier the animated card
+  // treatment (originally reserved for the top tier, but any tier can have it).
+  const DEFAULT_TIERS = [
+    { id:'no_licence',  name:'No Licence',   order:0, color:'#4b5760', foil:false, description:'Registered but not yet raced a scored session.' },
+    { id:'provisional', name:'Provisional',  order:1, color:'#ffb238', foil:false, description:'Completed onboarding, awaiting first clean results.' },
+    { id:'gt3_beginner',name:'GT3 Beginner', order:2, color:'#1fd6bd', foil:false, description:'Cleared for Beginner-class races.' },
+    { id:'gt3_amateur', name:'GT3 Amateur',  order:3, color:'#c65be8', foil:false, description:'Consistent pace and a clean incident record.' },
+    { id:'gt3_pro',     name:'GT3 Pro',      order:4, color:'#eaf3ff', foil:true,  description:'Top tier — proven pace across a full season.' }
+  ];
+
+  // Server contract:
+  //   ?licenceTierList=1                          (GET, public - anyone viewing the page needs the ladder)
+  //   ?staffLicenceTierSave=1&token=...  {tiers}   (POST, staff-only - replaces the whole list atomically)
+  async function fetchTierList(){
+    if(USE_DEMO_FALLBACK) return demoGet('tiers', DEFAULT_TIERS);
+    try{ return (await apiGet('licenceTierList')).tiers || DEFAULT_TIERS; }
+    catch(e){ console.warn(e.message); return DEFAULT_TIERS; }
+  }
+  async function saveTierList(tiers){
+    if(USE_DEMO_FALLBACK){ demoSet('tiers', tiers); return tiers; }
+    return (await apiPost('staffLicenceTierSave', { tiers })).tiers || tiers;
+  }
+
+  // Server contract:
+  //   ?submitLicenceRequest=1&token=...  {requestedTier, reason}  (POST, driver)
+  //   ?myLicenceRequests=1&token=...                              (GET, driver's own history)
+  //   ?staffLicenceRequestList=1&token=...                        (GET, staff-only, all pending)
+  //   ?staffLicenceRequestReview=1&token=...  {requestId, decision, staffNote}  (POST, staff-only)
+  // Approving a request updates the driver's tier + tierHistory server-side,
+  // exactly like a manual staff tier override does.
+  async function fetchMyRequests(){
+    const meta = window.IFWL_META; const id = window.IFWL_AUTH.userId(meta);
+    if(USE_DEMO_FALLBACK){
+      const all = demoGet('requests', {});
+      return all[id] || [];
+    }
+    return (await apiGet('myLicenceRequests')).requests || [];
+  }
+  async function submitLicenceRequest(requestedTier, reason){
+    const meta = window.IFWL_META; const id = window.IFWL_AUTH.userId(meta);
+    if(USE_DEMO_FALLBACK){
+      const all = demoGet('requests', {});
+      all[id] = all[id] || [];
+      all[id].push({
+        id: 'req_' + Date.now(),
+        driverId: id,
+        driverName: window.IFWL_AUTH.userName(meta),
+        currentTier: currentProfile?.tier || 'No Licence',
+        requestedTier, reason,
+        status: 'pending',
+        submittedAt: new Date().toISOString()
+      });
+      demoSet('requests', all);
+      return all[id];
+    }
+    return apiPost('submitLicenceRequest', { requestedTier, reason });
+  }
+
+  async function fetchAllRequests(){
+    if(USE_DEMO_FALLBACK){
+      const all = demoGet('requests', {});
+      return Object.values(all).flat();
+    }
+    return (await apiGet('staffLicenceRequestList')).requests || [];
+  }
+
+  // Approving updates the driver's tier + tierHistory, exactly like a manual
+  // staff override - the request is just a different trigger for the same change.
+  async function reviewRequest(driverId, requestId, decision, staffNote){
+    if(USE_DEMO_FALLBACK){
+      const all = demoGet('requests', {});
+      const list = all[driverId] || [];
+      const reqItem = list.find(r => r.id === requestId);
+      if(!reqItem) throw new Error('Request not found');
+      reqItem.status = decision;
+      reqItem.staffNote = staffNote || '';
+      reqItem.reviewedAt = new Date().toISOString();
+      demoSet('requests', all);
+
+      if(decision === 'approved'){
+        const profiles = demoGet('profiles', {});
+        const p = profiles[driverId];
+        if(p){
+          p.tierHistory = p.tierHistory || [];
+          p.tierHistory.push({ tier: reqItem.requestedTier, date: new Date().toISOString(), reason: 'Approved licence request: ' + (reqItem.reason || ''), setBy: 'staff' });
+          p.tier = reqItem.requestedTier;
+          profiles[driverId] = p;
+          demoSet('profiles', profiles);
+        }
+      }
+      return reqItem;
+    }
+    return apiPost('staffLicenceRequestReview', { requestId, decision, staffNote });
+  }
+
+  window.IFWL_TierAPI = { DEFAULT_TIERS, fetchTierList, saveTierList };
+  window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest };
+
   function nextLicenceNumber(){
     const meta = demoGet('counter', {next:1});
     const num = meta.next; meta.next = num+1; demoSet('counter', meta);
@@ -505,26 +646,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return apiPost('updateLicenceProfile', patch);
   }
 
-  // Server contract for ?tickets=1&token=... :
-  //   Gold or Staff  -> { ticketCount, tickets:[...full incident detail...], stats:{overallScore, consistencyAvg, raceRiskAvg} }
-  //   Everyone else  -> { ticketCount }  (no ticket detail, no stats - tier enforced server-side, not just hidden in CSS)
-  // Matching logic server-side: pull the driver's accDriverNames[], then for every
-  // ticket check if accused/reporter contains a string that includes one of those
-  // names (substring match, not exact - car numbers change between seasons).
-  async function fetchTicketData(driverProfile){
-    const gold = window.IFWL_GOLD || window.IFWL_STAFF;
+  // Ticket count/detail still needs the Cloud Function - tickets are real
+  // private data (see ?tickets=1 contract below). Stats no longer need any
+  // backend at all - see fetchPerformanceStats below.
+  async function fetchTicketInfo(){
     if(USE_DEMO_FALLBACK){
-      // Demo mode has no real ticket linkage yet, so it fabricates a small,
-      // clearly-labelled example so the two tiers are visibly different.
       const demoTickets = [
         {season:'Season 1', track:'Imola', ruleBreach:'RP8st — Rear-End Collision (Braking Zone) (15s)', fullIncident:'Example ticket for demo purposes only.', status:'Finalised'},
       ];
-      if(gold){
-        return { ticketCount: demoTickets.length, tickets: demoTickets, stats: { overallScore: 78.4, consistencyAvg: 91.2, raceRiskAvg: 12.6 } };
-      }
-      return { ticketCount: demoTickets.length };
+      return { ticketCount: demoTickets.length, tickets: demoTickets };
     }
     return apiGet('tickets');
+  }
+
+  // Overall Score / Consistency Avg / Race Risk Avg are computed LIVE, client-side,
+  // straight from the public GitHub-synced session files via ifwl-stats-engine.js -
+  // the exact same formula Live Timings' own Rivals leaderboard uses. No backend
+  // involved. Returns null if this driver has no linked ACC name yet, or no
+  // session rows were found for that name.
+  async function fetchPerformanceStats(profile){
+    const names = (profile?.accDriverNames?.length ? profile.accDriverNames : (profile?.name ? [profile.name] : []));
+    if(!names.length || !window.IFWLStats) return null;
+    try{ return await window.IFWLStats.computeForDriver(names); }
+    catch(e){ console.warn('IFWLStats.computeForDriver failed', e); return null; }
   }
 
   async function fetchDirectory(){
@@ -535,17 +679,41 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return (await apiGet('licenceDirectory')).drivers || [];
   }
 
-  function tierPillClass(tier){
-    const t=(tier||'').toLowerCase();
-    if(t.includes('pro')) return 'pro';
-    if(t.includes('amateur')) return 'amateur';
-    if(t.includes('beginner')) return 'beginner';
-    if(t.includes('provisional')) return 'provisional';
-    return 'none';
+  let currentTiers = DEFAULT_TIERS;
+
+  function hexToRgba(hex, alpha){
+    const clean = String(hex || '').replace('#','');
+    const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean.padEnd(6,'0').slice(0,6);
+    const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
+    return `rgba(${r},${g},${b},${alpha})`;
   }
-  function cardTierClass(tier){
-    const t=(tier||'').toLowerCase();
-    return t.includes('pro') ? 'tier-pro' : '';
+  function findTier(tierName){
+    return currentTiers.find(t => t.name === tierName) || currentTiers[0] || DEFAULT_TIERS[0];
+  }
+  function applyTierPill(el, tierName){
+    const tier = findTier(tierName);
+    el.textContent = tierName || tier.name;
+    el.style.background = hexToRgba(tier.color, 0.16);
+    el.style.color = tier.color;
+    el.style.border = `1px solid ${hexToRgba(tier.color, 0.35)}`;
+  }
+  function applyTierCard(tierName){
+    const tier = findTier(tierName);
+    const outer = q('licenceCardOuter');
+    outer.classList.toggle('foil', !!tier.foil);
+    outer.style.background = tier.foil ? '' : `linear-gradient(135deg, ${tier.color}, var(--ifwl-purple))`;
+  }
+  function renderTierLegend(){
+    const body = q('tierLegendBody');
+    if(!body) return;
+    const sorted = [...currentTiers].sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
+    body.innerHTML = sorted.map(t => `<div class="tier-chip" style="border-color:${hexToRgba(t.color,0.35)}"><div class="swatch" style="background:${t.color}"></div><strong>${t.name}</strong><span>${t.description || ''}</span></div>`).join('');
+  }
+  function populateTierSelect(selectEl, { includeBlank } = {}){
+    if(!selectEl) return;
+    const sorted = [...currentTiers].sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
+    selectEl.innerHTML = (includeBlank ? '<option value="">All tiers</option>' : '') +
+      sorted.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
   }
 
   let currentProfile = null;
@@ -555,12 +723,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('licenceName').textContent = p.name || 'Unnamed driver';
     q('licenceNumber').textContent = p.licenceNumber || 'IFWL-0000-00000';
     q('licenceTeamLabel').textContent = p.raceTeam ? p.raceTeam : 'No race team';
-    const pillClass = tierPillClass(p.tier);
-    q('licenceCardTierPill').className = 'tier-pill '+pillClass;
-    q('licenceCardTierPill').textContent = p.tier || 'No Licence';
-    q('myTierPill').className = 'tier-pill '+pillClass;
-    q('myTierPill').textContent = p.tier || 'No Licence';
-    q('licenceCardOuter').className = 'licence-card '+cardTierClass(p.tier);
+    applyTierPill(q('licenceCardTierPill'), p.tier || 'No Licence');
+    applyTierPill(q('myTierPill'), p.tier || 'No Licence');
+    applyTierCard(p.tier || 'No Licence');
     const photo = p.avatarMode==='upload' && p.photoUploadUrl ? p.photoUploadUrl
                 : p.avatarMode==='url' && p.avatarUrl ? p.avatarUrl
                 : (p.discordAvatarUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="88" height="88"><rect width="88" height="88" fill="%231a2027"/></svg>');
@@ -578,24 +743,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('myLicenceSub').textContent = `Licence ${p.licenceNumber} · linked to live timing results by driver name`;
   }
 
-  function renderTicketData(data){
+  function renderTicketData(ticketInfo, stats){
     const gold = window.IFWL_GOLD || window.IFWL_STAFF;
     q('ticketPanelBadge').textContent = gold ? 'Full detail unlocked' : 'Full detail: Gold only';
     q('statsCards').classList.toggle('hidden', !gold);
     q('ticketCountOnly').classList.toggle('hidden', !!gold);
     q('ticketHistoryBody').classList.toggle('hidden', !gold);
+    q('statsHint').classList.toggle('hidden', !gold);
 
     if(!gold){
-      q('ticketCountNumber').textContent = data.ticketCount ?? 0;
+      q('ticketCountNumber').textContent = ticketInfo?.ticketCount ?? 0;
       return;
     }
 
-    const s = data.stats || {};
-    q('statOverallScore').textContent = s.overallScore != null ? s.overallScore : '-';
-    q('statConsistency').textContent = s.consistencyAvg != null ? s.consistencyAvg + '%' : '-';
-    q('statRaceRisk').textContent = s.raceRiskAvg != null ? s.raceRiskAvg + '%' : '-';
+    if(!stats){
+      q('statOverallScore').textContent = '-';
+      q('statConsistency').textContent = '-';
+      q('statRaceRisk').textContent = '-';
+    } else {
+      q('statOverallScore').textContent = stats.overallScore;
+      q('statConsistency').textContent = stats.consistencyAvg != null ? stats.consistencyAvg + '%' : '-';
+      q('statRaceRisk').textContent = stats.riskAvg != null ? stats.riskAvg + '%' : '-';
+    }
+    q('statsHint').textContent = stats
+      ? `From ${stats.sessionCount} session(s) across ${stats.trackCount} track(s) · most recent: ${stats.mostRecentLabel}`
+      : 'No session data found yet for your linked ACC driver name(s) - mark yourself as your driver in Live Timings first.';
 
-    const tickets = data.tickets || [];
+    const tickets = ticketInfo?.tickets || [];
     const body = q('ticketHistoryBody');
     if(!tickets.length){ body.innerHTML = '<div class="empty">No steward tickets on record. Clean sheet.</div>'; return; }
     body.innerHTML = tickets.map(t=>{
@@ -614,53 +788,205 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
     const body = q('dirTableBody');
     if(!filtered.length){ body.innerHTML = '<tr><td colspan="4" class="empty">No drivers match.</td></tr>'; return; }
-    body.innerHTML = filtered.map(r=>`<tr><td>${r.name||'Unnamed'}</td><td class="mono">${r.licenceNumber||'-'}</td><td><span class="tier-pill ${tierPillClass(r.tier)}">${r.tier||'No Licence'}</span></td><td>${r.raceTeam||'-'}</td></tr>`).join('');
+    body.innerHTML = filtered.map(r=>{
+      const tier = findTier(r.tier || 'No Licence');
+      return `<tr><td>${r.name||'Unnamed'}</td><td class="mono">${r.licenceNumber||'-'}</td><td><span class="tier-pill" style="background:${hexToRgba(tier.color,0.16)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.35)}">${r.tier||'No Licence'}</span></td><td>${r.raceTeam||'-'}</td></tr>`;
+    }).join('');
   }
 
-  function fileToDataUrl(file){
+  /* ============================================================
+     IMAGE PERSISTENCE
+     The previous version embedded each image as a base64 string
+     inside the localStorage profile blob. A 5MB image becomes
+     ~6.7MB of base64 text, which blows past localStorage's ~5-10MB
+     per-origin quota - the write silently failed (caught and
+     swallowed), so nothing was ever actually saved. Two real fixes:
+
+     1. Real backend path: upload the raw file as multipart/form-data
+        to a Storage-backed Cloud Function (see the rtLicenceImageUpload
+        contract below) and save only the small returned URL string on
+        the profile - never the image bytes themselves.
+     2. Demo path: store the actual file Blob in IndexedDB (megabytes
+        of quota, built for exactly this) instead of localStorage, and
+        save only a small {ref:'idb', key} pointer on the demo profile.
+        This makes the demo genuinely survive logout/login today.
+
+     Either way, the profile document itself only ever holds a tiny
+     string - never image bytes - so it can never hit a size limit
+     again (also matters for the real backend: Firestore caps a single
+     document at 1MB, so an embedded 5MB image could never have fit in
+     a profile doc regardless of storage engine).
+     ============================================================ */
+  const IDB_NAME = 'ifwl_licence_demo_images', IDB_STORE = 'images';
+  function idbOpen(){
     return new Promise((resolve,reject)=>{
-      if(file.size > 5*1024*1024){ reject(new Error('That file is over 5MB. Please choose a smaller image.')); return; }
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = () => reject(new Error('Could not read that file.'));
-      r.readAsDataURL(file);
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSetImage(key, blob){
+    const db = await idbOpen();
+    return new Promise((resolve,reject)=>{
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(blob, key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGetImage(key){
+    const db = await idbOpen();
+    return new Promise((resolve,reject)=>{
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
     });
   }
 
+  // Server contract for the real upload endpoint (mirrors the already-working
+  // rtTeamImageUpload function - same Busboy pattern, same 5MB enforcement
+  // server-side, same signed-URL response):
+  //   POST {FN}?licenceImageUpload=1&token=...   multipart/form-data
+  //   fields: file (image/jpeg|png), kind ('photo'|'header')
+  //   -> { ok:true, url:'<signed storage URL>' }
+  async function uploadLicenceImage(file, kind){
+    if(file.size > 5*1024*1024) throw new Error('That file is over 5MB. Please choose a smaller image.');
+    if(USE_DEMO_FALLBACK){
+      const meta = window.IFWL_META; const id = window.IFWL_AUTH.userId(meta);
+      await idbSetImage(`${id}:${kind}`, file);
+      return { url: URL.createObjectURL(file), ref: 'idb' };
+    }
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const form = new FormData();
+    form.append('file', file);
+    form.append('kind', kind);
+    const r = await fetch(`${FN}?licenceImageUpload=1&token=${encodeURIComponent(token)}`, { method:'POST', body: form });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d?.error || 'Upload failed');
+    return { url: d.url, ref: 'url' };
+  }
+
+  // Object URLs created via URL.createObjectURL() only last for the current
+  // page load - after logout/login (a fresh load), the demo profile only has
+  // a {ref:'idb'} pointer, so the actual image Blob is pulled back out of
+  // IndexedDB here and a fresh object URL is minted from it.
+  async function resolveStoredImages(p){
+    if(!p || !USE_DEMO_FALLBACK) return p;
+    const meta = window.IFWL_META; const id = window.IFWL_AUTH.userId(meta);
+    if(p.photoUploadRef === 'idb'){
+      const blob = await idbGetImage(`${id}:photo`);
+      if(blob) p.photoUploadUrl = URL.createObjectURL(blob);
+    }
+    if(p.headerUploadRef === 'idb'){
+      const blob = await idbGetImage(`${id}:header`);
+      if(blob) p.headerUploadUrl = URL.createObjectURL(blob);
+    }
+    return p;
+  }
+
+  async function renderMyRequestPanel(){
+    const requests = await window.IFWL_RequestAPI.fetchMyRequests();
+    const pending = requests.find(r => r.status === 'pending');
+    const statusBlock = q('requestStatusBlock');
+    const formBlock = q('requestFormBlock');
+
+    if(pending){
+      statusBlock.innerHTML = `<div class="request-card"><span class="request-status-pill pending">Pending review</span><strong style="display:block;margin-top:8px">${pending.requestedTier}</strong><p style="color:var(--text-muted);font-size:13px;margin:6px 0 0">${pending.reason}</p><div class="req-meta">Submitted ${new Date(pending.submittedAt).toLocaleString()}</div></div>`;
+      formBlock.classList.add('hidden');
+      return;
+    }
+    formBlock.classList.remove('hidden');
+
+    const last = [...requests].reverse().find(r => r.status !== 'pending');
+    statusBlock.innerHTML = last
+      ? `<div class="request-card"><span class="request-status-pill ${last.status}">${last.status}</span><strong style="display:block;margin-top:8px">${last.requestedTier}</strong>${last.staffNote ? `<p style="color:var(--text-muted);font-size:13px;margin:6px 0 0">Staff note: ${last.staffNote}</p>` : ''}</div>`
+      : '';
+
+    const currentOrder = findTier(currentProfile?.tier || 'No Licence').order ?? 0;
+    const above = [...currentTiers].filter(t => (t.order ?? 0) > currentOrder).sort((a,b)=>(a.order??0)-(b.order??0));
+    populateTierSelect(q('requestTierSelect'));
+    if(above.length){
+      q('requestTierSelect').innerHTML = above.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+    }
+  }
+
   async function init(){
+    currentTiers = await window.IFWL_TierAPI.fetchTierList();
+    renderTierLegend();
+    populateTierSelect(q('dirTierFilter'), { includeBlank: true });
+
     currentProfile = await fetchMyProfile();
+    currentProfile = await resolveStoredImages(currentProfile);
     if(currentProfile) renderCard(currentProfile);
-    const ticketData = await fetchTicketData(currentProfile);
-    renderTicketData(ticketData);
+    const [ticketInfo, perfStats] = await Promise.all([fetchTicketInfo(), fetchPerformanceStats(currentProfile)]);
+    renderTicketData(ticketInfo, perfStats);
     const dir = await fetchDirectory();
     renderDirectory(dir);
+    await renderMyRequestPanel();
+
+    q('submitRequestBtn').addEventListener('click', async () => {
+      const requestedTier = q('requestTierSelect').value;
+      const reason = q('requestReasonInput').value.trim();
+      if(!requestedTier){ q('requestStatusBlock').innerHTML = '<div class="error">Choose a tier to request.</div>'; return; }
+      if(!reason){ q('requestStatusBlock').innerHTML = '<div class="error">Tell staff why you should be reviewed for this tier.</div>'; return; }
+      q('submitRequestBtn').disabled = true; q('submitRequestBtn').textContent = 'Submitting...';
+      try{
+        await window.IFWL_RequestAPI.submitLicenceRequest(requestedTier, reason);
+        q('requestReasonInput').value = '';
+        await renderMyRequestPanel();
+      }catch(e){ q('requestStatusBlock').innerHTML = `<div class="error">Could not submit: ${e.message}</div>`; }
+      finally{ q('submitRequestBtn').disabled = false; q('submitRequestBtn').textContent = 'Submit request'; }
+    });
 
     q('modeDiscordBtn').addEventListener('click', ()=>{avatarMode='discord';q('modeDiscordBtn').classList.add('active');q('modeUrlBtn').classList.remove('active');q('avatarUrlInput').classList.add('hidden');});
     q('modeUrlBtn').addEventListener('click', ()=>{avatarMode='url';q('modeUrlBtn').classList.add('active');q('modeDiscordBtn').classList.remove('active');q('avatarUrlInput').classList.remove('hidden');});
 
+    // Uploads save themselves immediately on success - they are never left
+    // waiting on the "Save changes" button, so a successful upload can't be
+    // lost by forgetting to click it afterwards.
     q('licenceUploadInput').addEventListener('change', async e=>{
       const file = e.target.files[0]; if(!file) return;
-      try{ const dataUrl = await fileToDataUrl(file); currentProfile.avatarMode='upload'; currentProfile.photoUploadUrl = dataUrl; renderCard(currentProfile); q('saveStatus').textContent='Photo ready - click Save changes.'; }
-      catch(err){ q('saveStatus').textContent = err.message; }
+      q('saveStatus').textContent = 'Uploading photo...';
+      try{
+        const { url, ref } = await uploadLicenceImage(file, 'photo');
+        currentProfile.avatarMode = 'upload';
+        currentProfile.photoUploadUrl = url;
+        currentProfile.photoUploadRef = ref;
+        renderCard(currentProfile);
+        await saveMyProfile({ avatarMode:'upload', photoUploadUrl: url, photoUploadRef: ref });
+        q('saveStatus').textContent = 'Photo saved.';
+        setTimeout(()=>q('saveStatus').textContent='',2000);
+      }catch(err){ q('saveStatus').textContent = err.message; }
     });
     q('headerUploadInput').addEventListener('change', async e=>{
       const file = e.target.files[0]; if(!file) return;
-      try{ const dataUrl = await fileToDataUrl(file); currentProfile.headerUploadUrl = dataUrl; renderCard(currentProfile); q('saveStatus').textContent='Header ready - click Save changes.'; }
-      catch(err){ q('saveStatus').textContent = err.message; }
+      q('saveStatus').textContent = 'Uploading header...';
+      try{
+        const { url, ref } = await uploadLicenceImage(file, 'header');
+        currentProfile.headerUploadUrl = url;
+        currentProfile.headerUploadRef = ref;
+        renderCard(currentProfile);
+        await saveMyProfile({ headerUploadUrl: url, headerUploadRef: ref });
+        q('saveStatus').textContent = 'Header saved.';
+        setTimeout(()=>q('saveStatus').textContent='',2000);
+      }catch(err){ q('saveStatus').textContent = err.message; }
     });
 
     q('saveLicenceBtn').addEventListener('click', async ()=>{
+      // Images are intentionally NOT included here - they already saved
+      // themselves the moment the upload succeeded, above.
       const patch = {
         avatarMode,
         avatarUrl: q('avatarUrlInput').value.trim(),
         bio: window.IFWL_SILVER_PLUS ? q('bioInput').value.trim() : currentProfile.bio,
         raceTeam: window.IFWL_SILVER_PLUS ? q('teamInput').value.trim() : currentProfile.raceTeam,
-        photoUploadUrl: window.IFWL_GOLD ? currentProfile.photoUploadUrl : currentProfile.photoUploadUrl,
-        headerUploadUrl: window.IFWL_GOLD ? currentProfile.headerUploadUrl : currentProfile.headerUploadUrl,
       };
       q('saveStatus').textContent = 'Saving...';
       try{
         currentProfile = await saveMyProfile(patch);
+        currentProfile = await resolveStoredImages(currentProfile);
         renderCard(currentProfile);
         q('saveStatus').textContent = 'Saved.';
         setTimeout(()=>q('saveStatus').textContent='',2000);
@@ -689,6 +1015,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   const q = id => document.getElementById(id);
   function demoGet(k,fallback){try{const v=localStorage.getItem('IFWL_LICENCE_DEMO:'+k);return v?JSON.parse(v):fallback}catch(_){return fallback}}
   function demoSet(k,v){try{localStorage.setItem('IFWL_LICENCE_DEMO:'+k,JSON.stringify(v))}catch(_){}}
+  function hexToRgba(hex, alpha){
+    const clean = String(hex || '').replace('#','');
+    const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean.padEnd(6,'0').slice(0,6);
+    const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
 
   function renderResults(rows){
     const wrap = q('staffSearchResults');
@@ -697,16 +1029,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     wrap.querySelectorAll('[data-id]').forEach(el=>el.addEventListener('click', ()=>openEditor(el.dataset.id)));
   }
 
-  function openEditor(id){
+  async function openEditor(id){
     const all = demoGet('profiles', {});
     const p = all[id]; if(!p) return;
     const notesAll = demoGet('notes', {});
     const notes = notesAll[id] || [];
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+    const sortedTiers = [...tiers].sort((a,b)=>(a.order??0)-(b.order??0));
     const wrap = q('staffEditorWrap');
     wrap.innerHTML = `
       <div class="field-group"><label>Name</label><input type="text" id="edName" value="${p.name||''}"></div>
       <div class="field-group"><label>Tier</label><select id="edTier">
-        ${['No Licence','Provisional','GT3 Beginner','GT3 Amateur','GT3 Pro'].map(t=>`<option value="${t}" ${p.tier===t?'selected':''}>${t}</option>`).join('')}
+        ${sortedTiers.map(t=>`<option value="${t.name}" ${p.tier===t.name?'selected':''}>${t.name}</option>`).join('')}
       </select></div>
       <div class="field-group"><label>Reason for tier change</label><input type="text" id="edReason" placeholder="e.g. Clean run of 10 races, promoted to Amateur"></div>
       <div class="field-group"><label>Race team</label><input type="text" id="edTeam" value="${p.raceTeam||''}"></div>
@@ -745,8 +1079,110 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   q('staffIssueNewBtn')?.addEventListener('click', ()=>{
     alert('This creates a new licence doc via ?staffLicence=1 (issue action) once the backend exists. In demo mode, new drivers get a profile automatically the first time they log in.');
   });
+
+  /* ---- Manage Licence Tiers ---- */
+  let tierRows = [];
+
+  function renderTierRows(){
+    const wrap = q('tierEditorRows');
+    if(!wrap) return;
+    wrap.innerHTML = tierRows.map((t, i) => `
+      <div class="tier-row" data-idx="${i}">
+        <div>
+          <button class="icon-btn" data-move="up" title="Move up" ${i===0?'disabled':''}>&uarr;</button>
+          <button class="icon-btn" data-move="down" title="Move down" ${i===tierRows.length-1?'disabled':''}>&darr;</button>
+        </div>
+        <input type="text" data-field="name" value="${t.name}" placeholder="Tier name">
+        <input type="color" data-field="color" value="${t.color}">
+        <label class="foil-toggle"><input type="checkbox" data-field="foil" ${t.foil?'checked':''}> Foil</label>
+        <input type="text" data-field="description" value="${t.description||''}" placeholder="Short description" style="grid-column:span 1">
+        <button class="icon-btn" data-remove="1" title="Remove tier">&times;</button>
+      </div>
+    `).join('');
+
+    wrap.querySelectorAll('.tier-row').forEach(row => {
+      const idx = Number(row.dataset.idx);
+      row.querySelector('[data-field="name"]').addEventListener('input', e => tierRows[idx].name = e.target.value);
+      row.querySelector('[data-field="color"]').addEventListener('input', e => tierRows[idx].color = e.target.value);
+      row.querySelector('[data-field="foil"]').addEventListener('change', e => tierRows[idx].foil = e.target.checked);
+      row.querySelector('[data-field="description"]').addEventListener('input', e => tierRows[idx].description = e.target.value);
+      row.querySelector('[data-remove]').addEventListener('click', () => { tierRows.splice(idx,1); renumberAndRender(); });
+      const moveBtns = row.querySelectorAll('[data-move]');
+      moveBtns.forEach(btn => btn.addEventListener('click', () => {
+        const dir = btn.dataset.move === 'up' ? -1 : 1;
+        const swapWith = idx + dir;
+        if(swapWith < 0 || swapWith >= tierRows.length) return;
+        [tierRows[idx], tierRows[swapWith]] = [tierRows[swapWith], tierRows[idx]];
+        renumberAndRender();
+      }));
+    });
+  }
+  function renumberAndRender(){
+    tierRows.forEach((t,i) => t.order = i);
+    renderTierRows();
+  }
+
+  async function initTierManager(){
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+    tierRows = [...tiers].sort((a,b)=>(a.order??0)-(b.order??0)).map(t => ({...t}));
+    renderTierRows();
+  }
+  q('addTierRowBtn')?.addEventListener('click', () => {
+    tierRows.push({ id: 'tier_' + Date.now(), name: 'New Tier', color: '#93a1a9', foil:false, description:'', order: tierRows.length });
+    renderTierRows();
+  });
+  q('saveTiersBtn')?.addEventListener('click', async () => {
+    if(tierRows.some(t => !t.name.trim())){ q('tierSaveStatus').textContent = 'Every tier needs a name.'; return; }
+    q('tierSaveStatus').textContent = 'Saving...';
+    try{
+      await window.IFWL_TierAPI.saveTierList(tierRows);
+      q('tierSaveStatus').textContent = 'Saved. Reload the page to see it everywhere.';
+    }catch(e){ q('tierSaveStatus').textContent = 'Could not save: ' + e.message; }
+  });
+
+  /* ---- Licence Requests queue ---- */
+  async function renderRequestQueue(){
+    const body = q('requestQueueBody');
+    if(!body) return;
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+    const findColor = name => (tiers.find(t=>t.name===name) || {color:'#93a1a9'}).color;
+    const all = await window.IFWL_RequestAPI.fetchAllRequests();
+    const pending = all.filter(r => r.status === 'pending');
+    if(!pending.length){ body.innerHTML = '<div class="empty">No pending licence requests.</div>'; return; }
+    body.innerHTML = pending.map(r => `
+      <div class="request-card" data-driver="${r.driverId}" data-request="${r.id}">
+        <span class="request-status-pill pending">Pending</span>
+        <strong style="display:block;margin-top:8px">${r.driverName} &mdash; <span style="color:${findColor(r.requestedTier)}">${r.requestedTier}</span></strong>
+        <div class="req-meta">Currently: ${r.currentTier} &middot; submitted ${new Date(r.submittedAt).toLocaleString()}</div>
+        <p style="color:var(--text-muted);font-size:13px;margin:8px 0 0">${r.reason}</p>
+        <div class="req-actions">
+          <button class="btn teal" data-decision="approved">Approve</button>
+          <button class="btn ghost" data-decision="declined">Decline</button>
+        </div>
+      </div>
+    `).join('');
+
+    body.querySelectorAll('[data-decision]').forEach(btn => btn.addEventListener('click', async () => {
+      const card = btn.closest('.request-card');
+      const driverId = card.dataset.driver, requestId = card.dataset.request;
+      const decision = btn.dataset.decision;
+      let staffNote = '';
+      if(decision === 'declined'){
+        staffNote = prompt('Optional note to the driver for why this was declined:') || '';
+      }
+      btn.disabled = true;
+      try{
+        await window.IFWL_RequestAPI.reviewRequest(driverId, requestId, decision, staffNote);
+        await renderRequestQueue();
+      }catch(e){ alert('Could not review request: ' + e.message); btn.disabled = false; }
+    }));
+  }
+
+  initTierManager();
+  renderRequestQueue();
 })();
 </script>
+
 
 </body>
 </html>
