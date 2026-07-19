@@ -927,10 +927,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   // Server contract for the real upload endpoint (mirrors the already-working
   // rtTeamImageUpload function - same Busboy pattern, same 5MB enforcement
-  // server-side, same signed-URL response):
-  //   POST {FN}?licenceImageUpload=1&token=...   multipart/form-data
+  // server-side, same signed-URL response). rtLicenceImageUpload is its OWN
+  // Cloud Function with its own URL, not an action inside rtGate:
+  //   POST {UPLOAD_FN}?token=...   multipart/form-data
   //   fields: file (image/jpeg|png), kind ('photo'|'header')
   //   -> { ok:true, url:'<signed storage URL>' }
+  const UPLOAD_FN = FN.replace(/\/rtGate\b/, '/rtLicenceImageUpload');
   async function uploadLicenceImage(file, kind){
     if(file.size > 5*1024*1024) throw new Error('That file is over 5MB. Please choose a smaller image.');
     if(USE_DEMO_FALLBACK){
@@ -942,7 +944,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const form = new FormData();
     form.append('file', file);
     form.append('kind', kind);
-    const r = await fetch(`${FN}?licenceImageUpload=1&token=${encodeURIComponent(token)}`, { method:'POST', body: form });
+    const r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}`, { method:'POST', body: form });
     const d = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(d?.error || 'Upload failed');
     return { url: d.url, ref: 'url' };
