@@ -202,7 +202,7 @@
     .quick-filter-btn.active{background:linear-gradient(135deg,var(--ifwl-teal-deep),var(--ifwl-teal));color:#03211c;border-color:transparent}
     .quick-filter-btn.purple.active{background:linear-gradient(135deg,var(--ifwl-purple-deep),var(--ifwl-purple));color:#fff;border-color:transparent}
     .quick-filter-help{font-size:12px;color:var(--text-muted);margin-top:10px;font-weight:600}
-    .sandbag-summary{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:12px;padding:14px 16px;border-bottom:1px solid var(--ifwl-line-soft);background:#0d1116}
+    .sandbag-summary{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:12px;padding:14px 16px;border-bottom:1px solid var(--ifwl-line-soft);background:#0d1116}
     .sandbag-stat{background:var(--panel-bg);border:1px solid var(--ifwl-line);border-radius:14px;padding:12px}
     .sandbag-stat span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:800;color:var(--text-muted)}
     .sandbag-stat strong{display:block;font-size:22px;margin-top:4px;color:var(--text-primary)}
@@ -954,8 +954,17 @@
         <div class="sandbag-stat"><span>Sandbagging watches</span><strong id="moveUpCount">0</strong></div>
         <div class="sandbag-stat"><span>Pace mismatches</span><strong id="paceAnomalyCount">0</strong></div>
         <div class="sandbag-stat"><span>Rapid pace increases</span><strong id="paceIncreaseCount">0</strong></div>
+        <div class="sandbag-stat"><span>Too fast for Beginner</span><strong id="fastBeginnerCount">0</strong></div>
+        <div class="sandbag-stat"><span>Too slow for Pro-Am</span><strong id="slowProAmCount">0</strong></div>
         <div class="sandbag-stat"><span>Drivers checked</span><strong id="driversCheckedCount">0</strong></div>
         <div class="sandbag-stat"><span>Servers checked</span><strong id="comparisonTrackCount">0</strong></div>
+      </div>
+      <div id="categoryBenchmarksWrap" class="table-wrap" style="margin:0 16px 16px">
+        <p class="chart-help" style="margin:0 0 8px">Category Pace Benchmarks - the median (typical) best lap for genuine Beginner and Pro-Am drivers at each track, across every loaded file. This is what the flags below are actually measured against.</p>
+        <table class="results-table">
+          <thead><tr><th>Platform</th><th>Track</th><th>Beginner median</th><th>Beginner sample</th><th>Pro-Am median</th><th>Pro-Am sample</th><th>Gap</th></tr></thead>
+          <tbody id="categoryBenchmarksBody"><tr><td colspan="7" class="empty">Loading benchmarks...</td></tr></tbody>
+        </table>
       </div>
       <div id="beginnerReviewBody" class="sandbag-list">
         <div class="empty">Loading all-server pace review...</div>
@@ -996,6 +1005,9 @@
     driversCheckedCount: document.getElementById('driversCheckedCount'),
     comparisonTrackCount: document.getElementById('comparisonTrackCount'),
     paceIncreaseCount: document.getElementById('paceIncreaseCount'),
+    fastBeginnerCount: document.getElementById('fastBeginnerCount'),
+    slowProAmCount: document.getElementById('slowProAmCount'),
+    categoryBenchmarksBody: document.getElementById('categoryBenchmarksBody'),
     raceBody: document.getElementById('raceBody'),
     racePanel: document.getElementById('race'),
     raceCharts: document.getElementById('raceCharts'),
@@ -1767,12 +1779,14 @@
     const mid = Math.floor(arr.length/2);
     return arr.length % 2 ? arr[mid] : (arr[mid-1] + arr[mid]) / 2;
   }
-  function setReviewCounts(sandbag, mismatch, drivers, servers, increases){
+  function setReviewCounts(sandbag, mismatch, drivers, servers, increases, fastBeginner, slowProAm){
     if(els.moveUpCount) els.moveUpCount.textContent = sandbag;
     if(els.paceAnomalyCount) els.paceAnomalyCount.textContent = mismatch;
     if(els.driversCheckedCount) els.driversCheckedCount.textContent = drivers;
     if(els.comparisonTrackCount) els.comparisonTrackCount.textContent = servers;
     if(els.paceIncreaseCount) els.paceIncreaseCount.textContent = increases;
+    if(els.fastBeginnerCount) els.fastBeginnerCount.textContent = fastBeginner || 0;
+    if(els.slowProAmCount) els.slowProAmCount.textContent = slowProAm || 0;
   }
 
   function driverNameKey(name){
@@ -1804,6 +1818,65 @@
     return ' Note: these two laps were set in different track conditions (one wet, one dry) - that alone can explain some or all of this gap, so weigh it accordingly.';
   }
 
+  // Category-wide pace benchmarks: the median best lap for genuine Beginner
+  // and Pro-Am drivers at each track, computed across every driver currently
+  // loaded - not just one person's own history. This is what lets us flag
+  // someone who's suspiciously fast for Beginner (or slow for Pro-Am) even if
+  // they've never personally raced in the other category, which the existing
+  // same-driver cross-category check above cannot do on its own.
+  function computeCategoryBenchmarks(allRows){
+    const groups = new Map();
+    for(const r of allRows){
+      if(!isValidLap(r.bestLap)) continue;
+      const cat = categoryOfServer(r.serverId);
+      if(cat !== 'Beginner' && cat !== 'Pro-Am') continue;
+      const key = `${platformOfServer(r.serverId)}|||${r.track}`;
+      if(!groups.has(key)) groups.set(key, { beginner: [], proam: [] });
+      const g = groups.get(key);
+      if(cat === 'Beginner') g.beginner.push(r.bestLap);
+      else g.proam.push(r.bestLap);
+    }
+
+    const benchmarks = new Map();
+    for(const [key, g] of groups.entries()){
+      benchmarks.set(key, {
+        beginnerMedian: g.beginner.length >= 3 ? median(g.beginner) : null,
+        proamMedian: g.proam.length >= 3 ? median(g.proam) : null,
+        beginnerCount: g.beginner.length,
+        proamCount: g.proam.length
+      });
+    }
+    return benchmarks;
+  }
+
+  function renderCategoryBenchmarksTable(benchmarks){
+    if(!els.categoryBenchmarksBody) return;
+
+    const rows = [...benchmarks.entries()]
+      .filter(([, b]) => b.beginnerMedian && b.proamMedian)
+      .map(([key, b]) => {
+        const [platform, track] = key.split('|||');
+        const gapPct = ((b.beginnerMedian - b.proamMedian) / b.proamMedian) * 100;
+        return { platform, track, ...b, gapPct };
+      })
+      .sort((a,b) => a.platform.localeCompare(b.platform) || a.track.localeCompare(b.track));
+
+    if(!rows.length){
+      els.categoryBenchmarksBody.innerHTML = '<tr><td colspan="7" class="empty">Not enough Beginner + Pro-Am data yet at any shared track (need 3+ laps in each category).</td></tr>';
+      return;
+    }
+
+    els.categoryBenchmarksBody.innerHTML = rows.map(r => `<tr>
+      <td>${esc(r.platform)}</td>
+      <td>${esc(title(r.track))}</td>
+      <td>${msTime(r.beginnerMedian)}</td>
+      <td class="muted">${r.beginnerCount} laps</td>
+      <td>${msTime(r.proamMedian)}</td>
+      <td class="muted">${r.proamCount} laps</td>
+      <td>Pro-Am is ${r.gapPct.toFixed(1)}% faster</td>
+    </tr>`).join('');
+  }
+
   function renderBeginnerReview(allRows){
     if(!els.beginnerReviewBody) return;
 
@@ -1826,10 +1899,15 @@
       byDriver.get(key).push(r);
     }
 
+    const categoryBenchmarks = computeCategoryBenchmarks(allRows);
+    renderCategoryBenchmarksTable(categoryBenchmarks);
+
     const notes = [];
     let sandbagCount = 0;
     let mismatchCount = 0;
     let increaseCount = 0;
+    let fastBeginnerCount = 0;
+    let slowProAmCount = 0;
 
     for(const [, rows] of byDriver.entries()){
       const displayName = rows[0]?.driver || 'Unknown driver';
@@ -1855,7 +1933,45 @@
           const existing = byCategory.get(cat);
           if(!existing || r.bestLap < existing.bestLap) byCategory.set(cat, r);
         }
-        if(byCategory.size < 2) continue; // need at least two categories to compare
+
+        // Category benchmark check - a driver only needs to appear in ONE
+        // category to be checked here, since this compares against the whole
+        // platform's typical pace for the OTHER category, not this driver's
+        // own history. Threshold: within 3% of the other category's median
+        // counts as "at that category's pace" - tune this once real flagged
+        // examples have been reviewed.
+        const bench = categoryBenchmarks.get(groupKey);
+        if(bench){
+          const beginnerRow = byCategory.get('Beginner');
+          if(beginnerRow && bench.proamMedian && beginnerRow.bestLap <= bench.proamMedian * 1.03){
+            fastBeginnerCount++;
+            const gapToProAmPct = ((beginnerRow.bestLap - bench.proamMedian) / bench.proamMedian) * 100;
+            const risk = raceRiskForRow(beginnerRow, null, 0);
+            notes.push({
+              type: 'warn',
+              label: 'Too fast for Beginner',
+              title: `${displayName}'s Beginner best at ${title(track)} is at Pro-Am pace (${platform})`,
+              detail: `Their best: ${msTime(beginnerRow.bestLap)} in the ${conditionLabel(beginnerRow)} (${esc(beginnerRow.serverName)}). Beginner median here: ${msTime(bench.beginnerMedian || 0)} (${bench.beginnerCount} laps). Pro-Am median here: ${msTime(bench.proamMedian)} (${bench.proamCount} laps). Gap to Pro-Am median: ${gapToProAmPct >= 0 ? '+' : ''}${gapToProAmPct.toFixed(1)}%. Consistency: ${consistencyText(beginnerRow.consistencyStats?.consistency, beginnerRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'} (${risk.label}).`,
+              reason: `This driver's Beginner pace is at or faster than the typical Pro-Am driver at this track - a strong signal worth reviewing, regardless of whether they've ever actually raced Pro-Am themselves.`
+            });
+          }
+
+          const proamRow = byCategory.get('Pro-Am');
+          if(proamRow && bench.beginnerMedian && proamRow.bestLap >= bench.beginnerMedian * 0.97){
+            slowProAmCount++;
+            const gapToBeginnerPct = ((bench.beginnerMedian - proamRow.bestLap) / bench.beginnerMedian) * 100;
+            const risk = raceRiskForRow(proamRow, null, 0);
+            notes.push({
+              type: 'move',
+              label: 'Too slow for Pro-Am',
+              title: `${displayName}'s Pro-Am best at ${title(track)} is close to Beginner pace (${platform})`,
+              detail: `Their best: ${msTime(proamRow.bestLap)} in the ${conditionLabel(proamRow)} (${esc(proamRow.serverName)}). Pro-Am median here: ${msTime(bench.proamMedian || 0)} (${bench.proamCount} laps). Beginner median here: ${msTime(bench.beginnerMedian)} (${bench.beginnerCount} laps). Gap to Beginner median: ${gapToBeginnerPct >= 0 ? '+' : ''}${gapToBeginnerPct.toFixed(1)}%.`,
+              reason: `Not evidence of wrongdoing - this reads as a genuine pace/category mismatch worth a conversation about moving down to Beginner, rather than a sandbagging concern.`
+            });
+          }
+        }
+
+        if(byCategory.size < 2) continue; // need at least two categories for the comparisons below
 
         const entries = [...byCategory.entries()];
         const fastest = entries.reduce((a,b) => a[1].bestLap <= b[1].bestLap ? a : b);
@@ -1925,7 +2041,7 @@
       }
     }
 
-    setReviewCounts(sandbagCount, mismatchCount, driverKeys.size, serverIdsSeen.size, increaseCount);
+    setReviewCounts(sandbagCount, mismatchCount, driverKeys.size, serverIdsSeen.size, increaseCount, fastBeginnerCount, slowProAmCount);
 
     if(!notes.length){
       els.beginnerReviewBody.innerHTML = '<div class="sandbag-card"><span class="sandbag-tag ok">No flags</span><div><strong>No sandbagging, pace mismatch or rapid pace increase flags in the latest synced files.</strong><p>This only checks the files currently loaded across all six servers. Staff judgement still matters, especially around racecraft and attendance history.</p></div></div>';
