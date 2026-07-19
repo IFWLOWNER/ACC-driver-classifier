@@ -208,6 +208,10 @@
     .sandbag-stat strong{display:block;font-size:22px;margin-top:4px;color:var(--text-primary)}
     .sandbag-list{padding:14px 18px}
     .sandbag-card{display:grid;grid-template-columns:170px 1fr;gap:14px;padding:16px 0;border-bottom:1px solid var(--ifwl-line-soft)}
+    .sandbag-latest-wrap{padding:14px 16px;margin:0 0 4px;background:linear-gradient(90deg,rgba(198,91,232,.14),rgba(31,214,189,.05));border-bottom:2px solid var(--ifwl-purple)}
+    .sandbag-latest-heading{margin:0 0 8px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:var(--ifwl-purple)}
+    .sandbag-card-latest{border-bottom:1px solid rgba(198,91,232,.25)}
+    .sandbag-card-latest:last-child{border-bottom:0}
     .sandbag-card:last-child{border-bottom:0}
     .sandbag-tag{display:inline-block;width:max-content;height:max-content;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:800;text-transform:uppercase}
     .sandbag-tag.move{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
@@ -959,12 +963,9 @@
         <div class="sandbag-stat"><span>Drivers checked</span><strong id="driversCheckedCount">0</strong></div>
         <div class="sandbag-stat"><span>Servers checked</span><strong id="comparisonTrackCount">0</strong></div>
       </div>
-      <div id="categoryBenchmarksWrap" class="table-wrap" style="margin:0 16px 16px">
-        <p class="chart-help" style="margin:0 0 8px">Category Pace Benchmarks - the median (typical) best lap for genuine Beginner and Pro-Am drivers at each track, across every loaded file. This is what the flags below are actually measured against.</p>
-        <table class="results-table">
-          <thead><tr><th>Platform</th><th>Track</th><th>Beginner median</th><th>Beginner sample</th><th>Pro-Am median</th><th>Pro-Am sample</th><th>Gap</th></tr></thead>
-          <tbody id="categoryBenchmarksBody"><tr><td colspan="7" class="empty">Loading benchmarks...</td></tr></tbody>
-        </table>
+      <div id="categoryBenchmarksWrap" style="margin:0 16px 16px">
+        <p class="chart-help" style="margin:0 0 8px">Category Pace Benchmarks - the median (typical) best lap for genuine Beginner and Pro-Am drivers at each track and condition, across every loaded file (Practice, Qualifying and Race). Split by platform, and wet/dry laps are never mixed together. This is what the flags below are actually measured against.</p>
+        <div id="categoryBenchmarksBody"><div class="empty">Loading benchmarks...</div></div>
       </div>
       <div id="beginnerReviewBody" class="sandbag-list">
         <div class="empty">Loading all-server pace review...</div>
@@ -1830,7 +1831,8 @@
       if(!isValidLap(r.bestLap)) continue;
       const cat = categoryOfServer(r.serverId);
       if(cat !== 'Beginner' && cat !== 'Pro-Am') continue;
-      const key = `${platformOfServer(r.serverId)}|||${r.track}`;
+      const condition = r.wet ? 'wet' : 'dry';
+      const key = `${platformOfServer(r.serverId)}|||${r.track}|||${condition}`;
       if(!groups.has(key)) groups.set(key, { beginner: [], proam: [] });
       const g = groups.get(key);
       if(cat === 'Beginner') g.beginner.push(r.bestLap);
@@ -1855,26 +1857,36 @@
     const rows = [...benchmarks.entries()]
       .filter(([, b]) => b.beginnerMedian && b.proamMedian)
       .map(([key, b]) => {
-        const [platform, track] = key.split('|||');
+        const [platform, track, condition] = key.split('|||');
         const gapPct = ((b.beginnerMedian - b.proamMedian) / b.proamMedian) * 100;
-        return { platform, track, ...b, gapPct };
+        return { platform, track, condition, ...b, gapPct };
       })
-      .sort((a,b) => a.platform.localeCompare(b.platform) || a.track.localeCompare(b.track));
+      .sort((a,b) => a.track.localeCompare(b.track) || a.condition.localeCompare(b.condition));
 
     if(!rows.length){
-      els.categoryBenchmarksBody.innerHTML = '<tr><td colspan="7" class="empty">Not enough Beginner + Pro-Am data yet at any shared track (need 3+ laps in each category).</td></tr>';
+      els.categoryBenchmarksBody.innerHTML = '<div class="empty">Not enough Beginner + Pro-Am data yet at any shared track and condition (need 3+ laps in each category).</div>';
       return;
     }
 
-    els.categoryBenchmarksBody.innerHTML = rows.map(r => `<tr>
-      <td>${esc(r.platform)}</td>
-      <td>${esc(title(r.track))}</td>
-      <td>${msTime(r.beginnerMedian)}</td>
-      <td class="muted">${r.beginnerCount} laps</td>
-      <td>${msTime(r.proamMedian)}</td>
-      <td class="muted">${r.proamCount} laps</td>
-      <td>Pro-Am is ${r.gapPct.toFixed(1)}% faster</td>
-    </tr>`).join('');
+    const tableFor = platformLabel => {
+      const platformRows = rows.filter(r => r.platform === platformLabel);
+      if(!platformRows.length) return `<h5 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">${esc(platformLabel)}</h5><div class="empty">No shared Beginner + Pro-Am data yet for ${esc(platformLabel)}.</div>`;
+      return `<h5 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">${esc(platformLabel)}</h5>
+        <div class="table-wrap"><table class="results-table">
+          <thead><tr><th>Track</th><th>Conditions</th><th>Beginner median</th><th>Beginner sample</th><th>Pro-Am median</th><th>Pro-Am sample</th><th>Gap</th></tr></thead>
+          <tbody>${platformRows.map(r => `<tr>
+            <td>${esc(title(r.track))}</td>
+            <td>${r.condition === 'wet' ? 'Wet' : 'Dry'}</td>
+            <td>${msTime(r.beginnerMedian)}</td>
+            <td class="muted">${r.beginnerCount} laps</td>
+            <td>${msTime(r.proamMedian)}</td>
+            <td class="muted">${r.proamCount} laps</td>
+            <td>Pro-Am is ${r.gapPct.toFixed(1)}% faster</td>
+          </tr>`).join('')}</tbody>
+        </table></div>`;
+    };
+
+    els.categoryBenchmarksBody.innerHTML = tableFor('PC') + tableFor('Console');
   }
 
   function renderBeginnerReview(allRows){
@@ -1937,36 +1949,47 @@
         // Category benchmark check - a driver only needs to appear in ONE
         // category to be checked here, since this compares against the whole
         // platform's typical pace for the OTHER category, not this driver's
-        // own history. Threshold: within 3% of the other category's median
-        // counts as "at that category's pace" - tune this once real flagged
-        // examples have been reviewed.
-        const bench = categoryBenchmarks.get(groupKey);
-        if(bench){
-          const beginnerRow = byCategory.get('Beginner');
-          if(beginnerRow && bench.proamMedian && beginnerRow.bestLap <= bench.proamMedian * 1.03){
+        // own history. Each row is compared ONLY against the benchmark for its
+        // own wet/dry condition - a wet lap is never judged against a dry
+        // benchmark or vice versa. Threshold: within 5% of the other
+        // category's median counts as "at that category's pace" (raised from
+        // an initial 3% so one good lap at one track on a good day isn't
+        // enough on its own to look like sandbagging).
+        const CATEGORY_PACE_THRESHOLD = 0.05;
+        const beginnerRow = byCategory.get('Beginner');
+        if(beginnerRow){
+          const cond = beginnerRow.wet ? 'wet' : 'dry';
+          const bench = categoryBenchmarks.get(`${platform}|||${track}|||${cond}`);
+          if(bench?.proamMedian && beginnerRow.bestLap <= bench.proamMedian * (1 + CATEGORY_PACE_THRESHOLD)){
             fastBeginnerCount++;
             const gapToProAmPct = ((beginnerRow.bestLap - bench.proamMedian) / bench.proamMedian) * 100;
             const risk = raceRiskForRow(beginnerRow, null, 0);
             notes.push({
               type: 'warn',
               label: 'Too fast for Beginner',
-              title: `${displayName}'s Beginner best at ${title(track)} is at Pro-Am pace (${platform})`,
-              detail: `Their best: ${msTime(beginnerRow.bestLap)} in the ${conditionLabel(beginnerRow)} (${esc(beginnerRow.serverName)}). Beginner median here: ${msTime(bench.beginnerMedian || 0)} (${bench.beginnerCount} laps). Pro-Am median here: ${msTime(bench.proamMedian)} (${bench.proamCount} laps). Gap to Pro-Am median: ${gapToProAmPct >= 0 ? '+' : ''}${gapToProAmPct.toFixed(1)}%. Consistency: ${consistencyText(beginnerRow.consistencyStats?.consistency, beginnerRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'} (${risk.label}).`,
-              reason: `This driver's Beginner pace is at or faster than the typical Pro-Am driver at this track - a strong signal worth reviewing, regardless of whether they've ever actually raced Pro-Am themselves.`
+              title: `${displayName}'s Beginner best at ${title(track)} is at Pro-Am pace (${platform}, ${cond})`,
+              detail: `Their best: ${msTime(beginnerRow.bestLap)} in the ${conditionLabel(beginnerRow)} (${esc(beginnerRow.serverName)}). Beginner median here (${cond}): ${msTime(bench.beginnerMedian || 0)} (${bench.beginnerCount} laps). Pro-Am median here (${cond}): ${msTime(bench.proamMedian)} (${bench.proamCount} laps). Gap to Pro-Am median: ${gapToProAmPct >= 0 ? '+' : ''}${gapToProAmPct.toFixed(1)}%. Consistency: ${consistencyText(beginnerRow.consistencyStats?.consistency, beginnerRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'} (${risk.label}).`,
+              reason: `This driver's Beginner pace is at or faster than the typical Pro-Am driver at this track in these same conditions - a strong signal worth reviewing, regardless of whether they've ever actually raced Pro-Am themselves.`,
+              timestampMs: fileTimestamp(beginnerRow)
             });
           }
+        }
 
-          const proamRow = byCategory.get('Pro-Am');
-          if(proamRow && bench.beginnerMedian && proamRow.bestLap >= bench.beginnerMedian * 0.97){
+        const proamRow = byCategory.get('Pro-Am');
+        if(proamRow){
+          const cond = proamRow.wet ? 'wet' : 'dry';
+          const bench = categoryBenchmarks.get(`${platform}|||${track}|||${cond}`);
+          if(bench?.beginnerMedian && proamRow.bestLap >= bench.beginnerMedian * (1 - CATEGORY_PACE_THRESHOLD)){
             slowProAmCount++;
             const gapToBeginnerPct = ((bench.beginnerMedian - proamRow.bestLap) / bench.beginnerMedian) * 100;
             const risk = raceRiskForRow(proamRow, null, 0);
             notes.push({
               type: 'move',
               label: 'Too slow for Pro-Am',
-              title: `${displayName}'s Pro-Am best at ${title(track)} is close to Beginner pace (${platform})`,
-              detail: `Their best: ${msTime(proamRow.bestLap)} in the ${conditionLabel(proamRow)} (${esc(proamRow.serverName)}). Pro-Am median here: ${msTime(bench.proamMedian || 0)} (${bench.proamCount} laps). Beginner median here: ${msTime(bench.beginnerMedian)} (${bench.beginnerCount} laps). Gap to Beginner median: ${gapToBeginnerPct >= 0 ? '+' : ''}${gapToBeginnerPct.toFixed(1)}%.`,
-              reason: `Not evidence of wrongdoing - this reads as a genuine pace/category mismatch worth a conversation about moving down to Beginner, rather than a sandbagging concern.`
+              title: `${displayName}'s Pro-Am best at ${title(track)} is close to Beginner pace (${platform}, ${cond})`,
+              detail: `Their best: ${msTime(proamRow.bestLap)} in the ${conditionLabel(proamRow)} (${esc(proamRow.serverName)}). Pro-Am median here (${cond}): ${msTime(bench.proamMedian || 0)} (${bench.proamCount} laps). Beginner median here (${cond}): ${msTime(bench.beginnerMedian)} (${bench.beginnerCount} laps). Gap to Beginner median: ${gapToBeginnerPct >= 0 ? '+' : ''}${gapToBeginnerPct.toFixed(1)}%.`,
+              reason: `Not evidence of wrongdoing - this reads as a genuine pace/category mismatch worth a conversation about moving down to Beginner, rather than a sandbagging concern.`,
+              timestampMs: fileTimestamp(proamRow)
             });
           }
         }
@@ -1993,7 +2016,8 @@
             label:'Sandbagging watch',
             title:`${displayName} is ${gapPct.toFixed(1)}% slower in ${platform} Beginner than their own ${fastest[0]} pace at ${title(track)}`,
             detail:`Beginner best: ${msTime(slowRow.bestLap)} in the ${conditionLabel(slowRow)} (${esc(slowRow.serverName)}). ${fastest[0]} best: ${msTime(fastRow.bestLap)} in the ${conditionLabel(fastRow)} (${esc(fastRow.serverName)}). Consistency in Beginner: ${consistencyText(slowRow.consistencyStats?.consistency, slowRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
-            reason:`This driver has demonstrated meaningfully faster pace elsewhere on the same platform and track. Not proof of deliberate sandbagging, but worth a racecraft and attendance review before treating this as genuine Beginner pace.${caution}`
+            reason:`This driver has demonstrated meaningfully faster pace elsewhere on the same platform and track. Not proof of deliberate sandbagging, but worth a racecraft and attendance review before treating this as genuine Beginner pace.${caution}`,
+            timestampMs: Math.max(fileTimestamp(slowRow), fileTimestamp(fastRow))
           });
         }else{
           mismatchCount++;
@@ -2002,7 +2026,8 @@
             label:'Pace mismatch',
             title:`${displayName} shows a ${gapPct.toFixed(1)}% pace gap between ${fastest[0]} and ${slowest[0]} at ${title(track)} (${platform})`,
             detail:`${fastest[0]} best: ${msTime(fastRow.bestLap)} in the ${conditionLabel(fastRow)} (${esc(fastRow.serverName)}). ${slowest[0]} best: ${msTime(slowRow.bestLap)} in the ${conditionLabel(slowRow)} (${esc(slowRow.serverName)}). Session Risk in the slower category: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
-            reason:`Neither category here is the protected Beginner tier, so this ranks below a Sandbagging watch - but a large, repeated gap between two categories for the same driver is still worth a look.${caution}`
+            reason:`Neither category here is the protected Beginner tier, so this ranks below a Sandbagging watch - but a large, repeated gap between two categories for the same driver is still worth a look.${caution}`,
+            timestampMs: Math.max(fileTimestamp(slowRow), fileTimestamp(fastRow))
           });
         }
       }
@@ -2036,7 +2061,8 @@
           label:'Rapid pace increase',
           title:`${displayName} improved ${improvementPct.toFixed(1)}% at ${title(track)} in ${esc(mostRecent.serverName)}`,
           detail:`Earliest recorded best: ${msTime(earliest.bestLap)} in the ${conditionLabel(earliest)} (${humanSessionDate(earliest)}). Most recent best: ${msTime(mostRecent.bestLap)} in the ${conditionLabel(mostRecent)} (${humanSessionDate(mostRecent)}). Consistency now: ${consistencyText(mostRecent.consistencyStats?.consistency, mostRecent.consistencyStats?.count)}. Session Risk: ${Number.isFinite(recentRisk.risk) ? recentRisk.risk.toFixed(0)+'%' : '-'} (${recentRisk.label}).`,
-          reason:`Not automatically suspicious - genuine improvement is normal and worth celebrating. Flagged so staff have visibility on drivers whose pace is changing quickly, in either direction.${increaseCaution}`
+          reason:`Not automatically suspicious - genuine improvement is normal and worth celebrating. Flagged so staff have visibility on drivers whose pace is changing quickly, in either direction.${increaseCaution}`,
+          timestampMs: fileTimestamp(mostRecent)
         });
       }
     }
@@ -2049,9 +2075,15 @@
     }
 
     const typeOrder = {warn:0, move:1, info:2};
-    const sortedNotes = [...notes].sort((a,b) => (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9));
+    const sortedNotes = [...notes].sort((a,b) => (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9) || (b.timestampMs||0) - (a.timestampMs||0));
 
-    els.beginnerReviewBody.innerHTML = sortedNotes.slice(0, 60).map(n => `<div class="sandbag-card"><span class="sandbag-tag ${n.type}">${esc(n.label)}</span><div><strong>${esc(n.title)}</strong><p>${esc(n.detail)}</p><span class="sandbag-reason">${esc(n.reason)}</span></div></div>`).join('');
+    const latestNotes = [...notes].sort((a,b) => (b.timestampMs||0) - (a.timestampMs||0)).slice(0, 5);
+    const latestHtml = latestNotes.length ? `<div class="sandbag-latest-wrap">
+      <p class="sandbag-latest-heading">⏱ Latest issues of note</p>
+      ${latestNotes.map(n => `<div class="sandbag-card sandbag-card-latest"><span class="sandbag-tag ${n.type}">${esc(n.label)}</span><div><strong>${esc(n.title)}</strong><p>${esc(n.detail)}</p><span class="sandbag-reason">${esc(n.reason)}</span></div></div>`).join('')}
+    </div>` : '';
+
+    els.beginnerReviewBody.innerHTML = latestHtml + sortedNotes.slice(0, 60).map(n => `<div class="sandbag-card"><span class="sandbag-tag ${n.type}">${esc(n.label)}</span><div><strong>${esc(n.title)}</strong><p>${esc(n.detail)}</p><span class="sandbag-reason">${esc(n.reason)}</span></div></div>`).join('');
   }
 
 
