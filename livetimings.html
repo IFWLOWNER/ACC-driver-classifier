@@ -287,6 +287,7 @@
     body:not(.staff-access) #beginnerReview{display:none!important}
     body:not(.staff-access) #staffSessionInspector{display:none!important}
     body:not(.raceteam-access) #raceTeamsPanel{display:none!important}
+    body:not(.session-detail-access) #sessionDetailPanel{display:none!important}
     body:not(.discord-logged-in) #myDriverPanel,
     body:not(.patreon-access) #myDriverPanel{display:none!important}
     body:not(.patreon-access) #race.race-detailed #raceCharts,
@@ -726,6 +727,24 @@
       <div class="stat"><span>Best lap</span><strong id="statBest">-</strong><small id="statBestDriver">-</small></div>
     </section>
     <section class="panel hidden" id="leaderboard"><div class="panel-head"><div><h3>Selected Session Result</h3><small id="selectedMeta">-</small></div><span class="badge" id="selectedBadge">ACC</span></div><div class="table-wrap"><table class="results-table"><thead><tr><th>Pos.</th><th>Nr.</th><th>Driver</th><th>Car</th><th>S1</th><th>S2</th><th>S3</th><th>Best Lap</th><th>Gap</th><th>Laps</th><th>Consistency</th><th>Notes</th></tr></thead><tbody id="sessionBody"><tr><td colspan="12" class="empty">Loading results...</td></tr></tbody></table></div></section>
+    <section class="panel hidden" id="sessionDetailPanel">
+      <div class="panel-head">
+        <div><h3>Full Session Breakdown</h3><small>Sector-by-sector detail, consistency and Session Risk for any driver in this session - Practice, Qualifying or Race.</small></div>
+        <span class="badge purple">Silver / Gold</span>
+      </div>
+      <div class="driver-focus">
+        <div>
+          <label for="sessionDetailDriverSelect">Driver detail</label>
+          <select id="sessionDetailDriverSelect">
+            <option value="">Select a driver from this session...</option>
+          </select>
+        </div>
+        <span class="server-view-note">A Silver/Gold Patreon perk - the same detail Race Finish Order gives, for any session type.</span>
+      </div>
+      <div id="sessionDetailProfile" class="driver-profile hidden">
+        <div class="empty">Select a driver to view their detailed breakdown.</div>
+      </div>
+    </section>
     <section class="split-grid">
       <section class="panel server-panel" data-server-panel="console-proam">
         <div class="panel-head">
@@ -1554,6 +1573,7 @@
     if(!item){
       els.selectedStats?.classList.add('hidden');
       els.leaderboardPanel?.classList.add('hidden');
+      document.getElementById('sessionDetailPanel')?.classList.add('hidden');
       if(els.sessionBody) els.sessionBody.innerHTML = '<tr><td colspan="12" class="empty">Select a session above to inspect the individual file.</td></tr>';
       els.statSession.textContent = '-'; els.statServer.textContent = '-'; els.statTrack.textContent = '-'; els.statWet.textContent = '-'; els.statDrivers.textContent = '-'; els.statBest.textContent = '-'; els.statBestDriver.textContent = '-'; els.selectedMeta.textContent = '-'; els.selectedBadge.textContent = 'ACC';
       return;
@@ -1591,6 +1611,13 @@
       const notes = [r.ballast ? `${r.ballast}kg ballast` : '', r.missingPit === 1 ? 'Missing pit' : '', r.missingPit === 0 ? 'Pit OK' : ''].filter(Boolean).join(' · ') || '-';
       return `<tr><td class="pos">${i+1}</td><td>${esc(r.carNo)}</td><td class="driver">${esc(r.driver)}</td><td><span class="badge">${esc(r.carGroup)}</span> ${esc(r.carName)}</td><td>${msTime(splits[0])}</td><td>${msTime(splits[1])}</td><td>${msTime(splits[2])}</td><td class="best">${isValidLap(r.bestLap) ? msTime(r.bestLap) : '-'}</td><td class="gap">${isValidLap(r.bestLap) && fastest ? gapTime(r.bestLap - fastest) : '-'}</td><td>${esc(r.lapCount)}</td><td><span class="consistency ${consistencyClass(r.consistencyStats?.consistency)}">${consistencyText(r.consistencyStats?.consistency, r.consistencyStats?.count)}</span><span class="consistency-note">${consistencyNoteText(r.consistencyStats)}</span></td><td class="muted">${esc(notes)}</td></tr>`;
     }).join('') || '<tr><td colspan="12" class="empty">No drivers found in this result file.</td></tr>';
+
+    // Full Session Breakdown (Silver/Gold): rows here need the session-level wet
+    // flag attached per-row, since s.rows itself doesn't carry it individually.
+    const sessionDetailPanel = document.getElementById('sessionDetailPanel');
+    if(sessionDetailPanel) sessionDetailPanel.classList.remove('hidden');
+    const sessionRowsWithWet = s.rows.map(r => ({ ...r, wet: s.wet }));
+    populateSessionDetailDriverSelect(sessionRowsWithWet);
 
     populateFilters();
     populateSessionSelect(filteredManifestItems());
@@ -3739,11 +3766,11 @@
 
       <div class="rt-events-section">
         <h4>Stints &amp; Events</h4>
-        <p class="chart-help">Set up an event - SimGrid link, race number, car, stint count - see who's marked themselves available for each stint, then allocate drivers and hit Populate to finalise and notify them.</p>
+        <p class="chart-help">Set up an event - SimGrid link (required), race number, car, stint count - see who's marked themselves available for each stint, then allocate drivers and hit Populate to finalise and notify them.</p>
         <div class="race-teams-new-team">
           <input type="text" placeholder="Race number" data-rt-new-racenum maxlength="20" style="max-width:120px">
           <input type="text" placeholder="Car" data-rt-new-car maxlength="120">
-          <input type="text" placeholder="SimGrid event link" data-rt-new-simgrid maxlength="300" style="flex:2 1 260px">
+          <input type="text" placeholder="SimGrid event link (required)" data-rt-new-simgrid maxlength="300" style="flex:2 1 260px">
           <input type="number" min="1" max="24" value="5" data-rt-new-stintcount>
           <button type="button" class="btn teal" id="raceTeamsNewEventBtn">Create event</button>
         </div>
@@ -3764,11 +3791,16 @@
       const simgridLink = detail.querySelector('[data-rt-new-simgrid]')?.value.trim() || '';
       const stintCount = Math.max(1, Math.min(24, Number(detail.querySelector('[data-rt-new-stintcount]')?.value || 5)));
 
+      if(!simgridLink){
+        alert('A SimGrid event link is required to create an event.');
+        return;
+      }
+
       try{
         const result = await rtSaveEvent({ teamId: team.id, teamName: team.name, platform: team.platform, simgridLink, raceNumber, car, stintCount });
         const newEvent = {
           id: result.id, teamId: team.id, teamName: team.name, platform: team.platform,
-          simgridLink, raceNumber, car, stintCount,
+          simgridLink, simgridImageUrl: result.simgridImageUrl || '', raceNumber, car, stintCount, stintTimes: [],
           stints: [], availability: {}, finalized: false, acknowledgements: {}
         };
         const list = raceTeamsEventsByTeam.get(team.id) || [];
@@ -3888,8 +3920,9 @@
     const drivers = (team.drivers || []).map(rtDriverName).filter(Boolean);
     const stintCount = Number(event.stintCount || 0);
     const availability = event.availability || {};
+    const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
 
-    const availHeader = Array.from({ length: stintCount }, (_, i) => `<th>Stint ${i+1}</th>`).join('');
+    const availHeader = Array.from({ length: stintCount }, (_, i) => `<th>Stint ${i+1}${stintTimes[i] ? `<br><span style="font-weight:600;text-transform:none">${esc(stintTimes[i])}</span>` : ''}</th>`).join('');
     const availRows = drivers.map(name => {
       const entry = availability[driverNameKey(name)];
       const cells = Array.from({ length: stintCount }, (_, i) => {
@@ -3912,6 +3945,7 @@
           <option value="">— Unassigned —</option>
           ${options}
         </select>
+        <input type="text" placeholder="Time (e.g. 20:00 UTC)" value="${esc(stintTimes[i] || '')}" data-rt-stint-time="${i}" style="padding:8px 10px;border:1px solid var(--ifwl-line);border-radius:8px;background:#12161c;color:var(--text-primary);font-size:12px;margin-top:4px">
       </div>`;
     }).join('');
 
@@ -3925,6 +3959,7 @@
 
     return `<div class="rt-event-card" data-rt-event-id="${esc(event.id)}">
       <div class="rt-event-head">
+        ${event.simgridImageUrl ? `<img src="${esc(event.simgridImageUrl)}" alt="" style="width:64px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0">` : ''}
         <strong>Race #${esc(event.raceNumber || '-')} — ${esc(event.car || 'Car TBC')}</strong>
         ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
         <span class="badge ${event.finalized ? 'purple' : ''}">${event.finalized ? 'Finalised' : 'Planning'}</span>
@@ -3938,9 +3973,9 @@
         </table></div>
       </div>
       <div class="rt-event-section">
-        <h5>Stint allocation</h5>
+        <h5>Stint allocation &amp; times</h5>
         <div class="rt-alloc-grid">${allocationRows}</div>
-        <button type="button" class="btn purple" data-rt-populate="1">Populate stints</button>
+        <button type="button" style="margin-right:8px;border:1px solid var(--ifwl-line);background:#1a2027;color:#fff;border-radius:8px;padding:9px 14px;font-size:11px;font-weight:800;text-transform:uppercase;cursor:pointer" data-rt-save-times="1">Save stint times</button>        <button type="button" class="btn purple" data-rt-populate="1">Populate stints</button>
       </div>
       <div class="rt-event-section">
         <h5>Acknowledgements</h5>
@@ -3962,6 +3997,28 @@
         rtRenderTeamDetail(team);
       }catch(e){
         alert('Could not delete event: ' + e.message);
+      }
+    });
+
+    card.querySelector('[data-rt-save-times]')?.addEventListener('click', async () => {
+      const timeInputs = [...card.querySelectorAll('[data-rt-stint-time]')]
+        .sort((a,b) => Number(a.dataset.rtStintTime) - Number(b.dataset.rtStintTime));
+      const stintTimes = timeInputs.map(inp => inp.value.trim());
+      try{
+        const result = await rtSaveEvent({
+          eventId: event.id, teamId: team.id, teamName: team.name, platform: event.platform,
+          simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car,
+          stintCount: event.stintCount, stintTimes
+        });
+        const list = raceTeamsEventsByTeam.get(team.id) || [];
+        const idx = list.findIndex(e => e.id === event.id);
+        if(idx !== -1){
+          list[idx].stintTimes = stintTimes;
+          if(result.simgridImageUrl) list[idx].simgridImageUrl = result.simgridImageUrl;
+        }
+        rtRenderTeamDetail(team);
+      }catch(e){
+        alert('Could not save stint times: ' + e.message);
       }
     });
 
@@ -4095,13 +4152,18 @@
   function myStintsRenderEventBlock(team, event, driverName){
     const key = driverNameKey(driverName);
     const stintCount = Number(event.stintCount || 0);
+    const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
     const myAvailability = event.availability?.[key]?.stints || [];
     const myAck = event.acknowledgements?.[key];
     const myAssignedStints = (event.stints || [])
       .filter(s => driverNameKey(s.driverName) === key)
       .map(s => Number(s.index) + 1);
+    const myAssignedStintsText = myAssignedStints
+      .map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`)
+      .join(', ');
 
     const header = `<div class="rt-event-head" style="border-radius:14px 14px 0 0">
+      ${event.simgridImageUrl ? `<img src="${esc(event.simgridImageUrl)}" alt="" style="width:96px;height:54px;object-fit:cover;border-radius:8px;flex-shrink:0">` : ''}
       <strong>Race #${esc(event.raceNumber || '-')} — ${esc(event.car || 'Car TBC')}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
       <span class="badge ${event.finalized ? 'purple' : ''}">${event.finalized ? 'Finalised' : 'Planning'}</span>
@@ -4112,7 +4174,7 @@
     if(!event.finalized){
       const toggles = Array.from({ length: stintCount }, (_, i) => `
         <div class="rt-mystint-toggle ${myAvailability[i] ? 'active' : ''}" data-mystint-toggle="${i}">
-          <span>Stint</span><strong>${i+1}</strong>
+          <span>Stint</span><strong>${i+1}</strong>${stintTimes[i] ? `<span>${esc(stintTimes[i])}</span>` : ''}
         </div>`).join('');
       bodyHtml = `<div class="rt-event-section">
         <h5>Mark which stints you're free for</h5>
@@ -4121,7 +4183,7 @@
       </div>`;
     }else if(myAck && myAck.status === 'pending'){
       const assignedText = myAssignedStints.length
-        ? ` - you're assigned Stint${myAssignedStints.length > 1 ? 's' : ''} ${myAssignedStints.join(', ')}`
+        ? ` - you're assigned ${myAssignedStintsText}`
         : ' - you are not assigned a stint this event';
       bodyHtml = `<div class="rt-event-section">
         <div class="rt-notify-banner">
@@ -4139,7 +4201,7 @@
       const text = myAck.status === 'yes' ? "✅ You confirmed you're in." : `❌ You declined${myAck.reason ? ' — ' + esc(myAck.reason) : ''}.`;
       bodyHtml = `<div class="rt-event-section">
         <div class="rt-ack-row ${cls}"><strong>${esc(driverName)}</strong><span>${text}</span></div>
-        ${myAssignedStints.length ? `<p class="chart-help" style="margin-top:8px">You're assigned Stint${myAssignedStints.length > 1 ? 's' : ''} ${myAssignedStints.join(', ')}.</p>` : ''}
+        ${myAssignedStints.length ? `<p class="chart-help" style="margin-top:8px">You're assigned ${esc(myAssignedStintsText)}.</p>` : ''}
       </div>`;
     }else{
       bodyHtml = '<div class="rt-event-section"><div class="empty">Stints are finalised, but you weren\'t assigned or acknowledged for this event.</div></div>';
@@ -4220,6 +4282,88 @@
   setTimeout(() => {
     if(window.IFWL_TIMINGS_META?.hasRaceTeamAcc) document.body.classList.add('raceteamdriver-access');
   }, 1500);
+
+  // Gate the Full Session Breakdown panel to Silver/Gold Patreon (and Owner/
+  // Ops) using fullSessionBreakdownAccess - deliberately excludes Bronze.
+  window.addEventListener('ifwl-auth-changed', (e) => {
+    document.body.classList.toggle('session-detail-access', !!(e.detail?.meta?.fullSessionBreakdownAccess));
+  });
+  setTimeout(() => {
+    if(window.IFWL_TIMINGS_META?.fullSessionBreakdownAccess) document.body.classList.add('session-detail-access');
+  }, 1500);
+
+  // Full per-driver breakdown for ANY session type in the regular "Selected
+  // Session Result" browser - reuses the exact same sector-analysis, lap-delta
+  // chart and Session Risk engine used everywhere else, and the IFWL Feedback
+  // generator too. row.racePos is simply absent on a regular session row, so
+  // buildIfwlFeedback's win/podium checks harmlessly never fire outside an
+  // actual race - no separate logic needed for that.
+  function renderSessionDetailProfile(row, latestRows){
+    const profile = document.getElementById('sessionDetailProfile');
+    if(!profile) return;
+
+    if(!row){
+      profile.classList.add('hidden');
+      profile.innerHTML = '<div class="empty">Select a driver to view their detailed breakdown.</div>';
+      return;
+    }
+
+    const laps = (row.allLapTimes || []).filter(v => isValidLap(v));
+    const best = laps.length ? Math.min(...laps) : 0;
+    const risk = raceRiskForRow(row, null, 0);
+    const consistency = row.consistencyStats?.consistency;
+    const invalid = Number(row.invalidLapCount || 0);
+    const recorded = Number(row.recordedLapCount || 0);
+    const invalidPct = recorded ? (invalid / recorded) * 100 : NaN;
+
+    let chart = '<div class="empty">No lap trace available for this driver.</div>';
+    const points = laps.map((v, i) => ({ lap: i+1, value: v }));
+
+    if(points.length >= 2){
+      const w = 1000, h = 230, left = 70, right = 25, top = 25, bottom = 40;
+      const plotW = w - left - right;
+      const plotH = h - top - bottom;
+      const minTime = Math.min(...laps);
+      const maxTime = Math.max(...laps);
+      const range = Math.max(1, maxTime - minTime);
+      const xFor = lap => left + ((lap - 1) / Math.max(1, points.length - 1)) * plotW;
+      const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
+      const pts = points.map(p => `${xFor(p.lap).toFixed(1)},${yFor(p.value).toFixed(1)}`).join(' ');
+      chart = `<div class="single-driver-chart"><p class="chart-title">Driver lap trace</p><svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Driver lap trace"><line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/><line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>${svgText(10, top+5, msTime(maxTime), 10, 900)}${svgText(10, h-bottom, msTime(minTime), 10, 900)}<polyline points="${pts}" fill="none" stroke="#1fd6bd" stroke-width="4"/><circle cx="${xFor(1)}" cy="${yFor(points[0].value)}" r="5" fill="#1fd6bd"/><circle cx="${xFor(points.length)}" cy="${yFor(points[points.length-1].value)}" r="5" fill="#1fd6bd"/>${svgText(left, h-12, 'Lap 1', 11, 900)}${svgText(w-right, h-12, 'Lap '+points.length, 11, 900, 'end')}</svg></div>`;
+    }
+
+    profile.classList.remove('hidden');
+    profile.innerHTML = `<div class="driver-profile-grid">
+      <div class="driver-profile-card"><span>Driver</span><strong>${esc(row.driver)}</strong><small>P${esc(row.pos)} · ${esc(row.carName)}</small></div>
+      <div class="driver-profile-card"><span>Best lap</span><strong>${best ? msTime(best) : '-'}</strong><small>${row.bestLap ? 'Leaderboard: '+msTime(row.bestLap) : ''}</small></div>
+      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps${Number.isFinite(row.consistencyStats?.tightBandPct) ? ` · ${row.consistencyStats.tightBandPct.toFixed(0)}% within 1%` : ''}</small></div>
+      <div class="driver-profile-card"><span>Session Risk</span><strong>${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'}</strong><small>${esc(risk.label || '-')}</small></div>
+      <div class="driver-profile-card"><span>Invalid laps</span><strong>${recorded ? `${invalid}/${recorded}` : '-'}</strong><small>${Number.isFinite(invalidPct) ? invalidPct.toFixed(1)+'%' : ''}</small></div>
+      <div class="driver-profile-card"><span>Lap spread</span><strong>${Number.isFinite(row.consistencyStats?.spread) ? msTime(row.consistencyStats.spread) : '-'}</strong><small>Clean laps only</small></div>
+      <div class="driver-profile-card"><span>Average lap</span><strong>${row.consistencyStats?.avg ? msTime(row.consistencyStats.avg) : '-'}</strong><small>All real laps</small></div>
+      <div class="driver-profile-card"><span>Laps completed</span><strong>${esc(row.lapCount)}</strong><small>Session result laps</small></div>
+      <div class="driver-profile-card"><span>Pit status</span><strong>${row.missingPit === 1 ? 'Missing' : row.missingPit === 0 ? 'OK' : '-'}</strong><small>From ACC result</small></div>
+      <div class="driver-profile-card"><span>Conditions</span><strong>${row.wet ? 'Wet' : 'Dry'}</strong><small>Whole-session flag</small></div>
+    </div>
+    ${buildIfwlFeedback(row, latestRows)}
+    <div class="driver-analytics-grid">
+      ${renderSectorAnalysis(row, latestRows)}
+      ${renderLapDeltaChart(row)}
+    </div>
+    ${chart}`;
+  }
+
+  function populateSessionDetailDriverSelect(sessionRows){
+    const select = document.getElementById('sessionDetailDriverSelect');
+    if(!select) return;
+
+    select.innerHTML = '<option value="">Select a driver from this session...</option>' +
+      sessionRows.map((r, i) => `<option value="${i}">${esc(r.pos)}. ${esc(r.driver)} — ${esc(r.carName)}</option>`).join('');
+    select.value = '';
+
+    renderSessionDetailProfile(null, sessionRows);
+    select.onchange = () => renderSessionDetailProfile(select.value === '' ? null : sessionRows[Number(select.value)], sessionRows);
+  }
 
 
   loadManifest();
