@@ -29,11 +29,11 @@
     'pc-beginner': 'IFWL | PC BEGINNER',
     'pc-monday-funday': 'IFWL | PC MONDAY FUNDAY',
     'console-monday-funday': 'IFWL | CONSOLE MONDAY FUNDAY',
-    // ✅ ADDED: dedicated qualification server - drivers complete a minimum
+    // ✅ ADDED: dedicated qualification servers - drivers complete a minimum
     // lap count here to become eligible for a licence tier assignment.
-    // Folder name assumed to match the existing naming convention - if the
-    // real sync folder is named differently, this is the only line to change.
-    'pc-licence': 'IFWL | PC LICENCE'
+    // PC and Console are tracked as two completely separate qualifications.
+    'pc-licence': 'IFWL | PC LICENCE',
+    'console-licence': 'IFWL | CONSOLE LICENCE'
   };
   const IFWL_KNOWN_SERVER_IDS = Object.keys(serverLabels);
   const CACHE_PREFIX = 'ifwl-rivals-result-v2:'; // same cache keys as Live Timings - shared cache, fewer refetches
