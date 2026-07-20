@@ -368,8 +368,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <div class="upload-drop">Drop or choose an image &mdash; JPG/PNG, 5MB max.<br><input type="file" id="headerUploadInput" accept="image/png,image/jpeg,image/webp"></div>
         </div>
 
-        <div class="field-group gold-only-field">
-          <label>Gold: Patreon Calling Card</label>
+        <div class="field-group silver-only-field">
+          <label>Silver &amp; Gold: Patreon Calling Card</label>
           <select id="callingCardSelect">
             <option value="">No calling card</option>
           </select>
@@ -441,8 +441,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
     <div class="table-wrap">
       <table class="dir-table">
-        <thead><tr><th>Driver</th><th>Licence No.</th><th>Tier</th><th>Team</th></tr></thead>
-        <tbody id="dirTableBody"><tr><td colspan="4" class="empty">Loading directory...</td></tr></tbody>
+        <thead><tr><th></th><th>Driver</th><th>Licence No.</th><th>Tier</th><th>Team</th></tr></thead>
+        <tbody id="dirTableBody"><tr><td colspan="5" class="empty">Loading directory...</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -479,7 +479,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </section>
 
   <section class="panel" id="licenceQualPanel">
-    <div class="panel-head"><div><h3>Staff: Licence Qualification</h3><small>Drivers ranked by pace on the IFWL Licence server &mdash; 15 laps minimum</small></div><span class="badge purple">Staff only</span></div>
+    <div class="panel-head"><div><h3>Staff: Licence Qualification</h3><small>Drivers ranked by pace on the IFWL Licence server &mdash; 15 laps minimum</small></div><button class="btn ghost" id="licenceQualRefreshBtn" type="button">Refresh</button></div>
     <div class="staff-only-note">Ranking is scored only against other drivers on this one server, not the whole site. Recommended tier is a starting point - pick any tier before assigning.</div>
     <div class="table-wrap">
       <table class="dir-table">
@@ -1007,10 +1007,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return matchesSearch && matchesTier;
     });
     const body = q('dirTableBody');
-    if(!filtered.length){ body.innerHTML = '<tr><td colspan="4" class="empty">No drivers match.</td></tr>'; return; }
+    if(!filtered.length){ body.innerHTML = '<tr><td colspan="5" class="empty">No drivers match.</td></tr>'; return; }
     body.innerHTML = filtered.map(r=>{
       const tier = findTier(r.tier || 'No Licence');
-      return `<tr><td>${r.name||'Unnamed'}</td><td class="mono">${r.licenceNumber||'-'}</td><td><span class="tier-pill" style="background:${hexToRgba(tier.color,0.16)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.35)}">${r.tier||'No Licence'}</span></td><td>${r.raceTeam||'-'}</td></tr>`;
+      const thumb = r.avatarMode === 'upload' && r.photoUploadUrl ? r.photoUploadUrl
+                  : r.avatarMode === 'url' && r.avatarUrl ? r.avatarUrl
+                  : '';
+      const thumbCell = thumb
+        ? `<img src="${thumb}" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover;display:block">`
+        : `<div style="width:36px;height:36px;border-radius:8px;background:#1a2027"></div>`;
+      return `<tr><td>${thumbCell}</td><td>${r.name||'Unnamed'}</td><td class="mono">${r.licenceNumber||'-'}</td><td><span class="tier-pill" style="background:${hexToRgba(tier.color,0.16)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.35)}">${r.tier||'No Licence'}</span></td><td>${r.raceTeam||'-'}</td></tr>`;
     }).join('');
   }
 
@@ -1304,7 +1310,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         accDriverNames,
         bio: window.IFWL_SILVER_PLUS ? q('bioInput').value.trim() : currentProfile.bio,
         raceTeam: window.IFWL_SILVER_PLUS ? q('teamInput').value.trim() : currentProfile.raceTeam,
-        callingCardUrl: window.IFWL_GOLD ? q('callingCardSelect').value : currentProfile.callingCardUrl,
+        callingCardUrl: window.IFWL_SILVER_PLUS ? q('callingCardSelect').value : currentProfile.callingCardUrl,
       };
       q('saveStatus').textContent = 'Saving...';
       try{
@@ -1503,6 +1509,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </select></div>
       <div class="field-group"><label>Reason for tier change</label><input type="text" id="edReason" placeholder="e.g. Clean run of 10 races, promoted to Amateur"></div>
       <div class="field-group"><label>Race team</label><input type="text" id="edTeam" value="${p.raceTeam||''}"></div>
+      <div class="field-group">
+        <label>ACC driver name(s) on record</label>
+        <input type="text" id="edAccNames" value="${(p.accDriverNames||[]).join(', ')}" placeholder="Nothing linked yet">
+        <div class="field-hint">This is exactly what's stored - must match the driver's in-game name character-for-character (case aside) to match session results. Fix typos here directly.</div>
+      </div>
       <button class="btn teal" id="edSaveBtn" type="button">Save profile</button>
       <span class="save-status" id="edSaveStatus"></span>
       <hr style="border-color:var(--ifwl-line);margin:18px 0">
@@ -1539,8 +1550,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     `;
     q('edSaveBtn').addEventListener('click', async ()=>{
       q('edSaveStatus').textContent = 'Saving...';
+      const accDriverNames = q('edAccNames').value.split(',').map(s=>s.trim()).filter(Boolean);
       try{
-        await staffSaveProfile(id, { name: q('edName').value, tier: q('edTier').value, reason: q('edReason').value, raceTeam: q('edTeam').value });
+        await staffSaveProfile(id, { name: q('edName').value, tier: q('edTier').value, reason: q('edReason').value, raceTeam: q('edTeam').value, accDriverNames });
         q('edSaveStatus').textContent = 'Saved.';
         setTimeout(()=>{ if(q('edSaveStatus')) q('edSaveStatus').textContent=''; }, 2000);
       }catch(e){ q('edSaveStatus').textContent = 'Could not save: ' + e.message; }
@@ -1775,13 +1787,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   });
 
   /* ---- Licence Qualification ---- */
-  async function renderLicenceQualPanel(){
+  async function renderLicenceQualPanel(force){
     const body = q('licenceQualBody');
     if(!body) return;
 
     let standings;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15 });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, force: !!force });
     }catch(e){
       body.innerHTML = `<tr><td colspan="6" class="empty">Could not load standings: ${e.message}</td></tr>`;
       return;
@@ -1907,6 +1919,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       }
       btn.textContent = `Done - ${linked} linked${failed ? `, ${failed} failed` : ''}`;
     });
+  });
+
+  q('licenceQualRefreshBtn')?.addEventListener('click', async () => {
+    const btn = q('licenceQualRefreshBtn');
+    btn.disabled = true; btn.textContent = 'Refreshing...';
+    await renderLicenceQualPanel(true); // force=true also re-checks driver-name links that changed since page load
+    btn.disabled = false; btn.textContent = 'Refresh';
   });
 
   function initStaffPanels(){
