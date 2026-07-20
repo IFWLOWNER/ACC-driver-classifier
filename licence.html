@@ -202,7 +202,7 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 @media(max-width:900px){.staff-grid{grid-template-columns:1fr}}
 
 body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #availableRacesPanel{display:none!important}
-body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel{display:none!important}
+body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel,body:not(.staff-access) #licenceQualPanel{display:none!important}
 .tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:#0d1116;margin-bottom:8px}
 .tier-row input[type="text"]{border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-primary);border-radius:7px;padding:8px 10px;font-size:13px}
 .tier-row input[type="color"]{width:44px;height:32px;border:1px solid var(--ifwl-line);border-radius:7px;background:none;padding:0;cursor:pointer}
@@ -442,6 +442,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn teal" id="saveTiersBtn" type="button">Save tier list</button>
         <span class="save-status" id="tierSaveStatus"></span>
       </div>
+    </div>
+  </section>
+
+  <section class="panel" id="licenceQualPanel">
+    <div class="panel-head"><div><h3>Staff: Licence Qualification</h3><small>Drivers ranked by pace on the IFWL Licence server &mdash; 15 laps minimum</small></div><span class="badge purple">Staff only</span></div>
+    <div class="staff-only-note">Ranking is scored only against other drivers on this one server, not the whole site. Recommended tier is a starting point - pick any tier before assigning.</div>
+    <div class="table-wrap">
+      <table class="dir-table">
+        <thead><tr><th>Driver</th><th>Laps</th><th>Gap to best</th><th>Consistency</th><th>Recommended</th><th>Assign</th></tr></thead>
+        <tbody id="licenceQualBody"><tr><td colspan="6" class="empty">Loading standings&hellip;</td></tr></tbody>
+      </table>
     </div>
   </section>
 
@@ -1667,6 +1678,68 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }catch(err){ q('ccSaveStatus').textContent = err.message; }
   });
 
+  /* ---- Licence Qualification ---- */
+  async function renderLicenceQualPanel(){
+    const body = q('licenceQualBody');
+    if(!body) return;
+
+    let standings;
+    try{
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15 });
+    }catch(e){
+      body.innerHTML = `<tr><td colspan="6" class="empty">Could not load standings: ${e.message}</td></tr>`;
+      return;
+    }
+    if(!standings.length){
+      body.innerHTML = '<tr><td colspan="6" class="empty">No sessions recorded on the IFWL Licence server yet.</td></tr>';
+      return;
+    }
+
+    // Match each ranked ACC name back to an actual licence profile via
+    // accDriverNames, the same self-reported link every other feature on
+    // this page uses. A driver who hasn't linked their ACC name yet will
+    // still show in the ranking, just without an Assign control.
+    const profiles = await staffSearch('');
+    const byAccName = new Map();
+    profiles.forEach(p => (p.accDriverNames || []).forEach(n => byAccName.set(window.IFWLStats.driverNameKey(n), p)));
+
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+    const sortedTiers = [...tiers].sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
+    const tierOptions = sortedTiers.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+
+    body.innerHTML = standings.map((s, i) => {
+      const profile = byAccName.get(window.IFWLStats.driverNameKey(s.driver));
+      const qualifiedBadge = s.qualified
+        ? `<span class="request-status-pill approved">Qualified</span>`
+        : `<span class="request-status-pill pending">${s.totalLaps}/15</span>`;
+      const assignCell = !profile
+        ? `<span class="field-hint">No linked licence profile</span>`
+        : `<select id="qualTierSelect${i}">${tierOptions.replace(`value="${s.recommendedTier}"`, `value="${s.recommendedTier}" selected`)}</select>
+           <button class="btn teal" style="margin-top:6px" data-assign="${i}" data-driver="${profile.discordId}">Assign</button>`;
+      return `<tr>
+        <td>${s.driver}${profile ? '' : ' <span class="field-hint">(unlinked)</span>'}</td>
+        <td>${qualifiedBadge}</td>
+        <td class="mono">${s.avgGapPct != null ? '+' + s.avgGapPct + '%' : '-'}</td>
+        <td class="mono">${s.consistencyAvg != null ? s.consistencyAvg + '%' : '-'}</td>
+        <td><span class="tier-pill" style="background:transparent;border:none;padding:0">${s.recommendedTier}</span></td>
+        <td>${assignCell}</td>
+      </tr>`;
+    }).join('');
+
+    body.querySelectorAll('[data-assign]').forEach(btn => btn.addEventListener('click', async () => {
+      const i = btn.dataset.assign;
+      const driverId = btn.dataset.driver;
+      const chosenTier = q(`qualTierSelect${i}`).value;
+      const s = standings[Number(i)];
+      const reason = `Qualified via IFWL Licence server: ${s.totalLaps} laps, gap +${s.avgGapPct ?? '?'}%`;
+      btn.disabled = true; btn.textContent = 'Assigning...';
+      try{
+        await staffSaveProfile(driverId, { tier: chosenTier, reason });
+        btn.textContent = 'Assigned';
+      }catch(e){ alert('Could not assign: ' + e.message); btn.disabled = false; btn.textContent = 'Assign'; }
+    }));
+  }
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -1675,6 +1748,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderTierCheckboxes();
     renderSimgridEventList();
     renderCallingCardList();
+    renderLicenceQualPanel();
   }
   window.addEventListener('ifwl-auth-changed', initStaffPanels);
   if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
