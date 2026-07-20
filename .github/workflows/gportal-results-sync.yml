@@ -65,6 +65,13 @@ jobs:
       PC_LICENCE_PASSWORD: ${{ secrets.ASSETTO_PC_LICENCE_PASSWORD }}
       PC_LICENCE_RESULTS_PATH: ${{ secrets.ASSETTO_PC_LICENCE_RESULTS_PATH }}
 
+      # ✅ ADDED: Console Licence (Qualification server) - G-Portal
+      CONSOLE_LICENCE_HOST: ${{ secrets.GPORTAL_CONSOLE_LICENCE_HOST }}
+      CONSOLE_LICENCE_PORT: ${{ secrets.GPORTAL_CONSOLE_LICENCE_PORT }}
+      CONSOLE_LICENCE_USER: ${{ secrets.GPORTAL_CONSOLE_LICENCE_USER }}
+      CONSOLE_LICENCE_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_LICENCE_PASSWORD }}
+      CONSOLE_LICENCE_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_LICENCE_RESULTS_PATH }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -83,6 +90,7 @@ jobs:
           mkdir -p data/results/pc-beginner
           mkdir -p data/results/pc-monday-funday
           mkdir -p data/results/pc-licence
+          mkdir -p data/results/console-licence
 
           echo "Removing old non-race files only. Race files are preserved."
 
@@ -93,11 +101,11 @@ jobs:
           find data/results/pc-beginner -type f -name "*.json" ! -name "*_R.json" -delete || true
           find data/results/pc-monday-funday -type f -name "*.json" ! -name "*_R.json" -delete || true
 
-          # ✅ ADDED: pc-licence is deliberately excluded from the deletion above.
-          # This is the qualification server - every lap a driver ever sets here
-          # counts toward their total, so nothing (race OR practice/quali) is ever
-          # pruned for this one folder, unlike every other server above.
-          echo "pc-licence: no files deleted (qualification server - everything kept forever)."
+          # ✅ ADDED: pc-licence and console-licence are deliberately excluded from
+          # the deletion above. These are the qualification servers - every lap a
+          # driver ever sets here counts toward their total, so nothing (race OR
+          # practice/quali) is ever pruned for either folder, unlike every server above.
+          echo "pc-licence / console-licence: no files deleted (qualification servers - everything kept forever)."
 
       - name: Download latest ACC results from all servers
         run: |
@@ -198,6 +206,9 @@ jobs:
           # ✅ ADDED: PC Licence qualification server
           download_server "pc-licence" "IFWL | PC LICENCE" "$PC_LICENCE_HOST" "$PC_LICENCE_PORT" "$PC_LICENCE_USER" "$PC_LICENCE_PASSWORD" "$PC_LICENCE_RESULTS_PATH" || true
 
+          # ✅ ADDED: Console Licence qualification server
+          download_server "console-licence" "IFWL | CONSOLE LICENCE" "$CONSOLE_LICENCE_HOST" "$CONSOLE_LICENCE_PORT" "$CONSOLE_LICENCE_USER" "$CONSOLE_LICENCE_PASSWORD" "$CONSOLE_LICENCE_RESULTS_PATH" || true
+
       - name: Build manifest file
         run: |
           python3 - <<'PY'
@@ -215,7 +226,8 @@ jobs:
               # ✅ ADDED: without this, files would still download into
               # data/results/pc-licence/ but never appear in manifest.json,
               # which means the website would never see them at all.
-              "pc-licence": "IFWL | PC LICENCE"
+              "pc-licence": "IFWL | PC LICENCE",
+              "console-licence": "IFWL | CONSOLE LICENCE"
           }
 
           results = []
