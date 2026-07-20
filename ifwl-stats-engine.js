@@ -28,7 +28,12 @@
     'pc-proam': 'IFWL | PC PRO AM',
     'pc-beginner': 'IFWL | PC BEGINNER',
     'pc-monday-funday': 'IFWL | PC MONDAY FUNDAY',
-    'console-monday-funday': 'IFWL | CONSOLE MONDAY FUNDAY'
+    'console-monday-funday': 'IFWL | CONSOLE MONDAY FUNDAY',
+    // ✅ ADDED: dedicated qualification server - drivers complete a minimum
+    // lap count here to become eligible for a licence tier assignment.
+    // Folder name assumed to match the existing naming convention - if the
+    // real sync folder is named differently, this is the only line to change.
+    'pc-licence': 'IFWL | PC LICENCE'
   };
   const IFWL_KNOWN_SERVER_IDS = Object.keys(serverLabels);
   const CACHE_PREFIX = 'ifwl-rivals-result-v2:'; // same cache keys as Live Timings - shared cache, fewer refetches
@@ -352,5 +357,61 @@
     };
   }
 
-  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey };
+  /**
+   * IFWL Licence qualification standings. Every driver who has raced on the
+   * dedicated qualification server, ranked by pace WITHIN that server's data
+   * only (not mixed with other servers), with a lap count so staff can see
+   * who has actually hit the minimum before being ranked at all. Gap-to-best
+   * is computed the same way as the main pace score, just scoped to one
+   * server's sessions.
+   */
+  async function computeLicenceServerStandings(opts = {}){
+    const minLaps = opts.minLaps ?? 15;
+    const serverId = opts.serverId || 'pc-licence';
+
+    const allRows = await buildAllRows(!!opts.force);
+    const rows = allRows.filter(r => r.serverId === serverId);
+    if(!rows.length) return [];
+
+    const byDriver = new Map();
+    for(const r of rows){
+      const key = driverNameKey(r.driver);
+      if(!byDriver.has(key)) byDriver.set(key, { driver: r.driver, rows: [] });
+      byDriver.get(key).rows.push(r);
+    }
+
+    // Pace scored only against other drivers on THIS server, not the whole site
+    const paceScores = computePaceScores(rows);
+
+    const standings = [];
+    for(const [key, entry] of byDriver.entries()){
+      const totalLaps = entry.rows.reduce((sum, r) => sum + (Number(r.lapCount) || 0), 0);
+      const summary = summarizeDriver(entry.rows);
+      const pace = paceScores.get(key) || { avgGapPct: NaN, paceScore: NaN };
+      const avgGapPct = Number.isFinite(pace.avgGapPct) ? Math.round(pace.avgGapPct * 100) / 100 : null;
+
+      // Starting-point suggestion only - staff pick the actual tier via the
+      // dropdown regardless, this just pre-fills a sensible default.
+      let recommendedTier = 'GT3 Beginner';
+      if(avgGapPct != null){
+        if(avgGapPct <= 2) recommendedTier = 'GT3 Pro';
+        else if(avgGapPct <= 5) recommendedTier = 'GT3 Amateur';
+      }
+
+      standings.push({
+        driver: entry.driver,
+        totalLaps,
+        qualified: totalLaps >= minLaps,
+        avgGapPct,
+        consistencyAvg: Number.isFinite(summary.avgConsistency) ? Math.round(summary.avgConsistency * 10) / 10 : null,
+        sessionCount: summary.sessionCount,
+        recommendedTier
+      });
+    }
+
+    standings.sort((a,b) => (Number(b.qualified) - Number(a.qualified)) || ((a.avgGapPct ?? 999) - (b.avgGapPct ?? 999)));
+    return standings;
+  }
+
+  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings };
 })();
