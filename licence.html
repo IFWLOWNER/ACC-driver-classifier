@@ -231,6 +231,10 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .dir-card-info strong{display:block;font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dir-card-info .mono{font-size:11px;color:#c4d0d3;display:block;margin:2px 0 6px}
 .dir-card-team{font-size:11.5px;color:#c4d0d3;display:block;margin-top:4px}
+.platform-tag{position:absolute;top:10px;right:10px;z-index:2;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.03em}
+.platform-tag.plat-pc{background:rgba(0,120,212,.85);color:#fff}
+.platform-tag.plat-console{background:rgba(16,124,16,.85);color:#fff}
+.platform-tag.plat-both{background:linear-gradient(90deg,rgba(0,120,212,.85),rgba(16,124,16,.85));color:#fff}
 .unlink-link-box{min-width:220px}
 .unlink-search{width:100%;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:7px;padding:7px 10px;font-size:12px}
 .unlink-results{margin-top:6px;max-height:160px;overflow:auto}
@@ -376,6 +380,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <label>Your ACC driver name(s)</label>
           <input type="text" id="accDriverNamesInput" placeholder="e.g. IFWL XSL4Y3RX (comma-separate if you've raced under more than one name)">
           <div class="field-hint">This is how your licence gets matched to live timing results, steward tickets and Performance stats - it must exactly match the name shown in-game.</div>
+        </div>
+
+        <div class="field-group">
+          <label>Platform</label>
+          <select id="platformSelect">
+            <option value="">Not set</option>
+            <option value="pc">PC</option>
+            <option value="console">Console</option>
+            <option value="both">PC + Console</option>
+          </select>
+          <div class="field-hint">Shown as a badge on your Driver Directory card. This is set automatically when you claim your name from either server's laps list, or you can set it here directly.</div>
         </div>
 
         <div class="field-group gold-only-field">
@@ -898,7 +913,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const meta = window.IFWL_META; const id = window.IFWL_AUTH.userId(meta);
     if(USE_DEMO_FALLBACK){
       let all = demoGet('profiles', {});
-      all[id] = {...(all[id]||{}), ...patch};
+      const existing = all[id] || {};
+      const merged = {...existing, ...patch};
+      if(patch.platformAdd){
+        const current = existing.platform || '';
+        merged.platform = (current && current !== patch.platformAdd) ? 'both' : patch.platformAdd;
+        delete merged.platformAdd;
+      }
+      all[id] = merged;
       demoSet('profiles', all);
       return all[id];
     }
@@ -1005,6 +1027,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('avatarUrlInput').classList.toggle('hidden', avatarMode!=='url');
     q('avatarUrlInput').value = p.avatarUrl || '';
     q('accDriverNamesInput').value = (p.accDriverNames || []).join(', ');
+    q('platformSelect').value = p.platform || '';
     q('myLicenceSub').textContent = `Licence ${p.licenceNumber} · linked to live timing results by driver name`;
   }
 
@@ -1075,7 +1098,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // the full card background, not tucked away in a small thumbnail.
       const hasHeader = !!r.headerUploadUrl;
       const bgStyle = hasHeader ? ` style="background-image:url('${r.headerUploadUrl}')"` : '';
+      const platformTag = r.platform === 'pc' ? '<span class="platform-tag plat-pc">PC</span>'
+        : r.platform === 'console' ? '<span class="platform-tag plat-console">Console</span>'
+        : r.platform === 'both' ? '<span class="platform-tag plat-both">PC + Console</span>'
+        : '';
       return `<div class="dir-card${hasHeader ? ' has-header' : ''}"${bgStyle}>
+        ${platformTag}
         <div class="dir-card-overlay">
           ${avatarCell}
           <div class="dir-card-info">
@@ -1315,7 +1343,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       try{
         const existing = currentProfile?.accDriverNames || [];
         const merged = existing.some(n => n.toLowerCase() === s.driver.toLowerCase()) ? existing : [...existing, s.driver];
-        currentProfile = await saveMyProfile({ accDriverNames: merged });
+        currentProfile = await saveMyProfile({ accDriverNames: merged, platformAdd: platform === 'Console' ? 'console' : 'pc' });
         renderCard(currentProfile);
         const perfStats = await fetchPerformanceStats(currentProfile);
         renderCardStats(perfStats);
@@ -1430,6 +1458,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         avatarMode,
         avatarUrl: q('avatarUrlInput').value.trim(),
         accDriverNames,
+        platform: q('platformSelect').value,
         bio: window.IFWL_SILVER_PLUS ? q('bioInput').value.trim() : currentProfile.bio,
         raceTeam: window.IFWL_SILVER_PLUS ? q('teamInput').value.trim() : currentProfile.raceTeam,
         callingCardUrl: window.IFWL_SILVER_PLUS ? q('callingCardSelect').value : currentProfile.callingCardUrl,
