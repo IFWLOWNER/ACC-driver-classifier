@@ -217,6 +217,11 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .tier-row label.foil-toggle{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--text-muted);display:flex;align-items:center;gap:5px;white-space:nowrap}
 .tier-row .icon-btn{border:0;background:#242a32;color:#fff;border-radius:7px;width:30px;height:30px;cursor:pointer;font-weight:800}
 .request-card{border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;margin-bottom:10px;background:#0d1116}
+.unlink-link-box{min-width:220px}
+.unlink-search{width:100%;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:7px;padding:7px 10px;font-size:12px}
+.unlink-results{margin-top:6px;max-height:160px;overflow:auto}
+.unlink-results .note-item{padding:8px 10px;margin-bottom:4px;font-size:12.5px}
+.unlink-results .note-item:hover{background:rgba(31,214,189,.1)}
 .request-card .req-meta{font-size:11.5px;color:var(--text-dim);margin-top:4px}
 .request-card .req-actions{display:flex;gap:8px;margin-top:10px}
 .request-status-pill{display:inline-block;padding:4px 9px;border-radius:999px;font-size:10.5px;font-weight:800;text-transform:uppercase}
@@ -1787,6 +1792,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   });
 
   /* ---- Licence Qualification ---- */
+  let qualStandingsCache = [];
+  let qualProfilesCache = [];
+
   async function renderLicenceQualPanel(force){
     const body = q('licenceQualBody');
     if(!body) return;
@@ -1794,6 +1802,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     let standings;
     try{
       standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, force: !!force });
+      qualStandingsCache = standings;
     }catch(e){
       body.innerHTML = `<tr><td colspan="6" class="empty">Could not load standings: ${e.message}</td></tr>`;
       return;
@@ -1808,6 +1817,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // this page uses. A driver who hasn't linked their ACC name yet will
     // still show in the ranking, just without an Assign control.
     const profiles = await staffSearch('');
+    qualProfilesCache = profiles;
     const byAccName = new Map();
     profiles.forEach(p => (p.accDriverNames || []).forEach(n => byAccName.set(window.IFWLStats.driverNameKey(n), p)));
 
@@ -1821,7 +1831,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         ? `<span class="request-status-pill approved">Qualified</span>`
         : `<span class="request-status-pill pending">${s.totalLaps}/15</span>`;
       const assignCell = !profile
-        ? `<span class="field-hint">No linked licence profile</span>`
+        ? `<div class="unlink-link-box" data-idx="${i}">
+             <input type="text" class="unlink-search" data-idx="${i}" placeholder="Search driver to link this exact name...">
+             <div class="unlink-results" id="unlinkResults${i}"></div>
+           </div>`
         : `<select id="qualTierSelect${i}">${tierOptions.replace(`value="${s.recommendedTier}"`, `value="${s.recommendedTier}" selected`)}</select>
            <button class="btn teal" style="margin-top:6px" data-assign="${i}" data-driver="${profile.discordId}">Assign</button>`;
       return `<tr>
@@ -1833,6 +1846,41 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <td>${assignCell}</td>
       </tr>`;
     }).join('');
+
+    // Search-to-link for unlinked rows: staff pick the actual driver, and the
+    // EXACT ranked string (s.driver) gets appended - never retyped, so this
+    // is the fix for the "typed name doesn't quite match the in-game name"
+    // class of problem, not just a workaround for it.
+    body.querySelectorAll('.unlink-search').forEach(input => {
+      input.addEventListener('input', () => {
+        const i = Number(input.dataset.idx);
+        const term = input.value.trim().toLowerCase();
+        const resultsBox = q(`unlinkResults${i}`);
+        if(!term){ resultsBox.innerHTML = ''; return; }
+        const matches = profiles.filter(p => (p.name||'').toLowerCase().includes(term) || (p.licenceNumber||'').toLowerCase().includes(term)).slice(0, 8);
+        if(!matches.length){ resultsBox.innerHTML = '<div class="empty">No matches.</div>'; return; }
+        resultsBox.innerHTML = matches.map(p => `<div class="note-item" style="cursor:pointer" data-link-idx="${i}" data-link-driver="${p.discordId}">${p.name} <span class="note-meta">(${p.licenceNumber})</span></div>`).join('');
+      });
+    });
+
+    if(!body.dataset.clickBound){
+      body.dataset.clickBound = '1';
+      body.addEventListener('click', async (e) => {
+        const target = e.target.closest('[data-link-driver]');
+        if(!target) return;
+        const i = Number(target.dataset.linkIdx);
+        const driverId = target.dataset.linkDriver;
+        const s = qualStandingsCache[i];
+        const profile = qualProfilesCache.find(p => p.discordId === driverId);
+        target.textContent = 'Linking...';
+        try{
+          const existing = profile?.accDriverNames || [];
+          const merged = existing.some(n => n.toLowerCase() === s.driver.toLowerCase()) ? existing : [...existing, s.driver];
+          await staffSaveProfile(driverId, { accDriverNames: merged });
+          await renderLicenceQualPanel(true);
+        }catch(err){ alert('Could not link: ' + err.message); }
+      });
+    }
 
     body.querySelectorAll('[data-assign]').forEach(btn => btn.addEventListener('click', async () => {
       const i = btn.dataset.assign;
