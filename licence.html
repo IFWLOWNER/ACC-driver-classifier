@@ -233,7 +233,7 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 @media(max-width:900px){.staff-grid{grid-template-columns:1fr}}
 
 body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #availableRacesPanel,body:not(.discord-logged-in) #claimLapsPanel,body:not(.discord-logged-in) #claimLapsPanelConsole{display:none!important}
-body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel,body:not(.staff-access) #licenceQualPanel,body:not(.staff-access) #licenceQualPanelConsole,body:not(.staff-access) #simgridBulkLinkPanel{display:none!important}
+body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel,body:not(.staff-access) #licenceQualPanel,body:not(.staff-access) #licenceQualPanelConsole,body:not(.staff-access) #simgridBulkLinkPanel,body:not(.staff-access) #seasonWindowPanel,body:not(.staff-access) #staffMessagesPanel{display:none!important}
 .tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:#0d1116;margin-bottom:8px}
 .tier-row input[type="text"]{border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-primary);border-radius:7px;padding:8px 10px;font-size:13px}
 .tier-row input[type="color"]{width:44px;height:32px;border:1px solid var(--ifwl-line);border-radius:7px;background:none;padding:0;cursor:pointer}
@@ -244,6 +244,19 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .claim-row:last-child{border-bottom:none}
 .claim-row .claim-name{font-weight:700}
 .claim-row .claim-meta{color:var(--text-muted);font-size:12px;margin-top:2px}
+/* ✅ ADDED: staff-driver messaging */
+.inbox-unread-badge{display:inline-block;min-width:18px;padding:1px 6px;border-radius:999px;background:var(--ifwl-red);color:#fff;font-size:10px;font-weight:900;text-align:center;margin-left:4px;vertical-align:middle}
+.msg-thread-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid var(--ifwl-line-soft);cursor:pointer}
+.msg-thread-row:hover{background:rgba(31,214,189,.06)}
+.msg-thread-row .msg-subject{font-weight:800}
+.msg-thread-row .msg-meta{color:var(--text-muted);font-size:12px;margin-top:2px}
+.msg-thread-row.msg-unread .msg-subject{color:var(--ifwl-teal)}
+.msg-bubble{max-width:80%;border-radius:14px;padding:10px 14px;margin-bottom:10px;font-size:13.5px;line-height:1.5;white-space:pre-wrap}
+.msg-bubble .msg-sender{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;opacity:.75}
+.msg-bubble.msg-staff{background:rgba(198,91,232,.14);border:1px solid rgba(198,91,232,.35)}
+.msg-bubble.msg-driver{background:rgba(31,214,189,.12);border:1px solid rgba(31,214,189,.3);margin-left:auto}
+.msg-reply-row{display:flex;gap:10px;align-items:end;margin-top:12px}
+.msg-reply-row textarea{flex:1;min-height:64px}
 
 /* ✅ ADDED: Race Results detail view - ported from Live Timings for identical styling */
 .svg-chart{width:100%;height:300px;display:block;background:#0b0f13;border:1px solid var(--ifwl-line);border-radius:14px}
@@ -415,6 +428,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </div>
   <button class="view-tab logged-in-tab" data-view="ticketHistory" type="button">Your Ticket History</button>
+  <button class="view-tab logged-in-tab" data-view="inbox" type="button">Inbox <span id="inboxUnreadBadge" class="inbox-unread-badge hidden">0</span></button>
   <div class="view-tab-dropdown staff-only-tab">
     <button class="view-tab dropdown-toggle" type="button">Staff &#9662;</button>
     <div class="view-tab-menu">
@@ -427,6 +441,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="staffSimgridEvents" type="button">Staff SimGrid Events</button>
       <button data-view="staffCallingCards" type="button">Staff Manage Calling Cards</button>
       <button data-view="staffSeasonWindow" type="button">Season Window</button>
+      <button data-view="staffMessages" type="button">Messages</button>
     </div>
   </div>
 </nav>
@@ -596,6 +611,44 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
 
     <div id="ticketHistoryBody" class="hidden"></div>
+  </section>
+
+  <section class="panel view-panel" data-view="inbox" id="inboxPanel">
+    <div class="panel-head"><div><h3>Inbox</h3><small>Messages from IFWL staff - you can reply on any thread</small></div></div>
+    <div id="inboxThreadList" class="panel-body"><div class="empty">Loading&hellip;</div></div>
+    <div id="inboxThreadView" class="hidden" style="padding:0 18px 18px">
+      <button class="btn ghost" id="inboxBackBtn" type="button" style="margin-bottom:12px">&larr; Back to inbox</button>
+      <h4 id="inboxThreadSubject" style="margin:0 0 12px"></h4>
+      <div id="inboxThreadMessages"></div>
+      <div class="msg-reply-row">
+        <textarea id="inboxReplyText" placeholder="Write a reply..."></textarea>
+        <button class="btn teal" id="inboxReplyBtn" type="button">Send reply</button>
+      </div>
+      <span class="save-status" id="inboxReplyStatus"></span>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffMessages" id="staffMessagesPanel">
+    <div class="panel-head"><div><h3>Staff: Messages</h3><small>Send a message to any driver - replies land back here</small></div><span class="badge purple">Staff only</span></div>
+    <div class="panel-body">
+      <div class="field-group"><label>To driver</label><input type="text" id="msgDriverSearch" placeholder="Search driver by name or licence number..."><div id="msgDriverResults"></div><div class="field-hint" id="msgDriverPicked"></div></div>
+      <div class="field-group"><label>Subject</label><input type="text" id="msgSubject" placeholder="e.g. Regarding your last race"></div>
+      <div class="field-group"><label>Message</label><textarea id="msgText" placeholder="Your message..." style="min-height:80px"></textarea></div>
+      <button class="btn teal" id="msgSendBtn" type="button">Send message</button>
+      <span class="save-status" id="msgSendStatus"></span>
+    </div>
+    <div class="panel-head" style="border-top:1px solid var(--ifwl-line)"><div><h3 style="font-size:15px">All Threads</h3><small>Every staff-driver conversation, newest first</small></div><button class="btn ghost" id="staffInboxRefreshBtn" type="button">Refresh</button></div>
+    <div id="staffThreadList" class="panel-body"><div class="empty">Loading&hellip;</div></div>
+    <div id="staffThreadView" class="hidden" style="padding:0 18px 18px">
+      <button class="btn ghost" id="staffThreadBackBtn" type="button" style="margin-bottom:12px">&larr; Back to threads</button>
+      <h4 id="staffThreadSubject" style="margin:0 0 12px"></h4>
+      <div id="staffThreadMessages"></div>
+      <div class="msg-reply-row">
+        <textarea id="staffReplyText" placeholder="Write a reply..."></textarea>
+        <button class="btn teal" id="staffReplyBtn" type="button">Send reply</button>
+      </div>
+      <span class="save-status" id="staffReplyStatus"></span>
+    </div>
   </section>
 
   <section class="panel view-panel" data-view="home" id="directoryPanel">
@@ -989,6 +1042,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     catch(e){ console.warn('myPendingTicketNotice failed', e.message); return { count: 0, tickets: [] }; }
   }
   window.IFWL_TicketNoticeAPI = { fetchMyPendingTicketNotice };
+
+  // Server contracts for staff<->driver messaging - see licence_threads in index.js.
+  window.IFWL_InboxAPI = {
+    myInbox: () => apiGet('myInbox'),
+    myThread: (threadId) => apiGet('myInboxThread', `&threadId=${encodeURIComponent(threadId)}`),
+    myReply: (threadId, text) => apiPost('myInboxReply', { threadId, text }),
+    staffSend: (driverId, subject, text) => apiPost('staffMessageSend', { driverId, subject, text }),
+    staffList: () => apiGet('staffInboxList'),
+    staffThread: (threadId) => apiGet('staffInboxThread', `&threadId=${encodeURIComponent(threadId)}`),
+    staffReply: (threadId, text) => apiPost('staffInboxReply', { threadId, text })
+  };
 
   // Server contract: ?seasonWindow=1 -> {label, startDate, endDate}
   //                  ?staffSeasonWindowSave=1 {label, startDate, endDate} (staff)
@@ -1675,7 +1739,58 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('ticketNoticeGoBtn').onclick = dismiss; // going to the portal also counts as acknowledged
   }
 
+  // ✅ ADDED: driver Inbox - list threads, open one, reply. Also keeps the
+  // nav tab's unread badge in sync every time the list reloads.
+  async function renderInboxPanel(){
+    const list = q('inboxThreadList');
+    if(!list) return;
+    let data;
+    try{ data = await window.IFWL_InboxAPI.myInbox(); }
+    catch(e){ list.innerHTML = `<div class="empty">Could not load inbox: ${e.message}</div>`; return; }
+
+    const threads = data.threads || [];
+    const totalUnread = threads.reduce((sum, t) => sum + (t.unread || 0), 0);
+    const badge = q('inboxUnreadBadge');
+    if(badge){ badge.textContent = totalUnread; badge.classList.toggle('hidden', !totalUnread); }
+
+    q('inboxThreadView').classList.add('hidden');
+    list.classList.remove('hidden');
+    if(!threads.length){ list.innerHTML = '<div class="empty">No messages yet. Staff messages to you will appear here.</div>'; return; }
+    list.innerHTML = threads.map(t => `<div class="msg-thread-row${t.unread ? ' msg-unread' : ''}" data-thread="${t.id}">
+      <div><div class="msg-subject">${t.subject}${t.unread ? ` <span class="inbox-unread-badge">${t.unread}</span>` : ''}</div>
+      <div class="msg-meta">From ${t.staffName} &middot; ${t.lastMessageAtMs ? new Date(t.lastMessageAtMs).toLocaleString() : ''}</div></div>
+      <span class="field-hint">Open &rarr;</span>
+    </div>`).join('');
+    list.querySelectorAll('[data-thread]').forEach(row => row.addEventListener('click', () => openInboxThread(row.dataset.thread)));
+  }
+
+  async function openInboxThread(threadId){
+    const view = q('inboxThreadView');
+    q('inboxThreadList').classList.add('hidden');
+    view.classList.remove('hidden');
+    q('inboxThreadMessages').innerHTML = '<div class="empty">Loading&hellip;</div>';
+    let data;
+    try{ data = await window.IFWL_InboxAPI.myThread(threadId); }
+    catch(e){ q('inboxThreadMessages').innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+    q('inboxThreadSubject').textContent = data.subject || '(no subject)';
+    q('inboxThreadMessages').innerHTML = (data.messages || []).map(m => `<div class="msg-bubble msg-${m.senderRole === 'driver' ? 'driver' : 'staff'}"><span class="msg-sender">${m.senderName}${m.senderRole === 'staff' ? ' (IFWL Staff)' : ''}</span>${m.text}</div>`).join('');
+    q('inboxReplyBtn').onclick = async () => {
+      const text = q('inboxReplyText').value.trim();
+      if(!text) return;
+      q('inboxReplyStatus').textContent = 'Sending...';
+      try{
+        await window.IFWL_InboxAPI.myReply(threadId, text);
+        q('inboxReplyText').value = '';
+        q('inboxReplyStatus').textContent = 'Sent.';
+        setTimeout(()=>{ if(q('inboxReplyStatus')) q('inboxReplyStatus').textContent=''; }, 2000);
+        openInboxThread(threadId); // reload thread with the new message
+      }catch(e){ q('inboxReplyStatus').textContent = 'Could not send: ' + e.message; }
+    };
+    q('inboxBackBtn').onclick = () => renderInboxPanel();
+  }
+
   async function init(){
+    renderInboxPanel(); // fire-and-forget - also sets the nav unread badge
     currentTiers = await window.IFWL_TierAPI.fetchTierList();
     renderTierLegend();
     populateTierSelect(q('dirTierFilter'), { includeBlank: true });
@@ -2507,6 +2622,88 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }catch(e){ q('seasonSaveStatus').textContent = 'Could not save: ' + e.message; }
   });
 
+  /* ---- Staff Messages ---- */
+  let msgPickedDriverId = null;
+  async function initStaffMessagesPanel(){
+    // Compose: driver search -> pick -> enables send
+    q('msgDriverSearch')?.addEventListener('input', async () => {
+      const term = q('msgDriverSearch').value.trim().toLowerCase();
+      const box = q('msgDriverResults');
+      msgPickedDriverId = null; q('msgDriverPicked').textContent = '';
+      if(!term){ box.innerHTML = ''; return; }
+      const profiles = await staffSearch('');
+      const matches = profiles.filter(p => (p.name||'').toLowerCase().includes(term) || (p.licenceNumber||'').toLowerCase().includes(term)).slice(0, 8);
+      if(!matches.length){ box.innerHTML = '<div class="empty">No matches.</div>'; return; }
+      box.innerHTML = matches.map(p => `<div class="note-item" style="cursor:pointer" data-msg-driver="${p.discordId}" data-msg-name="${p.name}">${p.name} <span class="note-meta">(${p.licenceNumber})</span></div>`).join('');
+      box.querySelectorAll('[data-msg-driver]').forEach(el => el.addEventListener('click', () => {
+        msgPickedDriverId = el.dataset.msgDriver;
+        q('msgDriverPicked').textContent = 'Sending to: ' + el.dataset.msgName;
+        box.innerHTML = ''; q('msgDriverSearch').value = el.dataset.msgName;
+      }));
+    });
+
+    q('msgSendBtn')?.addEventListener('click', async () => {
+      const subject = q('msgSubject').value.trim();
+      const text = q('msgText').value.trim();
+      if(!msgPickedDriverId){ q('msgSendStatus').textContent = 'Pick a driver first.'; return; }
+      if(!subject || !text){ q('msgSendStatus').textContent = 'Subject and message are both required.'; return; }
+      q('msgSendStatus').textContent = 'Sending...';
+      try{
+        await window.IFWL_InboxAPI.staffSend(msgPickedDriverId, subject, text);
+        q('msgSendStatus').textContent = 'Sent.';
+        q('msgSubject').value = ''; q('msgText').value = ''; q('msgDriverSearch').value = '';
+        q('msgDriverPicked').textContent = ''; msgPickedDriverId = null;
+        renderStaffThreadList();
+      }catch(e){ q('msgSendStatus').textContent = 'Could not send: ' + e.message; }
+    });
+
+    q('staffInboxRefreshBtn')?.addEventListener('click', renderStaffThreadList);
+    renderStaffThreadList();
+  }
+
+  async function renderStaffThreadList(){
+    const list = q('staffThreadList');
+    if(!list) return;
+    q('staffThreadView').classList.add('hidden');
+    list.classList.remove('hidden');
+    let data;
+    try{ data = await window.IFWL_InboxAPI.staffList(); }
+    catch(e){ list.innerHTML = `<div class="empty">Could not load threads: ${e.message}</div>`; return; }
+    const threads = data.threads || [];
+    if(!threads.length){ list.innerHTML = '<div class="empty">No message threads yet.</div>'; return; }
+    list.innerHTML = threads.map(t => `<div class="msg-thread-row${t.unread ? ' msg-unread' : ''}" data-staff-thread="${t.id}">
+      <div><div class="msg-subject">${t.subject}${t.unread ? ` <span class="inbox-unread-badge">${t.unread}</span>` : ''}</div>
+      <div class="msg-meta">To ${t.driverName} &middot; from ${t.staffName} &middot; ${t.lastMessageAtMs ? new Date(t.lastMessageAtMs).toLocaleString() : ''}${t.lastMessageBy === 'driver' ? ' &middot; driver replied' : ''}</div></div>
+      <span class="field-hint">Open &rarr;</span>
+    </div>`).join('');
+    list.querySelectorAll('[data-staff-thread]').forEach(row => row.addEventListener('click', () => openStaffThread(row.dataset.staffThread)));
+  }
+
+  async function openStaffThread(threadId){
+    const view = q('staffThreadView');
+    q('staffThreadList').classList.add('hidden');
+    view.classList.remove('hidden');
+    q('staffThreadMessages').innerHTML = '<div class="empty">Loading&hellip;</div>';
+    let data;
+    try{ data = await window.IFWL_InboxAPI.staffThread(threadId); }
+    catch(e){ q('staffThreadMessages').innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+    q('staffThreadSubject').textContent = `${data.subject || '(no subject)'} — ${data.driverName || 'Driver'}`;
+    q('staffThreadMessages').innerHTML = (data.messages || []).map(m => `<div class="msg-bubble msg-${m.senderRole === 'driver' ? 'driver' : 'staff'}"><span class="msg-sender">${m.senderName}${m.senderRole === 'staff' ? ' (IFWL Staff)' : ''}</span>${m.text}</div>`).join('');
+    q('staffReplyBtn').onclick = async () => {
+      const text = q('staffReplyText').value.trim();
+      if(!text) return;
+      q('staffReplyStatus').textContent = 'Sending...';
+      try{
+        await window.IFWL_InboxAPI.staffReply(threadId, text);
+        q('staffReplyText').value = '';
+        q('staffReplyStatus').textContent = 'Sent.';
+        setTimeout(()=>{ if(q('staffReplyStatus')) q('staffReplyStatus').textContent=''; }, 2000);
+        openStaffThread(threadId);
+      }catch(e){ q('staffReplyStatus').textContent = 'Could not send: ' + e.message; }
+    };
+    q('staffThreadBackBtn').onclick = () => renderStaffThreadList();
+  }
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -2518,6 +2715,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderLicenceQualPanel('PC', 'pc-licence');
     renderLicenceQualPanel('Console', 'console-licence');
     initSeasonWindowPanel();
+    initStaffMessagesPanel();
   }
   window.addEventListener('ifwl-auth-changed', initStaffPanels);
   if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
