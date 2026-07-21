@@ -773,6 +773,19 @@
       .linkedTicketGrid{ grid-template-columns:1fr; }
       .effectGroups{ grid-template-columns:1fr; }
     }
+    /* ✅ ADDED: Licence Centre integration */
+    .hidden{display:none!important}
+    .licence-points-value{font-size:22px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .licence-points-value.pts-green{color:#16a34a}
+    .licence-points-value.pts-orange{color:#d97706}
+    .licence-points-value.pts-red{color:#dc2626}
+    .licence-ban-banner{margin-top:8px;padding:8px 10px;border-radius:10px;background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;font-size:12px;font-weight:700}
+    .licence-search-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:10px;margin-top:6px;background:#fff}
+    .licence-search-row button{padding:6px 10px;font-size:12px}
+    #licenceSearchInput{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:10px;margin-top:6px}
+    .licence-points-form{display:flex;gap:8px;align-items:end;margin-top:10px;flex-wrap:wrap}
+    .licence-points-form input[type="number"]{width:90px;padding:8px;border:1px solid #d1d5db;border-radius:10px}
+    .licence-points-form input[type="text"]{flex:1;min-width:180px;padding:8px;border:1px solid #d1d5db;border-radius:10px}
   </style>
 </head>
 
@@ -907,6 +920,40 @@
           <div style="margin-top:10px;">
             <div class="muted">Incident</div>
             <textarea id="sumIncident" readonly></textarea>
+          </div>
+        </div>
+
+        <!-- ✅ ADDED: Linked Driver Licence -->
+        <div class="sec" id="licenceLinkSec">
+          <h3>Linked Driver Licence</h3>
+          <div id="licenceLinkedView" class="hidden">
+            <div class="grid2">
+              <div><div class="muted">Driver</div><div id="licDriverName">—</div></div>
+              <div><div class="muted">Licence No.</div><div id="licNumber">—</div></div>
+              <div><div class="muted">Tier</div><div id="licTier">—</div></div>
+              <div><div class="muted">Points</div><div class="licence-points-value" id="licPoints">0</div></div>
+            </div>
+            <div id="licBanBanner" class="licence-ban-banner hidden"></div>
+            <div class="licence-points-form">
+              <div>
+                <div class="muted">Points +/-</div>
+                <input type="number" id="licPointsDelta" placeholder="e.g. 1 or -1">
+              </div>
+              <input type="text" id="licPointsReason" placeholder="Reason (required) - e.g. Ticket IFWL-xxxx, rear-end collision">
+              <button class="primary" id="licApplyPointsBtn" type="button">Apply points</button>
+            </div>
+            <div class="muted" id="licPointsStatus" style="margin-top:6px"></div>
+            <div style="margin-top:10px">
+              <textarea id="licStaffNoteInput" placeholder="Add a private staff note visible only in the Licence Centre..." style="width:100%;min-height:60px"></textarea>
+              <button id="licAddNoteBtn" type="button" style="margin-top:6px">Add private note</button>
+              <span class="muted" id="licNoteStatus"></span>
+            </div>
+            <div class="muted" style="margin-top:10px"><a href="#" id="licRelinkLink">Not the right driver? Search again</a></div>
+          </div>
+          <div id="licenceSearchView">
+            <div class="muted" id="licSearchHint">No licence linked yet for this ticket's accused driver.</div>
+            <input type="text" id="licenceSearchInput" placeholder="Search driver by name or licence number...">
+            <div id="licenceSearchResults"></div>
           </div>
         </div>
 
@@ -3003,6 +3050,196 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       updateLinkedSelectionUI();
     }
 
+    // =======================================================
+    // ✅ ADDED: Licence Centre integration
+    // Reads/writes the `licences` collection directly via the client SDK
+    // (this page has no Cloud Function layer like licence.html does), gated
+    // by the Firestore rules added for this - read for any steward, write
+    // (points/accDriverNames/staffNotes) for Head Steward only.
+    // =======================================================
+    let licenceProfilesCache = null;
+    async function loadAllLicenceProfiles(force){
+      if (licenceProfilesCache && !force) return licenceProfilesCache;
+      const snap = await db.collection("licences").limit(3000).get();
+      licenceProfilesCache = snap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
+      return licenceProfilesCache;
+    }
+
+    function driverNameKeyLocal(name){ return String(name || "").trim().toLowerCase(); }
+
+    // Ticket accused/reporter fields have been seen as either a plain string
+    // or an array in this codebase - handle both so this never silently
+    // fails to match just because of that difference.
+    function accusedNamesFromTicket(t){
+      const raw = t?.accused;
+      if (Array.isArray(raw)) return raw.filter(Boolean);
+      if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+      return [];
+    }
+
+    function findLinkedLicenceForTicket(t, profiles){
+      const accusedNames = accusedNamesFromTicket(t).map(driverNameKeyLocal);
+      if (!accusedNames.length) return null;
+      return profiles.find(p => (p.accDriverNames || []).some(n => {
+        const key = driverNameKeyLocal(n);
+        // Substring match, not exact - ticket accused strings often carry a
+        // bracketed car number ("[18] - Mathias Gonalons") that a driver's
+        // self-reported name usually won't include verbatim.
+        return accusedNames.some(a => a.includes(key) || key.includes(a));
+      })) || null;
+    }
+
+    function pointsClass(points){
+      const n = Number(points || 0);
+      return n <= 3 ? "pts-green" : n <= 6 ? "pts-orange" : "pts-red";
+    }
+
+    async function linkAccusedToLicence(licenceId, accusedNames){
+      const ref = db.collection("licences").doc(licenceId);
+      await ref.update({
+        accDriverNames: firebase.firestore.FieldValue.arrayUnion(...accusedNames.filter(Boolean)),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAtMs: Date.now()
+      });
+      licenceProfilesCache = null; // force a fresh read next time, this doc just changed
+    }
+
+    async function applyLicencePoints(licenceId, delta, reason){
+      const ref = db.collection("licences").doc(licenceId);
+      const nowMs = Date.now();
+      const staffTag = currentEmail || "Head Steward";
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) throw new Error("Licence not found");
+        const p = snap.data() || {};
+        const before = Number(p.licencePoints || 0);
+        const after = Math.max(0, before + delta);
+        const pointsHistory = Array.isArray(p.pointsHistory) ? p.pointsHistory : [];
+        pointsHistory.push({ delta, before, after, reason, date: new Date().toISOString(), dateMs: nowMs, setBy: staffTag });
+        tx.update(ref, {
+          licencePoints: after,
+          pointsHistory,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAtMs: nowMs
+        });
+      });
+      licenceProfilesCache = null;
+    }
+
+    async function addLicenceStaffNote(licenceId, text){
+      await db.collection("licences").doc(licenceId).collection("staffNotes").add({
+        text,
+        by: currentEmail || "Head Steward",
+        byEmail: currentEmail || "",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        createdAtMs: Date.now()
+      });
+    }
+
+    function renderLicenceLinkedView(profile){
+      $("licenceLinkedView").classList.remove("hidden");
+      $("licenceSearchView").classList.add("hidden");
+      $("licDriverName").textContent = profile.name || "Unnamed driver";
+      $("licNumber").textContent = profile.licenceNumber || "-";
+      $("licTier").textContent = profile.tier || "No Licence";
+      const points = Number(profile.licencePoints || 0);
+      const ptsEl = $("licPoints");
+      ptsEl.textContent = points;
+      ptsEl.className = "licence-points-value " + pointsClass(points);
+
+      const banBanner = $("licBanBanner");
+      if (profile.ban && profile.ban.endsAtMs && profile.ban.endsAtMs > Date.now()){
+        banBanner.classList.remove("hidden");
+        banBanner.textContent = `Currently banned (${profile.ban.days} day(s), until ${new Date(profile.ban.endsAtMs).toLocaleString()}). Reason: ${profile.ban.reason || "-"}`;
+      } else {
+        banBanner.classList.add("hidden");
+      }
+
+      $("licApplyPointsBtn").onclick = async () => {
+        const delta = Number($("licPointsDelta").value);
+        const reason = ($("licPointsReason").value || "").trim();
+        if (!Number.isFinite(delta) || delta === 0){ $("licPointsStatus").textContent = "Enter a non-zero points value."; return; }
+        if (!reason){ $("licPointsStatus").textContent = "A reason is required."; return; }
+        $("licPointsStatus").textContent = "Applying...";
+        try{
+          await applyLicencePoints(profile.id, delta, reason);
+          $("licPointsStatus").textContent = "Applied.";
+          $("licPointsDelta").value = ""; $("licPointsReason").value = "";
+          const fresh = (await loadAllLicenceProfiles(true)).find(p => p.id === profile.id);
+          if (fresh) renderLicenceLinkedView(fresh);
+        }catch(e){ $("licPointsStatus").textContent = "Could not apply: " + (e?.message || e); }
+      };
+
+      $("licAddNoteBtn").onclick = async () => {
+        const text = ($("licStaffNoteInput").value || "").trim();
+        if (!text) return;
+        try{
+          await addLicenceStaffNote(profile.id, text);
+          $("licStaffNoteInput").value = "";
+          $("licNoteStatus").textContent = "Note added.";
+          setTimeout(() => { $("licNoteStatus").textContent = ""; }, 2000);
+        }catch(e){ $("licNoteStatus").textContent = "Could not save: " + (e?.message || e); }
+      };
+
+      $("licRelinkLink").onclick = (e) => {
+        e.preventDefault();
+        $("licenceLinkedView").classList.add("hidden");
+        $("licenceSearchView").classList.remove("hidden");
+        $("licSearchHint").textContent = `Currently linked to ${profile.name || "this driver"} - search to link a different driver instead.`;
+      };
+    }
+
+    async function renderLicenceSearchResults(term, ticketAccusedNames){
+      const box = $("licenceSearchResults");
+      if (!term){ box.innerHTML = ""; return; }
+      const profiles = await loadAllLicenceProfiles();
+      const matches = profiles.filter(p =>
+        (p.name || "").toLowerCase().includes(term) || (p.licenceNumber || "").toLowerCase().includes(term)
+      ).slice(0, 8);
+      if (!matches.length){ box.innerHTML = '<div class="muted">No matches.</div>'; return; }
+      box.innerHTML = matches.map(p => `<div class="licence-search-row">
+        <div>${p.name || "Unnamed"} <span class="muted">(${p.licenceNumber || "-"})</span></div>
+        <button type="button" data-link-licence="${p.id}">Link</button>
+      </div>`).join("");
+      box.querySelectorAll("[data-link-licence]").forEach(btn => {
+        btn.onclick = async () => {
+          btn.disabled = true; btn.textContent = "Linking...";
+          try{
+            await linkAccusedToLicence(btn.dataset.linkLicence, ticketAccusedNames);
+            const fresh = (await loadAllLicenceProfiles(true)).find(p => p.id === btn.dataset.linkLicence);
+            if (fresh) renderLicenceLinkedView(fresh);
+          }catch(e){ toast("Could not link: " + (e?.message || e)); btn.disabled = false; btn.textContent = "Link"; }
+        };
+      });
+    }
+
+    async function renderLicenceLinkPanel(t){
+      $("licenceLinkedView").classList.add("hidden");
+      $("licenceSearchView").classList.remove("hidden");
+      $("licSearchHint").textContent = "Loading...";
+      $("licenceSearchInput").value = "";
+      $("licenceSearchResults").innerHTML = "";
+
+      const accusedNames = accusedNamesFromTicket(t);
+      let profiles;
+      try{ profiles = await loadAllLicenceProfiles(); }
+      catch(e){ $("licSearchHint").textContent = "Could not load licence profiles: " + (e?.message || e); return; }
+
+      const match = findLinkedLicenceForTicket(t, profiles);
+      if (match){
+        renderLicenceLinkedView(match);
+        return;
+      }
+      $("licSearchHint").textContent = accusedNames.length
+        ? `No licence linked yet for "${accusedNames.join(', ')}". Search to link one.`
+        : "This ticket has no accused driver recorded.";
+
+      $("licenceSearchInput").oninput = () => {
+        renderLicenceSearchResults($("licenceSearchInput").value.trim().toLowerCase(), accusedNames);
+      };
+    }
+
+
     async function selectTicket(ticketId) {
       $("selTitle").textContent = `Ticket: ${ticketId}`;
       $("selSub").textContent = "";
@@ -3049,6 +3286,7 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       await loadMyReview();
       await refreshAggregate();
       updateFinalDiscordPreview();
+      renderLicenceLinkPanel(t); // ✅ ADDED: Licence Centre integration
     }
 
     async function loadStatements() {
