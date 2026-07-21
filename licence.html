@@ -713,8 +713,30 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <label>Find a driver</label>
           <input type="text" id="staffSearchInput" placeholder="Search by name, Discord ID, or licence number">
         </div>
+        <div class="field-group">
+          <label>Filter by tier</label>
+          <select id="staffTierFilter"><option value="">All tiers</option></select>
+        </div>
         <div id="staffSearchResults"></div>
         <button class="btn ghost" id="staffIssueNewBtn" type="button" style="margin-top:10px">+ Issue new licence</button>
+
+        <div class="staff-only-note" style="margin-top:18px;background:rgba(255,84,100,.1);border-left-color:var(--ifwl-red);color:#ffc2c8">
+          <strong>Bulk Tier Reset</strong> - moves every driver currently on one tier straight to another. This should only be used for beta or end-of-season resets, not everyday tier management - it affects every matching driver at once and cannot be undone in bulk.
+        </div>
+        <div class="field-group">
+          <label>From tier (everyone currently here)</label>
+          <select id="bulkFromTier"></select>
+        </div>
+        <div class="field-group">
+          <label>To tier</label>
+          <select id="bulkToTier"></select>
+        </div>
+        <div class="field-group">
+          <label>Note (optional, added to each driver's tier history)</label>
+          <input type="text" id="bulkTierNote" placeholder="e.g. Season 4 reset">
+        </div>
+        <button class="btn ghost" id="bulkTierApplyBtn" type="button" style="border-color:var(--ifwl-red);color:#ffb3ba">Apply bulk tier reset</button>
+        <span class="save-status" id="bulkTierStatus"></span>
       </div>
       <div id="staffEditorWrap">
         <div class="empty">Select a driver from the search results to edit their profile.</div>
@@ -2373,10 +2395,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
 
-  q('staffSearchInput')?.addEventListener('input', async e=>{
-    const term = e.target.value.toLowerCase();
-    renderResults(await staffSearch(term));
-  });
+  q('staffSearchInput')?.addEventListener('input', () => runStaffSearch());
   q('staffIssueNewBtn')?.addEventListener('click', async ()=>{
     const discordId = prompt('Discord ID of the driver to issue a licence for:');
     if(!discordId) return;
@@ -2897,6 +2916,46 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('staffThreadBackBtn').onclick = () => renderStaffThreadList();
   }
 
+  async function initBulkTierTool(){
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+    const sortedTiers = [...tiers].sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
+    const options = sortedTiers.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+
+    q('staffTierFilter').innerHTML = '<option value="">All tiers</option>' + options;
+    q('bulkFromTier').innerHTML = options;
+    q('bulkToTier').innerHTML = options;
+
+    q('staffTierFilter').addEventListener('change', () => runStaffSearch());
+
+    q('bulkTierApplyBtn').addEventListener('click', async () => {
+      const fromTier = q('bulkFromTier').value;
+      const toTier = q('bulkToTier').value;
+      const note = q('bulkTierNote').value.trim();
+      if(fromTier === toTier){ q('bulkTierStatus').textContent = 'From and To tiers must be different.'; return; }
+
+      const confirmText = `Move EVERY driver currently on "${fromTier}" to "${toTier}"?\n\nThis affects every matching driver at once and is meant for beta/end-of-season resets only - not everyday tier management.\n\nType YES to confirm.`;
+      const typed = prompt(confirmText);
+      if(typed !== 'YES'){ q('bulkTierStatus').textContent = 'Cancelled - nothing changed.'; return; }
+
+      q('bulkTierApplyBtn').disabled = true;
+      q('bulkTierStatus').textContent = 'Applying...';
+      try{
+        const result = await window.IFWL_Api.apiPost('staffBulkTierChange', { fromTier, toTier, note });
+        q('bulkTierStatus').textContent = `Done - moved ${result.updated} driver(s) from "${fromTier}" to "${toTier}".`;
+        runStaffSearch(); // refresh the list in case it was filtered to the tier that just emptied out
+      }catch(e){ q('bulkTierStatus').textContent = 'Could not apply: ' + e.message; }
+      finally{ q('bulkTierApplyBtn').disabled = false; }
+    });
+  }
+
+  async function runStaffSearch(){
+    const term = q('staffSearchInput').value.toLowerCase();
+    const tierFilter = q('staffTierFilter').value;
+    let rows = await staffSearch(term);
+    if(tierFilter) rows = rows.filter(r => r.tier === tierFilter);
+    renderResults(rows);
+  }
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -2909,6 +2968,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderLicenceQualPanel('Console', 'console-licence');
     initSeasonWindowPanel();
     initStaffMessagesPanel();
+    initBulkTierTool();
   }
   window.addEventListener('ifwl-auth-changed', initStaffPanels);
   if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
