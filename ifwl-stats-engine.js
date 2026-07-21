@@ -413,5 +413,47 @@
     return standings;
   }
 
-  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings };
+  /**
+   * Every race (_R) result across every server whose file timestamp falls
+   * within [startMs, endMs]. Fetches each matching file (not just the
+   * manifest metadata) so the caller gets a driver-friendly track name -
+   * that only lives inside the file content, not the filename or manifest.
+   */
+  async function listRaceResultsInRange(startMs, endMs, opts = {}){
+    const manifest = await fetchJsonFile(manifestUrl, {force: !!opts.force});
+    const raw = manifest.results || manifest.files || [];
+    const candidates = raw.filter(item => {
+      const name = item.name || item.file || '';
+      if(!/_R\.json$/i.test(name)) return false;
+      const ts = fileTimestamp(item);
+      return ts >= startMs && ts <= endMs;
+    });
+
+    const races = [];
+    for(const item of candidates){
+      try{
+        const data = await fetchJsonFile(item.file, {force: !!opts.force});
+        const serverId = item.serverId || serverIdFromPath(item.file) || 'unknown';
+        const platform = serverId.startsWith('console-') ? 'console' : serverId.startsWith('pc-') ? 'pc' : '';
+        const lines = (data.sessionResult && data.sessionResult.leaderBoardLines) || [];
+        races.push({
+          file: item.file,
+          serverId,
+          serverName: item.serverName || serverLabels[serverId] || serverId,
+          platform,
+          track: data.trackName || data.metaData || 'Unknown track',
+          tsMs: fileTimestamp(item),
+          dateLabel: humanSessionDate(item),
+          entrantCount: lines.filter(l => !l.bIsSpectator).length
+        });
+      }catch(e){
+        console.warn('IFWLStats: skipped unreadable race file', item.file, e.message);
+      }
+    }
+
+    races.sort((a,b) => b.tsMs - a.tsMs);
+    return races;
+  }
+
+  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, listRaceResultsInRange };
 })();
