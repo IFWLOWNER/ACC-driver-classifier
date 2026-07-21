@@ -36,19 +36,84 @@
     'console-licence': 'IFWL | CONSOLE LICENCE'
   };
   const IFWL_KNOWN_SERVER_IDS = Object.keys(serverLabels);
-  const CACHE_PREFIX = 'ifwl-rivals-result-v2:'; // same cache keys as Live Timings - shared cache, fewer refetches
+  // ✅ CHANGED: moved off localStorage entirely, onto IndexedDB.
+  //
+  // The earlier fix (capping localStorage entries at 300) was a band-aid,
+  // not a real fix - localStorage is shared across the WHOLE browser origin
+  // (ifwlowner.github.io), not per page. TuneShare, Live Timings and the
+  // Licence Centre all live on that same origin and therefore share one
+  // small (~5-10MB) storage jar between them, regardless of how unrelated
+  // their features are. Any cap here just changes how fast that shared jar
+  // fills up - it can never stop this cache from crowding out something as
+  // small as a Patreon status blob.
+  //
+  // IndexedDB is a genuinely separate storage system with its own much
+  // larger quota (tens of MB, often far more). Moving this cache there means
+  // it can grow as large as it needs to for its own purpose without ever
+  // touching the localStorage space anything else on this origin depends on.
+  const CACHE_PREFIX = 'ifwl-rivals-result-v2:'; // kept only to find + purge old entries below
   const CACHE_MAX_AGE = 6 * 60 * 60 * 1000;
+  const IDB_NAME = 'ifwl-cache-v1';
+  const IDB_STORE = 'files';
 
-  function readBrowserCache(path){
+  let idbPromise = null;
+  function openCacheDb(){
+    if(idbPromise) return idbPromise;
+    idbPromise = new Promise((resolve, reject) => {
+      if(!window.indexedDB){ reject(new Error('IndexedDB unavailable')); return; }
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return idbPromise;
+  }
+
+  async function readBrowserCache(path){
     try{
-      const cached = JSON.parse(localStorage.getItem(CACHE_PREFIX + path) || 'null');
-      if(!cached || !cached.savedAt || Date.now() - cached.savedAt > CACHE_MAX_AGE) return null;
-      return cached.data;
+      const db = await openCacheDb();
+      return await new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).get(path);
+        req.onsuccess = () => {
+          const cached = req.result;
+          if(!cached || !cached.savedAt || Date.now() - cached.savedAt > CACHE_MAX_AGE) return resolve(null);
+          resolve(cached.data);
+        };
+        req.onerror = () => resolve(null);
+      });
     }catch(_){ return null; }
   }
-  function writeBrowserCache(path, data){
-    try{ localStorage.setItem(CACHE_PREFIX + path, JSON.stringify({savedAt:Date.now(), data})); }catch(_){ /* cache is best-effort only */ }
+  async function writeBrowserCache(path, data){
+    try{
+      const db = await openCacheDb();
+      await new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).put({savedAt:Date.now(), data}, path);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve(); // best-effort - a caching failure should never break the page
+      });
+    }catch(_){ /* best-effort only */ }
   }
+
+  // One-time cleanup: reclaim whatever this cache already left behind in
+  // localStorage under the old scheme, immediately freeing that space back
+  // up for TuneShare and anything else on this origin - without this, old
+  // entries would just sit there forever even after the code stops writing
+  // new ones there.
+  (function purgeOldLocalStorageCache(){
+    try{
+      const stale = [];
+      for(let i = 0; i < localStorage.length; i++){
+        const k = localStorage.key(i);
+        if(k && k.startsWith(CACHE_PREFIX)) stale.push(k);
+      }
+      stale.forEach(k => localStorage.removeItem(k));
+    }catch(_){ /* non-fatal */ }
+  })();
 
   function decodeJsonText(text){
     let clean = text.replace(/^\uFEFF/, '');
@@ -59,14 +124,14 @@
   async function fetchJsonFile(path, options = {}){
     const useCache = path !== manifestUrl && options.force !== true;
     if(useCache){
-      const cached = readBrowserCache(path);
+      const cached = await readBrowserCache(path);
       if(cached) return cached;
     }
     const res = await fetch(path + (path.includes('?') ? '&' : '?') + 'v=' + Date.now(), { cache:'no-store' });
     if(!res.ok) throw new Error(`Could not load ${path} (${res.status})`);
     const text = await res.text();
     const data = decodeJsonText(text);
-    if(useCache) writeBrowserCache(path, data);
+    if(useCache) await writeBrowserCache(path, data);
     return data;
   }
 
