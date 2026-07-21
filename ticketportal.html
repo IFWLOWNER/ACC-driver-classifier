@@ -1787,8 +1787,20 @@
       populateHiddenSelect(hiddenSelect, placeholderText);
 
       function pickDriver(fullName){
-        hiddenSelect.value = fullName || "";
-        searchInput.value = fullName || "";
+        const name = fullName || "";
+        // ✅ FIX: a <select>'s .value silently no-ops if no matching <option>
+        // exists - names from the licence-linked list were never added as
+        // options (only drivers_v2/drivers entries are), so picking one left
+        // the actual required field empty even though the search box showed
+        // the name. Create the missing option on the fly if needed.
+        if(name && !Array.from(hiddenSelect.options).some(o => o.value === name)){
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          hiddenSelect.appendChild(opt);
+        }
+        hiddenSelect.value = name;
+        searchInput.value = name;
         manualContainer.classList.add("hidden");
         manualNameInput.value = "";
         manualNumberInput.value = "";
@@ -1894,15 +1906,9 @@
         const licenceMatches = filterLicenceDrivers(q);
         const matches = filterDrivers(q);
         if (licenceMatches.length === 1 && matches.length === 0) {
-          hiddenSelect.value = licenceMatches[0].fullName;
-          searchInput.value = licenceMatches[0].fullName;
-          closeResults(resultsEl);
-          manualContainer.classList.add("hidden");
+          pickDriver(licenceMatches[0].fullName);
         } else if (matches.length === 1 && licenceMatches.length === 0) {
-          hiddenSelect.value = matches[0].fullName;
-          searchInput.value = matches[0].fullName;
-          closeResults(resultsEl);
-          manualContainer.classList.add("hidden");
+          pickDriver(matches[0].fullName);
         } else if (matches.length === 0 && licenceMatches.length === 0) {
           showManual(q);
         }
