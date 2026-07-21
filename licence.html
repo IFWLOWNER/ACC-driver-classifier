@@ -70,6 +70,8 @@ html.login-wall-open,body.login-wall-open{overflow:hidden!important}
 #ifwlLoginWall{position:fixed;inset:0;z-index:200000;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:center;justify-content:center;padding:24px}
 #ifwlLoginWall.hidden{display:none!important}
 #ifwlDriverLinkGate{position:fixed;inset:0;z-index:199999;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:center;justify-content:center;padding:24px}
+#ticketNoticeModal{position:fixed;inset:0;z-index:199998;background:rgba(4,6,9,.82);display:flex;align-items:center;justify-content:center;padding:24px}
+#ticketNoticeModal.hidden{display:none!important}
 #ifwlDriverLinkGate.hidden{display:none!important}
 body.driver-link-required .top-strip,body.driver-link-required .nav,body.driver-link-required #ifwlAccountBar,body.driver-link-required .hero,body.driver-link-required .titlebar,body.driver-link-required main{visibility:hidden!important}
 .driver-link-tip{margin-top:18px;text-align:left;background:rgba(255,178,56,.1);border:1px solid rgba(255,178,56,.35);border-left:5px solid var(--ifwl-amber);border-radius:14px;padding:16px 18px;color:#ffe3b0}
@@ -368,6 +370,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button class="login-wall-logout" id="gateLogoutBtn" type="button">Logout</button>
     </div>
     <div id="gateError" class="hidden" style="margin-top:14px;background:rgba(255,84,100,.12);border:1px solid rgba(255,84,100,.4);color:#ffb3ba;border-radius:12px;padding:12px;font-weight:700"></div>
+  </div>
+</div>
+
+<div id="ticketNoticeModal" class="hidden">
+  <div class="login-wall-card">
+    <div class="licence-org" style="font-size:13px;color:var(--ifwl-red)">STEWARD NOTICE</div>
+    <h1 style="background:linear-gradient(100deg,#fff,var(--ifwl-red));-webkit-background-clip:text;background-clip:text;color:transparent">You've Been Reported</h1>
+    <p id="ticketNoticeText">Loading&hellip;</p>
+    <div class="login-wall-actions" style="margin-top:14px">
+      <a class="login-wall-discord" href="ticketportal.html" target="_blank" rel="noopener" id="ticketNoticeGoBtn">Go to Ticket Portal</a>
+      <button class="login-wall-logout" id="ticketNoticeDismissBtn" type="button">Dismiss</button>
+    </div>
   </div>
 </div>
 
@@ -967,6 +981,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return (await apiGet('linkedDriverNames')).names || [];
   }
   window.IFWL_ClaimAPI = { fetchLinkedDriverNames };
+
+  // Server contract: ?myPendingTicketNotice=1 -> { count, tickets:[{id,dateLabel,dateMs}] }
+  // Available to every driver regardless of tier - see the note in index.js.
+  async function fetchMyPendingTicketNotice(){
+    if(USE_DEMO_FALLBACK) return { count: 0, tickets: [] };
+    try{ return await apiGet('myPendingTicketNotice'); }
+    catch(e){ console.warn('myPendingTicketNotice failed', e.message); return { count: 0, tickets: [] }; }
+  }
+  window.IFWL_TicketNoticeAPI = { fetchMyPendingTicketNotice };
 
   // Server contract: ?seasonWindow=1 -> {label, startDate, endDate}
   //                  ?staffSeasonWindowSave=1 {label, startDate, endDate} (staff)
@@ -1625,6 +1648,38 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('ifwlDriverLinkGate').classList.add('hidden');
   }
 
+  // Fingerprinted per-user in localStorage so a driver only sees this once
+  // per distinct set of pending tickets - dismissing it doesn't hide it
+  // forever, but a NEW ticket (changing the count or the newest ticket id)
+  // will surface it again rather than staying silently suppressed.
+  function ticketNoticeSeenKey(){ return 'IFWL_TICKET_NOTICE_SEEN:' + window.IFWL_AUTH.userId(window.IFWL_META); }
+  function ticketNoticeFingerprint(notice){
+    const ids = (notice.tickets || []).map(t => t.id).sort().join(',');
+    return `${notice.count}|${ids}`;
+  }
+  async function checkTicketNotice(){
+    const notice = await window.IFWL_TicketNoticeAPI.fetchMyPendingTicketNotice();
+    if(!notice.count) return;
+
+    const fingerprint = ticketNoticeFingerprint(notice);
+    if(localStorage.getItem(ticketNoticeSeenKey()) === fingerprint) return; // already seen this exact set
+
+    const dates = (notice.tickets || [])
+      .map(t => t.dateLabel ? new Date(t.dateLabel).toLocaleDateString('en-GB', {day:'2-digit', month:'long', year:'numeric'}) : null)
+      .filter(Boolean);
+    const dateText = dates.length ? dates.join(', ') : 'an unknown date';
+
+    q('ticketNoticeText').textContent = `You have had ${notice.count} ticket${notice.count === 1 ? '' : 's'} submitted against you on ${dateText}. Head to the Ticket Portal to make sure you've submitted a statement for ${notice.count === 1 ? 'it' : 'them'}.`;
+    q('ticketNoticeModal').classList.remove('hidden');
+
+    const dismiss = () => {
+      localStorage.setItem(ticketNoticeSeenKey(), fingerprint);
+      q('ticketNoticeModal').classList.add('hidden');
+    };
+    q('ticketNoticeDismissBtn').onclick = dismiss;
+    q('ticketNoticeGoBtn').onclick = dismiss; // going to the portal also counts as acknowledged
+  }
+
   async function init(){
     currentTiers = await window.IFWL_TierAPI.fetchTierList();
     renderTierLegend();
@@ -1644,6 +1699,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return;
     }
     hideDriverLinkGate();
+    checkTicketNotice();
 
     if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
     const [ticketInfo, perfStats] = await Promise.all([fetchTicketInfo(), fetchPerformanceStats(currentProfile)]);
