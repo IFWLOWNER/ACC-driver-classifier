@@ -516,6 +516,33 @@
       font-size: 14px;
     }
 
+    /* ✅ ADDED: Licence Centre integration - licensed drivers shown first */
+    .driver-picker .result-section-header {
+      padding: 8px 12px 4px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #6b7075;
+    }
+    .driver-picker .licence-result-item {
+      background: rgba(42,157,143,0.06);
+    }
+    .driver-picker .licence-result-item:hover {
+      background: rgba(42,157,143,0.14);
+    }
+    .driver-picker .licence-tier-tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      background: var(--ifwl-teal);
+      color: #fff;
+      margin-left: 6px;
+    }
+
     .hidden-select {
       display: none !important;
     }
@@ -1596,6 +1623,7 @@
     });
 
     let DRIVERS_CACHE = [];
+    let LICENCE_DRIVERS_CACHE = []; // ✅ ADDED: Licence Centre integration
 
     function extractNumbers(text){
       const nums = String(text || "").match(/\d+/g);
@@ -1668,6 +1696,45 @@
       unnumbered.sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
 
       DRIVERS_CACHE = [...numbered, ...unnumbered];
+    }
+
+    // ✅ ADDED: Licence Centre integration - one entry per (licence, ACC name)
+    // pair, using the name string EXACTLY as the driver self-reported it.
+    // Picking one of these writes that exact string into the ticket's
+    // accused/reporter field, which is what makes it automatically match up
+    // with the Licence Centre's own ticket-matching, Head Steward panel, and
+    // licence points system later - no separate manual linking step needed
+    // if the ticket is filed against this canonical name from the start.
+    async function loadLicenceRosterCache() {
+      try {
+        const r = await fetch(`${RTGATE_BASE}?licenceRoster=1`);
+        const data = await r.json();
+        const roster = Array.isArray(data.drivers) ? data.drivers : [];
+        const entries = [];
+        roster.forEach(p => {
+          (p.accDriverNames || []).forEach(n => {
+            const name = safeStr(n);
+            if (!name) return;
+            entries.push({
+              fullName: name,
+              number: extractNumbers(name),
+              tier: safeStr(p.tier || ""),
+              licenceNumber: safeStr(p.licenceNumber || ""),
+              searchText: `${name} ${p.licenceNumber || ""}`.toLowerCase()
+            });
+          });
+        });
+        LICENCE_DRIVERS_CACHE = entries;
+      } catch (e) {
+        console.warn("Could not load licence roster", e);
+        LICENCE_DRIVERS_CACHE = [];
+      }
+    }
+
+    function filterLicenceDrivers(queryText) {
+      const q = safeStr(queryText).toLowerCase();
+      if (!q) return [];
+      return LICENCE_DRIVERS_CACHE.filter(d => d.searchText.includes(q));
     }
 
     function populateHiddenSelect(selectEl, placeholderText){
@@ -1749,10 +1816,12 @@
           closeResults(resultsEl);
           return;
         }
+        // ✅ ADDED: Licence Centre integration - licensed drivers shown first
+        const licenceMatches = filterLicenceDrivers(q).slice(0, 15);
         const matches = filterDrivers(q).slice(0, 30);
         resultsEl.innerHTML = "";
 
-        if (matches.length === 0) {
+        if (licenceMatches.length === 0 && matches.length === 0) {
           openResults(resultsEl);
           const noDiv = document.createElement("div");
           noDiv.className = "no-results";
@@ -1771,16 +1840,42 @@
         }
 
         openResults(resultsEl);
-        matches.forEach(d => {
-          const item = document.createElement("div");
-          item.className = "result-item";
-          item.innerHTML = `
-            <div>${d.fullName.replace(/</g,"&lt;")}</div>
-            <div class="result-meta">${d.number ? "#" + d.number : ""}</div>
-          `;
-          item.addEventListener("click", () => pickDriver(d.fullName));
-          resultsEl.appendChild(item);
-        });
+
+        if (licenceMatches.length) {
+          const header = document.createElement("div");
+          header.className = "result-section-header";
+          header.textContent = "Licensed IFWL Drivers";
+          resultsEl.appendChild(header);
+          licenceMatches.forEach(d => {
+            const item = document.createElement("div");
+            item.className = "result-item licence-result-item";
+            item.innerHTML = `
+              <div>${d.fullName.replace(/</g,"&lt;")}${d.tier ? `<span class="licence-tier-tag">${d.tier.replace(/</g,"&lt;")}</span>` : ""}</div>
+              <div class="result-meta">${d.licenceNumber || ""}</div>
+            `;
+            item.addEventListener("click", () => pickDriver(d.fullName));
+            resultsEl.appendChild(item);
+          });
+        }
+
+        if (matches.length) {
+          if (licenceMatches.length) {
+            const header2 = document.createElement("div");
+            header2.className = "result-section-header";
+            header2.textContent = "All Drivers";
+            resultsEl.appendChild(header2);
+          }
+          matches.forEach(d => {
+            const item = document.createElement("div");
+            item.className = "result-item";
+            item.innerHTML = `
+              <div>${d.fullName.replace(/</g,"&lt;")}</div>
+              <div class="result-meta">${d.number ? "#" + d.number : ""}</div>
+            `;
+            item.addEventListener("click", () => pickDriver(d.fullName));
+            resultsEl.appendChild(item);
+          });
+        }
       });
 
       document.addEventListener("click", (e) => {
@@ -1794,13 +1889,21 @@
         e.preventDefault();
         const q = safeStr(searchInput.value);
         if (!q) return;
+        // ✅ ADDED: Licence Centre integration - check licence matches first,
+        // same priority order as the visual results list.
+        const licenceMatches = filterLicenceDrivers(q);
         const matches = filterDrivers(q);
-        if (matches.length === 1) {
+        if (licenceMatches.length === 1 && matches.length === 0) {
+          hiddenSelect.value = licenceMatches[0].fullName;
+          searchInput.value = licenceMatches[0].fullName;
+          closeResults(resultsEl);
+          manualContainer.classList.add("hidden");
+        } else if (matches.length === 1 && licenceMatches.length === 0) {
           hiddenSelect.value = matches[0].fullName;
           searchInput.value = matches[0].fullName;
           closeResults(resultsEl);
           manualContainer.classList.add("hidden");
-        } else if (matches.length === 0) {
+        } else if (matches.length === 0 && licenceMatches.length === 0) {
           showManual(q);
         }
       });
@@ -2481,6 +2584,7 @@
     });
 
     await loadDriversCache();
+    await loadLicenceRosterCache(); // ✅ ADDED: Licence Centre integration
 
     setupDriverPicker({
       searchInput: document.getElementById("accusedSearch"),
