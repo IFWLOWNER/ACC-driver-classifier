@@ -255,7 +255,7 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 @media(max-width:900px){.staff-grid{grid-template-columns:1fr}}
 
 body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #qualStandingPanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #availableRacesPanel,body:not(.discord-logged-in) #claimLapsPanel,body:not(.discord-logged-in) #claimLapsPanelConsole{display:none!important}
-body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel,body:not(.staff-access) #licenceQualPanel,body:not(.staff-access) #licenceQualPanelConsole,body:not(.staff-access) #simgridBulkLinkPanel,body:not(.staff-access) #seasonWindowPanel,body:not(.staff-access) #staffMessagesPanel{display:none!important}
+body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel,body:not(.staff-access) #licenceQualPanel,body:not(.staff-access) #licenceQualPanelConsole,body:not(.staff-access) #simgridBulkLinkPanel,body:not(.staff-access) #seasonWindowPanel,body:not(.staff-access) #staffMessagesPanel,body:not(.staff-access) #nameAuditPanel{display:none!important}
 .tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:#0d1116;margin-bottom:8px}
 .tier-row input[type="text"]{border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-primary);border-radius:7px;padding:8px 10px;font-size:13px}
 .tier-row input[type="color"]{width:44px;height:32px;border:1px solid var(--ifwl-line);border-radius:7px;background:none;padding:0;cursor:pointer}
@@ -497,6 +497,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="staffRequests" type="button">Licence Requests</button>
       <button data-view="staffSimgridEvents" type="button">Staff SimGrid Events</button>
       <button data-view="staffCallingCards" type="button">Staff Manage Calling Cards</button>
+      <button data-view="staffNameAudit" type="button">Driver Name Audit</button>
       <button data-view="staffSeasonWindow" type="button">Season Window</button>
       <button data-view="staffMessages" type="button">Messages</button>
     </div>
@@ -919,6 +920,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <span class="save-status" id="ccSaveStatus"></span>
       <hr style="border-color:var(--ifwl-line);margin:18px 0">
       <div id="ccList"></div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffNameAudit" id="nameAuditPanel">
+    <div class="panel-head"><div><h3>Staff: Driver Name Audit</h3><small>Every claimed ACC name, and exactly which licence claimed it</small></div><button class="btn ghost" id="nameAuditRefreshBtn" type="button">Refresh</button></div>
+    <div class="staff-only-note">Reverse lookup of the same accDriverNames data used everywhere else. Use this to check nobody's claimed a name that isn't genuinely theirs - if you find one, remove it directly below.</div>
+    <div class="dir-toolbar">
+      <input type="text" id="nameAuditSearch" placeholder="Search by ACC name, driver name, or Discord username...">
+    </div>
+    <div id="nameAuditSummary" class="field-hint" style="margin:0 18px 8px"></div>
+    <div class="table-wrap">
+      <table class="dir-table">
+        <thead><tr><th>Claimed ACC Name</th><th>Linked Driver</th><th>Licence No.</th><th>Discord Username</th><th>Remove</th></tr></thead>
+        <tbody id="nameAuditBody"><tr><td colspan="5" class="empty">Loading&hellip;</td></tr></tbody>
+      </table>
     </div>
   </section>
 
@@ -3049,6 +3065,71 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderResults(rows);
   }
 
+  /* ---- Driver Name Audit ---- */
+  let nameAuditRows = [];
+  async function renderNameAudit(){
+    const body = q('nameAuditBody');
+    if(!body) return;
+    body.innerHTML = '<tr><td colspan="5" class="empty">Loading&hellip;</td></tr>';
+    let profiles;
+    try{ profiles = await staffSearch(''); }
+    catch(e){ body.innerHTML = `<tr><td colspan="5" class="empty">Could not load: ${e.message}</td></tr>`; return; }
+
+    // Flatten one row per claimed name, not one row per driver - that's what
+    // makes this an actual audit list rather than just the existing search.
+    nameAuditRows = [];
+    profiles.forEach(p => {
+      (p.accDriverNames || []).forEach(n => {
+        nameAuditRows.push({ accName: n, driverId: p.discordId, driverName: p.name, licenceNumber: p.licenceNumber, discordUsername: p.discordUsername || '' });
+      });
+    });
+    nameAuditRows.sort((a,b) => a.accName.localeCompare(b.accName));
+
+    const claimCounts = {};
+    nameAuditRows.forEach(r => { claimCounts[r.driverId] = (claimCounts[r.driverId] || 0) + 1; });
+    const heaviest = Object.entries(claimCounts).sort((a,b) => b[1]-a[1])[0];
+    const heaviestDriver = heaviest ? nameAuditRows.find(r => r.driverId === heaviest[0]) : null;
+    q('nameAuditSummary').textContent = `${nameAuditRows.length} claimed name(s) across ${Object.keys(claimCounts).length} driver(s).` +
+      (heaviestDriver && heaviest[1] > 1 ? ` Most claims by one driver: ${heaviestDriver.driverName} (${heaviest[1]}).` : '');
+
+    renderNameAuditFiltered();
+  }
+
+  function renderNameAuditFiltered(){
+    const term = (q('nameAuditSearch').value || '').toLowerCase();
+    const body = q('nameAuditBody');
+    const rows = nameAuditRows.filter(r => !term ||
+      r.accName.toLowerCase().includes(term) ||
+      r.driverName.toLowerCase().includes(term) ||
+      r.discordUsername.toLowerCase().includes(term)
+    );
+    if(!rows.length){ body.innerHTML = '<tr><td colspan="5" class="empty">No matches.</td></tr>'; return; }
+
+    body.innerHTML = rows.map((r, i) => `<tr>
+      <td>${r.accName}</td>
+      <td>${r.driverName}</td>
+      <td class="mono">${r.licenceNumber}</td>
+      <td class="mono">${r.discordUsername || '-'}</td>
+      <td><button class="btn ghost" style="border-color:var(--ifwl-red);color:#ffb3ba" data-remove-idx="${i}">Remove</button></td>
+    </tr>`).join('');
+
+    body.querySelectorAll('[data-remove-idx]').forEach(btn => btn.addEventListener('click', async () => {
+      const row = rows[Number(btn.dataset.removeIdx)];
+      if(!confirm(`Remove "${row.accName}" from ${row.driverName}'s linked names? This can't be undone from here - they'd need to re-claim it.`)) return;
+      btn.disabled = true; btn.textContent = 'Removing...';
+      try{
+        const profiles = await staffSearch('');
+        const profile = profiles.find(p => p.discordId === row.driverId);
+        const updated = (profile?.accDriverNames || []).filter(n => n !== row.accName);
+        await staffSaveProfile(row.driverId, { accDriverNames: updated });
+        await renderNameAudit();
+      }catch(e){ alert('Could not remove: ' + e.message); btn.disabled = false; btn.textContent = 'Remove'; }
+    }));
+  }
+
+  q('nameAuditSearch')?.addEventListener('input', renderNameAuditFiltered);
+  q('nameAuditRefreshBtn')?.addEventListener('click', renderNameAudit);
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -3062,6 +3143,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     initSeasonWindowPanel();
     initStaffMessagesPanel();
     initBulkTierTool();
+    renderNameAudit();
   }
   window.addEventListener('ifwl-auth-changed', initStaffPanels);
   if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
