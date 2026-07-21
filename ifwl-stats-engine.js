@@ -456,4 +456,298 @@
   }
 
   window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, listRaceResultsInRange };
+
+  // =======================================================
+  // ✅ ADDED: Race Results detail view (ported from livetimings.html so the
+  // Licence Centre's Gold-only breakdown is visually and logically identical
+  // to the one on Live Timings - same charts, same classes, same formulas.
+  // =======================================================
+
+  function esc(str){
+    return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function gapTime(ms){ if(!ms || ms <= 0) return '-'; return '+' + (ms/1000).toFixed(3); }
+  function driverShort(name){
+    const clean = String(name || '').replace(/\s+-\s+IFWL$/i,'').trim();
+    return clean.length > 15 ? clean.slice(0, 13) + '…' : clean;
+  }
+  function svgText(x, y, text, size = 11, weight = 700, anchor = 'start'){
+    return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" text-anchor="${anchor}" fill="#dfe8ea">${esc(text)}</text>`;
+  }
+  function consistencyClass(value){
+    if(!Number.isFinite(value)) return '';
+    if(value >= 95) return 'good';
+    if(value >= 85) return 'mid';
+    return 'low';
+  }
+  function consistencyText(value, count){
+    if(!Number.isFinite(value) || !count || count < 2) return '-';
+    return `${value.toFixed(1)}%`;
+  }
+  function consistencyNoteText(stats){
+    if(!stats || !(stats.count >= 2)) return 'Need 2+ laps';
+    const parts = [`${stats.count} laps`];
+    if(stats.spread > 0) parts.push(`spread ${msTimeFull(stats.spread)}`);
+    if(Number.isFinite(stats.tightBandPct)) parts.push(`${stats.tightBandPct.toFixed(0)}% within 1%`);
+    if(stats.outlierCount > 0) parts.push(`${stats.outlierCount} outlier${stats.outlierCount === 1 ? '' : 's'} excluded`);
+    return parts.join(' · ');
+  }
+  function riskClassOf(value){
+    if(!Number.isFinite(value)) return '';
+    if(value <= 15) return 'low';
+    if(value <= 35) return 'mild';
+    if(value <= 60) return 'medium';
+    return 'high';
+  }
+  // Named distinctly from the engine's own msTime (which returns '-' the same
+  // way) purely so this file's ported code can call it exactly as it did in
+  // Live Timings without a naming collision - same formula either way.
+  function msTimeFull(ms){
+    if(ms === undefined || ms === null || ms <= 0) return '-';
+    const total = Math.floor(ms);
+    const minutes = Math.floor(total / 60000);
+    const seconds = Math.floor((total % 60000) / 1000);
+    const milli = total % 1000;
+    return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}.${String(milli).padStart(3,'0')}`;
+  }
+
+  // Richer row builder than normaliseSession() above - includes the extra
+  // fields (allLapTimes, bestRaceSplits, totalTime, invalid/recorded lap
+  // counts) that only the full Race Results detail view needs, so the
+  // lighter-weight functions elsewhere don't pay for data they never use.
+  function buildFullRaceRows(data, source, item = {}){
+    const lines = (data.sessionResult && data.sessionResult.leaderBoardLines) || [];
+    const sessionLapMap = lapMapForSession(data);
+    const serverId = item.serverId || serverIdFromPath(source) || 'unknown';
+    const serverName = item.serverName || serverLabels[serverId] || serverId || 'Unknown server';
+    return lines.filter(l => !l.bIsSpectator).map((l, i) => {
+      const lm = sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[], validLaps:[], invalid:0, total:0, lapObjects:[], bestSplits:[null,null,null]};
+      return {
+        racePos: i + 1,
+        source, serverId, serverName,
+        fileName: source.split('/').pop(),
+        track: data.trackName || data.metaData || 'unknown',
+        driver: driverName(l),
+        carNo: l.car?.raceNumber ?? '-',
+        carName: l.car?.carGroup ? `${l.car.carGroup} car model ${l.car.carModel}` : `Car model ${l.car?.carModel ?? '-'}`,
+        bestLap: l.timing?.bestLap || 0,
+        totalTime: l.timing?.totalTime || 0,
+        lapCount: l.timing?.lapCount || 0,
+        allLapTimes: lm.laps,
+        bestRaceSplits: lm.bestSplits,
+        lapObjects: lm.lapObjects,
+        invalidLapCount: lm.invalid,
+        recordedLapCount: lm.total,
+        carId: l.car?.carId,
+        consistencyStats: lapStats(lm.validLaps),
+        missingPit: l.missingMandatoryPitstop
+      };
+    });
+  }
+
+  /**
+   * Loads one race file and returns fully-built rows (with risk computed
+   * against the real leader-lap count and penalty data from that file),
+   * ready for the results table, the field-wide charts, or a single
+   * driver's profile.
+   */
+  async function loadRaceDetail(filePath, opts = {}){
+    const data = await fetchJsonFile(filePath, {force: !!opts.force});
+    const rows = buildFullRaceRows(data, filePath, opts.item || {});
+    const leaderLaps = Math.max(0, ...rows.map(r => Number(r.lapCount || 0)));
+    const raceSession = { data };
+    rows.forEach(r => { r.risk = raceRiskForRow(r, raceSession, leaderLaps); });
+    return {
+      rows,
+      track: data.trackName || data.metaData || 'unknown',
+      wet: !!data.sessionResult?.isWetSession
+    };
+  }
+
+  function renderRaceLapTrace(latestRows, highlightIndex){
+    let rows = latestRows.filter(r => Array.isArray(r.allLapTimes) && r.allLapTimes.length >= 2).slice(0, 12);
+    const highlightedRow = Number.isInteger(highlightIndex) ? latestRows[highlightIndex] : null;
+    if(highlightedRow && Array.isArray(highlightedRow.allLapTimes) && highlightedRow.allLapTimes.length >= 2 && !rows.includes(highlightedRow)){
+      rows = rows.slice(0, 11).concat(highlightedRow);
+    }
+    if(!rows.length){
+      return '<div class="chart-wrap race-chart-wide"><p class="chart-title">Lap-time trace</p><p class="chart-help">No lap-by-lap data available in this race file.</p></div>';
+    }
+
+    const allTimes = rows.flatMap(r => r.allLapTimes.filter(v => isValidLap(v)));
+    const minTime = Math.min(...allTimes);
+    const maxTime = Math.max(...allTimes);
+    const maxLaps = Math.max(...rows.map(r => r.allLapTimes.length));
+    const w = 1000, h = 310, left = 70, right = 25, top = 28, bottom = 42;
+    const plotW = w - left - right, plotH = h - top - bottom;
+    const range = Math.max(1, maxTime - minTime);
+    const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
+    const xFor = lap => left + ((lap - 1) / Math.max(1, maxLaps - 1)) * plotW;
+    const palette = ['#1fd6bd','#c65be8','#ffb238','#5aa9ff','#ff5464','#9be564','#ff9f4a','#7d8ff0','#33d99b','#e884d0','#ffd166','#8ecae6'];
+
+    const grid = [0,.25,.5,.75,1].map(p => {
+      const y = top + p * plotH;
+      const val = maxTime - p * range;
+      return `<line x1="${left}" y1="${y}" x2="${w-right}" y2="${y}" stroke="rgba(255,255,255,.12)" stroke-width="1"/>${svgText(8, y+4, msTimeFull(val), 10, 700)}`;
+    }).join('');
+
+    const orderedRows = highlightedRow ? [...rows.filter(r => r !== highlightedRow), highlightedRow] : rows;
+    const lines = orderedRows.map((r) => {
+      const originalIdx = rows.indexOf(r);
+      const isHighlighted = r === highlightedRow;
+      const pts = r.allLapTimes.map((v, i) => isValidLap(v) ? `${xFor(i+1).toFixed(1)},${yFor(v).toFixed(1)}` : null).filter(Boolean).join(' ');
+      const colour = isHighlighted ? '#ffffff' : palette[originalIdx % palette.length];
+      const width = isHighlighted ? 5 : 3;
+      const opacity = highlightedRow ? (isHighlighted ? 1 : .28) : .88;
+      return `<polyline points="${pts}" fill="none" stroke="${colour}" stroke-width="${width}" opacity="${opacity}"><title>${esc(r.driver)}</title></polyline>`;
+    }).join('');
+
+    const legendRows = highlightedRow ? [highlightedRow, ...rows.filter(r => r !== highlightedRow)].slice(0, 8) : rows.slice(0, 8);
+    const labels = legendRows.map((r, idx) => {
+      const y = 18 + idx * 17;
+      const isHighlighted = r === highlightedRow;
+      const paletteIdx = rows.indexOf(r);
+      return `<circle cx="${left + 8 + idx*115}" cy="${y-4}" r="5" fill="${isHighlighted ? '#ffffff' : palette[paletteIdx % palette.length]}"/>${svgText(left + 18 + idx*115, y, driverShort(r.driver) + (isHighlighted ? ' (selected)' : ''), 10, 900)}`;
+    }).join('');
+
+    const axis = `<line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/><line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>${svgText(left, h-12, 'Lap 1', 11, 900)}${svgText(w-right, h-12, 'Lap '+maxLaps, 11, 900, 'end')}`;
+
+    return `<div class="chart-wrap race-chart-wide">
+      <p class="chart-title">Lap-time trace</p>
+      <p class="chart-help">Shows lap-by-lap pace for the top 12 drivers in this race.${highlightedRow ? ` ${esc(highlightedRow.driver)} is highlighted in white.` : ''} Spikes usually mean errors, traffic, pits, damage or invalid/messy laps.</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Race lap time trace">${grid}${axis}${lines}${labels}</svg>
+    </div>`;
+  }
+
+  function renderRacePositionGapChart(latestRows, highlightIndex){
+    const rows = latestRows.filter(r => isValidLap(r.bestLap)).sort((a,b)=>a.racePos-b.racePos).slice(0, 30);
+    if(!rows.length){
+      return '<div class="chart-wrap"><p class="chart-title">Field best-lap gaps</p><p class="chart-help">No valid best lap data.</p></div>';
+    }
+    const highlightedRow = Number.isInteger(highlightIndex) ? latestRows[highlightIndex] : null;
+    const fastest = Math.min(...rows.map(r => r.bestLap));
+    const maxGap = Math.max(1, ...rows.map(r => r.bestLap - fastest));
+    const w = 1000, h = 310, left = 52, right = 22, top = 25, bottom = 46;
+    const plotW = w - left - right, plotH = h - top - bottom;
+    const barW = Math.max(8, plotW / rows.length - 4);
+
+    const bars = rows.map((r, idx) => {
+      const gap = r.bestLap - fastest;
+      const bh = Math.max(3, (gap / maxGap) * plotH);
+      const x = left + idx * (plotW / rows.length);
+      const y = top + plotH - bh;
+      const isHighlighted = r === highlightedRow;
+      const fill = isHighlighted ? '#ffb238' : '#1fd6bd';
+      const stroke = isHighlighted ? ' stroke="#ffffff" stroke-width="2"' : '';
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${fill}"${stroke}><title>${esc(r.driver)} ${gapTime(gap)}</title></rect>`;
+    }).join('');
+
+    return `<div class="chart-wrap">
+      <p class="chart-title">Field best-lap gaps</p>
+      <p class="chart-help">Each bar is that driver's best-lap gap to the fastest driver in this race.${highlightedRow ? ` ${esc(highlightedRow.driver)} is highlighted in amber.` : ''}</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Field best lap gaps">
+        <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
+        <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
+        ${svgText(8, top+6, '+'+((maxGap/1000).toFixed(1))+'s', 10, 900)}
+        ${svgText(left, h-14, 'P1', 11, 900)}
+        ${svgText(w-right, h-14, 'Field', 11, 900, 'end')}
+        ${bars}
+      </svg>
+    </div>`;
+  }
+
+  function renderRaceConsistencyRiskChart(latestRows, mode, highlightIndex){
+    const isRisk = mode === 'risk';
+    const rows = latestRows.slice(0, 30);
+    const highlightedRow = Number.isInteger(highlightIndex) ? latestRows[highlightIndex] : null;
+    const w = 1000, h = 310, left = 58, right = 28, top = 28, bottom = 42;
+    const plotW = w - left - right, plotH = h - top - bottom;
+    const barW = Math.max(8, plotW / rows.length - 4);
+
+    const bars = rows.map((r, idx) => {
+      const value = isRisk ? Number(r.risk?.risk || 0) : Number(r.consistencyStats?.consistency || 0);
+      const bh = Math.max(3, (value / 100) * plotH);
+      const x = left + idx * (plotW / rows.length);
+      const y = top + plotH - bh;
+      const isHighlighted = r === highlightedRow;
+      const baseFill = isRisk ? (value > 60 ? '#ff5464' : value > 35 ? '#ffb238' : '#1fd6bd') : '#1fd6bd';
+      const fill = isHighlighted ? '#ffffff' : baseFill;
+      const stroke = isHighlighted ? ' stroke="#ffb238" stroke-width="2"' : '';
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${fill}"${stroke}><title>${esc(r.driver)} ${value.toFixed(0)}%</title></rect>`;
+    }).join('');
+
+    const chartTitle = isRisk ? 'Race Risk distribution' : 'Consistency distribution';
+    const baseHelp = isRisk ? 'Higher bars mean more unstable race data.' : 'Higher bars mean a tighter fastest-to-slowest lap spread.';
+    const chartHelp = baseHelp + (highlightedRow ? ` ${esc(highlightedRow.driver)}'s bar is highlighted in white.` : '');
+
+    return `<div class="chart-wrap">
+      <p class="chart-title">${esc(chartTitle)}</p>
+      <p class="chart-help">${chartHelp}</p>
+      <svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(chartTitle)}">
+        <line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
+        <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
+        ${svgText(18, top+5, '100%', 10, 900)}
+        ${svgText(28, h-bottom, '0%', 10, 900)}
+        ${svgText(left, h-14, 'P1', 11, 900)}
+        ${svgText(w-right, h-14, 'Field', 11, 900, 'end')}
+        ${bars}
+      </svg>
+    </div>`;
+  }
+
+  function buildRaceChartsHtml(rows, highlightIndex){
+    return `<div class="race-chart-grid">
+      ${renderRaceLapTrace(rows, highlightIndex)}
+      ${renderRacePositionGapChart(rows, highlightIndex)}
+      ${renderRaceConsistencyRiskChart(rows, 'consistency', highlightIndex)}
+      ${renderRaceConsistencyRiskChart(rows, 'risk', highlightIndex)}
+    </div>`;
+  }
+
+  function buildDriverProfileHtml(row){
+    if(!row) return '<div class="empty">Select a driver to view their detailed race profile.</div>';
+    const laps = (row.allLapTimes || []).filter(v => isValidLap(v));
+    const best = laps.length ? Math.min(...laps) : 0;
+    const risk = row.risk || {risk: NaN, label: '-'};
+    const consistency = row.consistencyStats?.consistency;
+    const invalid = Number(row.invalidLapCount || 0);
+    const recorded = Number(row.recordedLapCount || 0);
+    const invalidPct = recorded ? (invalid / recorded) * 100 : NaN;
+
+    let chart = '<div class="empty">No lap trace available for this driver.</div>';
+    const points = laps.map((v, i) => ({lap: i+1, value: v}));
+    if(points.length >= 2){
+      const w = 1000, h = 230, left = 70, right = 25, top = 25, bottom = 40;
+      const plotW = w - left - right, plotH = h - top - bottom;
+      const minTime = Math.min(...laps), maxTime = Math.max(...laps);
+      const range = Math.max(1, maxTime - minTime);
+      const xFor = lap => left + ((lap - 1) / Math.max(1, points.length - 1)) * plotW;
+      const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
+      const pts = points.map(p => `${xFor(p.lap).toFixed(1)},${yFor(p.value).toFixed(1)}`).join(' ');
+      chart = `<div class="single-driver-chart"><p class="chart-title">Driver lap trace</p><svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Driver lap trace"><line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/><line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>${svgText(10, top+5, msTimeFull(maxTime), 10, 900)}${svgText(10, h-bottom, msTimeFull(minTime), 10, 900)}<polyline points="${pts}" fill="none" stroke="#1fd6bd" stroke-width="4"/><circle cx="${xFor(1)}" cy="${yFor(points[0].value)}" r="5" fill="#1fd6bd"/><circle cx="${xFor(points.length)}" cy="${yFor(points[points.length-1].value)}" r="5" fill="#1fd6bd"/>${svgText(left, h-12, 'Lap 1', 11, 900)}${svgText(w-right, h-12, 'Lap '+points.length, 11, 900, 'end')}</svg></div>`;
+    }
+
+    return `<div class="driver-profile-grid">
+      <div class="driver-profile-card"><span>Driver</span><strong>${esc(row.driver)}</strong><small>P${esc(row.racePos)} · ${esc(row.carName)}</small></div>
+      <div class="driver-profile-card"><span>Best lap</span><strong>${best ? msTimeFull(best) : '-'}</strong><small>${row.bestLap ? 'Leaderboard: '+msTimeFull(row.bestLap) : ''}</small></div>
+      <div class="driver-profile-card"><span>Consistency</span><strong>${Number.isFinite(consistency) ? consistency.toFixed(1)+'%' : '-'}</strong><small>${row.consistencyStats?.count || 0} laps${Number.isFinite(row.consistencyStats?.tightBandPct) ? ` · ${row.consistencyStats.tightBandPct.toFixed(0)}% within 1%` : ''}</small></div>
+      <div class="driver-profile-card"><span>Race Risk</span><strong>${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'}</strong><small>${esc(risk.label || '-')}</small></div>
+      <div class="driver-profile-card"><span>Invalid laps</span><strong>${recorded ? `${invalid}/${recorded}` : '-'}</strong><small>${Number.isFinite(invalidPct) ? invalidPct.toFixed(1)+'%' : ''}</small></div>
+      <div class="driver-profile-card"><span>Lap spread</span><strong>${Number.isFinite(row.consistencyStats?.spread) ? msTimeFull(row.consistencyStats.spread) : '-'}</strong><small>Fastest to slowest, clean laps only</small></div>
+      <div class="driver-profile-card"><span>Average lap</span><strong>${row.consistencyStats?.avg ? msTimeFull(row.consistencyStats.avg) : '-'}</strong><small>All real laps</small></div>
+      <div class="driver-profile-card"><span>Laps completed</span><strong>${esc(row.lapCount)}</strong><small>Race result laps</small></div>
+      <div class="driver-profile-card"><span>Pit status</span><strong>${row.missingPit === 1 ? 'Missing' : row.missingPit === 0 ? 'OK' : '-'}</strong><small>From ACC result</small></div>
+      <div class="driver-profile-card"><span>Total time</span><strong>${msTimeFull(row.totalTime)}</strong><small>Race finish time</small></div>
+    </div>${chart}`;
+  }
+
+  window.IFWLStats.loadRaceDetail = loadRaceDetail;
+  window.IFWLStats.buildRaceChartsHtml = buildRaceChartsHtml;
+  window.IFWLStats.buildDriverProfileHtml = buildDriverProfileHtml;
+  window.IFWLStats.msTime = msTimeFull;
+  window.IFWLStats.gapTime = gapTime;
+  window.IFWLStats.consistencyClass = consistencyClass;
+  window.IFWLStats.consistencyText = consistencyText;
+  window.IFWLStats.consistencyNoteText = consistencyNoteText;
+  window.IFWLStats.riskClass = riskClassOf;
 })();
