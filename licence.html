@@ -631,7 +631,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <section class="panel view-panel" data-view="staffMessages" id="staffMessagesPanel">
     <div class="panel-head"><div><h3>Staff: Messages</h3><small>Send a message to any driver - replies land back here</small></div><span class="badge purple">Staff only</span></div>
     <div class="panel-body">
-      <div class="field-group"><label>To driver</label><input type="text" id="msgDriverSearch" placeholder="Search driver by name or licence number..."><div id="msgDriverResults"></div><div class="field-hint" id="msgDriverPicked"></div></div>
+      <div class="field-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="msgSendAllCheck" style="width:auto"> Send to ALL licensed drivers (broadcast)</label>
+        <label style="display:none;align-items:center;gap:8px;cursor:pointer;margin-top:8px" id="msgAllowRepliesRow"><input type="checkbox" id="msgAllowRepliesCheck" style="width:auto"> Allow drivers to reply to this broadcast <span class="field-hint" style="margin:0">(off by default - announcements are one-way)</span></label>
+      </div>
+      <div class="field-group" id="msgDriverPickGroup"><label>To driver</label><input type="text" id="msgDriverSearch" placeholder="Search driver by name or licence number..."><div id="msgDriverResults"></div><div class="field-hint" id="msgDriverPicked"></div></div>
       <div class="field-group"><label>Subject</label><input type="text" id="msgSubject" placeholder="e.g. Regarding your last race"></div>
       <div class="field-group"><label>Message</label><textarea id="msgText" placeholder="Your message..." style="min-height:80px"></textarea></div>
       <button class="btn teal" id="msgSendBtn" type="button">Send message</button>
@@ -1049,6 +1053,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     myThread: (threadId) => apiGet('myInboxThread', `&threadId=${encodeURIComponent(threadId)}`),
     myReply: (threadId, text) => apiPost('myInboxReply', { threadId, text }),
     staffSend: (driverId, subject, text) => apiPost('staffMessageSend', { driverId, subject, text }),
+    staffSendAll: (subject, text, allowReplies) => apiPost('staffMessageSendAll', { subject, text, allowReplies }),
     staffList: () => apiGet('staffInboxList'),
     staffThread: (threadId) => apiGet('staffInboxThread', `&threadId=${encodeURIComponent(threadId)}`),
     staffReply: (threadId, text) => apiPost('staffInboxReply', { threadId, text })
@@ -1774,6 +1779,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     catch(e){ q('inboxThreadMessages').innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
     q('inboxThreadSubject').textContent = data.subject || '(no subject)';
     q('inboxThreadMessages').innerHTML = (data.messages || []).map(m => `<div class="msg-bubble msg-${m.senderRole === 'driver' ? 'driver' : 'staff'}"><span class="msg-sender">${m.senderName}${m.senderRole === 'staff' ? ' (IFWL Staff)' : ''}</span>${m.text}</div>`).join('');
+    // ✅ ADDED: broadcast announcements can be one-way - hide the reply box
+    // entirely and say so (the server rejects replies on these regardless).
+    const replyRow = view.querySelector('.msg-reply-row');
+    if(data.repliesDisabled){
+      replyRow.style.display = 'none';
+      q('inboxReplyStatus').textContent = 'This is a one-way announcement - replies are disabled.';
+    } else {
+      replyRow.style.display = '';
+      q('inboxReplyStatus').textContent = '';
+    }
     q('inboxReplyBtn').onclick = async () => {
       const text = q('inboxReplyText').value.trim();
       if(!text) return;
@@ -2642,11 +2657,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       }));
     });
 
+    // Broadcast mode: hides the driver picker, reveals the allow-replies toggle
+    q('msgSendAllCheck')?.addEventListener('change', () => {
+      const broadcast = q('msgSendAllCheck').checked;
+      q('msgDriverPickGroup').style.display = broadcast ? 'none' : '';
+      q('msgAllowRepliesRow').style.display = broadcast ? 'flex' : 'none';
+      if(broadcast){ msgPickedDriverId = null; q('msgDriverPicked').textContent = ''; }
+    });
+
     q('msgSendBtn')?.addEventListener('click', async () => {
       const subject = q('msgSubject').value.trim();
       const text = q('msgText').value.trim();
-      if(!msgPickedDriverId){ q('msgSendStatus').textContent = 'Pick a driver first.'; return; }
+      const broadcast = q('msgSendAllCheck').checked;
       if(!subject || !text){ q('msgSendStatus').textContent = 'Subject and message are both required.'; return; }
+
+      if(broadcast){
+        const allowReplies = q('msgAllowRepliesCheck').checked;
+        if(!confirm(`Send this to EVERY licensed driver?${allowReplies ? ' Replies will be ENABLED.' : ' Replies will be disabled (one-way announcement).'}`)) return;
+        q('msgSendStatus').textContent = 'Broadcasting...';
+        try{
+          const result = await window.IFWL_InboxAPI.staffSendAll(subject, text, allowReplies);
+          q('msgSendStatus').textContent = `Sent to ${result.sentTo} driver(s).`;
+          q('msgSubject').value = ''; q('msgText').value = '';
+          q('msgSendAllCheck').checked = false; q('msgAllowRepliesCheck').checked = false;
+          q('msgDriverPickGroup').style.display = ''; q('msgAllowRepliesRow').style.display = 'none';
+          renderStaffThreadList();
+        }catch(e){ q('msgSendStatus').textContent = 'Could not broadcast: ' + e.message; }
+        return;
+      }
+
+      if(!msgPickedDriverId){ q('msgSendStatus').textContent = 'Pick a driver first.'; return; }
       q('msgSendStatus').textContent = 'Sending...';
       try{
         await window.IFWL_InboxAPI.staffSend(msgPickedDriverId, subject, text);
