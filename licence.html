@@ -218,6 +218,13 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 /* ✅ ADDED: "licence fully up to date" reassurance box */
 .licence-linked-box{margin:14px 18px;padding:14px 16px;border-radius:12px;background:rgba(31,214,189,.1);border:1px solid rgba(31,214,189,.4);color:#c9f5ee;font-size:13px;line-height:1.5}
 .licence-linked-box strong{color:#8ff5e2}
+/* ✅ ADDED: qualification lap-progress box on My Licence (No Licence/Provisional only) */
+#lapProgressBox{margin:0 18px 14px;padding:14px 16px;border-radius:12px;font-size:13px;line-height:1.55}
+#lapProgressBox.lap-incomplete{background:rgba(255,84,100,.1);border:1px solid rgba(255,84,100,.4);color:#ffc2c8}
+#lapProgressBox.lap-complete{background:rgba(31,214,189,.1);border:1px solid rgba(31,214,189,.4);color:#c9f5ee}
+#lapProgressBox strong{display:block;margin-bottom:4px;font-size:14px}
+#lapProgressBox .lap-line{margin-top:6px}
+#lapProgressBox .lap-line:first-of-type{margin-top:0}
 .field-locked{opacity:.55}
 .field-locked .lock-note{display:block;font-size:11.5px;color:var(--ifwl-amber);font-weight:700;margin-top:5px}
 .avatar-mode{display:flex;gap:8px;margin-bottom:8px}
@@ -537,6 +544,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <section class="panel view-panel" data-view="home" id="myLicencePanel">
     <div class="panel-head"><div><h3>My Licence</h3><small id="myLicenceSub">Loading your profile&hellip;</small></div><span class="tier-pill" id="myTierPill">-</span></div>
     <button class="btn ghost" id="toggleTiersBtn" type="button" style="margin:0 18px 14px">View licence tier ladder</button>
+    <div id="lapProgressBox" class="hidden"></div>
     <div id="staffNoticeBlock"></div>
     <div class="licence-wrap">
       <div>
@@ -720,6 +728,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <li><strong>Qualify on the IFWL Licence server.</strong> This is a dedicated practice/qualification server, separate from your regular race servers. Put in laps there, and once you've done at least 15, staff can see your pace relative to everyone else and assign you a tier based on it.</li>
             <li><strong>Request a manual review.</strong> From your licence card, you can ask staff to review you for a specific tier directly - useful if your race data here doesn't reflect your real pace (e.g. you're experienced elsewhere) or you don't want to wait on the qualification server.</li>
           </ul>
+          <p>While you're still on <strong>No Licence</strong> or <strong>Provisional</strong>, your licence card shows a box tracking your qualification laps instead of the tier ladder - red until you reach 15 laps, then green with a note that your test is complete and awaiting a tier from staff. Once you're promoted past Provisional, this box disappears - by then the assumption is you've already done what was required, and the tier ladder link comes back in its place.</p>
           <p>The single most important thing that makes any of this work: <strong>your licence has to be linked to your actual in-game ACC name.</strong> That link (set in "Your ACC driver name(s)" on your licence card) is what connects your licence to your real race results, your steward ticket history, and your Performance stats. Without it, none of that can ever show up for you - so if something looks empty, this is usually why.</p>
         </div>
       </details>
@@ -1931,6 +1940,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         renderCard(currentProfile);
         const perfStats = await fetchPerformanceStats(currentProfile);
         renderCardStats(perfStats);
+        renderLapProgressBox();
         await renderClaimLapsPanel(platform, serverId);
       }catch(e){ alert('Could not link: ' + e.message); btn.disabled = false; btn.textContent = 'This is me'; }
     }));
@@ -2017,6 +2027,58 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }catch(e){ /* as above */ }
 
     body.innerHTML = html || '<div class="empty">No laps recorded yet on the IFWL Licence server(s) under your linked name(s). Head to the PC or Console laps list under "Claim Your Laps" once you\'ve raced there.</div>';
+  }
+
+  // ✅ ADDED: replaces "View licence tier ladder" with a lap-count progress
+  // box while a driver is still No Licence/Provisional - matched by tier
+  // ORDER (0 or 1), not the literal tier name, since staff can rename tiers.
+  // Once promoted past that, this box goes away and the normal tier-ladder
+  // toggle comes back exactly as before - the assumption at that point is
+  // the qualification requirement has already been met.
+  async function renderLapProgressBox(){
+    const box = q('lapProgressBox');
+    const toggleBtn = q('toggleTiersBtn');
+    if(!box || !toggleBtn || !currentProfile) return;
+
+    const myTier = currentTiers.find(t => t.name === currentProfile.tier);
+    const myOrder = myTier ? Number(myTier.order ?? 99) : 0; // unknown tier -> treat as earliest, safest default
+    const showLapBox = myOrder <= 1;
+
+    toggleBtn.classList.toggle('hidden', showLapBox);
+    box.classList.toggle('hidden', !showLapBox);
+    if(!showLapBox) return;
+
+    const accDriverNames = currentProfile.accDriverNames || [];
+    if(!accDriverNames.length){
+      box.className = 'lap-incomplete';
+      box.innerHTML = `<strong>Licence qualification laps</strong><div class="lap-line">Link your ACC driver name above to start tracking your qualification laps.</div>`;
+      return;
+    }
+
+    const platformResults = [];
+    for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
+      try{
+        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId });
+        const idx = findMyStandingRow(standings, accDriverNames);
+        if(idx >= 0) platformResults.push({ label, totalLaps: standings[idx].totalLaps });
+      }catch(e){ /* one platform failing shouldn't block the other */ }
+    }
+
+    if(!platformResults.length){
+      box.className = 'lap-incomplete';
+      box.innerHTML = `<strong>Licence qualification laps</strong><div class="lap-line">You haven't started your qualification laps yet. Head to the IFWL Licence server and put in at least 15 laps to complete your licence test.</div>`;
+      return;
+    }
+
+    const allComplete = platformResults.every(r => r.totalLaps >= 15);
+    box.className = allComplete ? 'lap-complete' : 'lap-incomplete';
+    const lines = platformResults.map(r => {
+      if(r.totalLaps >= 15){
+        return `<div class="lap-line">${r.label}: ${r.totalLaps} of 15 mandatory laps done &mdash; &#9989; licence test complete, awaiting your recommended tier from staff.</div>`;
+      }
+      return `<div class="lap-line">${r.label}: ${r.totalLaps} of 15 mandatory laps done.</div>`;
+    }).join('');
+    box.innerHTML = `<strong>Licence qualification laps</strong>${lines}`;
   }
 
   async function checkTicketNotice(){
@@ -2126,6 +2188,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
     renderQualificationStanding();
+    renderLapProgressBox();
     const [ticketInfo, perfStats] = await Promise.all([fetchTicketInfo(), fetchPerformanceStats(currentProfile)]);
     renderTicketData(ticketInfo);
     renderCardStats(perfStats);
