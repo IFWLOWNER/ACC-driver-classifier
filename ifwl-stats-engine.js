@@ -469,6 +469,7 @@
         qualified: totalLaps >= minLaps,
         avgGapPct,
         consistencyAvg: Number.isFinite(summary.avgConsistency) ? Math.round(summary.avgConsistency * 10) / 10 : null,
+        riskAvg: Number.isFinite(summary.avgRisk) ? Math.round(summary.avgRisk * 10) / 10 : null,
         sessionCount: summary.sessionCount,
         recommendedTier
       });
