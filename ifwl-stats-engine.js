@@ -480,6 +480,48 @@
   }
 
   /**
+   * ✅ ADDED: per-track average lap time for each recommended tier (Pro /
+   * Amateur / Beginner) on a licence server, so a single driver's session
+   * chart can show "where the field sits" as reference lines. Tiers are
+   * assigned the same way computeLicenceServerStandings does (avgGapPct
+   * thresholds), so the reference lines line up with the same tier a driver
+   * would actually be assigned. Every driver with any laps on that server
+   * (not just qualified ones) counts toward their tier's average, since the
+   * point is field strength, not qualification status.
+   * Returns { [track]: { pro: ms|null, am: ms|null, beginner: ms|null } }
+   */
+  async function computeTierLapAverages(serverId, opts = {}){
+    const allRows = await buildAllRows(!!opts.force);
+    const rows = allRows.filter(r => r.serverId === serverId);
+    if(!rows.length) return {};
+
+    const standings = await computeLicenceServerStandings({ serverId, minLaps: 0, force: !!opts.force });
+    const tierByDriver = new Map(standings.map(s => [driverNameKey(s.driver), s.recommendedTier]));
+
+    const byTrack = new Map();
+    for(const r of rows){
+      const tier = tierByDriver.get(driverNameKey(r.driver));
+      if(!tier) continue;
+      const validLaps = (r.lapObjects || []).filter(l => l.isValidForBest !== false && isValidLap(l.laptime)).map(l => l.laptime);
+      if(!validLaps.length) continue;
+      if(!byTrack.has(r.track)) byTrack.set(r.track, { 'GT3 Pro': [], 'GT3 Amateur': [], 'GT3 Beginner': [] });
+      const bucket = byTrack.get(r.track);
+      if(bucket[tier]) bucket[tier].push(...validLaps);
+    }
+
+    const result = {};
+    for(const [track, tiers] of byTrack.entries()){
+      const avgOf = list => list.length ? rtAvg(list) : null;
+      result[track] = {
+        pro: avgOf(tiers['GT3 Pro']),
+        am: avgOf(tiers['GT3 Amateur']),
+        beginner: avgOf(tiers['GT3 Beginner'])
+      };
+    }
+    return result;
+  }
+
+  /**
    * Every race (_R) result across every server whose file timestamp falls
    * within [startMs, endMs]. Fetches each matching file (not just the
    * manifest metadata) so the caller gets a driver-friendly track name -
@@ -521,7 +563,7 @@
     return races;
   }
 
-  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, listRaceResultsInRange };
+  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, computeTierLapAverages, listRaceResultsInRange };
 
   // =======================================================
   // ✅ ADDED: Race Results detail view (ported from livetimings.html so the
@@ -852,7 +894,16 @@
     }).sort((a,b) => a.tsMs - b.tsMs);
   }
 
-  function buildDriverSessionChartHtml(sessions){
+  // ✅ ADDED: tier reference line styling - deliberately different shades
+  // from the per-session dot palette above so a Pro-tier reference line is
+  // never confused with a session's own dot colour.
+  const TIER_REF_STYLE = {
+    pro:      { color: '#ff3b3b', label: 'Pro avg' },
+    am:       { color: '#ffe066', label: 'Am avg' },
+    beginner: { color: '#3ba7ff', label: 'Beginner avg' }
+  };
+
+  function buildDriverSessionChartHtml(sessions, tierAverages = {}){
     const allLaps = [];
     sessions.forEach((s, si) => {
       (s.lapObjects || []).forEach(l => {
@@ -865,10 +916,40 @@
 
     const w = 1000, h = 260, left = 65, right = 20, top = 20, bottom = 36;
     const plotW = w - left - right, plotH = h - top - bottom;
-    const minTime = Math.min(...allLaps.map(l => l.time));
-    const maxTime = Math.max(...allLaps.map(l => l.time));
-    const range = Math.max(1, maxTime - minTime);
     const palette = ['#1fd6bd','#c65be8','#ffb238','#5aa9ff','#ff5464','#9be564','#ff9f4a','#7d8ff0'];
+
+    // Session lap-index ranges, computed once so both the boundary markers
+    // and the tier reference segments can use the same [startIdx, endIdx)
+    // per session without recomputing lap counts twice.
+    const segments = [];
+    let cursor = 0;
+    sessions.forEach((s, si) => {
+      const count = (s.lapObjects || []).filter(l => isValidLap(l.laptime)).length;
+      if(count > 0){
+        segments.push({ sessionIdx: si, track: s.track, startIdx: cursor, endIdx: cursor + count - 1 });
+        cursor += count;
+      }
+    });
+
+    // Only pull in tier reference values for tracks this driver actually has
+    // laps on, and only where that tier has data - so a missing Beginner
+    // sample size on a track simply omits that one line rather than drawing
+    // a misleading zero.
+    const refSegments = [];
+    segments.forEach(seg => {
+      const tiers = tierAverages[seg.track];
+      if(!tiers) return;
+      ['pro','am','beginner'].forEach(key => {
+        if(Number.isFinite(tiers[key])){
+          refSegments.push({ ...seg, tierKey: key, value: tiers[key] });
+        }
+      });
+    });
+
+    const allTimes = allLaps.map(l => l.time).concat(refSegments.map(r => r.value));
+    const minTime = Math.min(...allTimes);
+    const maxTime = Math.max(...allTimes);
+    const range = Math.max(1, maxTime - minTime);
 
     const xFor = i => left + (i / Math.max(1, allLaps.length - 1)) * plotW;
     const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
@@ -881,26 +962,47 @@
 
     // Session boundary markers - vertical lines where one session ends and
     // the next begins, so a pace shift can be pinned to a specific session.
-    let boundaries = '';
-    let cursor = 0;
-    sessions.forEach((s, si) => {
-      const count = (s.lapObjects || []).filter(l => isValidLap(l.laptime)).length;
-      if(si > 0 && count > 0){
-        const x = xFor(cursor);
-        boundaries += `<line x1="${x}" y1="${top}" x2="${x}" y2="${top+plotH}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3,3"/>`;
-      }
-      cursor += count;
+    const boundaries = segments.filter(s => s.startIdx > 0)
+      .map(s => `<line x1="${xFor(s.startIdx).toFixed(1)}" y1="${top}" x2="${xFor(s.startIdx).toFixed(1)}" y2="${top+plotH}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3,3"/>`)
+      .join('');
+
+    // Tier reference lines - dotted, one per session segment (so they track
+    // the correct value if a driver's sessions span more than one track),
+    // with a small label at the start of each run of segments.
+    let tierRefMarkup = '';
+    const usedTierKeys = new Set();
+    refSegments.forEach(seg => {
+      const style = TIER_REF_STYLE[seg.tierKey];
+      const x1 = xFor(seg.startIdx), x2 = xFor(seg.endIdx);
+      const y = yFor(seg.value).toFixed(1);
+      usedTierKeys.add(seg.tierKey);
+      tierRefMarkup += `<line x1="${x1.toFixed(1)}" y1="${y}" x2="${x2.toFixed(1)}" y2="${y}" stroke="${style.color}" stroke-width="2" stroke-dasharray="5,4" opacity="0.85"><title>${style.label}: ${msTimeShort(seg.value)} (${esc(seg.track)})</title></line>`;
+    });
+    // One label per segment-run start, offset slightly per tier so three
+    // overlapping lines don't stack their text on top of each other.
+    const tierLabelOffset = { pro: -6, am: 6, beginner: 18 };
+    let lastRunStart = { pro: null, am: null, beginner: null };
+    refSegments.forEach(seg => {
+      if(lastRunStart[seg.tierKey] === seg.sessionIdx) return;
+      lastRunStart[seg.tierKey] = seg.sessionIdx;
+      const style = TIER_REF_STYLE[seg.tierKey];
+      const x = xFor(seg.startIdx) + 4;
+      const y = parseFloat(yFor(seg.value).toFixed(1)) + tierLabelOffset[seg.tierKey];
+      tierRefMarkup += svgText(x, y, style.label, 9, 800, 'start').replace(/fill="[^"]*"/, `fill="${style.color}"`);
     });
 
     const points = allLaps.map((l,i) => `${xFor(i).toFixed(1)},${yFor(l.time).toFixed(1)}`).join(' ');
     const dots = allLaps.map((l,i) => `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(l.time).toFixed(1)}" r="3" fill="${palette[l.sessionIdx % palette.length]}"><title>${sessions[l.sessionIdx].dateLabel} - ${msTimeShort(l.time)}</title></circle>`).join('');
 
+    const legend = usedTierKeys.size ? `<div class="tier-ref-legend">${['pro','am','beginner'].filter(k => usedTierKeys.has(k)).map(k => `<span class="tier-ref-item"><i style="background:${TIER_REF_STYLE[k].color}"></i>${TIER_REF_STYLE[k].label}</span>`).join('')}</div>` : '';
+
     return `<svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Lap times across every session">
       ${grid}
       ${boundaries}
+      ${tierRefMarkup}
       <polyline points="${points}" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="2"/>
       ${dots}
-    </svg>`;
+    </svg>${legend}`;
   }
 
   function msTimeShort(ms){
