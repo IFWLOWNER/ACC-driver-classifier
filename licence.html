@@ -347,6 +347,8 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .qual-stat-box.qual-locked strong{color:var(--text-dim);font-family:var(--font-body);font-size:14px}
 .qual-upsell{margin-top:12px;padding:12px 14px;border-radius:12px;background:linear-gradient(135deg,rgba(255,178,56,.14),rgba(198,91,232,.1));border:1px solid rgba(255,178,56,.35);font-size:12.5px;color:#ffe3b0}
 .qual-upsell a{color:#ffd88a;font-weight:800;text-decoration:none}
+.qual-chart-wrap{margin-top:14px}
+.qual-chart-wrap .qual-chart-sub{color:var(--text-muted);font-size:12px;margin:0 0 10px}
 /* ✅ ADDED: Gold upgrade box for Active Racer/Bronze on My Licence - hidden
    entirely for Silver+ and staff, who either already have it or don't need it. */
 .gold-upsell-box{margin:20px 0 4px;border-radius:18px;padding:2px;background:linear-gradient(135deg,#ffb238,#ff8a3d,#c65be8)}
@@ -814,8 +816,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <p>Every tier below includes everything from the tier before it.</p>
           <p><strong>Active Racer (free)</strong> - a licence, a licence card, self-reporting your ACC name(s) and platform, the Driver Directory listing, Available Races, full Ticket History, and Inbox. Everything core to being a licensed IFWL driver is already free.</p>
           <p><strong>Bronze</strong> - honestly, Bronze's real value is mostly outside this specific page: extra Tune Share downloads and detailed Live Timings access. Within the Licence Centre itself, Bronze looks the same as the free tier - Silver is where the Licence Centre perks actually start.</p>
-          <p><strong>Silver</strong> - unlocks Bio and Race Team fields on your profile, picking a Patreon Calling Card for your licence card, and your actual rank number on the Qualification Ranking card (though the recommended tier, consistency and gap figures next to it stay Gold-only). Plus everything Bronze gets elsewhere on the site.</p>
-          <p><strong>Gold</strong> - everything unlocked: custom profile photo and header image uploads, the full Qualification Ranking card (rank, recommended tier, consistency, gap to best), and the full Race Results breakdown (field-wide charts, per-driver profiles, Consistency and Race Risk columns) on every race, not just the finishing order. Plus the highest Tune Share download allowance.</p>
+          <p><strong>Silver</strong> - unlocks Bio and Race Team fields on your profile, picking a Patreon Calling Card for your licence card, your actual rank number on the Qualification Ranking card, and your own lap-time chart there (the recommended tier, consistency and gap figures, plus the Pro/Am/Beginner field average lines on that chart, stay Gold-only). Plus everything Bronze gets elsewhere on the site.</p>
+          <p><strong>Gold</strong> - everything unlocked: custom profile photo and header image uploads, the full Qualification Ranking card (rank, recommended tier, consistency, gap to best, plus the Pro/Am/Beginner field average lines on your lap-time chart), and the full Race Results breakdown (field-wide charts, per-driver profiles, Consistency and Race Risk columns) on every race, not just the finishing order. Plus the highest Tune Share download allowance.</p>
           <p style="margin-top:14px"><a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="color:var(--ifwl-purple);font-weight:800">See current Patreon tiers &amp; pricing &rarr;</a></p>
         </div>
       </details>
@@ -2066,7 +2068,35 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
 
-  function buildQualStandingCard(platformLabel, myIndex, standings){
+  // ✅ ADDED: the lap-time chart on Your Qualification Ranking, tier-gated -
+  //   Bronze/below -> nothing (returns '')
+  //   Silver       -> their own lap-time line, no field reference lines
+  //   Gold/staff   -> their own line PLUS the Pro/Am/Beginner field average
+  //                   lines, same chart staff see on the drilldown
+  async function buildQualChartSection(serverId, accDriverNames, isGoldOrStaff, isSilverOnly){
+    if(!isGoldOrStaff && !isSilverOnly) return '';
+
+    let sessions;
+    try{
+      sessions = await window.IFWLStats.getDriverSessionHistory(serverId, accDriverNames);
+    }catch(e){ return ''; }
+    if(!sessions.length) return '';
+
+    let tierAverages = {};
+    if(isGoldOrStaff){
+      try{ tierAverages = await window.IFWLStats.computeTierLapAverages(serverId); }
+      catch(e){ /* chart still renders fine without the reference lines */ }
+    }
+
+    const chart = window.IFWLStats.buildDriverSessionChartHtml(sessions, tierAverages);
+    const sub = isGoldOrStaff
+      ? `${sessions.length} session(s) &middot; dotted colour lines show tier field averages &middot; hover a dot for that lap's exact time`
+      : `${sessions.length} session(s) &middot; hover a dot for that lap's exact time &middot; <a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold</a> to see Pro/Am/Beginner field averages on this chart`;
+
+    return `<div class="qual-chart-wrap"><p class="qual-chart-sub">${sub}</p>${chart}</div>`;
+  }
+
+  async function buildQualStandingCard(platformLabel, myIndex, standings, serverId, accDriverNames){
     const total = standings.length;
     const row = standings[myIndex];
     const rank = myIndex + 1;
@@ -2082,10 +2112,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     const upsell = isGoldOrStaff ? '' : `<div class="qual-upsell">✨ ${isSilverOnly ? 'Upgrade to Gold to see your recommended tier, consistency and gap to the best time.' : 'Upgrade to Gold to see your rank, recommended tier, consistency and gap to the best time.'} <a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade on Patreon &rarr;</a></div>`;
 
+    const chartSection = await buildQualChartSection(serverId, accDriverNames, isGoldOrStaff, isSilverOnly);
+
     return `<div class="qual-standing-card">
       <div class="qual-standing-head"><h4>${platformLabel}</h4><span class="field-hint">${row.totalLaps} lap(s) &middot; ${row.qualified ? 'Qualified' : row.totalLaps + '/15 laps'}</span></div>
       <div class="qual-standing-grid">${rankCell}${tierBox}${consistencyBox}${gapBox}</div>
       ${upsell}
+      ${chartSection}
     </div>`;
   }
 
@@ -2102,13 +2135,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{
       const pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence' });
       const pcIndex = findMyStandingRow(pcStandings, accDriverNames);
-      if(pcIndex >= 0) html += buildQualStandingCard('PC', pcIndex, pcStandings);
+      if(pcIndex >= 0) html += await buildQualStandingCard('PC', pcIndex, pcStandings, 'pc-licence', accDriverNames);
     }catch(e){ /* one platform failing shouldn't block the other */ }
 
     try{
       const consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence' });
       const consoleIndex = findMyStandingRow(consoleStandings, accDriverNames);
-      if(consoleIndex >= 0) html += buildQualStandingCard('Console', consoleIndex, consoleStandings);
+      if(consoleIndex >= 0) html += await buildQualStandingCard('Console', consoleIndex, consoleStandings, 'console-licence', accDriverNames);
     }catch(e){ /* as above */ }
 
     body.innerHTML = html || '<div class="empty">No laps recorded yet on the IFWL Licence server(s) under your linked name(s). Head to the PC or Console laps list under "Claim Your Laps" once you\'ve raced there.</div>';
