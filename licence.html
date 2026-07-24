@@ -225,6 +225,10 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 #lapProgressBox strong{display:block;margin-bottom:4px;font-size:14px}
 #lapProgressBox .lap-line{margin-top:6px}
 #lapProgressBox .lap-line:first-of-type{margin-top:0}
+/* ✅ ADDED: generic versions of the same red/green states, reusable outside #lapProgressBox */
+.licence-linked-box.lap-incomplete{background:rgba(255,84,100,.1);border:1px solid rgba(255,84,100,.4);color:#ffc2c8}
+.licence-linked-box.lap-complete{background:rgba(31,214,189,.1);border:1px solid rgba(31,214,189,.4);color:#c9f5ee}
+.licence-linked-box.lap-incomplete strong,.licence-linked-box.lap-complete strong{display:block;margin-bottom:4px;color:inherit}
 /* ✅ ADDED: Populate the Grid - qualification standings grouped by recommendation */
 .qual-grid-wrap{padding:16px 18px}
 .qual-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;align-items:start}
@@ -875,6 +879,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
         <button class="btn ghost" id="bulkTierApplyBtn" type="button" style="border-color:var(--ifwl-red);color:#ffb3ba">Apply bulk tier reset</button>
         <span class="save-status" id="bulkTierStatus"></span>
+
+        <div id="staffCardPreview" style="margin-top:20px"></div>
       </div>
       <div id="staffEditorWrap">
         <div class="empty">Select a driver from the search results to edit their profile.</div>
@@ -1423,6 +1429,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{ return await window.IFWLStats.computeForDriver(names); }
     catch(e){ console.warn('IFWLStats.computeForDriver failed', e); return null; }
   }
+  window.fetchPerformanceStats = fetchPerformanceStats;
 
   async function fetchDirectory(){
     if(USE_DEMO_FALLBACK){
@@ -1443,6 +1450,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function findTier(tierName){
     return currentTiers.find(t => t.name === tierName) || currentTiers[0] || DEFAULT_TIERS[0];
   }
+  window.findTier = findTier;
+  window.hexToRgba = hexToRgba;
   function applyTierPill(el, tierName){
     const tier = findTier(tierName);
     el.textContent = tierName || tier.name;
@@ -2495,6 +2504,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       if(typeof patch.name === 'string') p.name = patch.name;
       if(typeof patch.raceTeam === 'string') p.raceTeam = patch.raceTeam;
       if(Array.isArray(patch.accDriverNames)) p.accDriverNames = patch.accDriverNames;
+      if(typeof patch.platform === 'string') p.platform = patch.platform;
       all[id] = p; demoSet('profiles', all);
       return p;
     }
@@ -2577,6 +2587,70 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     wrap.querySelectorAll('[data-id]').forEach(el=>el.addEventListener('click', ()=>openEditor(el.dataset.id)));
   }
 
+  // ✅ ADDED: read-only mini licence card for the staff editor - separate
+  // markup from the driver's own live-editing card (different IDs, since
+  // that one is tied to fixed DOM elements this page only has one of), but
+  // matching its visual style using the same tier-colour helpers.
+  function buildStaffCardPreviewHtml(p, perfStats){
+    const tier = window.findTier(p.tier || 'No Licence');
+    const photo = p.avatarMode==='upload' && p.photoUploadUrl ? p.photoUploadUrl
+                : p.avatarMode==='url' && p.avatarUrl ? p.avatarUrl
+                : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="88" height="88"><rect width="88" height="88" fill="%231a2027"/></svg>';
+    const points = Number(p.licencePoints || 0);
+    const pointsClass = points <= 3 ? 'pts-green' : points <= 6 ? 'pts-orange' : 'pts-red';
+    const cardStyle = tier.foil ? '' : ` style="background:linear-gradient(135deg, ${tier.color}, var(--ifwl-purple))"`;
+    const headerStyle = p.headerUploadUrl ? ` style="background-image:url('${p.headerUploadUrl}')"` : '';
+    return `<div class="licence-card${tier.foil ? ' foil' : ''}"${cardStyle}>
+      <div class="licence-card-inner"${headerStyle}>
+        <div class="licence-top"><div class="licence-org">IFWL RACING LICENCE</div></div>
+        <img class="licence-photo" src="${photo}" alt="">
+        <div class="licence-name">${p.name || 'Unnamed driver'}</div>
+        <div class="licence-number">${p.licenceNumber || 'IFWL-0000-00000'}</div>
+        <div class="licence-team">${p.raceTeam || 'No race team'}</div>
+        <div class="licence-bottom"><span class="tier-pill" style="background:${window.hexToRgba(tier.color,0.16)};color:${tier.color};border:1px solid ${window.hexToRgba(tier.color,0.35)}">${p.tier || 'No Licence'}</span></div>
+      </div>
+      <div class="licence-card-stats">
+        <div class="mini-stats">
+          <div class="mini-stat"><span>Overall Score</span><strong>${perfStats?.overallScore ?? '-'}</strong></div>
+          <div class="mini-stat"><span>Consistency</span><strong>${perfStats?.consistencyAvg != null ? perfStats.consistencyAvg + '%' : '-'}</strong></div>
+          <div class="mini-stat"><span>Race Risk</span><strong>${perfStats?.riskAvg != null ? perfStats.riskAvg + '%' : '-'}</strong></div>
+        </div>
+        <div class="points-section">
+          <span class="points-label">Licence Points</span>
+          <strong class="points-value ${pointsClass}">${points}</strong>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Finds this driver's row in a qualification standings list without
+  // needing access to the main script block's own matching helper.
+  function findQualRowForNames(standings, names){
+    const mine = (names || []).map(n => window.IFWLStats.driverNameKey(n));
+    return standings.find(s => {
+      const key = window.IFWLStats.driverNameKey(s.driver);
+      return mine.some(m => m === key || key.includes(m) || m.includes(key));
+    });
+  }
+
+  async function buildLapStatusHtml(accDriverNames){
+    if(!accDriverNames || !accDriverNames.length){
+      return '<div class="licence-linked-box hidden"></div>'; // nothing linked, nothing to check
+    }
+    const lines = [];
+    for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
+      try{
+        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId });
+        const row = findQualRowForNames(standings, accDriverNames);
+        if(row) lines.push({ label, laps: row.totalLaps, done: row.totalLaps >= 15 });
+      }catch(e){ /* one platform failing shouldn't block the other */ }
+    }
+    if(!lines.length) return '<div class="licence-linked-box lap-incomplete">No qualification laps recorded on either server yet.</div>';
+    const allDone = lines.every(l => l.done);
+    const rows = lines.map(l => `${l.label}: ${l.laps}/15 laps${l.done ? ' &#9989;' : ''}`).join(' &middot; ');
+    return `<div class="licence-linked-box ${allDone ? 'lap-complete' : 'lap-incomplete'}"><strong>Qualification laps</strong>${rows}</div>`;
+  }
+
   async function openEditor(id){
     const p = await staffFetchProfile(id);
     if(!p){ q('staffEditorWrap').innerHTML = '<div class="empty">Could not load that driver.</div>'; return; }
@@ -2584,7 +2658,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const tiers = await window.IFWL_TierAPI.fetchTierList();
     const sortedTiers = [...tiers].sort((a,b)=>(a.order??0)-(b.order??0));
     const wrap = q('staffEditorWrap');
+
+    // ✅ ADDED: card preview + performance stats, rendered into the left
+    // column so it fills the space that used to just sit empty below the
+    // search/bulk tools whenever a driver is selected.
+    q('staffCardPreview').innerHTML = '<div class="empty">Loading licence card&hellip;</div>';
+    window.fetchPerformanceStats(p).then(perfStats => {
+      q('staffCardPreview').innerHTML = buildStaffCardPreviewHtml(p, perfStats);
+    });
+
+    const lapStatusHtml = await buildLapStatusHtml(p.accDriverNames || []);
+
     wrap.innerHTML = `
+      ${lapStatusHtml}
       <div class="field-group"><label>Name</label><input type="text" id="edName" value="${p.name||''}"></div>
       <div class="field-group"><label>Tier</label><select id="edTier">
         ${sortedTiers.map(t=>`<option value="${t.name}" ${p.tier===t.name?'selected':''}>${t.name}</option>`).join('')}
@@ -2595,6 +2681,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <label>ACC driver name(s) on record</label>
         <input type="text" id="edAccNames" value="${(p.accDriverNames||[]).join(', ')}" placeholder="Nothing linked yet">
         <div class="field-hint">This is exactly what's stored - must match the driver's in-game name character-for-character (case aside) to match session results. Fix typos here directly.</div>
+      </div>
+      <div class="field-group">
+        <label>Platform</label>
+        <select id="edPlatform">
+          <option value="" ${!p.platform?'selected':''}>Not set</option>
+          <option value="pc" ${p.platform==='pc'?'selected':''}>PC</option>
+          <option value="console" ${p.platform==='console'?'selected':''}>Console</option>
+          <option value="both" ${p.platform==='both'?'selected':''}>PC + Console</option>
+        </select>
+        <div class="field-hint">Shown as a badge on their Driver Directory card. Normally set automatically when they claim a name, but staff can correct it here.</div>
       </div>
       <button class="btn teal" id="edSaveBtn" type="button">Save profile</button>
       <span class="save-status" id="edSaveStatus"></span>
@@ -2634,7 +2730,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('edSaveStatus').textContent = 'Saving...';
       const accDriverNames = q('edAccNames').value.split(',').map(s=>s.trim()).filter(Boolean);
       try{
-        await staffSaveProfile(id, { name: q('edName').value, tier: q('edTier').value, reason: q('edReason').value, raceTeam: q('edTeam').value, accDriverNames });
+        await staffSaveProfile(id, { name: q('edName').value, tier: q('edTier').value, reason: q('edReason').value, raceTeam: q('edTeam').value, accDriverNames, platform: q('edPlatform').value });
         q('edSaveStatus').textContent = 'Saved.';
         setTimeout(()=>{ if(q('edSaveStatus')) q('edSaveStatus').textContent=''; }, 2000);
       }catch(e){ q('edSaveStatus').textContent = 'Could not save: ' + e.message; }
