@@ -243,6 +243,15 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .qual-grid-driver .qgd-stats{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text-muted);margin:4px 0 8px}
 .qual-grid-driver select{width:100%;margin-bottom:6px}
 .qual-grid-empty{padding:14px;color:var(--text-muted);font-size:12.5px}
+/* ✅ ADDED: session drill-down for sandbagging checks */
+.session-drilldown{margin:14px 18px;padding:16px;border:1px solid var(--ifwl-line);border-radius:14px;background:#0d1116}
+.session-drilldown h4{margin:0 0 4px}
+.session-drilldown .sd-sub{color:var(--text-muted);font-size:12px;margin:0 0 12px}
+.sd-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}
+.sd-table th{text-align:left;color:var(--ifwl-teal);padding:6px 8px;border-bottom:1px solid var(--ifwl-line)}
+.sd-table td{padding:6px 8px;border-bottom:1px solid var(--ifwl-line-soft);font-family:var(--font-mono)}
+.btn-view-sessions{background:transparent;border:1px solid var(--ifwl-line);color:var(--text-muted);font-size:11px;padding:5px 9px;border-radius:7px;cursor:pointer;margin-top:6px;width:100%}
+.btn-view-sessions:hover{border-color:var(--ifwl-teal);color:var(--ifwl-teal)}
 .field-locked{opacity:.55}
 .field-locked .lock-note{display:block;font-size:11.5px;color:var(--ifwl-amber);font-weight:700;margin-top:5px}
 .avatar-mode{display:flex;gap:8px;margin-bottom:8px}
@@ -489,6 +498,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <div class="nav-links">
     <a href="livetimings.html">Live Timings</a>
     <a href="https://ifwlowner.github.io/ACC-driver-classifier/ifwl_live_stewarding.html">Live Stewarding Panel</a>
+    <a href="https://ifwlowner.github.io/ACC-driver-classifier/s2rules.html" target="_blank" rel="noopener">League Rules</a>
     <button class="login" id="discordAccountBtn" type="button">Discord Login</button>
   </div>
 </nav>
@@ -777,6 +787,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </details>
 
       <details class="help-section">
+        <summary>How long does it take to see my results after I've done my qualification laps?</summary>
+        <div class="help-content">
+          <p>IFWL's Console and PC qualification servers run practice sessions in 50-minute blocks. Behind the scenes, results are pulled from those servers and processed every 2 hours, on the hour - which means each sweep can pick up the last couple of sessions' worth of laps, and there are 12 of these sweeps every day.</p>
+          <p>A concrete example: if you finish a session at 12:00 (so it ends around 12:50), the <strong>14:00 sweep</strong> is the one that picks your laps up - so you should expect to see them appear from around <strong>14:10 onwards</strong>, once that sweep has finished processing.</p>
+          <p><strong>Your laps add up across sessions, not just within one.</strong> 5 laps in one session plus 10 in another counts as 15 total towards qualification - you don't need to hit 15 in a single sitting.</p>
+        </div>
+      </details>
+
+      <details class="help-section">
         <summary>What Bronze, Silver and Gold actually get you</summary>
         <div class="help-content">
           <p>Every tier below includes everything from the tier before it.</p>
@@ -911,6 +930,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </table>
     </div>
     <div id="qualGridPC" class="qual-grid-wrap hidden"></div>
+    <div id="sessionDrilldownPC" class="session-drilldown hidden"></div>
   </section>
 
   <section class="panel view-panel" data-view="staffQualConsole" id="licenceQualPanelConsole">
@@ -923,6 +943,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </table>
     </div>
     <div id="qualGridConsole" class="qual-grid-wrap hidden"></div>
+    <div id="sessionDrilldownConsole" class="session-drilldown hidden"></div>
   </section>
 
   <section class="panel view-panel" data-view="staffBulkSimgrid" id="simgridBulkLinkPanel">
@@ -3009,13 +3030,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
            </div>`
         : `<select id="qualTierSelect${platform}${i}">${tierOptions.replace(`value="${s.recommendedTier}"`, `value="${s.recommendedTier}" selected`)}</select>
            <button class="btn teal" style="margin-top:6px" data-assign="${i}" data-platform="${platform}" data-driver="${profile.discordId}">Assign</button>`;
+      const sessionsBtn = `<button class="btn-view-sessions" data-view-sessions="${platform}${i}" data-driver-label="${s.driver}" data-acc-names="${(profile?.accDriverNames || [s.driver]).join('|')}">View Sessions</button>`;
       return `<tr>
         <td><div>${s.driver}${profile ? '' : ' <span class="field-hint">(unlinked)</span>'}</div>${profile ? `<div class="field-hint">Licence: ${profile.name} (${profile.licenceNumber})</div>` : ''}</td>
         <td>${qualifiedBadge}</td>
         <td class="mono">${s.avgGapPct != null ? '+' + s.avgGapPct + '%' : '-'}</td>
         <td class="mono">${s.consistencyAvg != null ? s.consistencyAvg + '%' : '-'}</td>
         <td><span class="tier-pill" style="background:transparent;border:none;padding:0">${s.recommendedTier}</span></td>
-        <td>${assignCell}</td>
+        <td>${assignCell}${sessionsBtn}</td>
       </tr>`;
     }).join('');
 
@@ -3065,9 +3087,56 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             await staffSaveProfile(driverId, { tier: chosenTier, reason });
             assignBtn.textContent = 'Assigned';
           }catch(err){ alert('Could not assign: ' + err.message); assignBtn.disabled = false; assignBtn.textContent = 'Assign'; }
+          return;
+        }
+        const sessionsBtn = e.target.closest('[data-view-sessions]');
+        if(sessionsBtn){
+          await renderSessionDrilldown(platform, serverId, sessionsBtn.dataset.driverLabel, sessionsBtn.dataset.accNames.split('|'));
         }
       });
     }
+  }
+
+  // ✅ ADDED: session-by-session drill-down for staff sandbagging checks -
+  // shared by both the flat table and Populate the Grid, since it's keyed
+  // purely by platform/server + a set of ACC names, not by which view called it.
+  async function renderSessionDrilldown(platform, serverId, driverLabel, accNames){
+    const panel = q(platform === 'Console' ? 'sessionDrilldownConsole' : 'sessionDrilldownPC');
+    if(!panel) return;
+    panel.classList.remove('hidden');
+    panel.innerHTML = '<div class="empty">Loading session history&hellip;</div>';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    let sessions;
+    try{
+      sessions = await window.IFWLStats.getDriverSessionHistory(serverId, accNames);
+    }catch(e){
+      panel.innerHTML = `<div class="empty">Could not load session history: ${e.message}</div>`;
+      return;
+    }
+    if(!sessions.length){
+      panel.innerHTML = `<h4>${driverLabel}</h4><div class="empty">No individual sessions found on the IFWL ${platform} Licence server for this name.</div>`;
+      return;
+    }
+
+    const rows = sessions.map(s => `<tr>
+      <td>${s.dateLabel}</td>
+      <td>${s.track}</td>
+      <td>${s.sessionLabel}</td>
+      <td class="mono">${s.lapCount}</td>
+      <td class="mono">${s.bestLap ? window.IFWLStats.msTime(s.bestLap) : '-'}</td>
+      <td class="mono">${s.avgLap ? window.IFWLStats.msTime(s.avgLap) : '-'}</td>
+    </tr>`).join('');
+
+    panel.innerHTML = `
+      <h4>${driverLabel} &mdash; every session on the IFWL ${platform} Licence server</h4>
+      <p class="sd-sub">${sessions.length} session(s) &middot; dashed lines mark where one session ends and the next begins &middot; hover a dot for that lap's exact time</p>
+      ${window.IFWLStats.buildDriverSessionChartHtml(sessions)}
+      <table class="sd-table">
+        <thead><tr><th>Date</th><th>Track</th><th>Session</th><th>Laps</th><th>Best</th><th>Avg</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
   }
 
   /* ---- Populate the Grid ---- */
@@ -3136,6 +3205,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         ${profile ? `<div class="field-hint">Licence: ${profile.name} (${profile.licenceNumber})</div>` : ''}
         ${statsLine}
         ${control}
+        <button class="btn-view-sessions" data-view-sessions="grid${uid}" data-driver-label="${s.driver}" data-acc-names="${(profile?.accDriverNames || [s.driver]).join('|')}">View Sessions</button>
       </div>`;
     };
 
@@ -3210,6 +3280,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             await staffSaveProfile(assignBtn.dataset.driver, { tier: chosenTier, reason });
             assignBtn.textContent = 'Assigned';
           }catch(err){ alert('Could not assign: ' + err.message); assignBtn.disabled = false; assignBtn.textContent = 'Assign'; }
+          return;
+        }
+        const sessionsBtn = e.target.closest('[data-view-sessions]');
+        if(sessionsBtn){
+          await renderSessionDrilldown(platform, serverId, sessionsBtn.dataset.driverLabel, sessionsBtn.dataset.accNames.split('|'));
         }
       });
     }
