@@ -816,4 +816,100 @@
   window.IFWLStats.consistencyText = consistencyText;
   window.IFWLStats.consistencyNoteText = consistencyNoteText;
   window.IFWLStats.riskClass = riskClassOf;
+
+  // =======================================================
+  // ✅ ADDED: per-driver session-by-session history on a qualification
+  // server, for staff sandbagging checks. The aggregated standings only show
+  // an average across ALL sessions - this exposes each individual session
+  // and a combined chronological lap chart, so a driver who's fast in some
+  // sessions and deliberately slow/inconsistent in others is actually visible.
+  // =======================================================
+
+  async function getDriverSessionHistory(serverId, accDriverNames, opts = {}){
+    const mine = (accDriverNames || []).map(n => driverNameKey(n));
+    if(!mine.length) return [];
+
+    const allRows = await buildAllRows(!!opts.force);
+    const matches = allRows.filter(r => r.serverId === serverId && mine.some(m => {
+      const key = driverNameKey(r.driver);
+      return m === key || key.includes(m) || m.includes(key);
+    }));
+
+    return matches.map(r => {
+      const validLaps = (r.lapObjects || []).filter(l => l.isValidForBest).map(l => l.laptime);
+      return {
+        fileName: r.fileName,
+        track: r.track,
+        sessionType: r.sessionType,
+        sessionLabel: sessionLabel({ sessionType: r.sessionType }),
+        dateLabel: humanSessionDate(r),
+        tsMs: fileTimestamp(r),
+        lapCount: r.lapCount,
+        bestLap: r.bestLap,
+        avgLap: validLaps.length ? Math.round(validLaps.reduce((a,b)=>a+b,0) / validLaps.length) : null,
+        lapObjects: r.lapObjects || []
+      };
+    }).sort((a,b) => a.tsMs - b.tsMs);
+  }
+
+  function buildDriverSessionChartHtml(sessions){
+    const allLaps = [];
+    sessions.forEach((s, si) => {
+      (s.lapObjects || []).forEach(l => {
+        if(isValidLap(l.laptime)) allLaps.push({ time: l.laptime, sessionIdx: si });
+      });
+    });
+    if(allLaps.length < 2){
+      return '<div class="empty">Not enough valid laps yet to chart.</div>';
+    }
+
+    const w = 1000, h = 260, left = 65, right = 20, top = 20, bottom = 36;
+    const plotW = w - left - right, plotH = h - top - bottom;
+    const minTime = Math.min(...allLaps.map(l => l.time));
+    const maxTime = Math.max(...allLaps.map(l => l.time));
+    const range = Math.max(1, maxTime - minTime);
+    const palette = ['#1fd6bd','#c65be8','#ffb238','#5aa9ff','#ff5464','#9be564','#ff9f4a','#7d8ff0'];
+
+    const xFor = i => left + (i / Math.max(1, allLaps.length - 1)) * plotW;
+    const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
+
+    const grid = [0,.5,1].map(p => {
+      const y = top + p * plotH;
+      const val = maxTime - p * range;
+      return `<line x1="${left}" y1="${y}" x2="${w-right}" y2="${y}" stroke="rgba(255,255,255,.1)" stroke-width="1"/><text x="8" y="${y+4}" font-size="10" font-weight="700" fill="#dfe8ea">${msTimeShort(val)}</text>`;
+    }).join('');
+
+    // Session boundary markers - vertical lines where one session ends and
+    // the next begins, so a pace shift can be pinned to a specific session.
+    let boundaries = '';
+    let cursor = 0;
+    sessions.forEach((s, si) => {
+      const count = (s.lapObjects || []).filter(l => isValidLap(l.laptime)).length;
+      if(si > 0 && count > 0){
+        const x = xFor(cursor);
+        boundaries += `<line x1="${x}" y1="${top}" x2="${x}" y2="${top+plotH}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3,3"/>`;
+      }
+      cursor += count;
+    });
+
+    const points = allLaps.map((l,i) => `${xFor(i).toFixed(1)},${yFor(l.time).toFixed(1)}`).join(' ');
+    const dots = allLaps.map((l,i) => `<circle cx="${xFor(i).toFixed(1)}" cy="${yFor(l.time).toFixed(1)}" r="3" fill="${palette[l.sessionIdx % palette.length]}"><title>${sessions[l.sessionIdx].dateLabel} - ${msTimeShort(l.time)}</title></circle>`).join('');
+
+    return `<svg class="svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Lap times across every session">
+      ${grid}
+      ${boundaries}
+      <polyline points="${points}" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="2"/>
+      ${dots}
+    </svg>`;
+  }
+
+  function msTimeShort(ms){
+    if(!ms || ms <= 0) return '-';
+    const total = Math.floor(ms);
+    const m = Math.floor(total/60000), s = Math.floor((total%60000)/1000);
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+
+  window.IFWLStats.getDriverSessionHistory = getDriverSessionHistory;
+  window.IFWLStats.buildDriverSessionChartHtml = buildDriverSessionChartHtml;
 })();
