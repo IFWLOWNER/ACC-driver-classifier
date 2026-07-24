@@ -301,5 +301,27 @@ jobs:
             echo "No result file changes to commit."
           else
             git commit -m "Update ACC results from all servers"
-            git push
+
+            # ✅ FIXED: the remote can move on between this job checking out
+            # the repo and this step pushing - an overlapping scheduled run,
+            # or literally any other push to main in that window - which
+            # makes a plain "git push" get rejected as a non-fast-forward.
+            # Pulling with rebase first replays this run's commit on top of
+            # whatever's newest, so a simple remote update no longer fails
+            # the whole job. Retries a few times in case of continued
+            # contention (e.g. two runs finishing at nearly the same time).
+            pushed=false
+            for attempt in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin main; then
+                pushed=true
+                break
+              fi
+              echo "Push attempt $attempt failed (likely remote moved on) - retrying in 5s..."
+              sleep 5
+            done
+
+            if [ "$pushed" != "true" ]; then
+              echo "::error::Could not push after 5 attempts - remote kept moving. Failing so this is visible rather than silently dropping this run's results."
+              exit 1
+            fi
           fi
