@@ -2232,6 +2232,11 @@
 
           <div id="proofEmbed"></div>
 
+          <div id="videoProofSection" style="display:none;margin-top:14px">
+            <div class="muted">🏆 Gold Video Evidence</div>
+            <div id="videoProofEmbed" style="margin-top:6px"></div>
+          </div>
+
           <div style="margin-top:10px;">
             <div class="muted">Incident</div>
             <textarea id="sumIncident" readonly></textarea>
@@ -2890,36 +2895,56 @@
       return "";
     }
 
-    function renderProof(proofUrl) {
+    function renderProof(proofUrl, videoProofUrl) {
       const proofEl = $("sumProof");
       const embedEl = $("proofEmbed");
       embedEl.innerHTML = "";
 
       const url = normalizeUrl(proofUrl);
-      if (!url) { proofEl.textContent = "—"; return; }
+      if (!url) { proofEl.textContent = "—"; }
+      else {
+        proofEl.innerHTML = `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open proof link</a>`;
 
-      proofEl.innerHTML = `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open proof link</a>`;
-
-      const yt = youtubeIdFromUrl(url);
-      if (yt) {
-        embedEl.innerHTML = `
-          <div class="videoWrap" aria-label="Proof video">
-            <iframe
-              src="https://www.youtube.com/embed/${encodeURIComponent(yt)}"
-              title="Proof video"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowfullscreen></iframe>
-          </div>
-        `;
-        return;
+        const yt = youtubeIdFromUrl(url);
+        if (yt) {
+          embedEl.innerHTML = `
+            <div class="videoWrap" aria-label="Proof video">
+              <iframe
+                src="https://www.youtube.com/embed/${encodeURIComponent(yt)}"
+                title="Proof video"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowfullscreen></iframe>
+            </div>
+          `;
+        } else if (/\.(mp4|webm|ogg)(\?|#|$)/i.test(url)) {
+          embedEl.innerHTML = `
+            <div class="videoWrap" aria-label="Proof video">
+              <video controls src="${escapeHtml(url)}"></video>
+            </div>
+          `;
+        }
       }
 
-      if (/\.(mp4|webm|ogg)(\?|#|$)/i.test(url)) {
-        embedEl.innerHTML = `
-          <div class="videoWrap" aria-label="Proof video">
-            <video controls src="${escapeHtml(url)}"></video>
-          </div>
-        `;
+      // ✅ ADDED: Gold Patreon video evidence - uploaded straight to
+      // Storage from the Licence Centre's "Submit a Ticket" form, kept in
+      // its own field (videoProofUrl) separate from the free-text Proof
+      // URL a reporter can type in. Always a direct file, never a
+      // YouTube-style link, so no embed detection needed here.
+      const videoSection = $("videoProofSection");
+      const videoEmbedEl = $("videoProofEmbed");
+      if (videoSection && videoEmbedEl) {
+        const vUrl = normalizeUrl(videoProofUrl);
+        if (vUrl) {
+          videoSection.style.display = "";
+          videoEmbedEl.innerHTML = `
+            <div class="videoWrap" aria-label="Gold video evidence">
+              <video controls src="${escapeHtml(vUrl)}"></video>
+            </div>
+          `;
+        } else {
+          videoSection.style.display = "none";
+          videoEmbedEl.innerHTML = "";
+        }
       }
     }
 
@@ -3836,7 +3861,7 @@
         const reporterName = shortTicketText(t.data.reporter, "No reporter listed");
         const ruleName = shortTicketText(t.data.ruleBreach || t.data.postRaceCode, "No rule/code listed");
         const submittedWhen = formatTicketListDate(t.data);
-        const proofState = shortTicketText(t.data.proofUrl, "");
+        const proofState = shortTicketText(t.data.proofUrl, "") || shortTicketText(t.data.videoProofUrl, "");
         const incidentSummary = shortTicketText(t.data.fullIncident || t.data.incident || t.data.description, "No incident summary listed");
         const clippedIncident = incidentSummary.length > 135 ? incidentSummary.slice(0, 132) + "…" : incidentSummary;
         const linkedTag = t.data.linkedIncidentId ? String(t.data.linkedIncidentId).trim() : "";
@@ -3970,7 +3995,7 @@
       $("sumCompetition").textContent = t.competition || "—";
       $("sumEvent").textContent = t.event || "—";
       $("sumRule").textContent = t.ruleBreach || "—";
-      renderProof(t.proofUrl || "");
+      renderProof(t.proofUrl || "", t.videoProofUrl || "");
       $("sumIncident").value = t.fullIncident || "";
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
 
