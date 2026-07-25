@@ -457,6 +457,68 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .trophy-driver-picker .tdp-selected{font-size:12.5px;padding:8px 10px;border-radius:8px;background:#0d1116;border:1px solid var(--ifwl-line);min-height:20px}
 .trophy-driver-picker .ticket-picker-results{position:absolute}
 
+/* ✅ ADDED: My Trophy Cabinet - opening doors + drag-to-arrange */
+.my-cabinet-stage{
+  position:relative;
+  perspective:1400px;
+  min-height:280px;
+  border-radius:14px;
+  overflow:hidden;
+  border:6px solid #2c1a0e;
+  box-shadow:0 18px 40px rgba(0,0,0,.5);
+}
+.my-cabinet-interior{
+  position:absolute; inset:0;
+  padding:24px;
+  background:
+    repeating-linear-gradient(90deg, #6b4425 0px, #7a4f2c 3px, #613c20 6px, #74492a 9px),
+    linear-gradient(160deg,#5a3820,#3c2513);
+  display:flex; flex-wrap:wrap; align-content:flex-start; gap:16px;
+}
+.my-cabinet-door{
+  position:absolute; top:0; bottom:0; width:50%;
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.2), rgba(0,0,0,.1) 40%, rgba(0,0,0,.3)),
+    repeating-linear-gradient(90deg, #6b4425 0px, #7a4f2c 3px, #613c20 6px, #74492a 9px),
+    linear-gradient(160deg,#6b4425,#3c2513);
+  border:2px solid rgba(0,0,0,.4);
+  z-index:2;
+  transition:transform 1.1s cubic-bezier(.2,.7,.3,1);
+  box-shadow:inset 0 0 30px rgba(0,0,0,.4);
+}
+.my-cabinet-door.left{left:0;transform-origin:left center}
+.my-cabinet-door.right{right:0;transform-origin:right center}
+.my-cabinet-handle{
+  position:absolute; top:50%; width:12px; height:12px; border-radius:50%;
+  background:radial-gradient(circle at 35% 35%, #ffe9b0, #8a6410);
+  box-shadow:0 2px 4px rgba(0,0,0,.6);
+}
+.my-cabinet-door.left .my-cabinet-handle{right:14px}
+.my-cabinet-door.right .my-cabinet-handle{left:14px}
+.my-cabinet-stage.open .my-cabinet-door.left{transform:rotateY(-108deg)}
+.my-cabinet-stage.open .my-cabinet-door.right{transform:rotateY(108deg)}
+.my-cabinet-stage.open .my-cabinet-door{pointer-events:none}
+.my-trophy-tile{
+  width:140px;
+  padding:10px;
+  border-radius:10px;
+  background:rgba(20,14,8,.55);
+  border:1px solid rgba(255,224,160,.25);
+  text-align:center;
+  cursor:grab;
+  user-select:none;
+}
+.my-trophy-tile.dragging{opacity:.4}
+.my-trophy-tile .trophy-place-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#e8c98a;font-weight:800;margin:4px 0 2px}
+.my-trophy-tile .mtt-event{font-size:11px;color:#fff9ec;font-weight:700;margin-top:4px;line-height:1.25}
+
+/* ✅ ADDED: mini trophy shelf on the driver's own licence card */
+.licence-card-trophies{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px 16px;justify-items:center}
+.licence-card-trophies.hidden{display:none}
+.lct-trophy{width:34px;height:34px;cursor:default}
+.lct-trophy svg{width:100%;height:100%}
+.lct-trophy img{width:100%;height:100%;object-fit:contain}
+
 /* ✅ ADDED: Submit a Ticket panel */
 .notice-card{padding:14px 16px;border-radius:12px;background:rgba(31,214,189,.08);border:1px solid rgba(31,214,189,.3);border-left:4px solid var(--ifwl-teal,#1fd6bd);font-size:13px;line-height:1.55;color:var(--text-primary);margin-bottom:6px}
 .ticket-picker-results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#12161c;border:1px solid var(--ifwl-line);border-radius:10px;max-height:280px;overflow-y:auto;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.4)}
@@ -654,6 +716,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 <nav class="view-tabs" id="viewTabs">
   <button class="view-tab active" data-view="home" type="button">Home</button>
   <button class="view-tab" data-view="trophyCabinet" type="button">Trophy Cabinet</button>
+  <button class="view-tab logged-in-tab" data-view="myTrophyCabinet" type="button">My Trophy Cabinet</button>
   <button class="view-tab logged-in-tab" data-view="availableRaces" type="button">Available Races</button>
   <button class="view-tab logged-in-tab" data-view="raceResults" type="button">Race Results</button>
   <div class="view-tab-dropdown logged-in-tab-group">
@@ -723,6 +786,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <div class="licence-team" id="licenceTeamLabel">No race team</div>
             <div class="licence-bottom"><span class="tier-pill" id="licenceCardTierPill">No Licence</span></div>
           </div>
+          <div class="licence-card-trophies hidden" id="licenceCardTrophies"></div>
           <div class="licence-card-stats" id="licenceCardStats">
             <div class="mini-stats">
               <div class="mini-stat"><span>Overall Score</span><strong id="cardStatScore">-</strong></div>
@@ -1025,9 +1089,39 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div id="trophyCabinetBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
   </section>
 
+  <section class="panel view-panel" data-view="myTrophyCabinet" id="myTrophyCabinetPanel">
+    <div class="panel-head"><div><h3>My Trophy Cabinet</h3><small>Every trophy you've won - drag them to arrange your own display</small></div></div>
+    <div class="panel-body">
+      <div class="my-cabinet-stage" id="myCabinetStage">
+        <div class="my-cabinet-interior" id="myCabinetInterior">
+          <div class="empty">Loading&hellip;</div>
+        </div>
+        <div class="my-cabinet-door left" id="myCabinetDoorLeft"><span class="my-cabinet-handle"></span></div>
+        <div class="my-cabinet-door right" id="myCabinetDoorRight"><span class="my-cabinet-handle"></span></div>
+      </div>
+      <div style="text-align:center;margin-top:16px">
+        <button class="btn purple" id="openMyCabinetBtn" type="button">🔓 Open My Cabinet</button>
+        <span class="save-status" id="myCabinetSaveStatus" style="margin-left:10px"></span>
+      </div>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="staffTrophyCabinet" id="staffTrophyCabinetPanel">
     <div class="panel-head"><div><h3>Staff: Manage Trophy Cabinet</h3><small>One entry per event/championship, with a Gold/Silver/Bronze placement each</small></div></div>
     <div class="panel-body">
+      <h4 style="margin:0 0 10px">Trophy Designs</h4>
+      <p class="field-hint" style="margin-bottom:12px">Upload real trophy images here, then pick one per placement below. Leave a placement's design as "Classic" to use the default built-in trophy shape instead.</p>
+      <div class="field-group"><label>Design title</label><input type="text" id="tdTitle" placeholder="e.g. Season 3 Gold Cup"></div>
+      <div class="field-group">
+        <label>Image (JPG/PNG, 5MB max)</label>
+        <div class="upload-drop">Drop or choose an image &mdash; JPG/PNG, 5MB max.<br><input type="file" id="tdUploadInput" accept="image/png,image/jpeg,image/webp"></div>
+      </div>
+      <span class="save-status" id="tdSaveStatus"></span>
+      <div id="tdList" style="margin-top:12px"></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Events</h4>
       <button class="btn purple" id="trophyAddEntryBtn" type="button">+ Add New Event</button>
       <div id="staffTrophyCabinetBody" style="margin-top:16px"><div class="empty">Loading&hellip;</div></div>
     </div>
@@ -1710,6 +1804,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return (await apiPost('staffCallingCardSave', { cards })).cards || cards;
   }
   window.IFWL_CallingCardAPI = { fetchCallingCardCatalog, saveCallingCardCatalog };
+
+  // Trophy Cabinet's design catalog - identical pattern to Calling Cards
+  // above, just a separate catalog/storage path so the two don't mix.
+  async function fetchTrophyDesignCatalog(){
+    if(USE_DEMO_FALLBACK) return demoGet('trophyDesigns', []);
+    return (await apiGet('trophyDesignList')).designs || [];
+  }
+  async function saveTrophyDesignCatalog(designs){
+    if(USE_DEMO_FALLBACK){ demoSet('trophyDesigns', designs); return designs; }
+    return (await apiPost('staffTrophyDesignSave', { designs })).designs || designs;
+  }
+  window.IFWL_TrophyDesignAPI = { fetchTrophyDesignCatalog, saveTrophyDesignCatalog };
 
   function nextLicenceNumber(){
     const meta = demoGet('counter', {next:1});
@@ -2755,6 +2861,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
     renderQualificationStanding();
     renderLmuPanel();
+    window.initMyTrophyCabinetPanel?.();
     initSubmitTicketPanel();
     renderLapProgressBox();
     const [ticketInfo, perfStats] = await Promise.all([fetchTicketInfo(), fetchPerformanceStats(currentProfile)]);
@@ -4701,6 +4808,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     catch(e){ console.warn('Could not load trophy cabinet', e); return []; }
   }
 
+  function trophyVisual(place, placement, uid){
+    if(placement?.trophyImageUrl){
+      const h = TROPHY_SIZE[place] || 60;
+      return `<img src="${placement.trophyImageUrl}" alt="" style="height:${h}px;max-width:130px;object-fit:contain;filter:drop-shadow(0 6px 10px rgba(0,0,0,.5))">`;
+    }
+    return trophySvg(place, uid);
+  }
+
   function renderTrophyCabinetEntries(entries){
     const body = q('trophyCabinetBody');
     if(!body) return;
@@ -4711,17 +4826,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="trophy-cabinet-title">${e.eventName}</div>
         <div class="trophy-shelf">
           <div class="trophy-slot place-silver">
-            ${trophySvg('silver', i)}
+            ${trophyVisual('silver', e.silver, i)}
             <div class="trophy-place-label">2nd</div>
             ${trophyPlateHtml(e.silver)}
           </div>
           <div class="trophy-slot place-gold">
-            ${trophySvg('gold', i)}
+            ${trophyVisual('gold', e.gold, i)}
             <div class="trophy-place-label">1st</div>
             ${trophyPlateHtml(e.gold)}
           </div>
           <div class="trophy-slot place-bronze">
-            ${trophySvg('bronze', i)}
+            ${trophyVisual('bronze', e.bronze, i)}
             <div class="trophy-place-label">3rd</div>
             ${trophyPlateHtml(e.bronze)}
           </div>
@@ -4735,13 +4850,158 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
   window.initTrophyCabinetPublicPage = initTrophyCabinetPublicPage;
 
+  // ---------- My Trophy Cabinet (personal, driver-facing) ----------
+  let myTrophies = [];
+
+  function myTrophyTileHtml(t){
+    const placeLabel = t.place === 'gold' ? '1st' : t.place === 'silver' ? '2nd' : '3rd';
+    return `<div class="my-trophy-tile" draggable="true" data-trophy-id="${t.trophyId}">
+      ${trophyVisual(t.place, t, t.trophyId)}
+      <div class="trophy-place-label">${placeLabel}</div>
+      <div class="mtt-event">${t.eventName}</div>
+    </div>`;
+  }
+
+  function wireMyTrophyDragReorder(interior){
+    let draggedEl = null;
+
+    interior.addEventListener('dragstart', (e) => {
+      const tile = e.target.closest('.my-trophy-tile');
+      if(!tile) return;
+      draggedEl = tile;
+      tile.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    interior.addEventListener('dragend', async () => {
+      if(draggedEl) draggedEl.classList.remove('dragging');
+      draggedEl = null;
+      const order = Array.from(interior.querySelectorAll('.my-trophy-tile')).map(el => el.dataset.trophyId);
+      const status = q('myCabinetSaveStatus');
+      if(status){ status.textContent = 'Saving arrangement...'; }
+      try{
+        await window.IFWL_Api.apiPost('myTrophyOrderSave', { order });
+        if(status){ status.textContent = 'Saved.'; setTimeout(() => { if(q('myCabinetSaveStatus')) q('myCabinetSaveStatus').textContent = ''; }, 1500); }
+      }catch(e){
+        if(status) status.textContent = 'Could not save arrangement: ' + e.message;
+      }
+    });
+
+    interior.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const tile = e.target.closest('.my-trophy-tile');
+      if(!tile || tile === draggedEl || !draggedEl) return;
+      const rect = tile.getBoundingClientRect();
+      const before = (e.clientX - rect.left) < rect.width / 2;
+      interior.insertBefore(draggedEl, before ? tile : tile.nextSibling);
+    });
+  }
+
+  function licenceCardTrophyIconHtml(t){
+    const placeLabel = t.place === 'gold' ? '1st' : t.place === 'silver' ? '2nd' : '3rd';
+    const title = `${placeLabel} - ${t.eventName}`.replace(/"/g, '&quot;');
+    const visual = t.trophyImageUrl
+      ? `<img src="${t.trophyImageUrl}" alt="">`
+      : trophySvg(t.place, 'lct_' + t.trophyId);
+    return `<div class="lct-trophy" title="${title}">${visual}</div>`;
+  }
+
+  // Lives on the driver's own "My Licence" card, between the card face and
+  // the Overall Score/Consistency/Race Risk row - reuses whatever this same
+  // page already fetched for My Trophy Cabinet, so this never triggers a
+  // second network round trip just to populate a few small icons.
+  function renderLicenceCardTrophies(trophies){
+    const box = q('licenceCardTrophies');
+    if(!box) return;
+    if(!trophies || !trophies.length){ box.classList.add('hidden'); box.innerHTML = ''; return; }
+    box.classList.remove('hidden');
+    box.innerHTML = trophies.map(licenceCardTrophyIconHtml).join('');
+  }
+
+  async function initMyTrophyCabinetPanel(){
+    const interior = q('myCabinetInterior');
+    const stage = q('myCabinetStage');
+    if(!interior || !stage) return;
+
+    try{
+      myTrophies = (await window.IFWL_Api.apiGet('myTrophies')).trophies || [];
+    }catch(e){
+      interior.innerHTML = `<div class="empty">Could not load your trophies: ${e.message}</div>`;
+      return;
+    }
+
+    renderLicenceCardTrophies(myTrophies);
+
+    if(!myTrophies.length){
+      interior.innerHTML = '<div class="empty" style="color:#e8d9b8">No trophies yet - keep racing, your first cabinet piece could be next season!</div>';
+    }else{
+      interior.innerHTML = myTrophies.map(myTrophyTileHtml).join('');
+      wireMyTrophyDragReorder(interior);
+    }
+
+    q('openMyCabinetBtn')?.addEventListener('click', () => {
+      stage.classList.add('open');
+      q('openMyCabinetBtn').style.display = 'none';
+    }, { once: true });
+  }
+  window.initMyTrophyCabinetPanel = initMyTrophyCabinetPanel;
+
   // ---------- Staff: Manage Trophy Cabinet ----------
   let staffTrophyEntries = [];
+  let staffTrophyDesigns = [];
 
   async function renderStaffTrophyCabinet(){
     if(!window.IFWL_STAFF) return;
+    staffTrophyDesigns = await window.IFWL_TrophyDesignAPI.fetchTrophyDesignCatalog();
+    renderTrophyDesignList();
     staffTrophyEntries = await fetchTrophyCabinet();
     renderStaffTrophyCabinetList();
+  }
+
+  function renderTrophyDesignList(){
+    const wrap = q('tdList');
+    if(!wrap) return;
+    if(!staffTrophyDesigns.length){ wrap.innerHTML = '<div class="empty">No trophy designs yet - upload one above.</div>'; return; }
+    wrap.innerHTML = staffTrophyDesigns.map((d,i) => `
+      <div class="note-item" data-idx="${i}">
+        <img src="${d.url}" alt="" style="width:100%;max-width:160px;height:100px;object-fit:contain;border-radius:8px;display:block;margin-bottom:8px;background:#0d1116">
+        <strong>${d.title}</strong>
+        <div style="margin-top:8px"><button class="btn ghost" data-remove-design="${i}">Delete</button></div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-remove-design]').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('Delete this trophy design? Events currently using it keep their existing image (already snapshotted), but it will no longer be pickable for new placements.')) return;
+      const idx = Number(btn.dataset.removeDesign);
+      const updated = staffTrophyDesigns.filter((_,i) => i !== idx);
+      try{ staffTrophyDesigns = await window.IFWL_TrophyDesignAPI.saveTrophyDesignCatalog(updated); renderTrophyDesignList(); }
+      catch(e){ alert('Could not delete: ' + e.message); }
+    }));
+  }
+
+  q('tdUploadInput')?.addEventListener('change', async e => {
+    const file = e.target.files[0]; if(!file) return;
+    const title = q('tdTitle').value.trim() || 'Trophy Design';
+    q('tdSaveStatus').textContent = 'Uploading...';
+    try{
+      const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'trophy');
+      staffTrophyDesigns.push({ id: 'td_' + Date.now(), title, url });
+      staffTrophyDesigns = await window.IFWL_TrophyDesignAPI.saveTrophyDesignCatalog(staffTrophyDesigns);
+      q('tdTitle').value = '';
+      e.target.value = '';
+      q('tdSaveStatus').textContent = 'Added.';
+      renderTrophyDesignList();
+      renderStaffTrophyCabinetList(); // refresh dropdowns everywhere with the new option
+      setTimeout(()=>{ if(q('tdSaveStatus')) q('tdSaveStatus').textContent=''; }, 2000);
+    }catch(err){ q('tdSaveStatus').textContent = err.message; }
+  });
+
+  function trophyDesignSelectHtml(place, p){
+    const currentId = p?.designId || '';
+    const options = staffTrophyDesigns.map(d => `<option value="${d.id}" ${d.id === currentId ? 'selected' : ''}>${d.title}</option>`).join('');
+    return `<select class="tdp-design-select" data-place="${place}" style="margin-top:8px">
+      <option value="" ${!currentId ? 'selected' : ''}>Classic (built-in shape)</option>
+      ${options}
+    </select>`;
   }
 
   function trophyPickerBlockHtml(place, label, emoji, p){
@@ -4750,6 +5010,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <input type="text" class="tdp-search" placeholder="Search driver by name or licence number...">
       <div class="tdp-selected">${p ? `${p.name} (${p.licenceNumber})` : 'None selected'}</div>
       <div class="ticket-picker-results hidden"></div>
+      ${trophyDesignSelectHtml(place, p)}
     </div>`;
   }
 
@@ -4828,6 +5089,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         statusEl.textContent = 'Event name is required.'; statusEl.className = 'save-status trophy-status error'; return;
       }
       const getDiscordId = (place) => card.querySelector(`.trophy-driver-picker[data-place="${place}"]`).dataset.discordId || '';
+      const getDesignId = (place) => card.querySelector(`.tdp-design-select[data-place="${place}"]`)?.value || '';
 
       statusEl.textContent = 'Saving...'; statusEl.className = 'save-status trophy-status';
       try{
@@ -4837,7 +5099,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           order,
           goldDiscordId: getDiscordId('gold'),
           silverDiscordId: getDiscordId('silver'),
-          bronzeDiscordId: getDiscordId('bronze')
+          bronzeDiscordId: getDiscordId('bronze'),
+          goldDesignId: getDesignId('gold'),
+          silverDesignId: getDesignId('silver'),
+          bronzeDesignId: getDesignId('bronze')
         });
         card.dataset.entryId = result.id;
         statusEl.textContent = 'Saved.'; statusEl.className = 'save-status trophy-status success';
