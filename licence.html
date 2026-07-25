@@ -842,6 +842,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <input type="url" id="ticketProofUrl" placeholder="any video or image hosting site such as youtube/google drive/imgur">
       </div>
 
+      <div class="field-group" id="ticketVideoGoldField">
+        <label>Video Evidence <span style="color:var(--ifwl-purple)">(Gold Patreon perk)</span></label>
+        <input type="file" id="ticketVideoInput" accept="video/mp4,video/quicktime,video/webm">
+        <div class="field-hint">Up to 100MB, one video per ticket. Uploads directly to this ticket - no external hosting needed.</div>
+        <div class="field-hint" id="ticketVideoStatus"></div>
+      </div>
+      <div class="field-group hidden" id="ticketVideoLockedField">
+        <label>Video Evidence</label>
+        <div class="lmu-locked-note">🎥 <strong>Gold Patreon members can attach a video directly to their ticket</strong> (up to 100MB) - no external hosting needed. <a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="color:var(--ifwl-purple);font-weight:800">Upgrade to Gold</a></div>
+      </div>
+
       <div class="field-group">
         <label>Season</label>
         <select id="ticketSeasonSelect">
@@ -981,7 +992,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <p><strong>Active Racer (free)</strong> - a licence, a licence card, self-reporting your ACC name(s) and platform, the Driver Directory listing, Available Races, full Ticket History, and Inbox. Everything core to being a licensed IFWL driver is already free.</p>
           <p><strong>Bronze</strong> - honestly, Bronze's real value is mostly outside this specific page: extra Tune Share downloads and detailed Live Timings access. Within the Licence Centre itself, Bronze looks the same as the free tier - Silver is where the Licence Centre perks actually start.</p>
           <p><strong>Silver</strong> - unlocks Bio and Race Team fields on your profile, picking a Patreon Calling Card for your licence card, your actual rank number on the Qualification Ranking card, and your own lap-time chart there (the recommended tier, consistency and gap figures, plus the Pro/Am/Beginner field average lines on that chart, stay Gold-only). Plus everything Bronze gets elsewhere on the site.</p>
-          <p><strong>Gold</strong> - everything unlocked: custom profile photo and header image uploads, the full Qualification Ranking card (rank, recommended tier, consistency, gap to best, plus the Pro/Am/Beginner field average lines on your lap-time chart), and the full Race Results breakdown (field-wide charts, per-driver profiles, Consistency and Race Risk columns) on every race, not just the finishing order. Plus the highest Tune Share download allowance.</p>
+          <p><strong>Gold</strong> - everything unlocked: custom profile photo and header image uploads, the full Qualification Ranking card (rank, recommended tier, consistency, gap to best, plus the Pro/Am/Beginner field average lines on your lap-time chart), the full Race Results breakdown (field-wide charts, per-driver profiles, Consistency and Race Risk columns) on every race, not just the finishing order, and uploading a video (up to 100MB) directly to a ticket when Submitting a Ticket - no external hosting needed. Plus the highest Tune Share download allowance.</p>
           <p style="margin-top:14px"><a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="color:var(--ifwl-purple);font-weight:800">See current Patreon tiers &amp; pricing &rarr;</a></p>
         </div>
       </details>
@@ -2917,6 +2928,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function ticketOpenGuidanceModal(){ q('ticketGuidanceModal').classList.remove('hidden'); }
   function ticketCloseGuidanceModal(){ q('ticketGuidanceModal').classList.add('hidden'); }
 
+  let ticketSelectedVideoFile = null;
+
+  async function uploadTicketVideo(file){
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const form = new FormData();
+    form.append('file', file);
+    form.append('kind', 'ticketVideo');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 100MB can genuinely take minutes
+    let r;
+    try{
+      r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}&kind=ticketVideo`, { method:'POST', body: form, signal: controller.signal });
+    }catch(err){
+      if(err.name === 'AbortError') throw new Error('Video upload timed out after 5 minutes - try a smaller file or check your connection.');
+      throw err;
+    }finally{
+      clearTimeout(timeout);
+    }
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d?.error || 'Video upload failed');
+    return d.url;
+  }
+
   async function initSubmitTicketPanel(){
     if(!q('submitTicketPanel')) return;
     const reportingAs = q('ticketReportingAs');
@@ -2926,6 +2960,31 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     await Promise.all([loadTicketLicenceRoster(), loadTicketLegacyRoster(), loadTicketTrackList()]);
     setupTicketAccusedPicker();
+
+    // ✅ ADDED: Gold Patreon perk - video evidence upload, up to 100MB,
+    // attached directly to the ticket instead of relying on an external
+    // host. Bronze/Silver/free see a locked upsell message instead.
+    const isGoldOrStaff = window.IFWL_GOLD || window.IFWL_STAFF;
+    q('ticketVideoGoldField').classList.toggle('hidden', !isGoldOrStaff);
+    q('ticketVideoLockedField').classList.toggle('hidden', isGoldOrStaff);
+
+    const videoInput = q('ticketVideoInput');
+    const videoStatus = q('ticketVideoStatus');
+    ticketSelectedVideoFile = null;
+    videoInput?.addEventListener('change', () => {
+      const file = videoInput.files[0];
+      if(!file){ ticketSelectedVideoFile = null; videoStatus.textContent = ''; return; }
+      if(file.size > 100 * 1024 * 1024){
+        videoStatus.textContent = 'That file is over 100MB - please choose a smaller video.';
+        videoStatus.className = 'field-hint error';
+        videoInput.value = '';
+        ticketSelectedVideoFile = null;
+        return;
+      }
+      ticketSelectedVideoFile = file;
+      videoStatus.textContent = `Selected: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB) - will upload when you submit.`;
+      videoStatus.className = 'field-hint';
+    });
 
     const statusMsg = q('ticketStatusMsg');
     const submitBtn = q('ticketSubmitBtn');
@@ -2953,8 +3012,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('ticketModalConfirmBtn').addEventListener('click', async () => {
       ticketCloseGuidanceModal();
       submitBtn.disabled = true;
-      statusMsg.textContent = 'Submitting...'; statusMsg.className = 'save-status';
       try{
+        let videoProofUrl = '';
+        if(isGoldOrStaff && ticketSelectedVideoFile){
+          statusMsg.textContent = 'Uploading video - this can take a minute for larger files...';
+          statusMsg.className = 'save-status';
+          videoProofUrl = await uploadTicketVideo(ticketSelectedVideoFile);
+        }
+
+        statusMsg.textContent = 'Submitting...'; statusMsg.className = 'save-status';
         const result = await apiPost('submitTicket', {
           accused: q('ticketAccusedSelect').value,
           accusedNameManual: ticketSafeStr(q('ticketNewDriverInput').value),
@@ -2963,6 +3029,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           fullIncident: ticketSafeStr(q('ticketFullIncident').value),
           event: q('ticketEventSelect').value,
           proofUrl: ticketSafeStr(q('ticketProofUrl').value),
+          videoProofUrl,
           season: q('ticketSeasonSelect').value,
           track: q('ticketTrackSelect').value,
           newTrackName: ticketSafeStr(q('ticketNewTrackInput').value)
@@ -2980,6 +3047,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         q('ticketNewTrackContainer').classList.add('hidden');
         q('ticketNewTrackInput').value = '';
         q('ticketCompetitionSelect').value = '';
+        if(videoInput) videoInput.value = '';
+        ticketSelectedVideoFile = null;
+        if(videoStatus) videoStatus.textContent = '';
 
         // A new ticket may now match this driver's own Ticket History (if
         // they're both parties, or filed on themselves) - refresh it.
