@@ -507,10 +507,39 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
   text-align:center;
   cursor:grab;
   user-select:none;
+  position:relative;
+  overflow:hidden;
+  transition:box-shadow .3s ease, background .3s ease;
 }
 .my-trophy-tile.dragging{opacity:.4}
 .my-trophy-tile .trophy-place-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#e8c98a;font-weight:800;margin:4px 0 2px}
 .my-trophy-tile .mtt-event{font-size:11px;color:#fff9ec;font-weight:700;margin-top:4px;line-height:1.25}
+
+/* ✅ ADDED: per-trophy light + dust controls */
+.mtt-controls{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:2}
+.mtt-controls button{
+  width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,224,160,.3);
+  background:rgba(0,0,0,.4);font-size:11px;line-height:1;cursor:pointer;padding:0;
+}
+.mtt-controls button:hover{background:rgba(0,0,0,.65)}
+.my-trophy-tile.lit{
+  background:radial-gradient(circle at 50% 30%, rgba(255,224,160,.28), rgba(20,14,8,.55) 70%);
+  box-shadow:0 0 26px 6px rgba(255,204,120,.35);
+}
+.my-trophy-tile.lit svg, .my-trophy-tile.lit img{filter:brightness(1.2) drop-shadow(0 0 8px rgba(255,224,160,.6))}
+.mtt-light-btn.active{background:rgba(255,204,120,.5) !important}
+.my-trophy-tile.dusted{box-shadow:0 0 14px 2px rgba(255,224,160,.25)}
+.my-trophy-tile.dusting::after{
+  content:"";
+  position:absolute; top:0; left:-60%; width:40%; height:100%;
+  background:linear-gradient(115deg, transparent, rgba(255,255,255,.55), transparent);
+  animation:trophyShine .9s ease forwards;
+  pointer-events:none;
+}
+@keyframes trophyShine{
+  0%{ left:-60%; }
+  100%{ left:140%; }
+}
 
 /* ✅ ADDED: mini trophy shelf on the driver's own licence card */
 .licence-card-trophies{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px 16px;justify-items:center}
@@ -1101,6 +1130,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </div>
       <div style="text-align:center;margin-top:16px">
         <button class="btn purple" id="openMyCabinetBtn" type="button">🔓 Open My Cabinet</button>
+        <button class="btn ghost hidden" id="closeMyCabinetBtn" type="button">🔒 Close My Cabinet</button>
+        <button class="btn ghost hidden" id="dustAllBtn" type="button">🧹 Dust Off All</button>
         <span class="save-status" id="myCabinetSaveStatus" style="margin-left:10px"></span>
       </div>
     </div>
@@ -4856,10 +4887,44 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function myTrophyTileHtml(t){
     const placeLabel = t.place === 'gold' ? '1st' : t.place === 'silver' ? '2nd' : '3rd';
     return `<div class="my-trophy-tile" draggable="true" data-trophy-id="${t.trophyId}">
+      <div class="mtt-controls">
+        <button type="button" class="mtt-light-btn" draggable="false" title="Flick the spotlight on/off">💡</button>
+        <button type="button" class="mtt-dust-btn" draggable="false" title="Dust it off">🧹</button>
+      </div>
       ${trophyVisual(t.place, t, t.trophyId)}
       <div class="trophy-place-label">${placeLabel}</div>
       <div class="mtt-event">${t.eventName}</div>
     </div>`;
+  }
+
+  // A trophy briefly plays a "shine sweep" animation, then keeps a soft
+  // permanent shimmer (the .dusted class) to show it's been cared for.
+  // Purely a visual flourish, session-only - not saved server-side, same as
+  // the individual spotlight toggle below.
+  function dustOffTile(tile){
+    if(!tile || tile.classList.contains('dusting')) return;
+    tile.classList.add('dusting');
+    setTimeout(() => {
+      tile.classList.remove('dusting');
+      tile.classList.add('dusted');
+    }, 900);
+  }
+
+  function wireMyTrophyTileControls(interior){
+    interior.querySelectorAll('.mtt-light-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tile = btn.closest('.my-trophy-tile');
+        const on = tile.classList.toggle('lit');
+        btn.classList.toggle('active', on);
+      });
+    });
+    interior.querySelectorAll('.mtt-dust-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dustOffTile(btn.closest('.my-trophy-tile'));
+      });
+    });
   }
 
   function wireMyTrophyDragReorder(interior){
@@ -4937,12 +5002,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }else{
       interior.innerHTML = myTrophies.map(myTrophyTileHtml).join('');
       wireMyTrophyDragReorder(interior);
+      wireMyTrophyTileControls(interior);
     }
 
-    q('openMyCabinetBtn')?.addEventListener('click', () => {
+    const openBtn = q('openMyCabinetBtn');
+    const closeBtn = q('closeMyCabinetBtn');
+    const dustAllBtn = q('dustAllBtn');
+
+    openBtn?.addEventListener('click', () => {
       stage.classList.add('open');
-      q('openMyCabinetBtn').style.display = 'none';
-    }, { once: true });
+      openBtn.classList.add('hidden');
+      if(myTrophies.length){ closeBtn?.classList.remove('hidden'); dustAllBtn?.classList.remove('hidden'); }
+    });
+    closeBtn?.addEventListener('click', () => {
+      stage.classList.remove('open');
+      closeBtn.classList.add('hidden');
+      dustAllBtn?.classList.add('hidden');
+      openBtn?.classList.remove('hidden');
+    });
+    dustAllBtn?.addEventListener('click', () => {
+      const tiles = interior.querySelectorAll('.my-trophy-tile');
+      tiles.forEach((tile, i) => setTimeout(() => dustOffTile(tile), i * 150));
+    });
   }
   window.initMyTrophyCabinetPanel = initMyTrophyCabinetPanel;
 
