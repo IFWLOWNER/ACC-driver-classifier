@@ -354,32 +354,60 @@
 
   // ---- fetch + build every row across every server (mirrors Live Timings' own load) ----
   let allRowsCache = null;
+  // ✅ FIXED: buildAllRows fetches every session file one at a time, so it's
+  // already the slowest thing on the page - and the old version only cached
+  // the *finished* result, with no protection against being called again
+  // while a fetch was still in flight. Several places on the home page now
+  // call it around the same time (qualification standings, the per-driver
+  // session chart, tier averages, for both PC and Console) without waiting
+  // on each other, so multiple full fetch-every-file loops could run at
+  // once, multiplying network requests and slowing everything behind them
+  // in line (which is why Driver Directory - the last thing waiting - was
+  // the most visible symptom). Sharing one in-flight promise means every
+  // concurrent caller rides the same single fetch pass instead of starting
+  // their own.
+  let allRowsInFlight = null;
   async function buildAllRows(force){
     if(allRowsCache && !force) return allRowsCache;
-    const manifest = await fetchJsonFile(manifestUrl, {force});
-    const raw = manifest.results || manifest.files || [];
-    const manifestItems = raw.map(x => {
-      if(typeof x === 'string'){
-        const serverId = serverIdFromPath(x) || 'unknown';
-        return { file:x, name:x.split('/').pop(), serverId, serverName: serverLabels[serverId] || serverId };
-      }
-      const filePath = x.file || x.path || x.name;
-      const serverId = serverIdFromPath(filePath) || x.serverId || 'unknown';
-      return { file: filePath, name: x.name || (filePath || '').split('/').pop(), serverId, serverName: x.serverName || serverLabels[serverId] || serverId };
-    }).filter(x => x.file && x.name && /_(FP|FP1|FP2|Q|R)\.json$/i.test(x.name)).sort(newestFirst);
+    if(allRowsInFlight && !force) return allRowsInFlight;
 
-    const allRows = [];
-    for(const item of manifestItems){
-      try{
-        const data = await fetchJsonFile(item.file, {force});
-        const session = normaliseSession(data, item.file, item);
-        allRows.push(...session.rows);
-      }catch(e){
-        console.warn('IFWLStats: skipped unreadable session file', item.file, e.message);
+    const run = (async () => {
+      const manifest = await fetchJsonFile(manifestUrl, {force});
+      const raw = manifest.results || manifest.files || [];
+      const manifestItems = raw.map(x => {
+        if(typeof x === 'string'){
+          const serverId = serverIdFromPath(x) || 'unknown';
+          return { file:x, name:x.split('/').pop(), serverId, serverName: serverLabels[serverId] || serverId };
+        }
+        const filePath = x.file || x.path || x.name;
+        const serverId = serverIdFromPath(filePath) || x.serverId || 'unknown';
+        return { file: filePath, name: x.name || (filePath || '').split('/').pop(), serverId, serverName: x.serverName || serverLabels[serverId] || serverId };
+      }).filter(x => x.file && x.name && /_(FP|FP1|FP2|Q|R)\.json$/i.test(x.name)).sort(newestFirst);
+
+      const allRows = [];
+      for(const item of manifestItems){
+        try{
+          const data = await fetchJsonFile(item.file, {force});
+          const session = normaliseSession(data, item.file, item);
+          allRows.push(...session.rows);
+        }catch(e){
+          console.warn('IFWLStats: skipped unreadable session file', item.file, e.message);
+        }
       }
+      allRowsCache = allRows;
+      return allRows;
+    })();
+
+    allRowsInFlight = run;
+    try{
+      return await run;
+    } finally {
+      // Only the call that actually started this run should clear it, but
+      // since `run` is idempotent once resolved, clearing it unconditionally
+      // after every awaiter is fine - the next `force` call (or a later
+      // natural cache invalidation) just starts a fresh one.
+      if(allRowsInFlight === run) allRowsInFlight = null;
     }
-    allRowsCache = allRows;
-    return allRows;
   }
 
   /**
