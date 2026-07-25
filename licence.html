@@ -498,6 +498,31 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .my-cabinet-stage.open .my-cabinet-door.left{transform:rotateY(-108deg)}
 .my-cabinet-stage.open .my-cabinet-door.right{transform:rotateY(108deg)}
 .my-cabinet-stage.open .my-cabinet-door{pointer-events:none}
+
+/* ✅ ADDED: if a trophy's spotlight is left on when the doors close, warm
+   light leaks around the door frame and through the seam between them.
+   NOTE: the stage itself has overflow:hidden (to keep the interior's
+   rounded corners clean), which would clip an outer box-shadow on this
+   same element - so the glow lives as an INSET shadow on the doors (never
+   clipped, since inset shadows draw inside the box) plus the seam pulse
+   below, both fully contained within the cabinet's own borders.
+   ========================================================== */
+.my-cabinet-stage.glow-closed .my-cabinet-door{
+  box-shadow:inset 0 0 30px 8px rgba(255,224,160,.4);
+  transition:box-shadow .8s ease;
+}
+.my-cabinet-stage.glow-closed::after{
+  content:"";
+  position:absolute; top:0; bottom:0; left:50%; width:7px; transform:translateX(-50%);
+  background:linear-gradient(180deg, rgba(255,224,160,0), rgba(255,224,160,.95), rgba(255,224,160,0));
+  filter:blur(3px);
+  z-index:3;
+  animation:cabinetSeamGlow 2.4s ease-in-out infinite;
+}
+@keyframes cabinetSeamGlow{
+  0%,100%{ opacity:.55; }
+  50%{ opacity:1; }
+}
 .my-trophy-tile{
   width:140px;
   padding:10px;
@@ -5055,11 +5080,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     openBtn?.addEventListener('click', () => {
       stage.classList.add('open');
+      stage.classList.remove('glow-closed'); // no seam glow while open - the interior itself is right there, lit
       openBtn.classList.add('hidden');
       if(myTrophies.length){ closeBtn?.classList.remove('hidden'); dustAllBtn?.classList.remove('hidden'); }
     });
     closeBtn?.addEventListener('click', () => {
       stage.classList.remove('open');
+      // If anything's still lit when the doors shut, a bit of that light
+      // should leak around the frame and through the seam between them.
+      const anyLit = interior.querySelectorAll('.my-trophy-tile.lit').length > 0;
+      stage.classList.toggle('glow-closed', anyLit);
       closeBtn.classList.add('hidden');
       dustAllBtn?.classList.add('hidden');
       openBtn?.classList.remove('hidden');
