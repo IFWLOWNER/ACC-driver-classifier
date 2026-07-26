@@ -541,17 +541,26 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .my-trophy-tile .mtt-event{font-size:11px;color:#fff9ec;font-weight:700;margin-top:4px;line-height:1.25}
 
 /* ✅ ADDED: per-trophy light + dust controls */
-.mtt-controls{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:2}
+.mtt-controls{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:2;align-items:center}
 .mtt-controls button{
   width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,224,160,.3);
   background:rgba(0,0,0,.4);font-size:11px;line-height:1;cursor:pointer;padding:0;
 }
 .mtt-controls button:hover{background:rgba(0,0,0,.65)}
-.my-trophy-tile.lit{
-  background:radial-gradient(circle at 50% 30%, rgba(255,224,160,.28), rgba(20,14,8,.55) 70%);
-  box-shadow:0 0 26px 6px rgba(255,204,120,.35);
+.mtt-controls .mtt-locked{
+  width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.15);
+  background:rgba(0,0,0,.25);font-size:10px;display:flex;align-items:center;justify-content:center;
+  cursor:default;opacity:.6;
 }
-.my-trophy-tile.lit svg, .my-trophy-tile.lit img{filter:brightness(1.2) drop-shadow(0 0 8px rgba(255,224,160,.6))}
+.mtt-color-input{width:20px;height:20px;padding:0;border:1px solid rgba(255,224,160,.3);border-radius:50%;background:none;cursor:pointer;overflow:hidden}
+.mtt-color-input::-webkit-color-swatch-wrapper{padding:0}
+.mtt-color-input::-webkit-color-swatch{border:none;border-radius:50%}
+.my-trophy-tile{--trophy-light-color:255,224,160}
+.my-trophy-tile.lit{
+  background:radial-gradient(circle at 50% 30%, rgba(var(--trophy-light-color),.28), rgba(20,14,8,.55) 70%);
+  box-shadow:0 0 26px 6px rgba(var(--trophy-light-color),.4);
+}
+.my-trophy-tile.lit svg, .my-trophy-tile.lit img{filter:brightness(1.2) drop-shadow(0 0 8px rgba(var(--trophy-light-color),.65))}
 .mtt-light-btn.active{background:rgba(255,204,120,.5) !important}
 .mtt-showcase-btn.active{background:rgba(198,91,232,.55) !important;border-color:rgba(198,91,232,.7) !important}
 .my-trophy-tile.dusted{box-shadow:0 0 14px 2px rgba(255,224,160,.25)}
@@ -1177,6 +1186,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </div>
       <span class="save-status" id="tdSaveStatus"></span>
       <div id="tdList" style="margin-top:12px"></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Achievement Trophies</h4>
+      <p class="field-hint" style="margin-bottom:12px">Award an individual driver a trophy for any reason - not tied to a top-3 event placement. Uses the same Trophy Designs above.</p>
+      <div class="trophy-driver-picker" id="achvDriverPicker" data-discord-id="">
+        <label>Driver</label>
+        <input type="text" class="tdp-search" id="achvDriverSearch" placeholder="Search driver by name or licence number...">
+        <div class="tdp-selected" id="achvDriverSelected">None selected</div>
+        <div class="ticket-picker-results hidden" id="achvDriverResults"></div>
+      </div>
+      <div class="field-group" style="margin-top:12px"><label>Achievement title</label><input type="text" id="achvTitle" placeholder="e.g. Most Improved Driver - Season 3"></div>
+      <div class="field-group"><label>Trophy design</label><select id="achvDesignSelect"><option value="">Classic (built-in shape)</option></select></div>
+      <button class="btn purple" id="achvAwardBtn" type="button">Award Trophy</button>
+      <span class="save-status" id="achvSaveStatus" style="margin-left:10px"></span>
+      <div id="achvList" style="margin-top:16px"></div>
 
       <hr style="border-color:var(--ifwl-line);margin:22px 0">
 
@@ -4924,13 +4949,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // ---------- My Trophy Cabinet (personal, driver-facing) ----------
   let myTrophies = [];
 
+  function hexToRgbTriplet(hex){
+    const clean = String(hex || '').replace('#','');
+    const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean.padEnd(6,'0').slice(0,6);
+    const r = parseInt(full.substring(0,2),16) || 255, g = parseInt(full.substring(2,4),16) || 224, b = parseInt(full.substring(4,6),16) || 160;
+    return `${r},${g},${b}`;
+  }
+
   function myTrophyTileHtml(t){
-    const placeLabel = t.place === 'gold' ? '1st' : t.place === 'silver' ? '2nd' : '3rd';
-    return `<div class="my-trophy-tile" draggable="true" data-trophy-id="${t.trophyId}">
+    const placeLabel = t.place === 'gold' ? '1st' : t.place === 'silver' ? '2nd' : t.place === 'achievement' ? 'Achievement' : '3rd';
+    const isGold = window.IFWL_GOLD || window.IFWL_STAFF;
+    const isSilverPlus = window.IFWL_SILVER_PLUS || isGold;
+    const lightColor = t.lightColor || '#ffe0a0';
+
+    const lightControls = isGold
+      ? `<button type="button" class="mtt-light-btn${t.lit ? ' active' : ''}" draggable="false" title="Flick the spotlight on/off (Gold perk)">💡</button>
+         <input type="color" class="mtt-color-input" draggable="false" value="${lightColor}" title="Choose your spotlight colour (Gold perk)">`
+      : `<span class="mtt-locked" title="Spotlights are a Gold Patreon perk">💡</span>`;
+
+    const dustControls = isSilverPlus
+      ? `<button type="button" class="mtt-dust-btn" draggable="false" title="Dust it off">🧹</button>`
+      : `<span class="mtt-locked" title="Dusting is a Silver/Gold Patreon perk">🧹</span>`;
+
+    return `<div class="my-trophy-tile${t.lit ? ' lit' : ''}${t.dusted ? ' dusted' : ''}" draggable="true" data-trophy-id="${t.trophyId}" style="--trophy-light-color:${hexToRgbTriplet(lightColor)}">
       <div class="mtt-controls">
         <button type="button" class="mtt-showcase-btn${t.showcased ? ' active' : ''}" draggable="false" title="Show off on your licence card &amp; Driver Directory (max 3)">⭐</button>
-        <button type="button" class="mtt-light-btn" draggable="false" title="Flick the spotlight on/off">💡</button>
-        <button type="button" class="mtt-dust-btn" draggable="false" title="Dust it off">🧹</button>
+        ${lightControls}
+        ${dustControls}
       </div>
       ${trophyVisual(t.place, t, t.trophyId)}
       <div class="trophy-place-label">${placeLabel}</div>
@@ -4940,8 +4985,6 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   // A trophy briefly plays a "shine sweep" animation, then keeps a soft
   // permanent shimmer (the .dusted class) to show it's been cared for.
-  // Purely a visual flourish, session-only - not saved server-side, same as
-  // the individual spotlight toggle below.
   function dustOffTile(tile){
     if(!tile || tile.classList.contains('dusting')) return;
     tile.classList.add('dusting');
@@ -4951,6 +4994,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }, 900);
   }
 
+  // Both light settings and dusted state are saved together on every
+  // change, same auto-save-on-interaction pattern as showcase/order - reads
+  // the CURRENT DOM state of every tile rather than tracking a separate
+  // shadow copy, so what you see is always exactly what gets saved.
+  async function saveMyTrophyDisplaySettings(interior){
+    const status = q('myCabinetSaveStatus');
+    const lights = {};
+    interior.querySelectorAll('.my-trophy-tile').forEach(tile => {
+      const id = tile.dataset.trophyId;
+      const colorInput = tile.querySelector('.mtt-color-input');
+      lights[id] = { on: tile.classList.contains('lit'), color: colorInput ? colorInput.value : '#ffe0a0' };
+    });
+    const dusted = Array.from(interior.querySelectorAll('.my-trophy-tile.dusted')).map(t => t.dataset.trophyId);
+
+    if(status) status.textContent = 'Saving...';
+    try{
+      await window.IFWL_Api.apiPost('myTrophyDisplaySettingsSave', { lights, dusted });
+      if(status){ status.textContent = 'Saved.'; setTimeout(() => { if(q('myCabinetSaveStatus')) q('myCabinetSaveStatus').textContent = ''; }, 1200); }
+    }catch(e){
+      if(status) status.textContent = 'Could not save: ' + e.message;
+    }
+  }
+
   function wireMyTrophyTileControls(interior){
     interior.querySelectorAll('.mtt-light-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -4958,12 +5024,26 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         const tile = btn.closest('.my-trophy-tile');
         const on = tile.classList.toggle('lit');
         btn.classList.toggle('active', on);
+        saveMyTrophyDisplaySettings(interior);
       });
+    });
+    interior.querySelectorAll('.mtt-color-input').forEach(input => {
+      input.addEventListener('input', (e) => {
+        e.stopPropagation();
+        const tile = input.closest('.my-trophy-tile');
+        tile.style.setProperty('--trophy-light-color', hexToRgbTriplet(input.value));
+      });
+      input.addEventListener('change', (e) => {
+        e.stopPropagation();
+        saveMyTrophyDisplaySettings(interior);
+      });
+      input.addEventListener('click', (e) => e.stopPropagation());
     });
     interior.querySelectorAll('.mtt-dust-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         dustOffTile(btn.closest('.my-trophy-tile'));
+        setTimeout(() => saveMyTrophyDisplaySettings(interior), 950); // after the shine animation settles into .dusted
       });
     });
     interior.querySelectorAll('.mtt-showcase-btn').forEach(btn => {
@@ -5032,7 +5112,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   function licenceCardTrophyIconHtml(t){
-    const placeLabel = t.place === 'gold' ? '1st' : t.place === 'silver' ? '2nd' : '3rd';
+    const placeLabel = t.place === 'gold' ? '1st' : t.place === 'silver' ? '2nd' : t.place === 'achievement' ? 'Achievement' : '3rd';
     const title = `${placeLabel} - ${t.eventName}`.replace(/"/g, '&quot;');
     const visual = t.trophyImageUrl
       ? `<img src="${t.trophyImageUrl}" alt="">`
@@ -5058,7 +5138,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!interior || !stage) return;
 
     try{
-      myTrophies = (await window.IFWL_Api.apiGet('myTrophies')).trophies || [];
+      const data = await window.IFWL_Api.apiGet('myTrophies');
+      myTrophies = data.trophies || [];
     }catch(e){
       interior.innerHTML = `<div class="empty">Could not load your trophies: ${e.message}</div>`;
       return;
@@ -5097,6 +5178,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     dustAllBtn?.addEventListener('click', () => {
       const tiles = interior.querySelectorAll('.my-trophy-tile');
       tiles.forEach((tile, i) => setTimeout(() => dustOffTile(tile), i * 150));
+      setTimeout(() => saveMyTrophyDisplaySettings(interior), tiles.length * 150 + 950);
     });
   }
   window.initMyTrophyCabinetPanel = initMyTrophyCabinetPanel;
@@ -5104,13 +5186,88 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // ---------- Staff: Manage Trophy Cabinet ----------
   let staffTrophyEntries = [];
   let staffTrophyDesigns = [];
+  let staffAchievementTrophies = [];
 
   async function renderStaffTrophyCabinet(){
     if(!window.IFWL_STAFF) return;
     staffTrophyDesigns = await window.IFWL_TrophyDesignAPI.fetchTrophyDesignCatalog();
     renderTrophyDesignList();
+    populateAchvDesignSelect();
     staffTrophyEntries = await fetchTrophyCabinet();
     renderStaffTrophyCabinetList();
+    initAchievementTrophyPanel();
+  }
+
+  function populateAchvDesignSelect(){
+    const sel = q('achvDesignSelect');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">Classic (built-in shape)</option>' +
+      staffTrophyDesigns.map(d => `<option value="${d.id}">${d.title}</option>`).join('');
+  }
+
+  function achievementTrophyCardHtml(t){
+    const img = t.trophyImageUrl ? `<img src="${t.trophyImageUrl}" alt="" style="width:44px;height:44px;object-fit:contain;border-radius:6px;background:#0d1116">` : '🏆';
+    return `<div class="note-item" data-entry-id="${t.id}" style="display:flex;align-items:center;gap:12px">
+      <div>${img}</div>
+      <div style="flex:1">
+        <strong>${t.title}</strong>
+        <div class="field-hint">${t.driverName} (${t.licenceNumber})</div>
+      </div>
+      <button class="btn ghost" data-remove-achv="${t.id}">Delete</button>
+    </div>`;
+  }
+
+  function renderAchievementTrophyList(){
+    const wrap = q('achvList');
+    if(!wrap) return;
+    if(!staffAchievementTrophies.length){ wrap.innerHTML = '<div class="empty">No achievement trophies awarded yet.</div>'; return; }
+    wrap.innerHTML = staffAchievementTrophies.map(achievementTrophyCardHtml).join('');
+    wrap.querySelectorAll('[data-remove-achv]').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('Delete this achievement trophy? This cannot be undone.')) return;
+      try{
+        await window.IFWL_Api.apiPost('staffAchievementTrophyDelete', { entryId: btn.dataset.removeAchv });
+        staffAchievementTrophies = staffAchievementTrophies.filter(t => t.id !== btn.dataset.removeAchv);
+        renderAchievementTrophyList();
+      }catch(e){ alert('Could not delete: ' + e.message); }
+    }));
+  }
+
+  function initAchievementTrophyPanel(){
+    const picker = q('achvDriverPicker');
+    if(picker && !picker.dataset.wired){
+      picker.dataset.wired = '1';
+      wireTrophyDriverPicker(picker);
+    }
+
+    q('achvAwardBtn')?.addEventListener('click', async () => {
+      const discordId = picker?.dataset.discordId || '';
+      const title = q('achvTitle').value.trim();
+      const designId = q('achvDesignSelect').value;
+      const status = q('achvSaveStatus');
+
+      if(!discordId){ if(status) status.textContent = 'Pick a driver first.'; return; }
+      if(!title){ if(status) status.textContent = 'An achievement title is required.'; return; }
+
+      if(status) status.textContent = 'Awarding...';
+      try{
+        const result = await window.IFWL_Api.apiPost('staffAchievementTrophySave', { discordId, title, designId });
+        staffAchievementTrophies.unshift(result);
+        renderAchievementTrophyList();
+        if(status){ status.textContent = 'Awarded!'; setTimeout(()=>{ if(q('achvSaveStatus')) q('achvSaveStatus').textContent=''; }, 1500); }
+        q('achvTitle').value = '';
+        q('achvDesignSelect').value = '';
+        q('achvDriverSearch').value = '';
+        q('achvDriverSelected').textContent = 'None selected';
+        picker.dataset.discordId = '';
+      }catch(e){
+        if(status) status.textContent = 'Error: ' + e.message;
+      }
+    });
+
+    window.IFWL_Api.apiGet('staffAchievementTrophyList').then(data => {
+      staffAchievementTrophies = data.trophies || [];
+      renderAchievementTrophyList();
+    }).catch(e => console.warn('Could not load achievement trophies', e));
   }
 
   function renderTrophyDesignList(){
