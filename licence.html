@@ -550,7 +550,12 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .mtt-controls .mtt-locked{
   width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.15);
   background:rgba(0,0,0,.25);font-size:10px;display:flex;align-items:center;justify-content:center;
-  cursor:default;opacity:.6;
+  cursor:default;opacity:.5;position:relative;
+}
+.mtt-lock-badge{
+  position:absolute;bottom:-4px;right:-4px;font-size:9px;font-style:normal;
+  background:#1a1108;border-radius:50%;width:12px;height:12px;display:flex;align-items:center;justify-content:center;
+  line-height:1;border:1px solid rgba(255,204,120,.5);
 }
 .mtt-color-input{width:20px;height:20px;padding:0;border:1px solid rgba(255,224,160,.3);border-radius:50%;background:none;cursor:pointer;overflow:hidden}
 .mtt-color-input::-webkit-color-swatch-wrapper{padding:0}
@@ -1158,6 +1163,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <section class="panel view-panel" data-view="myTrophyCabinet" id="myTrophyCabinetPanel">
     <div class="panel-head"><div><h3>My Trophy Cabinet</h3><small>Every trophy you've won - drag them to arrange your own display</small></div></div>
     <div class="panel-body">
+      <div class="gold-upsell-box hidden" id="myCabinetUpsellBox">
+        <div class="gold-upsell-inner">
+          <div class="gold-upsell-title" id="myCabinetUpsellTitle">🏆 Unlock more for your cabinet</div>
+          <p id="myCabinetUpsellText"></p>
+          <a class="gold-upsell-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade on Patreon &rarr;</a>
+        </div>
+      </div>
       <div class="my-cabinet-stage" id="myCabinetStage">
         <div class="my-cabinet-interior" id="myCabinetInterior">
           <div class="empty">Loading&hellip;</div>
@@ -4965,11 +4977,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const lightControls = isGold
       ? `<button type="button" class="mtt-light-btn${t.lit ? ' active' : ''}" draggable="false" title="Flick the spotlight on/off (Gold perk)">💡</button>
          <input type="color" class="mtt-color-input" draggable="false" value="${lightColor}" title="Choose your spotlight colour (Gold perk)">`
-      : `<span class="mtt-locked" title="Spotlights are a Gold Patreon perk">💡</span>`;
+      : `<span class="mtt-locked" title="Spotlights are a Gold Patreon perk">💡<i class="mtt-lock-badge">🔒</i></span>`;
 
     const dustControls = isSilverPlus
       ? `<button type="button" class="mtt-dust-btn" draggable="false" title="Dust it off">🧹</button>`
-      : `<span class="mtt-locked" title="Dusting is a Silver/Gold Patreon perk">🧹</span>`;
+      : `<span class="mtt-locked" title="Dusting is a Silver/Gold Patreon perk">🧹<i class="mtt-lock-badge">🔒</i></span>`;
 
     return `<div class="my-trophy-tile${t.lit ? ' lit' : ''}${t.dusted ? ' dusted' : ''}" draggable="true" data-trophy-id="${t.trophyId}" style="--trophy-light-color:${hexToRgbTriplet(lightColor)}">
       <div class="mtt-controls">
@@ -5145,6 +5157,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return;
     }
 
+    // ✅ ADDED: explain what's locked, matching the upsell pattern used
+    // elsewhere on this page rather than leaving Bronze/Silver drivers to
+    // guess why a control looks dimmed.
+    const isGoldOrStaff = window.IFWL_GOLD || window.IFWL_STAFF;
+    const isSilverPlus = window.IFWL_SILVER_PLUS || isGoldOrStaff;
+    const upsellBox = q('myCabinetUpsellBox');
+    const upsellText = q('myCabinetUpsellText');
+    if(upsellBox && upsellText){
+      if(isGoldOrStaff){
+        upsellBox.classList.add('hidden');
+      }else if(isSilverPlus){
+        upsellText.textContent = "You can dust off your trophies. Gold Patreon also unlocks individual spotlights on each trophy, in any colour you like.";
+        upsellBox.classList.remove('hidden');
+      }else{
+        upsellText.textContent = "Silver Patreon unlocks dusting off your trophies. Gold Patreon also unlocks individual spotlights on each trophy, in any colour you like.";
+        upsellBox.classList.remove('hidden');
+      }
+    }
+
     renderLicenceCardTrophies(myTrophies.filter(t => t.showcased));
 
     if(!myTrophies.length){
@@ -5158,12 +5189,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const openBtn = q('openMyCabinetBtn');
     const closeBtn = q('closeMyCabinetBtn');
     const dustAllBtn = q('dustAllBtn');
+    const canDustAll = window.IFWL_SILVER_PLUS || window.IFWL_GOLD || window.IFWL_STAFF;
 
     openBtn?.addEventListener('click', () => {
       stage.classList.add('open');
       stage.classList.remove('glow-closed'); // no seam glow while open - the interior itself is right there, lit
       openBtn.classList.add('hidden');
-      if(myTrophies.length){ closeBtn?.classList.remove('hidden'); dustAllBtn?.classList.remove('hidden'); }
+      if(myTrophies.length){
+        closeBtn?.classList.remove('hidden');
+        // ✅ FIXED: Dust Off All had no tier check at all - it ran for
+        // every tile regardless of Patreon tier, even though the per-trophy
+        // dust button was correctly locked for Bronze. Now hidden entirely
+        // unless the driver is actually Silver+.
+        if(canDustAll) dustAllBtn?.classList.remove('hidden');
+      }
     });
     closeBtn?.addEventListener('click', () => {
       stage.classList.remove('open');
@@ -5176,6 +5215,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       openBtn?.classList.remove('hidden');
     });
     dustAllBtn?.addEventListener('click', () => {
+      if(!canDustAll) return; // server would drop this anyway, but the button shouldn't even be reachable
       const tiles = interior.querySelectorAll('.my-trophy-tile');
       tiles.forEach((tile, i) => setTimeout(() => dustOffTile(tile), i * 150));
       setTimeout(() => saveMyTrophyDisplaySettings(interior), tiles.length * 150 + 950);
