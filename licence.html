@@ -560,6 +560,37 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .mtt-color-input{width:20px;height:20px;padding:0;border:1px solid rgba(255,224,160,.3);border-radius:50%;background:none;cursor:pointer;overflow:hidden}
 .mtt-color-input::-webkit-color-swatch-wrapper{padding:0}
 .mtt-color-input::-webkit-color-swatch{border:none;border-radius:50%}
+
+/* ✅ ADDED: trophy award celebration popup */
+.trophy-award-card{
+  position:relative;
+  max-width:440px; width:100%;
+  background:linear-gradient(160deg,#1a120a,#0d0805);
+  border:1px solid rgba(255,204,120,.35);
+  border-radius:20px;
+  padding:32px 28px 26px;
+  text-align:center;
+  box-shadow:0 30px 70px rgba(0,0,0,.6);
+  overflow:hidden;
+}
+.trophy-award-glow{
+  position:absolute; top:-40px; left:50%; transform:translateX(-50%);
+  width:280px; height:280px; border-radius:50%;
+  background:radial-gradient(circle, rgba(255,204,120,.55), rgba(255,204,120,0) 65%);
+  filter:blur(6px);
+  animation:trophyAwardPulse 2.4s ease-in-out infinite;
+  z-index:0;
+}
+@keyframes trophyAwardPulse{
+  0%,100%{ opacity:.7; transform:translateX(-50%) scale(1); }
+  50%{ opacity:1; transform:translateX(-50%) scale(1.08); }
+}
+.trophy-award-visual{position:relative; z-index:1; display:flex; justify-content:center; margin-bottom:6px}
+.trophy-award-visual svg, .trophy-award-visual img{height:150px; width:auto; max-width:190px; object-fit:contain; filter:drop-shadow(0 10px 24px rgba(0,0,0,.6))}
+.trophy-award-heading{position:relative;z-index:1;margin:10px 0 6px;font-size:19px;color:#ffe9c2;text-transform:uppercase;letter-spacing:.02em}
+.trophy-award-detail{position:relative;z-index:1;margin:0 0 14px;font-size:14px;color:#fff9ec;font-weight:700;line-height:1.4}
+.trophy-award-cta{position:relative;z-index:1;margin:0 0 20px;font-size:12.5px;color:#c9b18a;line-height:1.5}
+.trophy-award-actions{position:relative;z-index:1;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 .my-trophy-tile{--trophy-light-color:255,224,160}
 .my-trophy-tile.lit{
   background:radial-gradient(circle at 50% 30%, rgba(var(--trophy-light-color),.28), rgba(20,14,8,.55) 70%);
@@ -1133,6 +1164,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
         <button type="button" class="btn ghost" id="ticketModalCancelBtn">Go Back</button>
         <button type="button" class="btn purple" id="ticketModalConfirmBtn">Continue to Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="trophyAwardModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div class="trophy-award-card">
+      <div class="trophy-award-glow"></div>
+      <div class="trophy-award-visual" id="trophyAwardVisual"></div>
+      <h2 class="trophy-award-heading">🎉 You've Been Awarded a Trophy!</h2>
+      <p class="trophy-award-detail" id="trophyAwardDetail"></p>
+      <p class="trophy-award-cta">Head over to <strong>My Trophy Cabinet</strong> to dust it off, give it a spotlight, and admire your new addition!</p>
+      <div class="trophy-award-actions">
+        <button type="button" class="btn ghost" id="trophyAwardAckBtn">Acknowledge</button>
+        <button type="button" class="btn purple" id="trophyAwardGoBtn">🏆 Go to My Trophy Cabinet</button>
       </div>
     </div>
   </div>
@@ -3158,6 +3203,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     document.querySelectorAll('.view-tab-dropdown').forEach(d => d.classList.remove('open'));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+  window.switchView = switchView;
   document.querySelectorAll('#viewTabs [data-view]').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
@@ -5144,6 +5190,43 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     box.innerHTML = trophies.map(licenceCardTrophyIconHtml).join('');
   }
 
+  function trophyAwardDetailText(t){
+    if(t.place === 'achievement') return `You've earned "${t.eventName}"`;
+    const placeLabel = t.place === 'gold' ? '1st place' : t.place === 'silver' ? '2nd place' : '3rd place';
+    return `${placeLabel} - ${t.eventName}`;
+  }
+
+  function showTrophyCelebration(queue){
+    const modal = q('trophyAwardModal');
+    const visual = q('trophyAwardVisual');
+    const detail = q('trophyAwardDetail');
+    const ackBtn = q('trophyAwardAckBtn');
+    const goBtn = q('trophyAwardGoBtn');
+    if(!modal || !queue.length) return;
+
+    const current = queue[0];
+    visual.innerHTML = trophyVisual(current.place, current, 'award_' + current.trophyId);
+    detail.textContent = trophyAwardDetailText(current);
+    modal.classList.remove('hidden');
+
+    async function acknowledgeCurrent(){
+      try{ await window.IFWL_Api.apiPost('myTrophyAcknowledge', { trophyId: current.trophyId }); }
+      catch(e){ console.warn('Could not acknowledge trophy', e); }
+      const rest = queue.slice(1);
+      if(rest.length){
+        showTrophyCelebration(rest); // next one in the queue gets its own moment
+      }else{
+        modal.classList.add('hidden');
+      }
+    }
+
+    ackBtn.onclick = acknowledgeCurrent;
+    goBtn.onclick = async () => {
+      await acknowledgeCurrent();
+      window.switchView?.('myTrophyCabinet');
+    };
+  }
+
   async function initMyTrophyCabinetPanel(){
     const interior = q('myCabinetInterior');
     const stage = q('myCabinetStage');
@@ -5185,6 +5268,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       wireMyTrophyDragReorder(interior);
       wireMyTrophyTileControls(interior);
     }
+
+    // ✅ ADDED: celebrate any trophy the driver hasn't acknowledged yet -
+    // fires regardless of which tab they land on, since this same function
+    // already runs on every page load. Queued one at a time so multiple new
+    // trophies (e.g. after a busy awards weekend) each get their own moment
+    // rather than being silently merged into one notice.
+    const newTrophies = myTrophies.filter(t => t.isNew);
+    if(newTrophies.length) showTrophyCelebration(newTrophies);
 
     const openBtn = q('openMyCabinetBtn');
     const closeBtn = q('closeMyCabinetBtn');
