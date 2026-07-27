@@ -621,6 +621,17 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 
 /* ✅ ADDED: Submit a Ticket panel */
 .notice-card{padding:14px 16px;border-radius:12px;background:rgba(31,214,189,.08);border:1px solid rgba(31,214,189,.3);border-left:4px solid var(--ifwl-teal,#1fd6bd);font-size:13px;line-height:1.55;color:var(--text-primary);margin-bottom:6px}
+
+/* ✅ ADDED: Fuel Calculator */
+.fc-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
+.fc-summary-box{background:#12161c;border:1px solid var(--ifwl-line);border-radius:12px;padding:14px}
+.fc-summary-box span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);margin-bottom:6px}
+.fc-summary-box strong{font-size:20px;color:var(--text-primary);font-family:var(--font-mono)}
+.fc-stint-table{width:100%;border-collapse:collapse;font-size:13px}
+.fc-stint-table th{text-align:left;padding:8px 12px;color:var(--ifwl-teal,#1fd6bd);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--ifwl-line)}
+.fc-stint-table td{padding:9px 12px;border-bottom:1px solid var(--ifwl-line-soft)}
+.fc-stint-table .fc-wet-tag{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(90,169,255,.15);color:#5aa9ff;font-weight:800;margin-left:6px}
+.fc-stint-table .fc-final-row{background:rgba(198,91,232,.06)}
 .ticket-picker-results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#12161c;border:1px solid var(--ifwl-line);border-radius:10px;max-height:280px;overflow-y:auto;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .ticket-picker-results .result-section-header{padding:8px 12px 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);font-weight:800}
 .ticket-picker-results .result-item{padding:9px 12px;cursor:pointer;font-size:13px;color:var(--text-primary);display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -819,6 +830,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <button class="view-tab active" data-view="home" type="button">Home</button>
   <button class="view-tab" data-view="trophyCabinet" type="button">Trophy Cabinet</button>
   <button class="view-tab logged-in-tab" data-view="myTrophyCabinet" type="button">My Trophy Cabinet</button>
+  <button class="view-tab logged-in-tab" data-view="fuelCalc" type="button">Fuel Calculator</button>
   <button class="view-tab logged-in-tab" data-view="availableRaces" type="button">Available Races</button>
   <button class="view-tab logged-in-tab" data-view="raceResults" type="button">Race Results</button>
   <div class="view-tab-dropdown logged-in-tab-group">
@@ -1228,6 +1240,122 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn ghost hidden" id="dustAllBtn" type="button">🧹 Dust Off All</button>
         <span class="save-status" id="myCabinetSaveStatus" style="margin-left:10px"></span>
       </div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="fuelCalc" id="fuelCalcPanel">
+    <div class="panel-head"><div><h3>Fuel Calculator</h3><small>Full race strategy - stint splits, fuel load pace effect, wet/dry consumption, mandatory pit stops</small></div></div>
+    <div class="panel-body">
+      <div class="notice-card">
+        <strong>How to read this:</strong> the race duration/lap count, your average lap time and fuel-per-lap are exact inputs. Everything under "Fuel Load Effect" and "Weather" are <strong>estimates</strong> - ACC doesn't publish exact per-car fuel-weight coefficients, so these defaults are sensible starting points to calibrate against your own testing, not hard game constants.
+      </div>
+
+      <h4 style="margin:20px 0 10px">Track &amp; Pace</h4>
+      <div class="field-group">
+        <label>Track (for autofilling your average lap time)</label>
+        <select id="fcTrackSelect">
+          <option value="">Select a track&hellip;</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Average lap time (mm:ss.mmm)</label>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input type="text" id="fcAvgLap" placeholder="1:54.682" style="flex:1">
+          <button class="btn ghost" id="fcAutofillBtn" type="button">Autofill from my sessions</button>
+        </div>
+        <div class="field-hint" id="fcAutofillStatus"></div>
+      </div>
+      <div class="field-group">
+        <label>Fuel consumption per lap (litres, dry baseline)</label>
+        <input type="number" id="fcFuelPerLap" step="0.01" placeholder="e.g. 2.75">
+      </div>
+      <div class="field-group">
+        <label>Fuel tank capacity (litres)</label>
+        <input type="number" id="fcTankCapacity" step="1" value="120">
+        <div class="field-hint">Most GT3 cars: ~120L. Adjust for your car/BoP if different.</div>
+      </div>
+
+      <h4 style="margin:20px 0 10px">Race Format</h4>
+      <div class="field-group">
+        <label>Race is defined by</label>
+        <select id="fcRaceMode">
+          <option value="time">Fixed duration (time)</option>
+          <option value="laps">Fixed lap count</option>
+        </select>
+      </div>
+      <div class="field-group" id="fcDurationGroup">
+        <label>Race duration</label>
+        <div style="display:flex;gap:10px">
+          <input type="number" id="fcDurationHours" placeholder="Hours" min="0" style="flex:1">
+          <input type="number" id="fcDurationMins" placeholder="Minutes" min="0" max="59" style="flex:1">
+        </div>
+      </div>
+      <div class="field-group hidden" id="fcLapsGroup">
+        <label>Total race laps</label>
+        <input type="number" id="fcTotalLaps" min="1">
+      </div>
+      <div class="field-group">
+        <label><input type="checkbox" id="fcFormationLap" checked style="width:auto;margin-right:8px"> Formation lap before the race starts</label>
+        <div class="field-hint">Adds one lap's worth of dry fuel consumption before lap 1, not counted toward race distance.</div>
+      </div>
+
+      <h4 style="margin:20px 0 10px">Fuel Load Effect on Pace <span class="field-hint" style="text-transform:none;font-weight:400">(estimate - see note above)</span></h4>
+      <div class="field-group">
+        <label><input type="checkbox" id="fcFuelEffectEnabled" checked style="width:auto;margin-right:8px"> Model heavier fuel load making laps slower</label>
+      </div>
+      <div class="field-group">
+        <label>Seconds slower per litre carried</label>
+        <input type="number" id="fcSecPerLitre" step="0.001" value="0.033">
+        <div class="field-hint">A commonly cited GT3 rule-of-thumb range is ~0.03-0.04s per litre - varies by car and track.</div>
+      </div>
+
+      <h4 style="margin:20px 0 10px">Weather <span class="field-hint" style="text-transform:none;font-weight:400">(estimate)</span></h4>
+      <div class="field-group">
+        <label><input type="checkbox" id="fcWetEnabled" style="width:auto;margin-right:8px"> Part of the race is wet</label>
+      </div>
+      <div class="field-group wet-only hidden">
+        <label>Wet window (% of race distance)</label>
+        <div style="display:flex;gap:10px">
+          <input type="number" id="fcWetStartPct" placeholder="Start %" min="0" max="100" value="0" style="flex:1">
+          <input type="number" id="fcWetEndPct" placeholder="End %" min="0" max="100" value="30" style="flex:1">
+        </div>
+      </div>
+      <div class="field-group wet-only hidden">
+        <label>Wet fuel consumption multiplier</label>
+        <input type="number" id="fcWetFuelMult" step="0.01" value="0.92">
+        <div class="field-hint">Below 1 = burns less fuel per lap in the wet (typically true due to lower speeds/less throttle).</div>
+      </div>
+      <div class="field-group wet-only hidden">
+        <label>Wet lap time penalty (%)</label>
+        <input type="number" id="fcWetLapPenaltyPct" step="0.1" value="4">
+      </div>
+
+      <h4 style="margin:20px 0 10px">Mandatory Pit Stops</h4>
+      <div class="field-group">
+        <label>Number of mandatory stops</label>
+        <input type="number" id="fcNumStops" min="0" value="1">
+      </div>
+      <div class="field-group">
+        <label>Pit window (% of race distance stops must fall within)</label>
+        <div style="display:flex;gap:10px">
+          <input type="number" id="fcPitWindowStart" placeholder="Start %" min="0" max="100" value="30" style="flex:1">
+          <input type="number" id="fcPitWindowEnd" placeholder="End %" min="0" max="100" value="70" style="flex:1">
+        </div>
+      </div>
+      <div class="field-group">
+        <label>Pit stop time loss (seconds, entry to exit)</label>
+        <input type="number" id="fcPitLossSec" step="0.1" value="35">
+      </div>
+
+      <h4 style="margin:20px 0 10px">Safety Margin</h4>
+      <div class="field-group">
+        <label>Extra laps of fuel buffer (added to your final stint)</label>
+        <input type="number" id="fcSafetyLaps" min="0" value="2">
+      </div>
+
+      <button class="btn purple" id="fcCalculateBtn" type="button" style="margin-top:10px">Calculate Strategy</button>
+
+      <div id="fcResults" style="margin-top:24px"></div>
     </div>
   </section>
 
@@ -3550,6 +3678,269 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const collapsed = panel.classList.toggle('tier-collapsed');
     q('toggleTiersBtn').textContent = collapsed ? 'View licence tier ladder' : 'Hide licence tier ladder';
   });
+
+  // ✅ ADDED: Fuel Calculator - full race strategy simulator
+  const FC_TRACKS = [
+    'barcelona','brands_hatch','cota','donington','hungaroring','imola','indianapolis',
+    'kyalami','laguna_seca','misano','monza','mount_panorama','nurburgring','nurburgring_24h',
+    'oulton_park','paul_ricard','red_bull_ring','silverstone','snetterton','spa','suzuka',
+    'valencia','watkins_glen','zandvoort','zolder'
+  ];
+
+  function fcPopulateTrackSelect(){
+    const sel = q('fcTrackSelect');
+    if(!sel) return;
+    sel.innerHTML = '<option value="">Select a track&hellip;</option>' +
+      FC_TRACKS.map(t => `<option value="${t}">${t.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase())}</option>`).join('');
+  }
+
+  function fcParseLapTime(str){
+    // Accepts "1:54.682" or "114.682" or "1:54"
+    const s = String(str || '').trim();
+    if(!s) return null;
+    const m = s.match(/^(\d+):(\d+(?:\.\d+)?)$/);
+    if(m) return (Number(m[1]) * 60) + Number(m[2]);
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function fcFormatLapTime(sec){
+    const m = Math.floor(sec / 60);
+    const s = sec - (m * 60);
+    return `${m}:${s.toFixed(3).padStart(6,'0')}`;
+  }
+
+  function fcFormatClock(sec){
+    const totalSec = Math.round(sec);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+  }
+
+  async function fcAutofillLapTime(){
+    const status = q('fcAutofillStatus');
+    const track = q('fcTrackSelect').value;
+    if(!track){ status.textContent = 'Pick a track first.'; return; }
+    if(!currentProfile?.accDriverNames?.length){ status.textContent = 'Link your ACC driver name(s) on My Licence first.'; return; }
+
+    status.textContent = 'Looking through your recent sessions...';
+    try{
+      const allRows = await window.IFWLStats.buildAllRows();
+      const aliasKeys = currentProfile.accDriverNames.map(n => window.IFWLStats.driverNameKey(n));
+      const myRows = allRows.filter(r => aliasKeys.includes(window.IFWLStats.driverNameKey(r.driver)) && r.track === track);
+
+      const cleanLaps = [];
+      myRows.forEach(r => (r.lapObjects || []).forEach(l => {
+        if(l.isValidForBest !== false && Number.isFinite(l.laptime) && l.laptime > 0) cleanLaps.push(l.laptime);
+      }));
+
+      if(!cleanLaps.length){
+        status.textContent = `No clean laps found for you on this track yet - enter your average lap time manually.`;
+        return;
+      }
+
+      const avgMs = cleanLaps.reduce((a,b)=>a+b,0) / cleanLaps.length;
+      q('fcAvgLap').value = fcFormatLapTime(avgMs / 1000);
+      status.textContent = `Filled from ${cleanLaps.length} of your clean laps at this track.`;
+    }catch(e){
+      status.textContent = 'Could not autofill: ' + e.message;
+    }
+  }
+
+  // The core lap-by-lap simulation. Fuel load effect makes the START of each
+  // stint slower and the END faster (heavier tank = slower); wet laps use a
+  // separate fuel multiplier and lap-time penalty. Total lap count for a
+  // time-based race is solved by iterating - simulate, compare total time
+  // to target, add/remove a lap, repeat - since lap time itself depends on
+  // fuel load and wet/dry mix, which depend on how many laps there are.
+  function fcSimulate(p){
+    function stopLapsFor(totalLaps){
+      const stops = [];
+      if(p.numStops > 0){
+        const windowStart = Math.round((p.pitWindowStart/100) * totalLaps);
+        const windowEnd = Math.round((p.pitWindowEnd/100) * totalLaps);
+        const span = Math.max(1, windowEnd - windowStart);
+        for(let i=1;i<=p.numStops;i++){
+          stops.push(Math.min(totalLaps-1, Math.max(1, Math.round(windowStart + (span * i)/(p.numStops+1)))));
+        }
+      }
+      return stops;
+    }
+
+    function buildStints(totalLaps){
+      const stopLaps = new Set(stopLapsFor(totalLaps));
+      const stints = [{ laps: [] }];
+      for(let lap=1; lap<=totalLaps; lap++){
+        const pct = (lap / totalLaps) * 100;
+        const isWet = p.wetEnabled && pct >= p.wetStart && pct <= p.wetEnd;
+        stints[stints.length-1].laps.push({ lap, isWet });
+        if(stopLaps.has(lap) && lap !== totalLaps) stints.push({ laps: [] });
+      }
+      return stints;
+    }
+
+    // Fuel-effect-adjusted lap time using THIS stint's own fuel burn, heaviest
+    // at the start of the stint and lightest at the end.
+    function timeAndFuelForStints(stints){
+      let totalTimeSec = p.hasFormationLap ? p.avgLapSec : 0;
+      let totalFuel = p.hasFormationLap ? p.fuelPerLap : 0;
+
+      const resultStints = stints.map((stint, sIdx) => {
+        const lapFuels = stint.laps.map(l => p.fuelPerLap * (l.isWet ? p.wetFuelMult : 1));
+        const stintFuelTotal = lapFuels.reduce((a,b)=>a+b, 0);
+        let fuelRemaining = stintFuelTotal;
+        let stintTime = 0;
+
+        const lapDetails = stint.laps.map((l, i) => {
+          const fuelBurn = lapFuels[i];
+          const fuelEffectSec = p.fuelEffectEnabled ? (fuelRemaining * p.secPerLitre) : 0;
+          const wetPenaltySec = l.isWet ? (p.avgLapSec * (p.wetLapPenaltyPct/100)) : 0;
+          const lapTime = p.avgLapSec + fuelEffectSec + wetPenaltySec;
+          fuelRemaining -= fuelBurn;
+          stintTime += lapTime;
+          return { lap: l.lap, isWet: l.isWet, lapTime, fuelBurn };
+        });
+
+        totalTimeSec += stintTime;
+        if(sIdx > 0) totalTimeSec += p.pitLossSec; // time lost entering/exiting for this stint's stop
+
+        const wetLapCount = stint.laps.filter(l => l.isWet).length;
+        return {
+          stintNumber: sIdx+1,
+          lapCount: stint.laps.length,
+          fuelNeeded: stintFuelTotal,
+          wetLapCount,
+          lapDetails
+        };
+      });
+
+      totalFuel += resultStints.reduce((sum, s) => sum + s.fuelNeeded, 0);
+      return { totalTimeSec, totalFuel, stints: resultStints };
+    }
+
+    let totalLaps;
+    if(p.mode === 'laps'){
+      totalLaps = p.totalLaps;
+    }else{
+      // Iterative convergence for a time-based race
+      totalLaps = Math.max(1, Math.round(p.durationSec / p.avgLapSec));
+      for(let i=0;i<25;i++){
+        const stints = buildStints(totalLaps);
+        const { totalTimeSec } = timeAndFuelForStints(stints);
+        if(totalTimeSec >= p.durationSec) break;
+        totalLaps += 1;
+      }
+    }
+
+    const stints = buildStints(totalLaps);
+    const final = timeAndFuelForStints(stints);
+
+    // Safety margin applied to the FINAL stint only - that's the one stint
+    // where running dry actually costs you the finish, not just an earlier
+    // pit call.
+    const lastStint = final.stints[final.stints.length-1];
+    const avgFuelPerLapLastStint = lastStint.fuelNeeded / Math.max(1, lastStint.lapCount);
+    const safetyFuel = p.safetyLaps * avgFuelPerLapLastStint;
+    lastStint.fuelNeeded += safetyFuel;
+    lastStint.safetyFuel = safetyFuel;
+
+    const grandTotalFuel = final.totalFuel + safetyFuel;
+
+    return {
+      totalLaps,
+      totalTimeSec: final.totalTimeSec,
+      stints: final.stints,
+      grandTotalFuel,
+      tankOverflowStints: final.stints.filter(s => s.fuelNeeded > p.tankCapacity).map(s => s.stintNumber)
+    };
+  }
+
+  function fcRenderResults(result, p){
+    const box = q('fcResults');
+    const rows = result.stints.map(s => {
+      const wetTag = s.wetLapCount ? `<span class="fc-wet-tag">${s.wetLapCount} wet lap(s)</span>` : '';
+      const isFinal = s.stintNumber === result.stints.length;
+      const overCap = s.fuelNeeded > p.tankCapacity;
+      return `<tr class="${isFinal ? 'fc-final-row' : ''}">
+        <td>${s.stintNumber}${isFinal ? ' (final)' : ''}</td>
+        <td>${s.lapCount}</td>
+        <td>${s.fuelNeeded.toFixed(2)}L${overCap ? ' <span style="color:var(--ifwl-red)">⚠ over tank capacity</span>' : ''}</td>
+        <td>${s.safetyFuel ? `+${s.safetyFuel.toFixed(2)}L safety` : '-'}</td>
+        <td>${wetTag || '-'}</td>
+      </tr>`;
+    }).join('');
+
+    box.innerHTML = `
+      <div class="fc-summary-grid">
+        <div class="fc-summary-box"><span>Total Fuel Required</span><strong>${result.grandTotalFuel.toFixed(2)}L</strong></div>
+        <div class="fc-summary-box"><span>Total Laps</span><strong>${result.totalLaps}</strong></div>
+        <div class="fc-summary-box"><span>Estimated Race Time</span><strong>${fcFormatClock(result.totalTimeSec)}</strong></div>
+        <div class="fc-summary-box"><span>Pit Stops</span><strong>${result.stints.length - 1}</strong></div>
+      </div>
+      ${result.tankOverflowStints.length ? `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Heads up:</strong> stint(s) ${result.tankOverflowStints.join(', ')} need more fuel than your tank capacity (${p.tankCapacity}L) can hold in one fill. You may need an extra splash-and-dash, or to rebalance your pit stop timing.</div>` : ''}
+      <table class="fc-stint-table">
+        <thead><tr><th>Stint</th><th>Laps</th><th>Fuel to Load</th><th>Safety Buffer</th><th>Notes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
+  function fcCalculate(){
+    const status = q('fcAutofillStatus');
+    const avgLapSec = fcParseLapTime(q('fcAvgLap').value);
+    const fuelPerLap = Number(q('fcFuelPerLap').value);
+    const tankCapacity = Number(q('fcTankCapacity').value) || 120;
+
+    if(!avgLapSec || avgLapSec <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter a valid average lap time first.</div>'; return; }
+    if(!fuelPerLap || fuelPerLap <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter your fuel consumption per lap first.</div>'; return; }
+
+    const mode = q('fcRaceMode').value;
+    const hours = Number(q('fcDurationHours').value) || 0;
+    const mins = Number(q('fcDurationMins').value) || 0;
+    const durationSec = (hours * 3600) + (mins * 60);
+    const totalLaps = Number(q('fcTotalLaps').value) || 0;
+
+    if(mode === 'time' && durationSec <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter a race duration first.</div>'; return; }
+    if(mode === 'laps' && totalLaps <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter a total lap count first.</div>'; return; }
+
+    const p = {
+      mode, durationSec, totalLaps, avgLapSec, fuelPerLap, tankCapacity,
+      hasFormationLap: q('fcFormationLap').checked,
+      fuelEffectEnabled: q('fcFuelEffectEnabled').checked,
+      secPerLitre: Number(q('fcSecPerLitre').value) || 0,
+      wetEnabled: q('fcWetEnabled').checked,
+      wetStart: Number(q('fcWetStartPct').value) || 0,
+      wetEnd: Number(q('fcWetEndPct').value) || 0,
+      wetFuelMult: Number(q('fcWetFuelMult').value) || 1,
+      wetLapPenaltyPct: Number(q('fcWetLapPenaltyPct').value) || 0,
+      numStops: Number(q('fcNumStops').value) || 0,
+      pitWindowStart: Number(q('fcPitWindowStart').value) || 0,
+      pitWindowEnd: Number(q('fcPitWindowEnd').value) || 100,
+      pitLossSec: Number(q('fcPitLossSec').value) || 0,
+      safetyLaps: Number(q('fcSafetyLaps').value) || 0
+    };
+
+    const result = fcSimulate(p);
+    fcRenderResults(result, p);
+  }
+
+  function initFuelCalculator(){
+    if(!q('fuelCalcPanel')) return;
+    fcPopulateTrackSelect();
+
+    q('fcRaceMode')?.addEventListener('change', () => {
+      const isTime = q('fcRaceMode').value === 'time';
+      q('fcDurationGroup').classList.toggle('hidden', !isTime);
+      q('fcLapsGroup').classList.toggle('hidden', isTime);
+    });
+    q('fcWetEnabled')?.addEventListener('change', () => {
+      document.querySelectorAll('.wet-only').forEach(el => el.classList.toggle('hidden', !q('fcWetEnabled').checked));
+    });
+    q('fcAutofillBtn')?.addEventListener('click', fcAutofillLapTime);
+    q('fcCalculateBtn')?.addEventListener('click', fcCalculate);
+  }
+  initFuelCalculator();
 
   window.addEventListener('ifwl-auth-changed', e=>{
     if(e.detail?.meta) init();
