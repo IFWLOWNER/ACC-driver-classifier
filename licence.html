@@ -631,6 +631,10 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .fc-stint-table th{text-align:left;padding:8px 12px;color:var(--ifwl-teal,#1fd6bd);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--ifwl-line)}
 .fc-stint-table td{padding:9px 12px;border-bottom:1px solid var(--ifwl-line-soft)}
 .fc-stint-table .fc-wet-tag{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(90,169,255,.15);color:#5aa9ff;font-weight:800;margin-left:6px}
+.fc-reason-tag{font-size:10px;padding:2px 8px;border-radius:999px;font-weight:800;white-space:nowrap}
+.fc-reason-tag.fuel{background:rgba(255,178,56,.15);color:var(--ifwl-amber,#ffb238)}
+.fc-reason-tag.mandatory{background:rgba(198,91,232,.15);color:var(--ifwl-purple,#c65be8)}
+.fc-reason-tag.start{background:rgba(120,130,140,.15);color:#8a94a0}
 .fc-stint-table .fc-final-row{background:rgba(198,91,232,.06)}
 .ticket-picker-results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#12161c;border:1px solid var(--ifwl-line);border-radius:10px;max-height:280px;overflow-y:auto;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .ticket-picker-results .result-section-header{padding:8px 12px 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);font-weight:800}
@@ -1351,6 +1355,35 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="field-group">
         <label>Extra laps of fuel buffer (added to your final stint)</label>
         <input type="number" id="fcSafetyLaps" min="0" value="2">
+      </div>
+
+      <h4 style="margin:20px 0 10px">Team &amp; Driver Rotation</h4>
+      <div class="field-group">
+        <label><input type="checkbox" id="fcTeamMode" style="width:auto;margin-right:8px"> This is a team / multi-driver endurance entry</label>
+      </div>
+      <div class="field-group team-only hidden">
+        <label>Number of drivers sharing the car</label>
+        <input type="number" id="fcNumDrivers" min="2" value="2">
+        <div class="field-hint">Drivers are rotated in stint order (1, 2, 3, 1, 2, 3...) - rename them after calculating if you want a specific running order instead.</div>
+      </div>
+
+      <h4 style="margin:20px 0 10px">Push &amp; Preserve Strategy</h4>
+      <p class="field-hint" style="margin-bottom:10px">See how much pushing harder (more pace, more fuel) or preserving (less pace, less fuel) changes your stops and total distance, alongside your standard plan.</p>
+      <div class="field-group">
+        <label>Push: seconds faster per lap</label>
+        <div style="display:flex;gap:10px">
+          <input type="number" id="fcPushPaceDelta" step="0.1" value="0.3" style="flex:1">
+          <input type="number" id="fcPushFuelPct" step="0.1" value="8" style="flex:1" placeholder="Fuel increase %">
+        </div>
+        <div class="field-hint">Seconds faster per lap, and the % more fuel that pace typically costs.</div>
+      </div>
+      <div class="field-group">
+        <label>Preserve: seconds slower per lap</label>
+        <div style="display:flex;gap:10px">
+          <input type="number" id="fcPreservePaceDelta" step="0.1" value="0.4" style="flex:1">
+          <input type="number" id="fcPreserveFuelPct" step="0.1" value="10" style="flex:1" placeholder="Fuel saving %">
+        </div>
+        <div class="field-hint">Seconds slower per lap ("lift and coast"), and the % fuel that typically saves.</div>
       </div>
 
       <button class="btn purple" id="fcCalculateBtn" type="button" style="margin-top:10px">Calculate Strategy</button>
@@ -3748,163 +3781,230 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
   }
 
-  // The core lap-by-lap simulation. Fuel load effect makes the START of each
-  // stint slower and the END faster (heavier tank = slower); wet laps use a
-  // separate fuel multiplier and lap-time penalty. Total lap count for a
-  // time-based race is solved by iterating - simulate, compare total time
-  // to target, add/remove a lap, repeat - since lap time itself depends on
-  // fuel load and wet/dry mix, which depend on how many laps there are.
-  function fcSimulate(p){
-    function stopLapsFor(totalLaps){
-      const stops = [];
-      if(p.numStops > 0){
-        const windowStart = Math.round((p.pitWindowStart/100) * totalLaps);
-        const windowEnd = Math.round((p.pitWindowEnd/100) * totalLaps);
-        const span = Math.max(1, windowEnd - windowStart);
-        for(let i=1;i<=p.numStops;i++){
-          stops.push(Math.min(totalLaps-1, Math.max(1, Math.round(windowStart + (span * i)/(p.numStops+1)))));
-        }
-      }
-      return stops;
-    }
+  // ============================================================
+  // FUEL CALCULATOR - core simulation
+  //
+  // Stint boundaries are now driven by whichever comes first: the tank
+  // running dry, or a mandatory-stop checkpoint being reached. This fixes a
+  // real gap in the original version - with 0 MANDATORY stops configured it
+  // would happily plan a single 700-lap stint needing 2000+ litres, when in
+  // reality a car always has to stop once its tank runs out regardless of
+  // any mandatory-stop rule. Mandatory stops are a MINIMUM requirement
+  // layered on top of that physical reality, not the only reason to pit.
+  // ============================================================
 
-    function buildStints(totalLaps){
-      const stopLaps = new Set(stopLapsFor(totalLaps));
-      const stints = [{ laps: [] }];
+  function fcBuildPlan(p, avgLapSec, fuelPerLap, totalLapsOverride){
+    function buildStintsForLapCount(totalLaps){
+      const windowStartLap = Math.round((p.pitWindowStart/100) * totalLaps);
+      const windowEndLap = Math.round((p.pitWindowEnd/100) * totalLaps);
+      const span = Math.max(1, windowEndLap - windowStartLap);
+      const mandatoryTargets = [];
+      for(let i=1;i<=p.numStops;i++){
+        mandatoryTargets.push(Math.round(windowStartLap + (span * i)/(p.numStops+1)));
+      }
+
+      const stints = [];
+      const stopReasons = []; // one entry per pit stop between stints
+      let current = { laps: [], fuelUsed: 0 };
+      let nextMandatoryIdx = 0;
+
       for(let lap=1; lap<=totalLaps; lap++){
         const pct = (lap / totalLaps) * 100;
         const isWet = p.wetEnabled && pct >= p.wetStart && pct <= p.wetEnd;
-        stints[stints.length-1].laps.push({ lap, isWet });
-        if(stopLaps.has(lap) && lap !== totalLaps) stints.push({ laps: [] });
+        const fuelThisLap = fuelPerLap * (isWet ? p.wetFuelMult : 1);
+
+        const tankWouldOverflow = current.laps.length > 0 && (current.fuelUsed + fuelThisLap) > p.tankCapacity;
+        const hitMandatoryCheckpoint = current.laps.length > 0 && nextMandatoryIdx < mandatoryTargets.length && lap >= mandatoryTargets[nextMandatoryIdx];
+
+        if(tankWouldOverflow || hitMandatoryCheckpoint){
+          stints.push(current);
+          const stopLap = lap - 1;
+          let satisfiesMandatory = false;
+          if(nextMandatoryIdx < mandatoryTargets.length && stopLap >= windowStartLap && stopLap <= windowEndLap){
+            nextMandatoryIdx++;
+            satisfiesMandatory = true;
+          }
+          stopReasons.push(
+            tankWouldOverflow && satisfiesMandatory ? 'Fuel + Mandatory'
+            : tankWouldOverflow ? 'Fuel required'
+            : 'Mandatory'
+          );
+          current = { laps: [], fuelUsed: 0 };
+        }
+
+        current.laps.push({ lap, isWet });
+        current.fuelUsed += fuelThisLap;
       }
-      return stints;
+      stints.push(current);
+
+      return {
+        stints, stopReasons,
+        mandatoryUnsatisfied: Math.max(0, p.numStops - nextMandatoryIdx)
+      };
     }
 
-    // Fuel-effect-adjusted lap time using THIS stint's own fuel burn, heaviest
-    // at the start of the stint and lightest at the end.
     function timeAndFuelForStints(stints){
-      let totalTimeSec = p.hasFormationLap ? p.avgLapSec : 0;
-      let totalFuel = p.hasFormationLap ? p.fuelPerLap : 0;
+      let totalTimeSec = p.hasFormationLap ? avgLapSec : 0;
+      let totalFuel = p.hasFormationLap ? fuelPerLap : 0;
 
-      const resultStints = stints.map((stint, sIdx) => {
-        const lapFuels = stint.laps.map(l => p.fuelPerLap * (l.isWet ? p.wetFuelMult : 1));
+      const resultStints = stints.map((stint) => {
+        const lapFuels = stint.laps.map(l => fuelPerLap * (l.isWet ? p.wetFuelMult : 1));
         const stintFuelTotal = lapFuels.reduce((a,b)=>a+b, 0);
         let fuelRemaining = stintFuelTotal;
         let stintTime = 0;
 
-        const lapDetails = stint.laps.map((l, i) => {
+        stint.laps.forEach((l, i) => {
           const fuelBurn = lapFuels[i];
           const fuelEffectSec = p.fuelEffectEnabled ? (fuelRemaining * p.secPerLitre) : 0;
-          const wetPenaltySec = l.isWet ? (p.avgLapSec * (p.wetLapPenaltyPct/100)) : 0;
-          const lapTime = p.avgLapSec + fuelEffectSec + wetPenaltySec;
+          const wetPenaltySec = l.isWet ? (avgLapSec * (p.wetLapPenaltyPct/100)) : 0;
+          stintTime += avgLapSec + fuelEffectSec + wetPenaltySec;
           fuelRemaining -= fuelBurn;
-          stintTime += lapTime;
-          return { lap: l.lap, isWet: l.isWet, lapTime, fuelBurn };
         });
 
         totalTimeSec += stintTime;
-        if(sIdx > 0) totalTimeSec += p.pitLossSec; // time lost entering/exiting for this stint's stop
-
         const wetLapCount = stint.laps.filter(l => l.isWet).length;
-        return {
-          stintNumber: sIdx+1,
-          lapCount: stint.laps.length,
-          fuelNeeded: stintFuelTotal,
-          wetLapCount,
-          lapDetails
-        };
+        return { lapCount: stint.laps.length, fuelNeeded: stintFuelTotal, wetLapCount };
       });
 
+      totalTimeSec += Math.max(0, resultStints.length - 1) * p.pitLossSec;
       totalFuel += resultStints.reduce((sum, s) => sum + s.fuelNeeded, 0);
       return { totalTimeSec, totalFuel, stints: resultStints };
     }
 
     let totalLaps;
-    if(p.mode === 'laps'){
+    if(totalLapsOverride){
+      totalLaps = totalLapsOverride;
+    }else if(p.mode === 'laps'){
       totalLaps = p.totalLaps;
     }else{
-      // Iterative convergence for a time-based race
-      totalLaps = Math.max(1, Math.round(p.durationSec / p.avgLapSec));
+      totalLaps = Math.max(1, Math.round(p.durationSec / avgLapSec));
       for(let i=0;i<25;i++){
-        const stints = buildStints(totalLaps);
+        const { stints } = buildStintsForLapCount(totalLaps);
         const { totalTimeSec } = timeAndFuelForStints(stints);
         if(totalTimeSec >= p.durationSec) break;
         totalLaps += 1;
       }
     }
 
-    const stints = buildStints(totalLaps);
-    const final = timeAndFuelForStints(stints);
+    const { stints, stopReasons, mandatoryUnsatisfied } = buildStintsForLapCount(totalLaps);
+    const timing = timeAndFuelForStints(stints);
 
-    // Safety margin applied to the FINAL stint only - that's the one stint
-    // where running dry actually costs you the finish, not just an earlier
-    // pit call.
-    const lastStint = final.stints[final.stints.length-1];
+    // Merge stop reasons + safety margin (final stint only) into the final result
+    const finalStints = timing.stints.map((s, i) => ({
+      stintNumber: i+1,
+      lapCount: s.lapCount,
+      fuelNeeded: s.fuelNeeded,
+      wetLapCount: s.wetLapCount,
+      stopReason: i > 0 ? stopReasons[i-1] : null // the stop BEFORE this stint (stint 1 has none)
+    }));
+
+    const lastStint = finalStints[finalStints.length-1];
     const avgFuelPerLapLastStint = lastStint.fuelNeeded / Math.max(1, lastStint.lapCount);
     const safetyFuel = p.safetyLaps * avgFuelPerLapLastStint;
     lastStint.fuelNeeded += safetyFuel;
     lastStint.safetyFuel = safetyFuel;
 
-    const grandTotalFuel = final.totalFuel + safetyFuel;
+    const fuelForcedStops = finalStints.filter(s => s.stopReason === 'Fuel required' || s.stopReason === 'Fuel + Mandatory').length;
+    const mandatoryOnlyStops = finalStints.filter(s => s.stopReason === 'Mandatory').length;
 
     return {
       totalLaps,
-      totalTimeSec: final.totalTimeSec,
-      stints: final.stints,
-      grandTotalFuel,
-      tankOverflowStints: final.stints.filter(s => s.fuelNeeded > p.tankCapacity).map(s => s.stintNumber)
+      totalTimeSec: timing.totalTimeSec,
+      stints: finalStints,
+      grandTotalFuel: timing.totalFuel + safetyFuel,
+      totalStops: finalStints.length - 1,
+      fuelForcedStops,
+      mandatoryOnlyStops,
+      mandatoryRequired: p.numStops,
+      mandatoryUnsatisfied,
+      tankOverflowStints: finalStints.filter(s => s.fuelNeeded > p.tankCapacity).map(s => s.stintNumber)
     };
   }
 
-  function fcRenderResults(result, p){
+  function fcAssignDrivers(stints, numDrivers){
+    return stints.map((s, i) => ({ ...s, driver: `Driver ${(i % numDrivers) + 1}` }));
+  }
+
+  function fcRenderResults(standard, push, preserve, p){
     const box = q('fcResults');
-    const rows = result.stints.map(s => {
+
+    const stopSummary = `${standard.totalStops} total (${standard.fuelForcedStops} fuel-required` +
+      (standard.mandatoryOnlyStops ? ` + ${standard.mandatoryOnlyStops} mandatory-only` : '') + ')';
+
+    const stintsForDisplay = p.teamMode ? fcAssignDrivers(standard.stints, p.numDrivers) : standard.stints;
+
+    const rows = stintsForDisplay.map(s => {
       const wetTag = s.wetLapCount ? `<span class="fc-wet-tag">${s.wetLapCount} wet lap(s)</span>` : '';
-      const isFinal = s.stintNumber === result.stints.length;
+      const isFinal = s.stintNumber === standard.stints.length;
       const overCap = s.fuelNeeded > p.tankCapacity;
+      const reasonTag = s.stopReason ? `<span class="fc-reason-tag ${s.stopReason.includes('Fuel') ? 'fuel' : 'mandatory'}">${s.stopReason}</span>` : '<span class="fc-reason-tag start">Race start</span>';
       return `<tr class="${isFinal ? 'fc-final-row' : ''}">
         <td>${s.stintNumber}${isFinal ? ' (final)' : ''}</td>
+        ${p.teamMode ? `<td>${s.driver}</td>` : ''}
         <td>${s.lapCount}</td>
         <td>${s.fuelNeeded.toFixed(2)}L${overCap ? ' <span style="color:var(--ifwl-red)">⚠ over tank capacity</span>' : ''}</td>
         <td>${s.safetyFuel ? `+${s.safetyFuel.toFixed(2)}L safety` : '-'}</td>
+        <td>${reasonTag}</td>
         <td>${wetTag || '-'}</td>
       </tr>`;
     }).join('');
 
+    const stratRow = (label, r) => `<tr>
+      <td>${label}</td>
+      <td>${p.mode === 'time' ? r.totalLaps + ' laps' : fcFormatClock(r.totalTimeSec)}</td>
+      <td>${r.totalStops}</td>
+      <td>${r.grandTotalFuel.toFixed(1)}L</td>
+    </tr>`;
+
+    const mandatoryWarning = standard.mandatoryUnsatisfied > 0
+      ? `<div class="notice-card" style="border-left-color:var(--ifwl-amber);background:rgba(255,178,56,.08)"><strong>Note:</strong> ${standard.mandatoryUnsatisfied} of your ${standard.mandatoryRequired} mandatory stop(s) weren't naturally reached within the pit window by this plan - you'll need to make sure those still happen, even as a shorter/earlier stop than the tank strictly requires.</div>`
+      : '';
+
     box.innerHTML = `
       <div class="fc-summary-grid">
-        <div class="fc-summary-box"><span>Total Fuel Required</span><strong>${result.grandTotalFuel.toFixed(2)}L</strong></div>
-        <div class="fc-summary-box"><span>Total Laps</span><strong>${result.totalLaps}</strong></div>
-        <div class="fc-summary-box"><span>Estimated Race Time</span><strong>${fcFormatClock(result.totalTimeSec)}</strong></div>
-        <div class="fc-summary-box"><span>Pit Stops</span><strong>${result.stints.length - 1}</strong></div>
+        <div class="fc-summary-box"><span>Total Fuel Required</span><strong>${standard.grandTotalFuel.toFixed(2)}L</strong></div>
+        <div class="fc-summary-box"><span>Total Laps</span><strong>${standard.totalLaps}</strong></div>
+        <div class="fc-summary-box"><span>Estimated Race Time</span><strong>${fcFormatClock(standard.totalTimeSec)}</strong></div>
+        <div class="fc-summary-box"><span>Pit Stops Required</span><strong>${stopSummary}</strong></div>
       </div>
-      ${result.tankOverflowStints.length ? `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Heads up:</strong> stint(s) ${result.tankOverflowStints.join(', ')} need more fuel than your tank capacity (${p.tankCapacity}L) can hold in one fill. You may need an extra splash-and-dash, or to rebalance your pit stop timing.</div>` : ''}
+      ${mandatoryWarning}
+      ${standard.tankOverflowStints.length ? `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Heads up:</strong> stint(s) ${standard.tankOverflowStints.join(', ')} need more fuel than your tank capacity (${p.tankCapacity}L) can hold in one fill - likely just your final stint's safety buffer pushing it over. Consider a smaller safety margin or an extra late splash.</div>` : ''}
+
+      <h4 style="margin:18px 0 10px">Stint-by-Stint Plan${p.teamMode ? ' &amp; Driver Rotation' : ''}</h4>
       <table class="fc-stint-table">
-        <thead><tr><th>Stint</th><th>Laps</th><th>Fuel to Load</th><th>Safety Buffer</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Stint</th>${p.teamMode ? '<th>Driver</th>' : ''}<th>Laps</th><th>Fuel to Load</th><th>Safety Buffer</th><th>Why this stop</th><th>Weather</th></tr></thead>
         <tbody>${rows}</tbody>
+      </table>
+
+      <h4 style="margin:22px 0 10px">Push vs Standard vs Preserve</h4>
+      <p class="field-hint" style="margin-bottom:10px">${p.mode === 'time' ? 'How much extra distance pushing or preserving covers in the same race duration.' : 'How much time and fuel each strategy costs over the same fixed race distance.'}</p>
+      <table class="fc-stint-table">
+        <thead><tr><th>Strategy</th><th>${p.mode === 'time' ? 'Distance Covered' : 'Race Time'}</th><th>Pit Stops</th><th>Total Fuel</th></tr></thead>
+        <tbody>
+          ${stratRow('🔥 Push', push)}
+          ${stratRow('Standard', standard)}
+          ${stratRow('🌿 Preserve', preserve)}
+        </tbody>
       </table>
     `;
   }
 
-  function fcCalculate(){
-    const status = q('fcAutofillStatus');
+  function fcGatherParams(){
     const avgLapSec = fcParseLapTime(q('fcAvgLap').value);
     const fuelPerLap = Number(q('fcFuelPerLap').value);
     const tankCapacity = Number(q('fcTankCapacity').value) || 120;
-
-    if(!avgLapSec || avgLapSec <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter a valid average lap time first.</div>'; return; }
-    if(!fuelPerLap || fuelPerLap <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter your fuel consumption per lap first.</div>'; return; }
+    if(!avgLapSec || avgLapSec <= 0) return { error: 'Enter a valid average lap time first.' };
+    if(!fuelPerLap || fuelPerLap <= 0) return { error: 'Enter your fuel consumption per lap first.' };
 
     const mode = q('fcRaceMode').value;
     const hours = Number(q('fcDurationHours').value) || 0;
     const mins = Number(q('fcDurationMins').value) || 0;
     const durationSec = (hours * 3600) + (mins * 60);
     const totalLaps = Number(q('fcTotalLaps').value) || 0;
+    if(mode === 'time' && durationSec <= 0) return { error: 'Enter a race duration first.' };
+    if(mode === 'laps' && totalLaps <= 0) return { error: 'Enter a total lap count first.' };
 
-    if(mode === 'time' && durationSec <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter a race duration first.</div>'; return; }
-    if(mode === 'laps' && totalLaps <= 0){ q('fcResults').innerHTML = '<div class="empty">Enter a total lap count first.</div>'; return; }
-
-    const p = {
+    return { p: {
       mode, durationSec, totalLaps, avgLapSec, fuelPerLap, tankCapacity,
       hasFormationLap: q('fcFormationLap').checked,
       fuelEffectEnabled: q('fcFuelEffectEnabled').checked,
@@ -3918,11 +4018,32 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       pitWindowStart: Number(q('fcPitWindowStart').value) || 0,
       pitWindowEnd: Number(q('fcPitWindowEnd').value) || 100,
       pitLossSec: Number(q('fcPitLossSec').value) || 0,
-      safetyLaps: Number(q('fcSafetyLaps').value) || 0
-    };
+      safetyLaps: Number(q('fcSafetyLaps').value) || 0,
+      teamMode: q('fcTeamMode').checked,
+      numDrivers: Math.max(2, Number(q('fcNumDrivers').value) || 2),
+      pushPaceDelta: Number(q('fcPushPaceDelta').value) || 0,
+      pushFuelPct: Number(q('fcPushFuelPct').value) || 0,
+      preservePaceDelta: Number(q('fcPreservePaceDelta').value) || 0,
+      preserveFuelPct: Number(q('fcPreserveFuelPct').value) || 0
+    }};
+  }
 
-    const result = fcSimulate(p);
-    fcRenderResults(result, p);
+  function fcCalculate(){
+    const { p, error } = fcGatherParams();
+    if(error){ q('fcResults').innerHTML = `<div class="empty">${error}</div>`; return; }
+
+    const standard = fcBuildPlan(p, p.avgLapSec, p.fuelPerLap);
+
+    // Push/Preserve reuse the SAME total lap count in 'laps' mode (the race
+    // distance is fixed by regulation regardless of pace), but converge
+    // independently in 'time' mode (a faster pace covers more laps in the
+    // same duration, a slower one covers fewer).
+    const pushLaps = p.mode === 'laps' ? standard.totalLaps : null;
+    const preserveLaps = p.mode === 'laps' ? standard.totalLaps : null;
+    const push = fcBuildPlan(p, p.avgLapSec - p.pushPaceDelta, p.fuelPerLap * (1 + p.pushFuelPct/100), pushLaps);
+    const preserve = fcBuildPlan(p, p.avgLapSec + p.preservePaceDelta, p.fuelPerLap * (1 - p.preserveFuelPct/100), preserveLaps);
+
+    fcRenderResults(standard, push, preserve, p);
   }
 
   function initFuelCalculator(){
@@ -3936,6 +4057,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
     q('fcWetEnabled')?.addEventListener('change', () => {
       document.querySelectorAll('.wet-only').forEach(el => el.classList.toggle('hidden', !q('fcWetEnabled').checked));
+    });
+    q('fcTeamMode')?.addEventListener('change', () => {
+      document.querySelectorAll('.team-only').forEach(el => el.classList.toggle('hidden', !q('fcTeamMode').checked));
     });
     q('fcAutofillBtn')?.addEventListener('click', fcAutofillLapTime);
     q('fcCalculateBtn')?.addEventListener('click', fcCalculate);
