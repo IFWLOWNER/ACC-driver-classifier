@@ -2294,9 +2294,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // (populated early in init() via applySeasonalOverlays) rather than
   // triggering its own fetch - returns null harmlessly if that hasn't
   // resolved yet on a very first paint.
-  window.getActiveSeasonalOverlaySync = () => {
+  window.getActiveSeasonalOverlaySync = (context) => {
     if(!__seasonalEventsCache) return null;
-    return resolveActiveSeasonalOverlay(__seasonalEventsCache);
+    return resolveActiveSeasonalOverlay(__seasonalEventsCache, context);
   };
 
   // Handles ranges that cross the year boundary (e.g. Christmas: Dec 1 -
@@ -2317,10 +2317,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // Shared by the licence card AND every Driver Directory card - resolves
   // to whichever event is currently active (first one with an actual image
   // wins, in case more than one is somehow active at once).
-  function resolveActiveSeasonalOverlay(events){
+  // context is 'main' (the driver's own licence card) or 'directory' (every
+  // Driver Directory card) - two separate uploaded images per event, not
+  // two halves of one card, since directory cards are a different shape and
+  // deserve their own properly-scaled art rather than the same image
+  // stretched to fit.
+  function resolveActiveSeasonalOverlay(events, context){
+    const urlField = context === 'directory' ? 'directoryImageUrl' : 'mainImageUrl';
+    const glowField = context === 'directory' ? 'directoryGlow' : 'mainGlow';
     const now = new Date();
     const active = events.filter(e => isSeasonalEventActive(e, now));
-    return active.find(e => e.imageUrl) || null;
+    const event = active.find(e => e[urlField]);
+    if(!event) return null;
+    return { imageUrl: event[urlField], glow: !!event[glowField] };
   }
 
   async function applySeasonalOverlays(){
@@ -2328,7 +2337,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!cardImg) return;
 
     const events = await fetchSeasonalEventsConfig();
-    const activeEvent = resolveActiveSeasonalOverlay(events);
+    const activeEvent = resolveActiveSeasonalOverlay(events, 'main');
 
     if(activeEvent){
       cardImg.src = activeEvent.imageUrl;
@@ -2699,7 +2708,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         : '';
       // ✅ ADDED: same seasonal overlay artwork as the main licence card,
       // applied to every Driver Directory card too.
-      const activeSeasonal = window.getActiveSeasonalOverlaySync?.();
+      const activeSeasonal = window.getActiveSeasonalOverlaySync?.('directory');
       const seasonalOverlay = activeSeasonal
         ? `<img class="seasonal-overlay-img dir-card-seasonal${activeSeasonal.glow ? ' glow' : ''}" src="${activeSeasonal.imageUrl}" alt="">`
         : '';
@@ -6604,6 +6613,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return { month: Math.max(1, Math.min(12, Number(m[1]))), day: Math.max(1, Math.min(31, Number(m[2]))) };
   }
 
+  function seOverlaySlotHtml(e, context, label){
+    const urlField = context === 'directory' ? 'directoryImageUrl' : 'mainImageUrl';
+    const glowField = context === 'directory' ? 'directoryGlow' : 'mainGlow';
+    const url = e[urlField];
+    const glow = e[glowField];
+    return `<div style="flex:1;min-width:200px">
+      <label style="display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">${label}</label>
+      <div class="se-preview-wrap">${url ? `<img src="${url}" class="se-preview-img">` : '<div class="field-hint">No image uploaded yet</div>'}</div>
+      <input type="file" class="se-${context}-upload" accept="image/png,image/jpeg,image/webp" style="margin-top:6px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:6px"><input type="checkbox" class="se-${context}-glow" ${glow ? 'checked' : ''} style="width:auto"> Glow / twinkle</label>
+    </div>`;
+  }
+
   function seEventRowHtml(e, idx){
     return `<div class="se-event-row" data-index="${idx}">
       <div class="field-group"><label>Name</label><input type="text" class="se-name" value="${(e.name||'').replace(/"/g,'&quot;')}"></div>
@@ -6611,11 +6633,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-group" style="flex:1"><label>Start (MM-DD)</label><input type="text" class="se-start" value="${seMonthDayToStr(e.startMonth, e.startDay)}" placeholder="MM-DD"></div>
         <div class="field-group" style="flex:1"><label>End (MM-DD)</label><input type="text" class="se-end" value="${seMonthDayToStr(e.endMonth, e.endDay)}" placeholder="MM-DD"></div>
       </div>
-      <div style="margin-top:8px;max-width:320px">
-        <label style="display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">Overlay image (full card)</label>
-        <div class="se-preview-wrap">${e.imageUrl ? `<img src="${e.imageUrl}" class="se-preview-img">` : '<div class="field-hint">No image uploaded yet</div>'}</div>
-        <input type="file" class="se-upload" accept="image/png,image/jpeg,image/webp" style="margin-top:6px">
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:6px"><input type="checkbox" class="se-glow" ${e.glow ? 'checked' : ''} style="width:auto"> Glow / twinkle</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
+        ${seOverlaySlotHtml(e, 'main', 'Licence Main (My Licence card)')}
+        ${seOverlaySlotHtml(e, 'directory', 'Licence Directory (Driver Directory cards)')}
       </div>
       <div class="se-toggles">
         <label><input type="checkbox" class="se-enabled" ${e.enabled !== false ? 'checked' : ''} style="width:auto"> Enabled</label>
@@ -6659,7 +6679,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         forceShow: row.querySelector('.se-force').checked,
         startMonth: start.month, startDay: start.day,
         endMonth: end.month, endDay: end.day,
-        glow: row.querySelector('.se-glow').checked
+        mainGlow: row.querySelector('.se-main-glow').checked,
+        directoryGlow: row.querySelector('.se-directory-glow').checked
       };
     }
 
@@ -6675,27 +6696,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           await persistEvents();
         });
 
-        row.querySelector('.se-upload').addEventListener('change', async (ev) => {
-          const file = ev.target.files[0];
-          if(!file) return;
-          const statusEl = row.querySelector('.se-row-status');
-          statusEl.textContent = 'Uploading...';
-          try{
-            const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'seasonalOverlay');
-            events[idx].imageUrl = url;
-            readRowIntoEvent(row, idx); // capture any other edits already made on this row before redrawing
-            redraw();
-            await persistEvents();
-          }catch(e){
-            statusEl.textContent = 'Upload failed: ' + e.message;
-          }
+        ['main', 'directory'].forEach(context => {
+          row.querySelector(`.se-${context}-upload`).addEventListener('change', async (ev) => {
+            const file = ev.target.files[0];
+            if(!file) return;
+            const statusEl = row.querySelector('.se-row-status');
+            statusEl.textContent = 'Uploading...';
+            try{
+              const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'seasonalOverlay');
+              events[idx][context === 'main' ? 'mainImageUrl' : 'directoryImageUrl'] = url;
+              readRowIntoEvent(row, idx); // capture any other edits already made on this row before redrawing
+              redraw();
+              await persistEvents();
+            }catch(e){
+              statusEl.textContent = 'Upload failed: ' + e.message;
+            }
+          });
         });
       });
     }
     redraw();
 
     q('seAddEventBtn').onclick = () => {
-      events.push({ id: 'event_' + Date.now(), name: 'New Event', enabled: true, forceShow: false, startMonth: 1, startDay: 1, endMonth: 1, endDay: 7, imageUrl: '', glow: false });
+      events.push({ id: 'event_' + Date.now(), name: 'New Event', enabled: true, forceShow: false, startMonth: 1, startDay: 1, endMonth: 1, endDay: 7, mainImageUrl: '', mainGlow: false, directoryImageUrl: '', directoryGlow: false });
       redraw();
     };
 
