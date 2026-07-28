@@ -171,9 +171,7 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .licence-card{border-radius:20px;padding:3px;background:linear-gradient(135deg,var(--ifwl-teal),var(--ifwl-purple));box-shadow:var(--shadow)}
 
 /* ✅ CHANGED: seasonal licence overlays - now real uploaded artwork, not emoji */
-.seasonal-overlay-img{position:absolute;left:0;width:100%;height:auto;pointer-events:none;z-index:5}
-.seasonal-overlay-img.seasonal-top{top:0}
-.seasonal-overlay-img.seasonal-bottom{bottom:0}
+.seasonal-overlay-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;z-index:5;border-radius:inherit}
 .seasonal-overlay-img.glow{ animation:seasonalTwinkle 2.4s ease-in-out infinite; }
 @keyframes seasonalTwinkle{
   0%,100%{ filter:brightness(1) drop-shadow(0 0 4px rgba(255,255,255,.3)); }
@@ -957,8 +955,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div>
         <div class="licence-card" id="licenceCardOuter">
           <div class="licence-card-inner" id="licenceCardInner">
-            <img class="seasonal-overlay-img seasonal-top hidden" id="seasonalOverlayTop" alt="">
-            <img class="seasonal-overlay-img seasonal-bottom hidden" id="seasonalOverlayBottom" alt="">
+            <img class="seasonal-overlay-img hidden" id="seasonalOverlayImg" alt="">
             <div class="licence-top">
               <div class="licence-org">IFWL RACING LICENCE</div>
             </div>
@@ -1765,7 +1762,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="panel-head"><div><h3>Seasonal Events</h3><small>Icon overlays and glowing borders on every licence card, active on a recurring calendar window</small></div><span class="badge purple">Owner only</span></div>
     <div class="panel-body">
       <div class="notice-card">
-        Upload a top and/or bottom overlay image for each event - full illustrated artwork (transparent PNG works best), shown stretched across the top and bottom of every driver's licence card. Tick <strong>Glow / twinkle</strong> on either image to make it pulse (built for things like a string-lights strip). Active automatically within its date range every year (ranges like Christmas that cross Dec 31 into January are handled correctly). <strong>Enabled</strong> is the master switch; <strong>Force show</strong> overrides the date range entirely, useful for turning something on early or extending it.
+        Upload one full-card overlay image per event - illustrated artwork (transparent PNG works best) shown across the whole licence card, and now also every Driver Directory card. Tick <strong>Glow / twinkle</strong> to make it pulse (built for things like a string-lights strip). Active automatically within its date range every year (ranges like Christmas that cross Dec 31 into January are handled correctly). <strong>Enabled</strong> is the master switch; <strong>Force show</strong> overrides the date range entirely, useful for turning something on early or extending it.
       </div>
       <div id="seEventsList" style="margin-top:16px"></div>
       <button class="btn purple" id="seAddEventBtn" type="button" style="margin-top:14px">+ Add Event</button>
@@ -2293,6 +2290,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
   window.fetchSeasonalEventsConfig = fetchSeasonalEventsConfig;
   window.invalidateSeasonalEventsCache = () => { __seasonalEventsCache = null; };
+  // Directory rendering isn't async, so it reads whatever's already cached
+  // (populated early in init() via applySeasonalOverlays) rather than
+  // triggering its own fetch - returns null harmlessly if that hasn't
+  // resolved yet on a very first paint.
+  window.getActiveSeasonalOverlaySync = () => {
+    if(!__seasonalEventsCache) return null;
+    return resolveActiveSeasonalOverlay(__seasonalEventsCache);
+  };
 
   // Handles ranges that cross the year boundary (e.g. Christmas: Dec 1 -
   // Jan 1) by checking "today is on/after start" OR "today is on/before
@@ -2309,36 +2314,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return today >= start || today <= end; // wraps across Dec 31 -> Jan 1
   }
 
+  // Shared by the licence card AND every Driver Directory card - resolves
+  // to whichever event is currently active (first one with an actual image
+  // wins, in case more than one is somehow active at once).
+  function resolveActiveSeasonalOverlay(events){
+    const now = new Date();
+    const active = events.filter(e => isSeasonalEventActive(e, now));
+    return active.find(e => e.imageUrl) || null;
+  }
+
   async function applySeasonalOverlays(){
-    const topImg = q('seasonalOverlayTop');
-    const bottomImg = q('seasonalOverlayBottom');
-    if(!topImg || !bottomImg) return;
+    const cardImg = q('seasonalOverlayImg');
+    if(!cardImg) return;
 
     const events = await fetchSeasonalEventsConfig();
-    const now = new Date();
-    // If more than one event happens to be active at once, first-with-an-
-    // actual-image wins per slot, rather than trying to stack multiple
-    // illustrated overlays on top of each other.
-    const active = events.filter(e => isSeasonalEventActive(e, now));
-    const topEvent = active.find(e => e.topImageUrl);
-    const bottomEvent = active.find(e => e.bottomImageUrl);
+    const activeEvent = resolveActiveSeasonalOverlay(events);
 
-    if(topEvent){
-      topImg.src = topEvent.topImageUrl;
-      topImg.classList.remove('hidden');
-      topImg.classList.toggle('glow', !!topEvent.topGlow);
+    if(activeEvent){
+      cardImg.src = activeEvent.imageUrl;
+      cardImg.classList.remove('hidden');
+      cardImg.classList.toggle('glow', !!activeEvent.glow);
     }else{
-      topImg.classList.add('hidden');
-      topImg.removeAttribute('src');
-    }
-
-    if(bottomEvent){
-      bottomImg.src = bottomEvent.bottomImageUrl;
-      bottomImg.classList.remove('hidden');
-      bottomImg.classList.toggle('glow', !!bottomEvent.bottomGlow);
-    }else{
-      bottomImg.classList.add('hidden');
-      bottomImg.removeAttribute('src');
+      cardImg.classList.add('hidden');
+      cardImg.removeAttribute('src');
     }
   }
   window.applySeasonalOverlays = applySeasonalOverlays;
@@ -2699,7 +2697,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             return `<div class="lct-trophy" title="${title}">${visual}</div>`;
           }).join('')}</div>`
         : '';
+      // ✅ ADDED: same seasonal overlay artwork as the main licence card,
+      // applied to every Driver Directory card too.
+      const activeSeasonal = window.getActiveSeasonalOverlaySync?.();
+      const seasonalOverlay = activeSeasonal
+        ? `<img class="seasonal-overlay-img dir-card-seasonal${activeSeasonal.glow ? ' glow' : ''}" src="${activeSeasonal.imageUrl}" alt="">`
+        : '';
       return `<div class="dir-card${hasHeader ? ' has-header' : ''}${outlineClass}"${bgStyle}>
+        ${seasonalOverlay}
         ${platformTag}
         <div class="dir-card-overlay">
           ${avatarCell}
@@ -6599,17 +6604,6 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return { month: Math.max(1, Math.min(12, Number(m[1]))), day: Math.max(1, Math.min(31, Number(m[2]))) };
   }
 
-  function seOverlaySlotHtml(e, idx, slot, label){
-    const url = slot === 'top' ? e.topImageUrl : e.bottomImageUrl;
-    const glow = slot === 'top' ? e.topGlow : e.bottomGlow;
-    return `<div style="flex:1;min-width:220px">
-      <label style="display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">${label}</label>
-      <div class="se-preview-wrap">${url ? `<img src="${url}" class="se-preview-img">` : '<div class="field-hint">No image uploaded yet</div>'}</div>
-      <input type="file" class="se-${slot}-upload" accept="image/png,image/jpeg,image/webp" style="margin-top:6px">
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:6px"><input type="checkbox" class="se-${slot}-glow" ${glow ? 'checked' : ''} style="width:auto"> Glow / twinkle</label>
-    </div>`;
-  }
-
   function seEventRowHtml(e, idx){
     return `<div class="se-event-row" data-index="${idx}">
       <div class="field-group"><label>Name</label><input type="text" class="se-name" value="${(e.name||'').replace(/"/g,'&quot;')}"></div>
@@ -6617,9 +6611,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-group" style="flex:1"><label>Start (MM-DD)</label><input type="text" class="se-start" value="${seMonthDayToStr(e.startMonth, e.startDay)}" placeholder="MM-DD"></div>
         <div class="field-group" style="flex:1"><label>End (MM-DD)</label><input type="text" class="se-end" value="${seMonthDayToStr(e.endMonth, e.endDay)}" placeholder="MM-DD"></div>
       </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
-        ${seOverlaySlotHtml(e, idx, 'top', 'Top overlay image')}
-        ${seOverlaySlotHtml(e, idx, 'bottom', 'Bottom overlay image')}
+      <div style="margin-top:8px;max-width:320px">
+        <label style="display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">Overlay image (full card)</label>
+        <div class="se-preview-wrap">${e.imageUrl ? `<img src="${e.imageUrl}" class="se-preview-img">` : '<div class="field-hint">No image uploaded yet</div>'}</div>
+        <input type="file" class="se-upload" accept="image/png,image/jpeg,image/webp" style="margin-top:6px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:6px"><input type="checkbox" class="se-glow" ${e.glow ? 'checked' : ''} style="width:auto"> Glow / twinkle</label>
       </div>
       <div class="se-toggles">
         <label><input type="checkbox" class="se-enabled" ${e.enabled !== false ? 'checked' : ''} style="width:auto"> Enabled</label>
@@ -6663,8 +6659,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         forceShow: row.querySelector('.se-force').checked,
         startMonth: start.month, startDay: start.day,
         endMonth: end.month, endDay: end.day,
-        topGlow: row.querySelector('.se-top-glow').checked,
-        bottomGlow: row.querySelector('.se-bottom-glow').checked
+        glow: row.querySelector('.se-glow').checked
       };
     }
 
@@ -6680,29 +6675,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           await persistEvents();
         });
 
-        ['top', 'bottom'].forEach(slot => {
-          row.querySelector(`.se-${slot}-upload`).addEventListener('change', async (ev) => {
-            const file = ev.target.files[0];
-            if(!file) return;
-            const statusEl = row.querySelector('.se-row-status');
-            statusEl.textContent = 'Uploading...';
-            try{
-              const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'seasonalOverlay');
-              events[idx][slot === 'top' ? 'topImageUrl' : 'bottomImageUrl'] = url;
-              readRowIntoEvent(row, idx); // capture any other edits already made on this row before redrawing
-              redraw();
-              await persistEvents();
-            }catch(e){
-              statusEl.textContent = 'Upload failed: ' + e.message;
-            }
-          });
+        row.querySelector('.se-upload').addEventListener('change', async (ev) => {
+          const file = ev.target.files[0];
+          if(!file) return;
+          const statusEl = row.querySelector('.se-row-status');
+          statusEl.textContent = 'Uploading...';
+          try{
+            const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'seasonalOverlay');
+            events[idx].imageUrl = url;
+            readRowIntoEvent(row, idx); // capture any other edits already made on this row before redrawing
+            redraw();
+            await persistEvents();
+          }catch(e){
+            statusEl.textContent = 'Upload failed: ' + e.message;
+          }
         });
       });
     }
     redraw();
 
     q('seAddEventBtn').onclick = () => {
-      events.push({ id: 'event_' + Date.now(), name: 'New Event', enabled: true, forceShow: false, startMonth: 1, startDay: 1, endMonth: 1, endDay: 7, topImageUrl: '', topGlow: false, bottomImageUrl: '', bottomGlow: false });
+      events.push({ id: 'event_' + Date.now(), name: 'New Event', enabled: true, forceShow: false, startMonth: 1, startDay: 1, endMonth: 1, endDay: 7, imageUrl: '', glow: false });
       redraw();
     };
 
