@@ -624,6 +624,15 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 /* ✅ ADDED: Submit a Ticket panel */
 .notice-card{padding:14px 16px;border-radius:12px;background:rgba(31,214,189,.08);border:1px solid rgba(31,214,189,.3);border-left:4px solid var(--ifwl-teal,#1fd6bd);font-size:13px;line-height:1.55;color:var(--text-primary);margin-bottom:6px}
 
+/* ✅ ADDED: Season Class Structure */
+.cs-platform-card{background:#12161c;border:1px solid var(--ifwl-line);border-radius:14px;padding:18px}
+.cs-platform-card h4{margin:0 0 14px}
+.cs-preview{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px}
+.cs-preview-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--ifwl-line-soft);font-size:13px}
+.cs-preview-row:last-child{border-bottom:none}
+.cs-preview-row strong{font-family:var(--font-mono)}
+.cs-preview-row.rookie strong{color:var(--ifwl-amber,#ffb238)}
+
 /* ✅ ADDED: Fuel Calculator */
 .fc-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
 .fc-summary-box{background:#12161c;border:1px solid var(--ifwl-line);border-radius:12px;padding:14px}
@@ -877,6 +886,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="view-tab-menu">
       <button data-view="staffLicenceManagement" class="ops-only-tab" type="button">Licence Management</button>
       <button data-view="staffTierManage" class="ops-only-tab" type="button">Manage Licence Tiers</button>
+      <button data-view="staffClassStructure" class="owner-only-tab" type="button">Season Class Structure</button>
       <button data-view="staffQualPC" type="button">Licence Quali (PC)</button>
       <button data-view="staffQualConsole" type="button">Licence Quali (Console)</button>
       <button data-view="staffBulkSimgrid" class="owner-only-tab" type="button">Staff Bulk SimGrid</button>
@@ -1709,6 +1719,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffClassStructure" id="staffClassStructurePanel">
+    <div class="panel-head"><div><h3>Season Class Structure</h3><small>Pro/Amateur pace thresholds, attendance caps, and the Rookie Class cutoff</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">
+        This keeps the same Pro/Amateur/Beginner pace model already in use (based on gap to the field's best lap) - it just makes the 2%/5% thresholds adjustable, adds a maximum headcount per class since SimGrid event capacity is limited, and adds a bottom pace cutoff: anyone beyond it is recommended <strong>Rookie Class</strong> instead of Beginner. This still only sets the <em>recommendation</em> shown on Licence Quali and each driver's own card - staff still apply the actual tier.
+      </div>
+      <div id="csPlatformCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:18px;margin-top:16px"></div>
+      <span class="save-status" id="csSaveStatus" style="display:block;margin-top:10px"></span>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="staffQualPC" id="licenceQualPanel">
     <div class="panel-head"><div><h3>Staff: Licence Qualification (PC)</h3><small>Drivers ranked by pace on the IFWL PC Licence server &mdash; 15 laps minimum</small></div><div style="display:flex;gap:8px"><button class="btn purple" id="populateGridBtnPC" type="button">Populate the Grid</button><button class="btn ghost" id="licenceQualRefreshBtn" type="button">Refresh</button></div></div>
     <div class="staff-only-note">Ranking is scored only against other drivers on this one server, not the whole site. Recommended tier is a starting point - pick any tier before assigning.</div>
@@ -2189,6 +2210,30 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return (await apiPost('staffCallingCardSave', { cards })).cards || cards;
   }
   window.IFWL_CallingCardAPI = { fetchCallingCardCatalog, saveCallingCardCatalog };
+
+  // ✅ ADDED: season class structure (Pro/Am thresholds+caps, Rookie cutoff) -
+  // cached per page load since every Licence Quali / standings call site on
+  // this page needs the same config, and it only changes when Owner staff
+  // update it.
+  let __classStructureCache = null;
+  async function fetchClassStructureConfig(){
+    if(__classStructureCache) return __classStructureCache;
+    try{
+      const data = await apiGet('seasonClassStructure');
+      __classStructureCache = { pc: data.pc, console: data.console };
+    }catch(e){
+      console.warn('Could not load season class structure, using defaults', e);
+      const fallback = { proPct: 2, proMax: null, amPct: 5, amMax: null, cutoffMode: 'auto', cutoffPct: 15 };
+      __classStructureCache = { pc: fallback, console: { ...fallback } };
+    }
+    return __classStructureCache;
+  }
+  window.fetchClassStructureConfig = fetchClassStructureConfig;
+  window.invalidateClassStructureCache = () => { __classStructureCache = null; };
+  window.classStructureForServer = async (serverId) => {
+    const cs = await fetchClassStructureConfig();
+    return serverId === 'console-licence' ? cs.console : cs.pc;
+  };
 
   // Trophy Cabinet's design catalog - identical pattern to Calling Cards
   // above, just a separate catalog/storage path so the two don't mix.
@@ -2888,7 +2933,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
     }catch(e){
       body.innerHTML = `<div class="empty">Could not load the server list: ${e.message}</div>`;
       return;
@@ -3012,12 +3057,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     const upsell = isGoldOrStaff ? '' : `<div class="qual-upsell">✨ ${isSilverOnly ? 'Upgrade to Gold to see your recommended tier, consistency and gap to the best time.' : 'Upgrade to Gold to see your rank, recommended tier, consistency and gap to the best time.'} <a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade on Patreon &rarr;</a></div>`;
 
+    // ✅ ADDED: a constructive explanation when the current pace data puts a
+    // driver below the Beginner requirement - shows exactly how much pace
+    // they need to find, not just a bare "Rookie Class" label with no context.
+    const rookieNote = (isGoldOrStaff && row.recommendedTier === 'Rookie Class' && row.rookieGapPct != null)
+      ? `<div class="notice-card" style="border-left-color:var(--ifwl-amber);background:rgba(255,178,56,.08);margin-top:12px">
+          Based on your current lap data, you're not quite within the pace needed for a Beginner licence yet - you're <strong>${row.rookieGapPct}%</strong> further off the field's best than the Beginner cutoff allows. Keep putting laps in - this recalculates automatically as your pace improves, and there's no penalty for being here while you build speed.
+        </div>`
+      : '';
+
     const chartSection = await buildQualChartSection(serverId, accDriverNames, isGoldOrStaff, isSilverOnly);
 
     return `<div class="qual-standing-card">
       <div class="qual-standing-head"><h4>${platformLabel}</h4><span class="field-hint">${row.totalLaps} lap(s) &middot; ${row.qualified ? 'Qualified' : row.totalLaps + '/15 laps'}</span></div>
       <div class="qual-standing-grid">${rankCell}${tierBox}${consistencyBox}${gapBox}</div>
       ${upsell}
+      ${rookieNote}
       ${chartSection}
     </div>`;
   }
@@ -3033,13 +3088,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let html = '';
     try{
-      const pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence' });
+      const pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') });
       const pcIndex = findMyStandingRow(pcStandings, accDriverNames);
       if(pcIndex >= 0) html += await buildQualStandingCard('PC', pcIndex, pcStandings, 'pc-licence', accDriverNames);
     }catch(e){ /* one platform failing shouldn't block the other */ }
 
     try{
-      const consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence' });
+      const consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') });
       const consoleIndex = findMyStandingRow(consoleStandings, accDriverNames);
       if(consoleIndex >= 0) html += await buildQualStandingCard('Console', consoleIndex, consoleStandings, 'console-licence', accDriverNames);
     }catch(e){ /* as above */ }
@@ -3125,7 +3180,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const platformResults = [];
     for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
       try{
-        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId });
+        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
         const idx = findMyStandingRow(standings, accDriverNames);
         if(idx >= 0) platformResults.push({ label, totalLaps: standings[idx].totalLaps });
       }catch(e){ /* one platform failing shouldn't block the other */ }
@@ -4363,7 +4418,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const lines = [];
     for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
       try{
-        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId });
+        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
         const row = findQualRowForNames(standings, accDriverNames);
         if(row) lines.push({ label, laps: row.totalLaps, done: row.totalLaps >= 15 });
       }catch(e){ /* one platform failing shouldn't block the other */ }
@@ -4770,7 +4825,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, force: !!force });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, force: !!force, classStructure: await window.classStructureForServer(serverId) });
       qualCache[platform].standings = standings;
     }catch(e){
       body.innerHTML = `<tr><td colspan="6" class="empty">Could not load standings: ${e.message}</td></tr>`;
@@ -4947,7 +5002,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings, profiles, tiers;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
       profiles = await staffSearch('');
       tiers = await window.IFWL_TierAPI.fetchTierList();
     }catch(e){
@@ -5453,8 +5508,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{
       profiles = await staffSearch('');
       tiers = await window.IFWL_TierAPI.fetchTierList();
-      pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence' }).catch(() => []);
-      consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence' }).catch(() => []);
+      pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') }).catch(() => []);
+      consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') }).catch(() => []);
     }catch(e){
       overviewBox.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`;
       body.innerHTML = '';
@@ -6280,6 +6335,129 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     wireTrophyEntryCard(card);
   });
 
+  function csPlatformCardHtml(platform, label, cfg){
+    return `<div class="cs-platform-card" data-platform="${platform}">
+      <h4>${label}</h4>
+      <div class="field-group"><label>Pro threshold (% gap to best)</label><input type="number" class="cs-proPct" step="0.1" value="${cfg.proPct}"></div>
+      <div class="field-group"><label>Pro max drivers (blank = unlimited)</label><input type="number" class="cs-proMax" min="1" value="${cfg.proMax ?? ''}"></div>
+      <div class="field-group"><label>Amateur threshold (% gap to best)</label><input type="number" class="cs-amPct" step="0.1" value="${cfg.amPct}"></div>
+      <div class="field-group"><label>Amateur max drivers (blank = unlimited)</label><input type="number" class="cs-amMax" min="1" value="${cfg.amMax ?? ''}"></div>
+      <div class="field-group">
+        <label>Rookie Class cutoff (% gap to best)</label>
+        <div style="display:flex;gap:10px">
+          <input type="number" class="cs-cutoffPct" step="0.1" value="${cfg.cutoffPct}" style="flex:1">
+          <button type="button" class="btn ghost cs-suggest-btn">Suggest from data</button>
+        </div>
+        <div class="field-hint cs-suggest-hint"></div>
+      </div>
+      <div class="cs-preview"><div class="empty">Loading preview&hellip;</div></div>
+      <button class="btn teal cs-save-btn" type="button" style="margin-top:12px">Save ${label}</button>
+      <span class="save-status cs-save-status" style="margin-left:8px"></span>
+    </div>`;
+  }
+
+  function csReadFormValues(card){
+    const num = (sel) => { const v = card.querySelector(sel).value; return v === '' ? null : Number(v); };
+    return {
+      proPct: num('.cs-proPct') ?? 2,
+      proMax: num('.cs-proMax'),
+      amPct: num('.cs-amPct') ?? 5,
+      amMax: num('.cs-amMax'),
+      cutoffMode: 'manual',
+      cutoffPct: num('.cs-cutoffPct') ?? 15
+    };
+  }
+
+  async function csRenderPreview(card, serverId){
+    const preview = card.querySelector('.cs-preview');
+    preview.innerHTML = '<div class="empty">Calculating&hellip;</div>';
+    try{
+      const cfg = csReadFormValues(card);
+      const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 0, serverId, classStructure: cfg });
+      const counts = { 'GT3 Pro':0, 'GT3 Amateur':0, 'GT3 Beginner':0, 'Rookie Class':0 };
+      standings.forEach(s => { counts[s.recommendedTier] = (counts[s.recommendedTier]||0) + 1; });
+      preview.innerHTML = `
+        <div class="cs-preview-row"><span>🥇 Pro</span><strong>${counts['GT3 Pro']}${cfg.proMax != null ? ' / ' + cfg.proMax : ''}</strong></div>
+        <div class="cs-preview-row"><span>🥈 Amateur</span><strong>${counts['GT3 Amateur']}${cfg.amMax != null ? ' / ' + cfg.amMax : ''}</strong></div>
+        <div class="cs-preview-row"><span>🥉 Beginner</span><strong>${counts['GT3 Beginner']}</strong></div>
+        <div class="cs-preview-row rookie"><span>🌱 Rookie Class</span><strong>${counts['Rookie Class']}</strong></div>
+        <div class="field-hint" style="margin-top:6px">${standings.length} driver(s) with any laps on this server</div>
+      `;
+    }catch(e){
+      preview.innerHTML = `<div class="empty">Could not calculate preview: ${e.message}</div>`;
+    }
+  }
+
+  async function csSuggestCutoff(card, serverId){
+    const hint = card.querySelector('.cs-suggest-hint');
+    hint.textContent = 'Calculating suggestion...';
+    try{
+      const cfg = csReadFormValues(card);
+      // Suggest based on the pool that WOULD be Beginner under the current
+      // Pro/Am settings, with no cutoff applied yet - the 85th percentile of
+      // their gap% is a reasonable "most of this group sits inside this,
+      // beyond it is a clear outlier" line, not an arbitrary flat multiplier.
+      const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 0, serverId, classStructure: { ...cfg, cutoffPct: 100000 } });
+      const beginnerGaps = standings.filter(s => s.recommendedTier === 'GT3 Beginner' && s.avgGapPct != null).map(s => s.avgGapPct).sort((a,b)=>a-b);
+      if(!beginnerGaps.length){
+        hint.textContent = 'Not enough data yet to suggest a cutoff.';
+        return;
+      }
+      const idx = Math.min(beginnerGaps.length - 1, Math.floor(beginnerGaps.length * 0.85));
+      const suggested = Math.round(beginnerGaps[idx] * 10) / 10;
+      card.querySelector('.cs-cutoffPct').value = suggested;
+      hint.textContent = `Suggested ${suggested}% - the 85th percentile gap among drivers who'd otherwise be Beginner (${beginnerGaps.length} driver(s) in that pool). Adjust freely, then Save.`;
+      csRenderPreview(card, serverId);
+    }catch(e){
+      hint.textContent = 'Could not calculate a suggestion: ' + e.message;
+    }
+  }
+
+  function initClassStructurePanel(){
+    if(!window.IFWL_OWNER) return;
+    const container = q('csPlatformCards');
+    if(!container) return;
+
+    window.fetchClassStructureConfig().then(cfg => {
+      container.innerHTML =
+        csPlatformCardHtml('pc', 'PC', cfg.pc) +
+        csPlatformCardHtml('console', 'Console', cfg.console);
+
+      container.querySelectorAll('.cs-platform-card').forEach(card => {
+        const platform = card.dataset.platform;
+        const serverId = platform === 'console' ? 'console-licence' : 'pc-licence';
+
+        csRenderPreview(card, serverId);
+
+        let debounceTimer = null;
+        card.querySelectorAll('.cs-proPct, .cs-proMax, .cs-amPct, .cs-amMax, .cs-cutoffPct').forEach(input => {
+          input.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => csRenderPreview(card, serverId), 500);
+          });
+        });
+
+        card.querySelector('.cs-suggest-btn').addEventListener('click', () => csSuggestCutoff(card, serverId));
+
+        card.querySelector('.cs-save-btn').addEventListener('click', async () => {
+          const statusEl = card.querySelector('.cs-save-status');
+          const values = csReadFormValues(card);
+          statusEl.textContent = 'Saving...';
+          try{
+            await window.IFWL_Api.apiPost('staffSeasonClassStructureSave', { [platform]: values });
+            window.invalidateClassStructureCache();
+            statusEl.textContent = 'Saved.';
+            setTimeout(() => { statusEl.textContent = ''; }, 1500);
+          }catch(e){
+            statusEl.textContent = 'Error: ' + e.message;
+          }
+        });
+      });
+    }).catch(e => {
+      container.innerHTML = `<div class="empty">Could not load season class structure: ${e.message}</div>`;
+    });
+  }
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -6297,6 +6475,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     initSystemStatusPanel();
     renderLicenceDatabase();
     renderStaffTrophyCabinet();
+    initClassStructurePanel();
   }
   window.addEventListener('ifwl-auth-changed', initStaffPanels);
   if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
