@@ -801,6 +801,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </div>
 </div>
 
+<div id="ifwlLicenceRefusedGate" class="hidden">
+  <div class="login-wall-card">
+    <div class="licence-org" style="font-size:13px;color:var(--ifwl-red)">IFWL.NET</div>
+    <h1>Licence Refused</h1>
+    <p>Your IFWL profile isn't complete yet, so a licence can't be issued. Your Discord nickname needs to be in the proper <strong>[car number] - Name</strong> format (e.g. <strong>[81] - IFWL XSL4Y3RX</strong>) before this page can do anything for you - that only happens once you've completed profile setup on the server.</p>
+    <p>Once your nickname updates, refresh this page and your licence will be issued automatically.</p>
+    <div class="login-wall-actions" style="margin-top:14px">
+      <button class="login-wall-discord" id="refusedRefreshBtn" type="button">I've fixed it - Refresh</button>
+      <button class="login-wall-logout" id="refusedLogoutBtn" type="button">Logout</button>
+    </div>
+  </div>
+</div>
+
 <div id="ticketNoticeModal" class="hidden">
   <div class="login-wall-card">
     <div class="licence-org" style="font-size:13px;color:var(--ifwl-red)">STEWARD NOTICE</div>
@@ -2258,14 +2271,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const url = `${FN}?${action}=1&token=${encodeURIComponent(token)}${extra||''}`;
     const r = await fetch(url, {cache:'no-store'});
     const d = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d?.error || `Request "${action}" failed (${r.status})`);
+    if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
     return d;
   }
   async function apiPost(action, body){
     const token = window.IFWL_AUTH?.sessionToken() || '';
     const r = await fetch(`${FN}?${action}=1&token=${encodeURIComponent(token)}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
     const d = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d?.error || `Request "${action}" failed (${r.status})`);
+    if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
     return d;
   }
 
@@ -2287,7 +2300,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return all[id];
     }
     try { return (await apiGet('licenceProfile')).profile || null; }
-    catch(e){ console.warn(e.message); return null; }
+    catch(e){
+      if(e.body?.refused){ throw e; } // let init() handle this distinctly, don't silently swallow it
+      console.warn(e.message);
+      return null;
+    }
   }
 
   async function saveMyProfile(patch){
@@ -2988,6 +3005,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('ifwlDriverLinkGate').classList.add('hidden');
   }
 
+  function showLicenceRefusedGate(){
+    document.body.classList.add('driver-link-required'); // reuses the same "block everything else" body state
+    q('ifwlLicenceRefusedGate').classList.remove('hidden');
+  }
+  function hideLicenceRefusedGate(){
+    document.body.classList.remove('driver-link-required');
+    q('ifwlLicenceRefusedGate').classList.add('hidden');
+  }
+  q('refusedRefreshBtn')?.addEventListener('click', () => window.location.reload());
+  q('refusedLogoutBtn')?.addEventListener('click', () => window.IFWL_AUTH.signout());
+
   // Fingerprinted per-user in localStorage so a driver only sees this once
   // per distinct set of pending tickets - dismissing it doesn't hide it
   // forever, but a NEW ticket (changing the count or the newest ticket id)
@@ -3293,7 +3321,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     populateTierSelect(q('dirTierFilter'), { includeBlank: true });
     initTrophyCabinetPublicPage(); // public content - loads regardless of login state
 
-    currentProfile = await fetchMyProfile();
+    try{
+      currentProfile = await fetchMyProfile();
+    }catch(e){
+      if(e.body?.refused){
+        hideDriverLinkGate();
+        showLicenceRefusedGate();
+        return;
+      }
+      currentProfile = null;
+    }
+    hideLicenceRefusedGate();
     currentProfile = await resolveStoredImages(currentProfile);
 
     // The single most important gate on this whole page: nothing else here
