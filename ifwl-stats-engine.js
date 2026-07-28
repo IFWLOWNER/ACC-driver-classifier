@@ -1,23 +1,6 @@
 /* ============================================================
    IFWL STATS ENGINE
-   Extracted, unmodified in logic, from livetimings.html so both
-   pages share ONE implementation of consistency / race risk /
-   pace / overall score. If the scoring formula ever changes, it
-   changes here once, for every page that uses it.
-
-   Deliberately computed entirely client-side from the same public,
-   unauthenticated result files Live Timings already reads from
-   data/manifest.json - there is no private data in this file, so
-   there is nothing here that needs a server-side gate. Any tier
-   gating on top of these numbers (e.g. "Gold only") is a UI
-   feature-gate applied by the calling page, same as Live Timings
-   already does for its own "detailed access" panels.
-
-   Usage:
-     <script src="ifwl-stats-engine.js"></script>
-     const stats = await IFWLStats.computeForDriver(['IFWL XSL4Y3RX']);
-     // -> { overallScore, consistencyAvg, riskAvg, avgGapPct,
-     //      sessionCount, trackCount, mostRecentLabel } or null
+   
    ============================================================ */
 (function(){
   const manifestUrl = 'data/manifest.json';
@@ -458,9 +441,15 @@
    * is computed the same way as the main pace score, just scoped to one
    * server's sessions.
    */
+  // ✅ CHANGED: thresholds/caps/cutoff now come from opts.classStructure
+  // (fetched and passed in by the caller - this engine has no backend API
+  // calls of its own) instead of being hardcoded at 2%/5%. Falls back to
+  // the original defaults if nothing is passed, so any existing caller that
+  // doesn't yet pass classStructure keeps working exactly as before.
   async function computeLicenceServerStandings(opts = {}){
     const minLaps = opts.minLaps ?? 15;
     const serverId = opts.serverId || 'pc-licence';
+    const cs = Object.assign({ proPct: 2, proMax: null, amPct: 5, amMax: null, cutoffMode: 'auto', cutoffPct: 15 }, opts.classStructure || {});
 
     const allRows = await buildAllRows(!!opts.force);
     const rows = allRows.filter(r => r.serverId === serverId);
@@ -487,8 +476,8 @@
       // dropdown regardless, this just pre-fills a sensible default.
       let recommendedTier = 'GT3 Beginner';
       if(avgGapPct != null){
-        if(avgGapPct <= 2) recommendedTier = 'GT3 Pro';
-        else if(avgGapPct <= 5) recommendedTier = 'GT3 Amateur';
+        if(avgGapPct <= cs.proPct) recommendedTier = 'GT3 Pro';
+        else if(avgGapPct <= cs.amPct) recommendedTier = 'GT3 Amateur';
       }
 
       standings.push({
@@ -502,6 +491,41 @@
         recommendedTier
       });
     }
+
+    // ✅ ADDED: max-headcount cap per class - SimGrid event attendance is
+    // limited, so even a driver who's genuinely fast enough for Pro/Amateur
+    // by pace alone may not have a race seat available there. The FASTEST
+    // drivers within each class keep their spot; anyone bumped by the cap
+    // gets carried down and re-evaluated against the next class's own
+    // threshold, not dumped straight to Beginner regardless of pace.
+    const byGapAsc = (a, b) => (a.avgGapPct ?? 999) - (b.avgGapPct ?? 999);
+
+    const proEligible = standings.filter(s => s.recommendedTier === 'GT3 Pro').sort(byGapAsc);
+    if(cs.proMax != null && proEligible.length > cs.proMax){
+      proEligible.slice(cs.proMax).forEach(s => {
+        s.recommendedTier = (s.avgGapPct != null && s.avgGapPct <= cs.amPct) ? 'GT3 Amateur' : 'GT3 Beginner';
+        s.capBumpedFrom = 'GT3 Pro';
+      });
+    }
+
+    const amEligible = standings.filter(s => s.recommendedTier === 'GT3 Amateur').sort(byGapAsc);
+    if(cs.amMax != null && amEligible.length > cs.amMax){
+      amEligible.slice(cs.amMax).forEach(s => {
+        s.recommendedTier = 'GT3 Beginner';
+        s.capBumpedFrom = s.capBumpedFrom || 'GT3 Amateur';
+      });
+    }
+
+    // ✅ ADDED: Rookie Class cutoff - anyone left in Beginner (by threshold
+    // or by cap overflow) who's beyond the configured pace cutoff gets
+    // recommended Rookie Class instead, with how far past the cutoff they
+    // currently are so the driver-facing card can explain it constructively.
+    standings.forEach(s => {
+      if(s.recommendedTier === 'GT3 Beginner' && s.avgGapPct != null && s.avgGapPct > cs.cutoffPct){
+        s.recommendedTier = 'Rookie Class';
+        s.rookieGapPct = Math.round((s.avgGapPct - cs.cutoffPct) * 100) / 100;
+      }
+    });
 
     standings.sort((a,b) => (Number(b.qualified) - Number(a.qualified)) || ((a.avgGapPct ?? 999) - (b.avgGapPct ?? 999)));
     return standings;
@@ -523,7 +547,7 @@
     const rows = allRows.filter(r => r.serverId === serverId);
     if(!rows.length) return {};
 
-    const standings = await computeLicenceServerStandings({ serverId, minLaps: 0, force: !!opts.force });
+    const standings = await computeLicenceServerStandings({ serverId, minLaps: 0, force: !!opts.force, classStructure: opts.classStructure });
     const tierByDriver = new Map(standings.map(s => [driverNameKey(s.driver), s.recommendedTier]));
 
     const byTrack = new Map();
