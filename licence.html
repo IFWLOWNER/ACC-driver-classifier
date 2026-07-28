@@ -169,6 +169,15 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .licence-wrap{display:grid;grid-template-columns:340px 1fr;gap:22px;padding:18px}
 @media(max-width:880px){.licence-wrap{grid-template-columns:1fr}}
 .licence-card{border-radius:20px;padding:3px;background:linear-gradient(135deg,var(--ifwl-teal),var(--ifwl-purple));box-shadow:var(--shadow)}
+
+/* ✅ ADDED: seasonal licence overlays */
+.seasonal-overlay-icons{position:absolute;inset:0;pointer-events:none;z-index:5;overflow:hidden;border-radius:18px}
+.seasonal-overlay-icons .seasonal-icon{position:absolute;font-size:28px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))}
+.seasonal-overlay-icons .seasonal-icon.tl{top:8px;left:8px}
+.seasonal-overlay-icons .seasonal-icon.tr{top:8px;right:8px}
+.seasonal-overlay-icons .seasonal-icon.bl{bottom:8px;left:8px}
+.seasonal-overlay-icons .seasonal-icon.br{bottom:8px;right:8px}
+.licence-card.seasonal-glow{ animation-name: seasonalGlowCycle; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
 .licence-card.foil{background:linear-gradient(135deg,#eaf3ff,#c65be8,#1fd6bd,#eaf3ff);background-size:300% 300%;animation:foil 7s ease infinite}
 @keyframes foil{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 .licence-card-inner{border-radius:18px;background:#0d1116;padding:18px;position:relative;min-height:210px;background-size:cover;background-position:center}
@@ -626,6 +635,10 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 
 /* ✅ ADDED: Season Class Structure */
 .cs-platform-card{background:#12161c;border:1px solid var(--ifwl-line);border-radius:14px;padding:18px}
+.se-event-row{background:#12161c;border:1px solid var(--ifwl-line);border-radius:14px;padding:16px;margin-bottom:14px}
+.se-event-row .se-toggles{display:flex;gap:20px;margin:10px 0}
+.se-event-row .se-toggles label{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.se-preview-icon{font-size:22px}
 .cs-platform-card h4{margin:0 0 14px}
 .cs-preview{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px}
 .cs-preview-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--ifwl-line-soft);font-size:13px}
@@ -900,6 +913,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="staffLicenceManagement" class="ops-only-tab" type="button">Licence Management</button>
       <button data-view="staffTierManage" class="ops-only-tab" type="button">Manage Licence Tiers</button>
       <button data-view="staffClassStructure" class="owner-only-tab" type="button">Season Class Structure</button>
+      <button data-view="staffSeasonalEvents" class="owner-only-tab" type="button">Seasonal Events</button>
       <button data-view="staffQualPC" type="button">Licence Quali (PC)</button>
       <button data-view="staffQualConsole" type="button">Licence Quali (Console)</button>
       <button data-view="staffBulkSimgrid" class="owner-only-tab" type="button">Staff Bulk SimGrid</button>
@@ -941,6 +955,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div>
         <div class="licence-card" id="licenceCardOuter">
           <div class="licence-card-inner" id="licenceCardInner">
+            <div class="seasonal-overlay-icons" id="seasonalOverlayIcons"></div>
             <div class="licence-top">
               <div class="licence-org">IFWL RACING LICENCE</div>
             </div>
@@ -1743,6 +1758,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffSeasonalEvents" id="staffSeasonalEventsPanel">
+    <div class="panel-head"><div><h3>Seasonal Events</h3><small>Icon overlays and glowing borders on every licence card, active on a recurring calendar window</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">
+        Each event shows an icon at the corners of every driver's licence card, an animated glowing border, or both - active automatically within its date range every year (ranges like Christmas that cross Dec 31 into January are handled correctly). <strong>Enabled</strong> is the master switch; <strong>Force show</strong> overrides the date range entirely, useful for turning something on early or extending it.
+      </div>
+      <div id="seEventsList" style="margin-top:16px"></div>
+      <button class="btn purple" id="seAddEventBtn" type="button" style="margin-top:14px">+ Add Event</button>
+      <button class="btn teal" id="seSaveAllBtn" type="button" style="margin-top:14px;margin-left:10px">Save All Events</button>
+      <span class="save-status" id="seSaveStatus" style="margin-left:10px"></span>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="staffQualPC" id="licenceQualPanel">
     <div class="panel-head"><div><h3>Staff: Licence Qualification (PC)</h3><small>Drivers ranked by pace on the IFWL PC Licence server &mdash; 15 laps minimum</small></div><div style="display:flex;gap:8px"><button class="btn purple" id="populateGridBtnPC" type="button">Populate the Grid</button><button class="btn ghost" id="licenceQualRefreshBtn" type="button">Refresh</button></div></div>
     <div class="staff-only-note">Ranking is scored only against other drivers on this one server, not the whole site. Recommended tier is a starting point - pick any tier before assigning.</div>
@@ -2247,6 +2275,83 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const cs = await fetchClassStructureConfig();
     return serverId === 'console-licence' ? cs.console : cs.pc;
   };
+
+  // ✅ ADDED: Seasonal Licence Overlays
+  let __seasonalEventsCache = null;
+  async function fetchSeasonalEventsConfig(){
+    if(__seasonalEventsCache) return __seasonalEventsCache;
+    try{
+      __seasonalEventsCache = (await apiGet('seasonalEvents')).events || [];
+    }catch(e){
+      console.warn('Could not load seasonal events', e);
+      __seasonalEventsCache = [];
+    }
+    return __seasonalEventsCache;
+  }
+  window.fetchSeasonalEventsConfig = fetchSeasonalEventsConfig;
+  window.invalidateSeasonalEventsCache = () => { __seasonalEventsCache = null; };
+
+  // Handles ranges that cross the year boundary (e.g. Christmas: Dec 1 -
+  // Jan 1) by checking "today is on/after start" OR "today is on/before
+  // end" when the range wraps, instead of a single in-between comparison
+  // that would never be true for a wrapped range.
+  function isSeasonalEventActive(e, now){
+    if(!e.enabled) return false;
+    if(e.forceShow) return true;
+    const md = (m, d) => m * 100 + d;
+    const today = md(now.getMonth() + 1, now.getDate());
+    const start = md(e.startMonth, e.startDay);
+    const end = md(e.endMonth, e.endDay);
+    if(start <= end) return today >= start && today <= end;
+    return today >= start || today <= end; // wraps across Dec 31 -> Jan 1
+  }
+
+  function ensureSeasonalGlowStyleTag(colors){
+    const id = 'seasonalGlowKeyframes';
+    let tag = document.getElementById(id);
+    if(!tag){ tag = document.createElement('style'); tag.id = id; document.head.appendChild(tag); }
+    const steps = colors.map((c, i) => {
+      const pct = Math.round((i / colors.length) * 100);
+      return `${pct}%{ box-shadow:0 0 22px 5px ${c}; }`;
+    }).join('\n');
+    tag.textContent = `@keyframes seasonalGlowCycle{ ${steps} 100%{ box-shadow:0 0 22px 5px ${colors[0]}; } }`;
+  }
+
+  async function applySeasonalOverlays(){
+    const iconBox = q('seasonalOverlayIcons');
+    const cardOuter = q('licenceCardOuter');
+    if(!iconBox || !cardOuter) return;
+
+    const events = await fetchSeasonalEventsConfig();
+    const now = new Date();
+    const active = events.filter(e => isSeasonalEventActive(e, now));
+
+    cardOuter.classList.remove('seasonal-glow');
+    cardOuter.style.animationDuration = '';
+    iconBox.innerHTML = '';
+
+    if(!active.length) return;
+
+    const corners = ['tl', 'tr', 'bl', 'br'];
+    active.filter(e => e.icon).slice(0, 4).forEach((e, i) => {
+      const el = document.createElement('div');
+      el.className = `seasonal-icon ${corners[i]}`;
+      el.textContent = e.icon;
+      el.title = e.name;
+      iconBox.appendChild(el);
+    });
+
+    const glowEvent = active.find(e => e.glowColor);
+    if(glowEvent){
+      const colors = glowEvent.glowColor.split(',').map(c => c.trim()).filter(Boolean);
+      if(colors.length){
+        ensureSeasonalGlowStyleTag(colors);
+        cardOuter.classList.add('seasonal-glow');
+        cardOuter.style.animationDuration = `${Math.max(2, colors.length * 1.2)}s`;
+      }
+    }
+  }
+  window.applySeasonalOverlays = applySeasonalOverlays;
 
   // Trophy Cabinet's design catalog - identical pattern to Calling Cards
   // above, just a separate catalog/storage path so the two don't mix.
@@ -3320,6 +3425,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderTierLegend();
     populateTierSelect(q('dirTierFilter'), { includeBlank: true });
     initTrophyCabinetPublicPage(); // public content - loads regardless of login state
+    applySeasonalOverlays();
 
     try{
       currentProfile = await fetchMyProfile();
@@ -6496,6 +6602,90 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
 
+  function seMonthDayToStr(m, d){ return `${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+  function seParseMonthDay(str, fallbackM, fallbackD){
+    const m = String(str||'').match(/^(\d{1,2})-(\d{1,2})$/);
+    if(!m) return { month: fallbackM, day: fallbackD };
+    return { month: Math.max(1, Math.min(12, Number(m[1]))), day: Math.max(1, Math.min(31, Number(m[2]))) };
+  }
+
+  function seEventRowHtml(e, idx){
+    return `<div class="se-event-row" data-index="${idx}">
+      <div class="field-group"><label>Name</label><input type="text" class="se-name" value="${(e.name||'').replace(/"/g,'&quot;')}"></div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1"><label>Start (MM-DD)</label><input type="text" class="se-start" value="${seMonthDayToStr(e.startMonth, e.startDay)}" placeholder="MM-DD"></div>
+        <div class="field-group" style="flex:1"><label>End (MM-DD)</label><input type="text" class="se-end" value="${seMonthDayToStr(e.endMonth, e.endDay)}" placeholder="MM-DD"></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <div class="field-group" style="flex:1"><label>Icon (emoji)</label><input type="text" class="se-icon" value="${e.icon||''}"></div>
+        <span class="se-preview-icon">${e.icon||''}</span>
+        <div class="field-group" style="flex:3"><label>Glow colours (comma-separated hex, blank = no glow)</label><input type="text" class="se-glow" value="${e.glowColor||''}" placeholder="e.g. #ff4d4d,#4dff88,#ffd24d"></div>
+      </div>
+      <div class="se-toggles">
+        <label><input type="checkbox" class="se-enabled" ${e.enabled !== false ? 'checked' : ''} style="width:auto"> Enabled</label>
+        <label><input type="checkbox" class="se-force" ${e.forceShow ? 'checked' : ''} style="width:auto"> Force show (ignore date range)</label>
+      </div>
+      <button class="btn ghost se-remove-btn" type="button">Remove</button>
+    </div>`;
+  }
+
+  async function renderSeasonalEventsPanel(){
+    if(!window.IFWL_OWNER) return;
+    const list = q('seEventsList');
+    if(!list) return;
+
+    let events = await window.fetchSeasonalEventsConfig();
+
+    function redraw(){
+      list.innerHTML = events.map((e, i) => seEventRowHtml(e, i)).join('') || '<div class="empty">No events yet - click "+ Add Event".</div>';
+      list.querySelectorAll('.se-remove-btn').forEach(btn => btn.addEventListener('click', () => {
+        const idx = Number(btn.closest('.se-event-row').dataset.index);
+        events.splice(idx, 1);
+        redraw();
+      }));
+      list.querySelectorAll('.se-icon').forEach(input => input.addEventListener('input', () => {
+        input.closest('.se-event-row').querySelector('.se-preview-icon').textContent = input.value;
+      }));
+    }
+    redraw();
+
+    q('seAddEventBtn').onclick = () => {
+      events.push({ id: 'event_' + Date.now(), name: 'New Event', enabled: true, forceShow: false, startMonth: 1, startDay: 1, endMonth: 1, endDay: 7, icon: '', glowColor: '' });
+      redraw();
+    };
+
+    q('seSaveAllBtn').onclick = async () => {
+      const status = q('seSaveStatus');
+      const rows = list.querySelectorAll('.se-event-row');
+      const updated = Array.from(rows).map((row, i) => {
+        const start = seParseMonthDay(row.querySelector('.se-start').value, 1, 1);
+        const end = seParseMonthDay(row.querySelector('.se-end').value, 1, 1);
+        return {
+          id: events[i]?.id || ('event_' + Date.now() + '_' + i),
+          name: row.querySelector('.se-name').value.trim() || 'Untitled Event',
+          enabled: row.querySelector('.se-enabled').checked,
+          forceShow: row.querySelector('.se-force').checked,
+          startMonth: start.month, startDay: start.day,
+          endMonth: end.month, endDay: end.day,
+          icon: row.querySelector('.se-icon').value.trim(),
+          glowColor: row.querySelector('.se-glow').value.trim()
+        };
+      });
+
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_Api.apiPost('staffSeasonalEventsSave', { events: updated });
+        events = updated;
+        window.invalidateSeasonalEventsCache();
+        window.applySeasonalOverlays?.();
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('seSaveStatus')) q('seSaveStatus').textContent = ''; }, 1500);
+      }catch(e){
+        status.textContent = 'Error: ' + e.message;
+      }
+    };
+  }
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -6514,6 +6704,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderLicenceDatabase();
     renderStaffTrophyCabinet();
     initClassStructurePanel();
+    renderSeasonalEventsPanel();
   }
   window.addEventListener('ifwl-auth-changed', initStaffPanels);
   if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
