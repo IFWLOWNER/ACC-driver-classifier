@@ -1,6 +1,23 @@
 /* ============================================================
    IFWL STATS ENGINE
-   
+   Extracted, unmodified in logic, from livetimings.html so both
+   pages share ONE implementation of consistency / race risk /
+   pace / overall score. If the scoring formula ever changes, it
+   changes here once, for every page that uses it.
+
+   Deliberately computed entirely client-side from the same public,
+   unauthenticated result files Live Timings already reads from
+   data/manifest.json - there is no private data in this file, so
+   there is nothing here that needs a server-side gate. Any tier
+   gating on top of these numbers (e.g. "Gold only") is a UI
+   feature-gate applied by the calling page, same as Live Timings
+   already does for its own "detailed access" panels.
+
+   Usage:
+     <script src="ifwl-stats-engine.js"></script>
+     const stats = await IFWLStats.computeForDriver(['IFWL XSL4Y3RX']);
+     // -> { overallScore, consistencyAvg, riskAvg, avgGapPct,
+     //      sessionCount, trackCount, mostRecentLabel } or null
    ============================================================ */
 (function(){
   const manifestUrl = 'data/manifest.json';
@@ -452,7 +469,24 @@
     const cs = Object.assign({ proPct: 2, proMax: null, amPct: 5, amMax: null, cutoffMode: 'auto', cutoffPct: 15 }, opts.classStructure || {});
 
     const allRows = await buildAllRows(!!opts.force);
-    const rows = allRows.filter(r => r.serverId === serverId);
+    let rows = allRows.filter(r => r.serverId === serverId);
+
+    // ✅ ADDED: qualification window - once a proper season structure is in
+    // place, qualifying happens in a defined off-season window, not "ever,
+    // forever". When a window is provided, every stat below (lap count,
+    // pace, gap-to-best, tier recommendation) is scoped to laps set within
+    // it - old laps from a previous season/window no longer count toward
+    // qualification. Backward compatible: with no window passed, behaviour
+    // is unchanged from before this existed.
+    if(opts.qualWindow && opts.qualWindow.startMs){
+      const { startMs, endMs } = opts.qualWindow;
+      const effectiveEnd = endMs || Date.now();
+      rows = rows.filter(r => {
+        const ts = fileTimestamp(r);
+        return ts >= startMs && ts <= effectiveEnd;
+      });
+    }
+
     if(!rows.length) return [];
 
     const byDriver = new Map();
@@ -547,7 +581,7 @@
     const rows = allRows.filter(r => r.serverId === serverId);
     if(!rows.length) return {};
 
-    const standings = await computeLicenceServerStandings({ serverId, minLaps: 0, force: !!opts.force, classStructure: opts.classStructure });
+    const standings = await computeLicenceServerStandings({ serverId, minLaps: 0, force: !!opts.force, classStructure: opts.classStructure, qualWindow: opts.qualWindow });
     const tierByDriver = new Map(standings.map(s => [driverNameKey(s.driver), s.recommendedTier]));
 
     const byTrack = new Map();
