@@ -605,6 +605,13 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .trophy-award-detail{position:relative;z-index:1;margin:0 0 14px;font-size:14px;color:#fff9ec;font-weight:700;line-height:1.4}
 .trophy-award-cta{position:relative;z-index:1;margin:0 0 20px;font-size:12.5px;color:#c9b18a;line-height:1.5}
 .trophy-award-actions{position:relative;z-index:1;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+/* ✅ ADDED: rank-change login notice */
+.rank-change-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;background:#12161c;border:1px solid var(--ifwl-line);margin-bottom:8px;text-align:left}
+.rank-change-row.up{border-color:rgba(51,217,155,.4)}
+.rank-change-row.down{border-color:rgba(255,178,56,.4)}
+.rank-change-row .rank-change-icon{font-size:22px}
+.rank-change-row strong{display:block;font-size:13.5px;color:var(--text-primary)}
 .my-trophy-tile{--trophy-light-color:255,224,160}
 .my-trophy-tile.lit{
   background:radial-gradient(circle at 50% 30%, rgba(var(--trophy-light-color),.28), rgba(20,14,8,.55) 70%);
@@ -944,6 +951,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="staffSystemStatus" class="owner-only-tab" type="button">System Status</button>
       <button data-view="staffLicenceDatabase" class="ops-only-tab" type="button">Licence Database</button>
       <button data-view="staffSeasonWindow" class="ops-only-tab" type="button">Season Window</button>
+      <button data-view="staffQualificationWindow" class="ops-only-tab" type="button">Qualification Window</button>
       <button data-view="staffMessages" class="ops-only-tab" type="button">Messages</button>
       <button data-view="staffTrophyCabinet" class="owner-only-tab" type="button">Manage Trophy Cabinet</button>
       <button data-view="commentatorWatch" class="owner-only-tab" type="button">Drivers to Watch (Preview)</button>
@@ -1287,6 +1295,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="trophy-award-actions">
         <button type="button" class="btn ghost" id="trophyAwardAckBtn">Acknowledge</button>
         <button type="button" class="btn purple" id="trophyAwardGoBtn">🏆 Go to My Trophy Cabinet</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="rankChangeModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div class="trophy-award-card">
+      <h2 class="trophy-award-heading">📊 Your Ranking Has Changed</h2>
+      <div id="rankChangeBody" style="margin:14px 0"></div>
+      <p class="trophy-award-cta">Every lap counts - keep putting time in on the IFWL Licence server to climb higher, or head over to the Fuel Calculator and Race Results to sharpen your strategy for next time.</p>
+      <div class="trophy-award-actions">
+        <button type="button" class="btn ghost" id="rankChangeDismissBtn">Dismiss</button>
+        <button type="button" class="btn purple" id="rankChangeViewBtn">View My Licence</button>
       </div>
     </div>
   </div>
@@ -1908,6 +1928,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffQualificationWindow" id="qualificationWindowPanel">
+    <div class="panel-head"><div><h3>Staff: Qualification Window</h3><small>Sets the date range that counts toward drivers' qualification laps and pace</small></div><span class="badge purple">Staff only</span></div>
+    <div class="staff-only-note">Separate from the Season Window above - qualification runs in the off-season, before a race season's own window even starts. This scopes both the 15-lap qualification count AND the pace/gap-to-best used for tier recommendations on Licence Quali and every driver's own card - laps outside this window no longer count once it's set.</div>
+    <div class="panel-body">
+      <div class="field-group"><label>Qualification window label</label><input type="text" id="qualWindowLabelInput" placeholder="e.g. Season 4 Off-Season Qualifying"></div>
+      <div class="field-group"><label>Start date</label><input type="date" id="qualWindowStartInput"></div>
+      <div class="field-group"><label>End date</label><input type="date" id="qualWindowEndInput"></div>
+      <button class="btn teal" id="qualWindowSaveBtn" type="button">Save qualification window</button>
+      <span class="save-status" id="qualWindowSaveStatus"></span>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="staffSystemStatus" id="systemStatusPanel">
     <div class="panel-head"><div><h3>Staff: System Status</h3><small>The banner shown at the top of everyone's homepage</small></div><span class="badge purple">Staff only</span></div>
     <div class="staff-only-note">Use this for messaging like "Claim Your Laps is currently in beta" or "Off-season qualification is now live" - one banner, shown to everyone, so the same question doesn't need answering in Discord over and over.</div>
@@ -2256,6 +2288,35 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return apiPost('staffSeasonWindowSave', data);
   }
   window.IFWL_SeasonAPI = { fetchSeasonWindow, saveSeasonWindow };
+
+  async function fetchQualificationWindow(){
+    if(USE_DEMO_FALLBACK) return demoGet('qualificationWindow', { label:'', startDate:'', endDate:'' });
+    return apiGet('qualificationWindow');
+  }
+  async function saveQualificationWindow(data){
+    if(USE_DEMO_FALLBACK){ demoSet('qualificationWindow', data); return data; }
+    return apiPost('staffQualificationWindowSave', data);
+  }
+  window.IFWL_QualWindowAPI = { fetchQualificationWindow, saveQualificationWindow };
+
+  let __qualWindowMsCache = null;
+  async function fetchQualWindowMs(){
+    if(__qualWindowMsCache) return __qualWindowMsCache;
+    try{
+      const w = await fetchQualificationWindow();
+      __qualWindowMsCache = {
+        startMs: w.startDate ? Date.parse(w.startDate + 'T00:00:00Z') : 0,
+        endMs: w.endDate ? Date.parse(w.endDate + 'T23:59:59Z') : Date.now(),
+        label: w.label || ''
+      };
+    }catch(e){
+      console.warn('Could not load qualification window', e);
+      __qualWindowMsCache = { startMs: 0, endMs: Date.now(), label: '' };
+    }
+    return __qualWindowMsCache;
+  }
+  window.fetchQualWindowMs = fetchQualWindowMs;
+  window.invalidateQualWindowCache = () => { __qualWindowMsCache = null; };
 
   // Server contract: ?systemStatus=1 (public, no token) -> {active,title,message,startDate,endDate}
   //                  ?staffSystemStatusSave=1 {active,title,message,startDate,endDate} (staff)
@@ -2848,7 +2909,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings, roster, directory;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: cwPlatform, classStructure: await window.classStructureForServer(cwPlatform) });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: cwPlatform, classStructure: await window.classStructureForServer(cwPlatform) , qualWindow: await window.fetchQualWindowMs()});
       [roster, directory] = await Promise.all([ fetchLicenceRosterPublic(), fetchDirectory() ]);
     }catch(e){
       wrap.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`;
@@ -3248,7 +3309,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
     }catch(e){
       body.innerHTML = `<div class="empty">Could not load the server list: ${e.message}</div>`;
       return;
@@ -3413,20 +3474,81 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     let html = '';
+    let pcIndex = -1, consoleIndex = -1;
     try{
-      const pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') });
-      const pcIndex = findMyStandingRow(pcStandings, accDriverNames);
+      const pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()});
+      pcIndex = findMyStandingRow(pcStandings, accDriverNames);
       if(pcIndex >= 0) html += await buildQualStandingCard('PC', pcIndex, pcStandings, 'pc-licence', accDriverNames);
     }catch(e){ /* one platform failing shouldn't block the other */ }
 
     try{
-      const consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') });
-      const consoleIndex = findMyStandingRow(consoleStandings, accDriverNames);
+      const consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()});
+      consoleIndex = findMyStandingRow(consoleStandings, accDriverNames);
       if(consoleIndex >= 0) html += await buildQualStandingCard('Console', consoleIndex, consoleStandings, 'console-licence', accDriverNames);
     }catch(e){ /* as above */ }
 
     body.innerHTML = html || '<div class="empty">No laps recorded yet on the IFWL Licence server(s) under your linked name(s). Head to the PC or Console laps list under "Claim Your Laps" once you\'ve raced there.</div>';
+
+    checkRankChange(pcIndex, consoleIndex); // fire-and-forget - never blocks the card itself rendering
   }
+
+  // ✅ ADDED: rank-change login notice. Rank position is already a Gold
+  // perk (gated on the card above), so this only ever fires for Gold/staff -
+  // it would be odd to proactively surface rank data through a popup to
+  // someone who can't otherwise see it on the page at all. Silently stores
+  // the rank on first-ever view (nothing to compare against yet), only pops
+  // up once there's a genuine change from what they last saw.
+  async function checkRankChange(pcIndex, consoleIndex){
+    const isGoldOrStaff = window.IFWL_GOLD || window.IFWL_STAFF;
+    if(!isGoldOrStaff) return;
+
+    const newRank = {
+      pc: pcIndex >= 0 ? pcIndex + 1 : null,
+      console: consoleIndex >= 0 ? consoleIndex + 1 : null
+    };
+    const prevRank = currentProfile?.lastSeenQualRank || {};
+    const hasPrev = prevRank.pc != null || prevRank.console != null;
+
+    const changes = [];
+    if(newRank.pc != null && prevRank.pc != null && newRank.pc !== prevRank.pc){
+      changes.push({ platform: 'PC', from: prevRank.pc, to: newRank.pc });
+    }
+    if(newRank.console != null && prevRank.console != null && newRank.console !== prevRank.console){
+      changes.push({ platform: 'Console', from: prevRank.console, to: newRank.console });
+    }
+
+    if(hasPrev && changes.length) showRankChangeModal(changes);
+
+    if(newRank.pc !== prevRank.pc || newRank.console !== prevRank.console){
+      try{
+        await saveMyProfile({ lastSeenQualRank: newRank });
+        if(currentProfile) currentProfile.lastSeenQualRank = newRank;
+      }catch(e){ console.warn('Could not save last-seen rank', e); }
+    }
+  }
+
+  function showRankChangeModal(changes){
+    const modal = q('rankChangeModal');
+    if(!modal) return;
+    const body = q('rankChangeBody');
+    body.innerHTML = changes.map(c => {
+      const up = c.to < c.from; // lower number = better position
+      const places = Math.abs(c.to - c.from);
+      return `<div class="rank-change-row ${up ? 'up' : 'down'}">
+        <span class="rank-change-icon">${up ? '📈' : '📉'}</span>
+        <div>
+          <strong>${c.platform}: ${up ? 'Up' : 'Down'} ${places} place${places === 1 ? '' : 's'}</strong>
+          <div class="field-hint">#${c.from} &rarr; #${c.to}</div>
+        </div>
+      </div>`;
+    }).join('');
+    modal.classList.remove('hidden');
+  }
+  q('rankChangeDismissBtn')?.addEventListener('click', () => q('rankChangeModal').classList.add('hidden'));
+  q('rankChangeViewBtn')?.addEventListener('click', () => {
+    q('rankChangeModal').classList.add('hidden');
+    switchView('home');
+  });
 
   // ✅ ADDED: LMU sub-licence self-select. These are driver opt-in flags,
   // stored on the tier list (reusing the same order/colour/foil editor as
@@ -3506,7 +3628,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const platformResults = [];
     for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
       try{
-        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
+        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
         const idx = findMyStandingRow(standings, accDriverNames);
         if(idx >= 0) platformResults.push({ label, totalLaps: standings[idx].totalLaps });
       }catch(e){ /* one platform failing shouldn't block the other */ }
@@ -4755,7 +4877,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const lines = [];
     for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
       try{
-        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
+        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
         const row = findQualRowForNames(standings, accDriverNames);
         if(row) lines.push({ label, laps: row.totalLaps, done: row.totalLaps >= 15 });
       }catch(e){ /* one platform failing shouldn't block the other */ }
@@ -5162,7 +5284,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, force: !!force, classStructure: await window.classStructureForServer(serverId) });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, force: !!force, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
       qualCache[platform].standings = standings;
     }catch(e){
       body.innerHTML = `<tr><td colspan="6" class="empty">Could not load standings: ${e.message}</td></tr>`;
@@ -5339,7 +5461,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings, profiles, tiers;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) });
+      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
       profiles = await staffSearch('');
       tiers = await window.IFWL_TierAPI.fetchTierList();
     }catch(e){
@@ -5585,6 +5707,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       await window.IFWL_SeasonAPI.saveSeasonWindow({ label, startDate, endDate });
       q('seasonSaveStatus').textContent = 'Saved. Race Results will use this next time it loads.';
     }catch(e){ q('seasonSaveStatus').textContent = 'Could not save: ' + e.message; }
+  });
+
+  async function initQualificationWindowPanel(){
+    const w = await window.IFWL_QualWindowAPI.fetchQualificationWindow();
+    q('qualWindowLabelInput').value = w.label || '';
+    q('qualWindowStartInput').value = w.startDate || '';
+    q('qualWindowEndInput').value = w.endDate || '';
+  }
+  q('qualWindowSaveBtn')?.addEventListener('click', async () => {
+    const label = q('qualWindowLabelInput').value.trim();
+    const startDate = q('qualWindowStartInput').value;
+    const endDate = q('qualWindowEndInput').value;
+    if(!startDate || !endDate){ q('qualWindowSaveStatus').textContent = 'Both dates are required.'; return; }
+    q('qualWindowSaveStatus').textContent = 'Saving...';
+    try{
+      await window.IFWL_QualWindowAPI.saveQualificationWindow({ label, startDate, endDate });
+      window.invalidateQualWindowCache();
+      q('qualWindowSaveStatus').textContent = 'Saved. Licence Quali and every driver\'s own ranking will use this next time it loads.';
+    }catch(e){ q('qualWindowSaveStatus').textContent = 'Could not save: ' + e.message; }
   });
 
   /* ---- Staff Messages ---- */
@@ -5845,8 +5986,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{
       profiles = await staffSearch('');
       tiers = await window.IFWL_TierAPI.fetchTierList();
-      pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') }).catch(() => []);
-      consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') }).catch(() => []);
+      pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()}).catch(() => []);
+      consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()}).catch(() => []);
     }catch(e){
       overviewBox.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`;
       body.innerHTML = '';
@@ -6750,7 +6891,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     preview.innerHTML = '<div class="empty">Calculating&hellip;</div>';
     try{
       const cfg = csReadFormValues(card);
-      const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 0, serverId, classStructure: cfg });
+      const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 0, serverId, classStructure: cfg , qualWindow: await window.fetchQualWindowMs()});
       const counts = { 'GT3 Pro':0, 'GT3 Amateur':0, 'GT3 Beginner':0, 'Rookie Class':0 };
       standings.forEach(s => { counts[s.recommendedTier] = (counts[s.recommendedTier]||0) + 1; });
       preview.innerHTML = `
@@ -6774,7 +6915,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // Pro/Am settings, with no cutoff applied yet - the 85th percentile of
       // their gap% is a reasonable "most of this group sits inside this,
       // beyond it is a clear outlier" line, not an arbitrary flat multiplier.
-      const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 0, serverId, classStructure: { ...cfg, cutoffPct: 100000 } });
+      const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 0, serverId, classStructure: { ...cfg, cutoffPct: 100000 } , qualWindow: await window.fetchQualWindowMs()});
       const beginnerGaps = standings.filter(s => s.recommendedTier === 'GT3 Beginner' && s.avgGapPct != null).map(s => s.avgGapPct).sort((a,b)=>a-b);
       if(!beginnerGaps.length){
         hint.textContent = 'Not enough data yet to suggest a cutoff.';
@@ -6968,6 +7109,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderLicenceQualPanel('PC', 'pc-licence');
     renderLicenceQualPanel('Console', 'console-licence');
     initSeasonWindowPanel();
+    initQualificationWindowPanel();
     initStaffMessagesPanel();
     initBulkTierTool();
     renderNameAudit();
