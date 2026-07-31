@@ -1872,7 +1872,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="panel-head"><div><h3>Staff: SimGrid Events</h3><small>Invite-only races unlocked by licence tier</small></div><span class="badge purple">Staff only</span></div>
     <div class="panel-body">
       <div class="field-group"><label>Event title</label><input type="text" id="sgTitle" placeholder="e.g. IFWL Beginner Invitational - Round 3"></div>
-      <div class="field-group"><label>SimGrid event link</label><input type="url" id="sgLink" placeholder="https://thesimgrid.com/events/..."></div>
+      <div class="field-group">
+        <label>SimGrid event link</label>
+        <div style="display:flex;gap:10px">
+          <input type="url" id="sgLink" placeholder="https://thesimgrid.com/championships/..." style="flex:1">
+          <button class="btn ghost" id="sgFetchRoundsBtn" type="button">Preview rounds</button>
+        </div>
+        <div class="field-hint">Best-effort - reads the championship's own Races page. Works on public links; private/invite-only links may not be reachable this way. Preview only, doesn't create anything on its own.</div>
+      </div>
+      <div id="sgRoundsPreview" class="hidden" style="background:#12161c;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px;margin-bottom:10px"></div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1"><label>Event date</label><input type="datetime-local" id="sgEventDate"></div>
+        <div class="field-group" style="flex:1"><label>Or a free-text date label (optional)</label><input type="text" id="sgEventDateLabel" placeholder="e.g. Round 3 - TBC"></div>
+      </div>
+      <div class="field-group"><label>Password (shown to eligible drivers only)</label><input type="text" id="sgPassword" placeholder="e.g. ifwl2026"></div>
       <div class="field-group"><label>Platform</label><select id="sgPlatform">
         <option value="both">Console + PC</option>
         <option value="console">Console only</option>
@@ -1932,6 +1945,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="panel-head"><div><h3>Staff: Qualification Window</h3><small>Sets the date range that counts toward drivers' qualification laps and pace</small></div><span class="badge purple">Staff only</span></div>
     <div class="staff-only-note">Separate from the Season Window above - qualification runs in the off-season, before a race season's own window even starts. This scopes both the 15-lap qualification count AND the pace/gap-to-best used for tier recommendations on Licence Quali and every driver's own card - laps outside this window no longer count once it's set.</div>
     <div class="panel-body">
+      <div class="field-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="qualWindowEnabledCheck" checked style="width:auto"> Enforce this window (untick to count all-time laps again, without losing your saved dates)</label></div>
       <div class="field-group"><label>Qualification window label</label><input type="text" id="qualWindowLabelInput" placeholder="e.g. Season 4 Off-Season Qualifying"></div>
       <div class="field-group"><label>Start date</label><input type="date" id="qualWindowStartInput"></div>
       <div class="field-group"><label>End date</label><input type="date" id="qualWindowEndInput"></div>
@@ -2304,7 +2318,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(__qualWindowMsCache) return __qualWindowMsCache;
     try{
       const w = await fetchQualificationWindow();
-      __qualWindowMsCache = {
+      __qualWindowMsCache = (w.enabled === false) ? { startMs: 0, endMs: Date.now(), label: '' } : {
         startMs: w.startDate ? Date.parse(w.startDate + 'T00:00:00Z') : 0,
         endMs: w.endDate ? Date.parse(w.endDate + 'T23:59:59Z') : Date.now(),
         label: w.label || ''
@@ -3152,11 +3166,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const placeholder = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><rect width="120" height="68" fill="#1a2027"/></svg>');
     body.innerHTML = events.map(e => {
       const platformLabel = e.platform === 'console' ? 'Console' : e.platform === 'pc' ? 'PC' : 'Console + PC';
+      const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : (e.eventDateLabel || '');
       return `<div class="race-event-card">
         <img src="${e.simgridImageUrl || placeholder}" alt="">
         <div>
           <span class="platform-badge">${platformLabel}</span>
           <strong style="display:block;margin-top:6px">${e.title}</strong>
+          ${dateStr ? `<p style="color:var(--ifwl-teal);font-size:12.5px;margin:4px 0 0;font-weight:700">📅 ${dateStr}</p>` : ''}
+          ${e.password ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">🔒 Password: <code style="background:#12161c;padding:2px 6px;border-radius:5px;color:var(--text-primary)">${e.password}</code></p>` : ''}
           ${e.notes ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${e.notes}</p>` : ''}
         </div>
         <a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>
@@ -5195,13 +5212,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const events = await window.IFWL_SimgridAPI.fetchAllSimgridEvents();
     const wrap = q('sgEventList');
     if(!events.length){ wrap.innerHTML = '<div class="empty">No SimGrid events yet.</div>'; return; }
-    wrap.innerHTML = events.map(e => `
+    wrap.innerHTML = events.map(e => {
+      const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString() : (e.eventDateLabel || 'No date set');
+      return `
       <div class="note-item">
         <strong>${e.title}</strong>
         <div class="note-meta">${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
+        <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 ${e.password}` : ''}</div>
         <div style="margin-top:8px"><button class="btn ghost" data-delete-event="${e.id}">Delete</button></div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     wrap.querySelectorAll('[data-delete-event]').forEach(btn => btn.addEventListener('click', async () => {
       if(!confirm('Delete this event? Drivers will stop seeing it in Available Races.')) return;
       try{ await window.IFWL_SimgridAPI.deleteSimgridEvent(btn.dataset.deleteEvent); await renderSimgridEventList(); }
@@ -5215,16 +5236,61 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const platform = q('sgPlatform').value;
     const tiers = [...document.querySelectorAll('.sg-tier-check:checked')].map(el => el.value);
     const notes = q('sgNotes').value.trim();
+    const eventDateMs = q('sgEventDate').value ? new Date(q('sgEventDate').value).getTime() : 0;
+    const eventDateLabel = q('sgEventDateLabel').value.trim();
+    const password = q('sgPassword').value.trim();
     if(!title || !simgridLink || !tiers.length){ q('sgSaveStatus').textContent = 'Title, link and at least one tier are required.'; return; }
     q('sgSaveStatus').textContent = 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ title, simgridLink, platform, tiers, notes });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ title, simgridLink, platform, tiers, notes, eventDateMs, eventDateLabel, password });
       q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
+      q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
+      q('sgRoundsPreview').classList.add('hidden');
       document.querySelectorAll('.sg-tier-check').forEach(el => el.checked = false);
       q('sgSaveStatus').textContent = 'Saved.';
       await renderSimgridEventList();
       setTimeout(()=>{ if(q('sgSaveStatus')) q('sgSaveStatus').textContent=''; }, 2000);
     }catch(e){ q('sgSaveStatus').textContent = 'Could not save: ' + e.message; }
+  });
+
+  // ✅ ADDED: rounds preview - best-effort, see the backend comment above
+  // fetchSimgridRounds for exactly what this relies on. Never creates or
+  // changes anything by itself; clicking a detected round just prefills the
+  // date fields above so staff can review/adjust before saving.
+  q('sgFetchRoundsBtn')?.addEventListener('click', async () => {
+    const url = q('sgLink').value.trim();
+    const preview = q('sgRoundsPreview');
+    if(!url){ preview.classList.remove('hidden'); preview.innerHTML = '<div class="empty">Paste a SimGrid championship link above first.</div>'; return; }
+    preview.classList.remove('hidden');
+    preview.innerHTML = '<div class="empty">Fetching rounds&hellip;</div>';
+    try{
+      const result = await window.IFWL_Api.apiPost('staffSimgridFetchRounds', { url });
+      if(!result.rounds?.length){
+        preview.innerHTML = `<div class="empty">${result.warning || 'No rounds found on this page.'}</div>`;
+        return;
+      }
+      preview.innerHTML = (result.warning ? `<div class="field-hint" style="margin-bottom:8px">${result.warning}</div>` : '') +
+        result.rounds.map((r, i) => `
+          <div class="note-item sg-round-row" data-round-idx="${i}" style="cursor:pointer">
+            <strong>${r.name}</strong>
+            <div class="note-meta">${r.track || 'Track unknown'} &middot; ${r.dateText || 'Date unknown'}${r.ended ? ' &middot; Ended' : ''}</div>
+          </div>`).join('') +
+        '<div class="field-hint" style="margin-top:8px">Click a round to use its date below.</div>';
+
+      preview.querySelectorAll('.sg-round-row').forEach((row, i) => {
+        row.addEventListener('click', () => {
+          const r = result.rounds[i];
+          if(r.dateMs){
+            const d = new Date(r.dateMs);
+            q('sgEventDate').value = d.toISOString().slice(0, 16);
+          }
+          q('sgEventDateLabel').value = `${r.name}${r.track ? ' - ' + r.track : ''}`;
+          if(!q('sgTitle').value.trim()) q('sgTitle').value = `${r.name}${r.track ? ' - ' + r.track : ''}`;
+        });
+      });
+    }catch(e){
+      preview.innerHTML = `<div class="empty">Could not fetch rounds: ${e.message}</div>`;
+    }
   });
 
   // These four calls used to fire immediately as the script parsed - before
@@ -5711,20 +5777,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   async function initQualificationWindowPanel(){
     const w = await window.IFWL_QualWindowAPI.fetchQualificationWindow();
+    q('qualWindowEnabledCheck').checked = w.enabled !== false;
     q('qualWindowLabelInput').value = w.label || '';
     q('qualWindowStartInput').value = w.startDate || '';
     q('qualWindowEndInput').value = w.endDate || '';
   }
   q('qualWindowSaveBtn')?.addEventListener('click', async () => {
+    const enabled = q('qualWindowEnabledCheck').checked;
     const label = q('qualWindowLabelInput').value.trim();
     const startDate = q('qualWindowStartInput').value;
     const endDate = q('qualWindowEndInput').value;
-    if(!startDate || !endDate){ q('qualWindowSaveStatus').textContent = 'Both dates are required.'; return; }
+    if(enabled && (!startDate || !endDate)){ q('qualWindowSaveStatus').textContent = 'Both dates are required to enforce a window - untick "Enforce" instead if you just want to turn it off.'; return; }
     q('qualWindowSaveStatus').textContent = 'Saving...';
     try{
-      await window.IFWL_QualWindowAPI.saveQualificationWindow({ label, startDate, endDate });
+      await window.IFWL_QualWindowAPI.saveQualificationWindow({ enabled, label, startDate, endDate });
       window.invalidateQualWindowCache();
-      q('qualWindowSaveStatus').textContent = 'Saved. Licence Quali and every driver\'s own ranking will use this next time it loads.';
+      q('qualWindowSaveStatus').textContent = enabled
+        ? 'Saved. Licence Quali and every driver\'s own ranking will use this next time it loads.'
+        : 'Saved - window is now off, all-time laps count again (your dates are kept for next time).';
     }catch(e){ q('qualWindowSaveStatus').textContent = 'Could not save: ' + e.message; }
   });
 
