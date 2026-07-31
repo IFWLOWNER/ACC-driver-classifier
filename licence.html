@@ -5312,14 +5312,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       }
 
       // ✅ CHANGED: per-round date and password are now inline and editable
-      // right here, pre-filled automatically - not a single shared field
-      // that looked like it applied to every round at once. Each round's
-      // own date is pre-filled from what was detected (still adjustable as
-      // a backup if it's wrong); each round's password is pre-filled from
-      // whatever's currently in the Password field below, but can be
-      // changed per-round before adding.
-      const defaultPassword = q('sgPassword').value.trim();
+      // right here. Also adds a "fill all" control that works whenever you
+      // use it - the earlier version only pre-filled from the shared
+      // Password field's value at the exact moment "Preview rounds" was
+      // clicked, which meant typing a password AFTER previewing (or before
+      // it was filled in) left every round blank with no way to bulk-fix it
+      // short of retyping 9 times.
       preview.innerHTML = (result.warning ? `<div class="field-hint" style="margin-bottom:8px">${result.warning}</div>` : '') +
+        `<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--ifwl-line)">
+          <div class="field-group" style="flex:1;margin-bottom:0"><label>Fill all round passwords below with:</label><input type="text" id="sgFillAllPasswordInput" placeholder="e.g. ifwl2026"></div>
+          <button class="btn ghost" id="sgFillAllPasswordBtn" type="button">Apply to all rounds</button>
+        </div>` +
         result.rounds.map((r, i) => {
           const dateVal = r.dateMs ? new Date(r.dateMs).toISOString().slice(0,16) : '';
           return `
@@ -5333,7 +5336,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             </label>
             <div style="display:flex;gap:10px;margin-top:8px;padding-left:26px">
               <div class="field-group" style="flex:1;margin-bottom:0"><label style="font-size:10px">Date/time (editable)</label><input type="datetime-local" class="sg-round-date" data-round-idx="${i}" value="${dateVal}"></div>
-              <div class="field-group" style="flex:1;margin-bottom:0"><label style="font-size:10px">Password for this round</label><input type="text" class="sg-round-password" data-round-idx="${i}" value="${defaultPassword.replace(/"/g,'&quot;')}"></div>
+              <div class="field-group" style="flex:1;margin-bottom:0"><label style="font-size:10px">Password for this round</label><input type="text" class="sg-round-password" data-round-idx="${i}" value=""></div>
             </div>
           </div>`;
         }).join('') +
@@ -5342,6 +5345,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <span class="field-hint">Each round uses its own date/password above. Platform/tiers/notes below are shared across all of them.</span>
         </div>
         <div id="sgBulkAddStatus" style="margin-top:8px"></div>`;
+
+      q('sgFillAllPasswordBtn').addEventListener('click', () => {
+        const val = q('sgFillAllPasswordInput').value;
+        preview.querySelectorAll('.sg-round-password').forEach(el => { el.value = val; });
+      });
 
       q('sgBulkAddBtn').addEventListener('click', async () => {
         const status = q('sgBulkAddStatus');
