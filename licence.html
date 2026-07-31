@@ -139,20 +139,16 @@ body:not(.discord-logged-in) .logged-in-tab,body:not(.discord-logged-in) .logged
 .view-panel.tier-collapsed{display:none!important}
 main{width:min(1360px,88vw);margin:34px auto 60px}
 
-/* ✅ ADDED: affiliate ads - side banners only show once there's genuinely
-   enough room either side of the centred 1360px content column to not
-   cramp anything; below that they just don't render at all rather than
-   overlapping content. */
-.affiliate-side{position:fixed;top:110px;display:none;flex-direction:column;gap:16px;width:160px;z-index:5}
-.affiliate-side-left{left:max(12px,calc(50% - 860px))}
-.affiliate-side-right{right:max(12px,calc(50% - 860px))}
-@media(min-width:1700px){.affiliate-side{display:flex}}
-.affiliate-slot{display:block;border-radius:10px;overflow:hidden;border:1px solid var(--ifwl-line);transition:opacity .15s}
-.affiliate-slot:hover{opacity:.85}
-.affiliate-slot img{display:block;width:100%;height:auto}
-.affiliate-top-banner{display:block;border-radius:14px;overflow:hidden;border:1px solid var(--ifwl-line);margin-bottom:20px;transition:opacity .15s}
+/* ✅ CHANGED: affiliate ads - dropped the four side slots (only ever
+   visible above ~1700px width, didn't work out in practice) in favour of
+   one reliable top-center placement that rotates through as many banners
+   as are configured. */
+.affiliate-top-banner{position:relative;display:block;border-radius:14px;overflow:hidden;border:1px solid var(--ifwl-line);margin-bottom:20px;transition:opacity .15s}
 .affiliate-top-banner:hover{opacity:.9}
 .affiliate-top-banner img{display:block;width:100%;height:auto;max-height:160px;object-fit:cover}
+.affiliate-dots{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:6px}
+.affiliate-dots span{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.4)}
+.affiliate-dots span.active{background:#fff}
 .panel{background:linear-gradient(165deg,var(--panel-bg-raised),var(--panel-bg));border:1px solid var(--ifwl-line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;margin:22px 0}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 18px;background:linear-gradient(90deg,#0b3b35,#141a21 55%);border-bottom:3px solid transparent;border-image:linear-gradient(90deg,var(--ifwl-teal),var(--ifwl-purple)) 1}
 .panel-head h3{margin:0;font-size:18px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
@@ -978,18 +974,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </div>
 </nav>
 
-<div class="affiliate-side affiliate-side-left">
-  <a class="affiliate-slot" id="affiliateLeftTop" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
-  <a class="affiliate-slot" id="affiliateLeftBottom" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
-</div>
-<div class="affiliate-side affiliate-side-right">
-  <a class="affiliate-slot" id="affiliateRightTop" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
-  <a class="affiliate-slot" id="affiliateRightBottom" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
-</div>
-
 <main>
 
-  <a class="affiliate-top-banner" id="affiliateTopBanner" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
+  <a class="affiliate-top-banner" id="affiliateTopBanner" target="_blank" rel="noopener sponsored" style="display:none">
+    <img alt="Sponsor" id="affiliateTopBannerImg">
+    <div class="affiliate-dots" id="affiliateTopBannerDots"></div>
+  </a>
 
   <div class="panel view-panel hidden" data-view="home" id="systemStatusBanner">
     <div class="system-status-inner">
@@ -1593,13 +1583,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </section>
 
   <section class="panel view-panel" data-view="staffAffiliateAds" id="staffAffiliateAdsPanel">
-    <div class="panel-head"><div><h3>Staff: Manage Affiliates</h3><small>Sponsor/affiliate banners shown around the licence centre - clicking an image opens its link</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-head"><div><h3>Staff: Manage Affiliates</h3><small>Sponsor/affiliate banners shown above the homepage announcement - clicking an image opens its link</small></div><span class="badge purple">Owner only</span></div>
     <div class="panel-body">
       <div class="notice-card">
-        Five slots total: two stacked either side of the main content column (only visible on wide screens where that gap actually exists), plus one banner above the homepage announcement (visible on every screen size). Each is just an image and a link - upload the image, set the link, save. Leave a slot's image empty to hide it entirely.
+        Add as many banners as you like - if there's more than one, they rotate automatically every 10 seconds with dots showing which one's active. Each is just an image and a link.
       </div>
       <div id="aaSlots" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:16px"></div>
-      <button class="btn teal" id="aaSaveBtn" type="button" style="margin-top:16px">Save all affiliate ads</button>
+      <button class="btn ghost" id="aaAddBtn" type="button" style="margin-top:14px">+ Add banner</button>
+      <button class="btn teal" id="aaSaveBtn" type="button" style="margin-top:14px;margin-left:10px">Save all affiliate ads</button>
       <span class="save-status" id="aaSaveStatus"></span>
     </div>
   </section>
@@ -2693,31 +2684,47 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function fetchAffiliateAds(){
     if(__affiliateAdsCache) return __affiliateAdsCache;
     try{
-      __affiliateAdsCache = (await apiGet('affiliateAds')).ads || {};
+      __affiliateAdsCache = (await apiGet('affiliateAds')).topBanners || [];
     }catch(e){
       console.warn('Could not load affiliate ads', e);
-      __affiliateAdsCache = {};
+      __affiliateAdsCache = [];
     }
     return __affiliateAdsCache;
   }
   window.fetchAffiliateAds = fetchAffiliateAds;
   window.invalidateAffiliateAdsCache = () => { __affiliateAdsCache = null; };
 
+  let __affiliateRotateTimer = null;
   async function applyAffiliateAds(){
-    const ads = await fetchAffiliateAds();
-    const slotMap = { leftTop: 'affiliateLeftTop', leftBottom: 'affiliateLeftBottom', rightTop: 'affiliateRightTop', rightBottom: 'affiliateRightBottom', topBanner: 'affiliateTopBanner' };
-    Object.entries(slotMap).forEach(([slotKey, elId]) => {
-      const el = q(elId);
-      if(!el) return;
-      const slot = ads[slotKey];
-      if(slot && slot.imageUrl){
-        el.href = slot.linkUrl || '#';
-        el.querySelector('img').src = slot.imageUrl;
-        el.style.display = '';
-      }else{
-        el.style.display = 'none';
-      }
-    });
+    const banners = await fetchAffiliateAds();
+    const el = q('affiliateTopBanner');
+    const img = q('affiliateTopBannerImg');
+    const dotsWrap = q('affiliateTopBannerDots');
+    if(!el || !img) return;
+
+    if(__affiliateRotateTimer){ clearInterval(__affiliateRotateTimer); __affiliateRotateTimer = null; }
+
+    if(!banners.length){ el.style.display = 'none'; return; }
+
+    let current = 0;
+    function show(i){
+      current = i;
+      img.src = banners[i].imageUrl;
+      el.href = banners[i].linkUrl || '#';
+      if(dotsWrap) dotsWrap.querySelectorAll('span').forEach((d, di) => d.classList.toggle('active', di === i));
+    }
+
+    dotsWrap.innerHTML = banners.length > 1 ? banners.map(() => '<span></span>').join('') : '';
+    el.style.display = '';
+    show(0);
+
+    // Cycles every 10 seconds - only bothers with an interval at all if
+    // there's actually more than one banner to rotate through.
+    if(banners.length > 1){
+      __affiliateRotateTimer = setInterval(() => {
+        show((current + 1) % banners.length);
+      }, 10000);
+    }
   }
   window.applyAffiliateAds = applyAffiliateAds;
 
@@ -7893,63 +7900,69 @@ Flashing Headlights:
     }));
   }
 
-  // ✅ ADDED: Manage Affiliates staff panel
-  const AA_SLOT_LABELS = {
-    leftTop: 'Left side - top', leftBottom: 'Left side - bottom',
-    rightTop: 'Right side - top', rightBottom: 'Right side - bottom',
-    topBanner: 'Top banner (above homepage announcement)'
-  };
+  // ✅ CHANGED: Manage Affiliates staff panel - dynamic list instead of 5
+  // fixed slots, matching the simplified rotating-array backend model.
+  let aaRowCount = 0;
 
-  function aaSlotCardHtml(slotKey, label, slot){
-    slot = slot || {};
-    return `<div class="aa-slot-card" data-slot="${slotKey}">
-      <h5>${label}</h5>
-      <div class="se-preview-wrap">${slot.imageUrl ? `<img src="${slot.imageUrl}" class="se-preview-img">` : '<div class="field-hint">No image uploaded yet</div>'}</div>
+  function aaBannerRowHtml(idx, banner){
+    banner = banner || {};
+    return `<div class="aa-slot-card" data-row-idx="${idx}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h5 style="margin:0">Banner ${idx + 1}</h5>
+        <button class="btn ghost" data-remove-banner="${idx}" type="button">✕ Remove</button>
+      </div>
+      <div class="se-preview-wrap">${banner.imageUrl ? `<img src="${banner.imageUrl}" class="se-preview-img">` : '<div class="field-hint">No image uploaded yet</div>'}</div>
       <input type="file" class="aa-upload" accept="image/png,image/jpeg,image/webp" style="margin:8px 0">
-      <div class="field-group" style="margin-bottom:0"><label style="font-size:11px">Link URL</label><input type="url" class="aa-link" value="${(slot.linkUrl||'').replace(/"/g,'&quot;')}" placeholder="https://..."></div>
+      <div class="field-group" style="margin-bottom:0"><label style="font-size:11px">Link URL</label><input type="url" class="aa-link" value="${(banner.linkUrl||'').replace(/"/g,'&quot;')}" placeholder="https://..."></div>
       <span class="save-status aa-slot-status"></span>
     </div>`;
+  }
+
+  function aaAddBannerRow(banner){
+    const idx = aaRowCount++;
+    q('aaSlots').insertAdjacentHTML('beforeend', aaBannerRowHtml(idx, banner));
+    const row = q(`[data-row-idx="${idx}"]`);
+    row.querySelector(`[data-remove-banner="${idx}"]`).addEventListener('click', () => row.remove());
+    row.querySelector('.aa-upload').addEventListener('change', async (ev) => {
+      const file = ev.target.files[0];
+      if(!file) return;
+      const statusEl = row.querySelector('.aa-slot-status');
+      statusEl.textContent = 'Uploading...';
+      try{
+        const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'affiliateAd');
+        row.querySelector('.se-preview-wrap').innerHTML = `<img src="${url}" class="se-preview-img">`;
+        row.dataset.newImageUrl = url;
+        statusEl.textContent = 'Uploaded - click "Save all affiliate ads" to apply.';
+      }catch(e){
+        statusEl.textContent = 'Upload failed: ' + e.message;
+      }
+    });
   }
 
   async function initAffiliateAdsPanel(){
     if(!q('staffAffiliateAdsPanel')) return;
     const wrap = q('aaSlots');
-    const ads = (await window.IFWL_Api.apiGet('affiliateAds')).ads || {};
+    const banners = (await window.IFWL_Api.apiGet('affiliateAds')).topBanners || [];
 
-    wrap.innerHTML = Object.entries(AA_SLOT_LABELS).map(([key, label]) => aaSlotCardHtml(key, label, ads[key])).join('');
+    wrap.innerHTML = '';
+    aaRowCount = 0;
+    banners.forEach(b => aaAddBannerRow(b));
+    if(!banners.length) aaAddBannerRow();
 
-    wrap.querySelectorAll('.aa-slot-card').forEach(card => {
-      const slotKey = card.dataset.slot;
-      card.querySelector('.aa-upload').addEventListener('change', async (ev) => {
-        const file = ev.target.files[0];
-        if(!file) return;
-        const statusEl = card.querySelector('.aa-slot-status');
-        statusEl.textContent = 'Uploading...';
-        try{
-          const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'affiliateAd');
-          card.querySelector('.se-preview-wrap').innerHTML = `<img src="${url}" class="se-preview-img">`;
-          card.dataset.newImageUrl = url;
-          statusEl.textContent = 'Uploaded - click "Save all affiliate ads" to apply.';
-        }catch(e){
-          statusEl.textContent = 'Upload failed: ' + e.message;
-        }
-      });
-    });
+    q('aaAddBtn').onclick = () => aaAddBannerRow();
 
     q('aaSaveBtn').onclick = async () => {
       const status = q('aaSaveStatus');
       status.textContent = 'Saving...';
-      const adsPayload = {};
-      wrap.querySelectorAll('.aa-slot-card').forEach(card => {
-        const slotKey = card.dataset.slot;
-        const existingImg = card.querySelector('.se-preview-wrap img');
-        adsPayload[slotKey] = {
-          imageUrl: card.dataset.newImageUrl || (existingImg ? existingImg.src : ''),
-          linkUrl: card.querySelector('.aa-link').value.trim()
+      const topBanners = [...wrap.querySelectorAll('.aa-slot-card')].map(row => {
+        const existingImg = row.querySelector('.se-preview-wrap img');
+        return {
+          imageUrl: row.dataset.newImageUrl || (existingImg ? existingImg.src : ''),
+          linkUrl: row.querySelector('.aa-link').value.trim()
         };
-      });
+      }).filter(b => b.imageUrl);
       try{
-        await window.IFWL_Api.apiPost('staffAffiliateAdsSave', { ads: adsPayload });
+        await window.IFWL_Api.apiPost('staffAffiliateAdsSave', { topBanners });
         window.invalidateAffiliateAdsCache?.();
         window.applyAffiliateAds?.();
         status.textContent = 'Saved - live on the site now.';
