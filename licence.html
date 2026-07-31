@@ -1894,6 +1894,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="field-group"><label>Available to which tiers?</label><div id="sgTierChecks"></div></div>
       <div class="field-group"><label>Notes (optional)</label><input type="text" id="sgNotes" placeholder="e.g. Grid limited to 24 cars"></div>
       <button class="btn teal" id="sgSaveBtn" type="button">Add event</button>
+      <button class="btn ghost hidden" id="sgCancelEditBtn" type="button">Cancel edit / new event</button>
       <span class="save-status" id="sgSaveStatus"></span>
       <hr style="border-color:var(--ifwl-line);margin:18px 0">
       <div id="sgEventList"></div>
@@ -5210,16 +5211,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   async function renderSimgridEventList(){
     const events = await window.IFWL_SimgridAPI.fetchAllSimgridEvents();
+    window.__sgEventsCache = events; // used by the Edit button below to load exact per-event data
     const wrap = q('sgEventList');
     if(!events.length){ wrap.innerHTML = '<div class="empty">No SimGrid events yet.</div>'; return; }
-    wrap.innerHTML = events.map(e => {
+    const cutoffMs = Date.now() - (4 * 60 * 60 * 1000);
+    const sorted = [...events].sort((a,b) => (a.eventDateMs || Infinity) - (b.eventDateMs || Infinity));
+    wrap.innerHTML = sorted.map(e => {
       const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString() : (e.eventDateLabel || 'No date set');
+      // Matches the same grace period myAvailableRaces uses to decide when
+      // a round drops off drivers' own list - shown here so staff can see
+      // at a glance which of their own events have already rotated out.
+      const ended = e.eventDateMs && e.eventDateMs < cutoffMs;
       return `
       <div class="note-item">
-        <strong>${e.title}</strong>
+        <strong>${e.title}</strong>${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
         <div class="note-meta">${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
-        <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 ${e.password}` : ''}</div>
-        <div style="margin-top:8px"><button class="btn ghost" data-delete-event="${e.id}">Delete</button></div>
+        <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 This event's password: ${e.password}` : ' &middot; No password set for this event'}</div>
+        <div style="margin-top:8px;display:flex;gap:8px"><button class="btn ghost" data-edit-event="${e.id}">Edit</button><button class="btn ghost" data-delete-event="${e.id}">Delete</button></div>
       </div>
     `;
     }).join('');
@@ -5228,7 +5236,40 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       try{ await window.IFWL_SimgridAPI.deleteSimgridEvent(btn.dataset.deleteEvent); await renderSimgridEventList(); }
       catch(e){ alert('Could not delete: ' + e.message); }
     }));
+    // ✅ ADDED: loads THIS specific event's own data into the form for
+    // editing - directly addresses "no way to tell which password belongs
+    // to which round". Editing and saving updates only this one record,
+    // never touches any other event.
+    wrap.querySelectorAll('[data-edit-event]').forEach(btn => btn.addEventListener('click', () => {
+      const ev = (window.__sgEventsCache || []).find(x => x.id === btn.dataset.editEvent);
+      if(!ev) return;
+      sgEditingEventId = ev.id;
+      q('sgTitle').value = ev.title || '';
+      q('sgLink').value = ev.simgridLink || '';
+      q('sgPlatform').value = ev.platform || 'both';
+      q('sgNotes').value = ev.notes || '';
+      q('sgPassword').value = ev.password || '';
+      q('sgEventDate').value = ev.eventDateMs ? new Date(ev.eventDateMs).toISOString().slice(0,16) : '';
+      q('sgEventDateLabel').value = ev.eventDateLabel || '';
+      document.querySelectorAll('.sg-tier-check').forEach(el => { el.checked = (ev.tiers||[]).includes(el.value); });
+      q('sgSaveBtn').textContent = `Update "${ev.title}"`;
+      q('sgCancelEditBtn').classList.remove('hidden');
+      q('sgSaveStatus').textContent = `Editing this one event only - its password is shown above, separate from every other event.`;
+      q('simgridEventsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
   }
+
+  let sgEditingEventId = null;
+  function sgResetForm(){
+    sgEditingEventId = null;
+    q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
+    q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
+    q('sgRoundsPreview').classList.add('hidden');
+    document.querySelectorAll('.sg-tier-check').forEach(el => el.checked = false);
+    q('sgSaveBtn').textContent = 'Add event';
+    q('sgCancelEditBtn').classList.add('hidden');
+  }
+  q('sgCancelEditBtn')?.addEventListener('click', () => { sgResetForm(); q('sgSaveStatus').textContent = ''; });
 
   q('sgSaveBtn')?.addEventListener('click', async () => {
     const title = q('sgTitle').value.trim();
@@ -5240,16 +5281,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const eventDateLabel = q('sgEventDateLabel').value.trim();
     const password = q('sgPassword').value.trim();
     if(!title || !simgridLink || !tiers.length){ q('sgSaveStatus').textContent = 'Title, link and at least one tier are required.'; return; }
-    q('sgSaveStatus').textContent = 'Saving...';
+    q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ title, simgridLink, platform, tiers, notes, eventDateMs, eventDateLabel, password });
-      q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
-      q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
-      q('sgRoundsPreview').classList.add('hidden');
-      document.querySelectorAll('.sg-tier-check').forEach(el => el.checked = false);
-      q('sgSaveStatus').textContent = 'Saved.';
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, tiers, notes, eventDateMs, eventDateLabel, password });
+      const wasEditing = !!sgEditingEventId;
+      sgResetForm();
+      q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
       await renderSimgridEventList();
-      setTimeout(()=>{ if(q('sgSaveStatus')) q('sgSaveStatus').textContent=''; }, 2000);
+      setTimeout(()=>{ if(q('sgSaveStatus')) q('sgSaveStatus').textContent=''; }, 2500);
     }catch(e){ q('sgSaveStatus').textContent = 'Could not save: ' + e.message; }
   });
 
@@ -5270,24 +5309,66 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           (result.debugTextSnippet ? `<div class="field-hint" style="margin-top:10px;word-break:break-all">Fetched: ${result.debugFetchedUrl || ''}</div><textarea readonly style="width:100%;min-height:120px;margin-top:6px;font-size:11px;font-family:monospace" onclick="this.select()">${result.debugTextSnippet}</textarea>` : '');
         return;
       }
+
+      // ✅ CHANGED: tick-to-select-many instead of click-one-to-prefill.
+      // Each ticked round becomes its OWN separate event on "Add ticked
+      // rounds" below - own title, own date, own independently-editable
+      // password afterward - not one shared form re-submitted 9 times with
+      // no clear record of what actually got created.
       preview.innerHTML = (result.warning ? `<div class="field-hint" style="margin-bottom:8px">${result.warning}</div>` : '') +
         result.rounds.map((r, i) => `
-          <div class="note-item sg-round-row" data-round-idx="${i}" style="cursor:pointer">
-            <strong>${r.name}</strong>
-            <div class="note-meta">${r.track || 'Track unknown'} &middot; ${r.dateText || 'Date unknown'}${r.ended ? ' &middot; Ended' : ''}</div>
-          </div>`).join('') +
-        '<div class="field-hint" style="margin-top:8px">Click a round to use its date below.</div>';
+          <label class="note-item sg-round-row" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+            <input type="checkbox" class="sg-round-check" data-round-idx="${i}" style="width:auto;margin-top:3px" ${r.ended ? '' : 'checked'}>
+            <div>
+              <strong>${r.name}</strong>
+              <div class="note-meta">${r.track || 'Track unknown'} &middot; ${r.dateText || 'Date unknown'}${r.ended ? ' &middot; Ended' : ''}</div>
+            </div>
+          </label>`).join('') +
+        `<div style="margin-top:10px;display:flex;gap:10px;align-items:center">
+          <button class="btn teal" id="sgBulkAddBtn" type="button">Add ticked rounds as events</button>
+          <span class="field-hint">Uses the platform/tiers/notes/password set below for every round added.</span>
+        </div>
+        <div id="sgBulkAddStatus" style="margin-top:8px"></div>`;
 
-      preview.querySelectorAll('.sg-round-row').forEach((row, i) => {
-        row.addEventListener('click', () => {
-          const r = result.rounds[i];
-          if(r.dateMs){
-            const d = new Date(r.dateMs);
-            q('sgEventDate').value = d.toISOString().slice(0, 16);
+      q('sgBulkAddBtn').addEventListener('click', async () => {
+        const status = q('sgBulkAddStatus');
+        const checks = [...preview.querySelectorAll('.sg-round-check:checked')];
+        if(!checks.length){ status.innerHTML = '<div class="empty">Tick at least one round first.</div>'; return; }
+
+        const platform = q('sgPlatform').value;
+        const tiers = [...document.querySelectorAll('.sg-tier-check:checked')].map(el => el.value);
+        const notes = q('sgNotes').value.trim();
+        const password = q('sgPassword').value.trim();
+        if(!tiers.length){ status.innerHTML = '<div class="empty">Select at least one tier below first - it applies to every round being added.</div>'; return; }
+
+        status.innerHTML = `<div class="empty">Adding 0 of ${checks.length}&hellip;</div>`;
+        const created = [];
+        const failed = [];
+        for(let i = 0; i < checks.length; i++){
+          const r = result.rounds[Number(checks[i].dataset.roundIdx)];
+          const title = `${r.name}${r.track ? ' - ' + r.track : ''}`;
+          try{
+            await window.IFWL_SimgridAPI.saveSimgridEvent({
+              title, simgridLink: url, platform, tiers, notes, password,
+              eventDateMs: r.dateMs || 0,
+              eventDateLabel: r.dateMs ? '' : (r.dateText || title)
+            });
+            created.push(title);
+          }catch(e){
+            failed.push(`${title} (${e.message})`);
           }
-          q('sgEventDateLabel').value = `${r.name}${r.track ? ' - ' + r.track : ''}`;
-          if(!q('sgTitle').value.trim()) q('sgTitle').value = `${r.name}${r.track ? ' - ' + r.track : ''}`;
-        });
+          status.innerHTML = `<div class="empty">Adding ${i+1} of ${checks.length}&hellip;</div>`;
+        }
+
+        // Explicit confirmation of exactly what happened - never leaves
+        // staff guessing whether all rounds actually got created.
+        status.innerHTML = `
+          <div class="notice-card" style="border-left-color:${failed.length ? 'var(--ifwl-red)' : 'var(--ifwl-teal)'}">
+            <strong>${created.length} of ${checks.length} round(s) added.</strong>
+            ${created.length ? `<ul style="margin:6px 0 0 18px">${created.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
+            ${failed.length ? `<p style="color:var(--ifwl-red);margin-top:8px"><strong>Failed:</strong></p><ul style="margin:4px 0 0 18px;color:var(--ifwl-red)">${failed.map(t => `<li>${t}</li>`).join('')}</ul>` : ''}
+          </div>`;
+        await renderSimgridEventList();
       });
     }catch(e){
       preview.innerHTML = `<div class="empty">Could not fetch rounds: ${e.message}</div>`;
