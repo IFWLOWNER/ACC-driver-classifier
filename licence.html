@@ -676,6 +676,14 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .fc-summary-box span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);margin-bottom:6px}
 .fc-summary-box strong{font-size:20px;color:var(--text-primary);font-family:var(--font-mono)}
 .fc-stint-table{width:100%;border-collapse:collapse;font-size:13px}
+
+/* ✅ ADDED: My Season Progression */
+.sp-bar-row{display:grid;grid-template-columns:140px 1fr 50px;align-items:center;gap:10px;margin-bottom:8px;font-size:12.5px}
+.sp-bar-track{color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-bar-track-outer{background:#0d1116;border-radius:6px;height:18px;overflow:hidden}
+.sp-bar-track-fill{height:100%;background:linear-gradient(90deg,var(--ifwl-teal),var(--ifwl-purple));border-radius:6px}
+.sp-bar-points{text-align:right;font-family:var(--font-mono);color:var(--text-primary);font-weight:700}
+.sp-clean-tag{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(51,217,155,.15);color:#33d99b;font-weight:800}
 .fc-stint-table th{text-align:left;padding:8px 12px;color:var(--ifwl-teal,#1fd6bd);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--ifwl-line)}
 .fc-stint-table td{padding:9px 12px;border-bottom:1px solid var(--ifwl-line-soft)}
 .fc-stint-table .fc-wet-tag{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(90,169,255,.15);color:#5aa9ff;font-weight:800;margin-left:6px}
@@ -915,6 +923,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="view-tab-menu">
       <button data-view="availableRaces" type="button">Available Races</button>
       <button data-view="raceResults" type="button">Race Results</button>
+      <button data-view="seasonProgression" type="button">My Season Progression</button>
       <button data-view="claimLapsPC" type="button">Claim Your Laps (PC)</button>
       <button data-view="claimLapsConsole" type="button">Claim Your Laps (Console)</button>
       <button data-view="lmu" type="button">LMU</button>
@@ -1386,6 +1395,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn ghost hidden" id="closeMyCabinetBtn" type="button">🔒 Close My Cabinet</button>
         <button class="btn ghost hidden" id="dustAllBtn" type="button">🧹 Dust Off All</button>
         <span class="save-status" id="myCabinetSaveStatus" style="margin-left:10px"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="seasonProgression" id="seasonProgressionPanel">
+    <div class="panel-head"><div><h3>My Season Progression</h3><small>Every race you've competed in this season, broken down</small></div></div>
+    <div class="panel-body">
+      <div class="gold-upsell-box">
+        <div class="gold-upsell-inner">
+          <div class="gold-upsell-title">🏆 Gold Patreon Perk &mdash; Season Progression</div>
+          <p>My Season Progression is a Gold Patreon perk - your full race-by-race points breakdown, total mileage covered, entry fees spent, and tyres used this season. Go Gold to unlock it, alongside everything else Gold gets across the Licence Centre.</p>
+          <a class="gold-upsell-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold on Patreon &rarr;</a>
+        </div>
+      </div>
+
+      <div class="gold-only-field">
+        <div id="spBody"><div class="empty">Loading your season&hellip;</div></div>
       </div>
     </div>
   </section>
@@ -3746,6 +3772,175 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>`;
   }
 
+  // ✅ ADDED: My Season Progression
+  // Real-world official circuit lengths (km per lap) - ACC's in-sim layouts
+  // are very close to these but not laser-precise, so mileage here is a
+  // meaningful estimate, not exact in-game telemetry. Keyed by the same
+  // track slugs ACC's own session files and the rest of this site already
+  // use (matching the Fuel Calculator's track list).
+  const SP_TRACK_KM = {
+    barcelona: 4.655, brands_hatch: 3.908, cota: 5.513, donington: 4.020,
+    hungaroring: 4.381, imola: 4.909, indianapolis: 3.984, kyalami: 4.522,
+    laguna_seca: 3.602, misano: 4.226, monza: 5.793, mount_panorama: 6.213,
+    nurburgring: 5.148, nurburgring_24h: 25.378, oulton_park: 4.307,
+    paul_ricard: 5.842, red_bull_ring: 4.318, silverstone: 5.891,
+    snetterton: 4.778, spa: 7.004, suzuka: 5.807, valencia: 4.005,
+    watkins_glen: 5.552, zandvoort: 4.259, zolder: 4.011
+  };
+  const SP_ENTRY_FEE_PER_RACE = 1000;
+
+  async function computeSeasonProgression(){
+    const accDriverNames = currentProfile?.accDriverNames || [];
+    if(!accDriverNames.length) return null;
+
+    const season = await window.IFWL_SeasonAPI.fetchSeasonWindow();
+    const startMs = season.startDate ? Date.parse(season.startDate + 'T00:00:00Z') : 0;
+    const endMs = season.endDate ? Date.parse(season.endDate + 'T23:59:59Z') : Date.now();
+    if(!startMs) return { noSeasonWindow: true };
+
+    const aliasKeys = accDriverNames.map(n => window.IFWLStats.driverNameKey(n));
+    const allRows = await window.IFWLStats.buildAllRows();
+
+    // Group by source file first - position within a race only makes sense
+    // relative to THAT session's own leaderboard, not the flattened list of
+    // every session ever synced.
+    const bySource = new Map();
+    allRows.forEach(r => {
+      if(!bySource.has(r.source)) bySource.set(r.source, []);
+      bySource.get(r.source).push(r);
+    });
+
+    let ticketDates = [];
+    try{
+      const ticketData = await fetchTicketInfo();
+      ticketDates = (ticketData.tickets || []).filter(t => t.wasAccused && t.timestampMs).map(t => t.timestampMs);
+    }catch(e){ console.warn('Could not load ticket history for clean-race check', e); }
+
+    const races = [];
+
+    // fileTimestamp isn't exposed via window.IFWLStats, so derive the same
+    // way it does internally - the filename itself carries the date.
+    function tsFromFileName(name){
+      const m = String(name||'').match(/^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/);
+      if(!m) return 0;
+      const [,yy,mm,dd,hh,mi,ss] = m;
+      return Date.UTC(2000+Number(yy), Number(mm)-1, Number(dd), Number(hh), Number(mi), Number(ss));
+    }
+
+    for(const [source, rows] of bySource.entries()){
+      if(!rows.length || rows[0].sessionType !== 'R') continue;
+      const raceTs = tsFromFileName(rows[0].fileName);
+      if(!raceTs || raceTs < startMs || raceTs > endMs) continue;
+
+      const myIdx = rows.findIndex(r => aliasKeys.includes(window.IFWLStats.driverNameKey(r.driver)));
+      if(myIdx < 0) continue;
+      const myRow = rows[myIdx];
+      const position = myIdx + 1;
+      const points = Math.max(0, 51 - position);
+
+      const cleanBonus = !ticketDates.some(t => t >= raceTs && t <= raceTs + (3*24*60*60*1000));
+      const totalPoints = points + (cleanBonus ? 10 : 0);
+
+      const trackSlug = String(myRow.track||'').toLowerCase().replace(/\s+/g,'_');
+      const kmPerLap = SP_TRACK_KM[trackSlug] || 0;
+      const lapCount = Number(myRow.lapCount) || 0;
+      const mileageKm = lapCount * kmPerLap;
+
+      const pitCount = (myRow.lapObjects||[]).filter(l => l.isValidForBest === false).length;
+
+      races.push({
+        source, track: myRow.track, dateMs: raceTs, position, points, cleanBonus, totalPoints,
+        lapCount, mileageKm, pitCount
+      });
+    }
+
+    races.sort((a,b) => a.dateMs - b.dateMs);
+
+    const totals = races.reduce((acc, r) => {
+      acc.points += r.totalPoints;
+      acc.mileageKm += r.mileageKm;
+      acc.pitCount += r.pitCount;
+      return acc;
+    }, { points: 0, mileageKm: 0, pitCount: 0 });
+
+    return {
+      seasonLabel: season.label || '',
+      races,
+      totalRaces: races.length,
+      totalPoints: totals.points,
+      totalMileageKm: Math.round(totals.mileageKm * 10) / 10,
+      totalEntryFees: races.length * SP_ENTRY_FEE_PER_RACE,
+      totalTyres: totals.pitCount * 4
+    };
+  }
+
+  function renderSeasonProgression(data){
+    const body = q('spBody');
+    if(!body) return;
+
+    if(!data){
+      body.innerHTML = '<div class="empty">Link your ACC driver name(s) on My Licence first to see your season progression.</div>';
+      return;
+    }
+    if(data.noSeasonWindow){
+      body.innerHTML = '<div class="empty">Staff haven\'t set a Season Window yet - your progression will show here once they do.</div>';
+      return;
+    }
+    if(!data.races.length){
+      body.innerHTML = `<div class="empty">No races found yet within ${data.seasonLabel || 'the current season window'}. Get racing!</div>`;
+      return;
+    }
+
+    const maxPoints = Math.max(...data.races.map(r => r.totalPoints), 1);
+
+    body.innerHTML = `
+      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}Position-based points (1st = 50, down to 50th = 1), plus a +10 clean-race bonus if no ticket was filed against you in the 3 days after. Mileage and tyre figures are estimates based on official circuit lengths and pit-affected laps.</div>
+
+      <div class="fc-summary-grid" style="margin-top:16px">
+        <div class="fc-summary-box"><span>Races Completed</span><strong>${data.totalRaces}</strong></div>
+        <div class="fc-summary-box"><span>Total Points</span><strong>${data.totalPoints}</strong></div>
+        <div class="fc-summary-box"><span>Mileage Covered</span><strong>${data.totalMileageKm.toLocaleString()} km</strong></div>
+        <div class="fc-summary-box"><span>Entry Fees Spent</span><strong>&pound;${data.totalEntryFees.toLocaleString()}</strong></div>
+        <div class="fc-summary-box"><span>Tyres Used (est.)</span><strong>${data.totalTyres}</strong></div>
+      </div>
+
+      <h4 style="margin:20px 0 10px">Points by Race</h4>
+      <div>${data.races.map(r => `
+        <div class="sp-bar-row">
+          <div class="sp-bar-track" title="${r.track}">${r.track}</div>
+          <div class="sp-bar-track-outer"><div class="sp-bar-track-fill" style="width:${Math.round((r.totalPoints/maxPoints)*100)}%"></div></div>
+          <div class="sp-bar-points">${r.totalPoints}</div>
+        </div>
+      `).join('')}</div>
+
+      <h4 style="margin:20px 0 10px">Race-by-Race Breakdown</h4>
+      <table class="fc-stint-table">
+        <thead><tr><th>Date</th><th>Track</th><th>Finish</th><th>Points</th><th>Clean Bonus</th><th>Total</th></tr></thead>
+        <tbody>${data.races.map(r => `
+          <tr>
+            <td>${new Date(r.dateMs).toLocaleDateString()}</td>
+            <td>${r.track}</td>
+            <td>P${r.position}</td>
+            <td>${r.points}</td>
+            <td>${r.cleanBonus ? '<span class="sp-clean-tag">+10 Clean</span>' : '-'}</td>
+            <td><strong>${r.totalPoints}</strong></td>
+          </tr>
+        `).join('')}</tbody>
+      </table>
+    `;
+  }
+
+  async function initSeasonProgressionPanel(){
+    if(!q('seasonProgressionPanel')) return;
+    if(!(window.IFWL_GOLD || window.IFWL_STAFF)) return; // gold-only-field CSS hides the panel body anyway; skip the work entirely for everyone else
+    try{
+      const data = await computeSeasonProgression();
+      renderSeasonProgression(data);
+    }catch(e){
+      q('spBody').innerHTML = `<div class="empty">Could not load season progression: ${e.message}</div>`;
+    }
+  }
+
   async function renderQualificationStanding(){
     const body = q('qualStandingBody');
     if(!body || !currentProfile) return;
@@ -4053,6 +4248,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
     renderQualificationStanding();
+    initSeasonProgressionPanel();
     renderLmuPanel();
     window.initMyTrophyCabinetPanel?.();
     initSubmitTicketPanel();
