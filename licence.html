@@ -138,6 +138,21 @@ body:not(.discord-logged-in) .logged-in-tab,body:not(.discord-logged-in) .logged
 .view-panel.is-active-view{display:block}
 .view-panel.tier-collapsed{display:none!important}
 main{width:min(1360px,88vw);margin:34px auto 60px}
+
+/* ✅ ADDED: affiliate ads - side banners only show once there's genuinely
+   enough room either side of the centred 1360px content column to not
+   cramp anything; below that they just don't render at all rather than
+   overlapping content. */
+.affiliate-side{position:fixed;top:110px;display:none;flex-direction:column;gap:16px;width:160px;z-index:5}
+.affiliate-side-left{left:max(12px,calc(50% - 860px))}
+.affiliate-side-right{right:max(12px,calc(50% - 860px))}
+@media(min-width:1700px){.affiliate-side{display:flex}}
+.affiliate-slot{display:block;border-radius:10px;overflow:hidden;border:1px solid var(--ifwl-line);transition:opacity .15s}
+.affiliate-slot:hover{opacity:.85}
+.affiliate-slot img{display:block;width:100%;height:auto}
+.affiliate-top-banner{display:block;border-radius:14px;overflow:hidden;border:1px solid var(--ifwl-line);margin-bottom:20px;transition:opacity .15s}
+.affiliate-top-banner:hover{opacity:.9}
+.affiliate-top-banner img{display:block;width:100%;height:auto;max-height:160px;object-fit:cover}
 .panel{background:linear-gradient(165deg,var(--panel-bg-raised),var(--panel-bg));border:1px solid var(--ifwl-line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;margin:22px 0}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 18px;background:linear-gradient(90deg,#0b3b35,#141a21 55%);border-bottom:3px solid transparent;border-image:linear-gradient(90deg,var(--ifwl-teal),var(--ifwl-purple)) 1}
 .panel-head h3{margin:0;font-size:18px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
@@ -646,6 +661,8 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 /* ✅ ADDED: Season Class Structure */
 .cs-platform-card{background:#12161c;border:1px solid var(--ifwl-line);border-radius:14px;padding:18px}
 .se-event-row{background:#12161c;border:1px solid var(--ifwl-line);border-radius:14px;padding:16px;margin-bottom:14px}
+.aa-slot-card{background:#12161c;border:1px solid var(--ifwl-line);border-radius:14px;padding:16px}
+.aa-slot-card h5{margin:0 0 10px}
 .se-event-row .se-toggles{display:flex;gap:20px;margin:10px 0}
 .se-event-row .se-toggles label{display:flex;align-items:center;gap:8px;font-size:12.5px}
 .se-preview-wrap{background:#0d1116;border:1px dashed var(--ifwl-line);border-radius:10px;padding:8px;min-height:50px;display:flex;align-items:center;justify-content:center}
@@ -955,12 +972,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="staffQualificationWindow" class="ops-only-tab" type="button">Qualification Window</button>
       <button data-view="staffMessages" class="ops-only-tab" type="button">Messages</button>
       <button data-view="staffTrophyCabinet" class="owner-only-tab" type="button">Manage Trophy Cabinet</button>
+      <button data-view="staffAffiliateAds" class="owner-only-tab" type="button">Manage Affiliates</button>
       <button data-view="commentatorWatch" class="owner-only-tab" type="button">Drivers to Watch (Preview)</button>
     </div>
   </div>
 </nav>
 
+<div class="affiliate-side affiliate-side-left">
+  <a class="affiliate-slot" id="affiliateLeftTop" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
+  <a class="affiliate-slot" id="affiliateLeftBottom" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
+</div>
+<div class="affiliate-side affiliate-side-right">
+  <a class="affiliate-slot" id="affiliateRightTop" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
+  <a class="affiliate-slot" id="affiliateRightBottom" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
+</div>
+
 <main>
+
+  <a class="affiliate-top-banner" id="affiliateTopBanner" target="_blank" rel="noopener sponsored" style="display:none"><img alt="Sponsor"></a>
 
   <div class="panel view-panel hidden" data-view="home" id="systemStatusBanner">
     <div class="system-status-inner">
@@ -1560,6 +1589,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <h4 style="margin:0 0 10px">Events</h4>
       <button class="btn purple" id="trophyAddEntryBtn" type="button">+ Add New Event</button>
       <div id="staffTrophyCabinetBody" style="margin-top:16px"><div class="empty">Loading&hellip;</div></div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffAffiliateAds" id="staffAffiliateAdsPanel">
+    <div class="panel-head"><div><h3>Staff: Manage Affiliates</h3><small>Sponsor/affiliate banners shown around the licence centre - clicking an image opens its link</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">
+        Five slots total: two stacked either side of the main content column (only visible on wide screens where that gap actually exists), plus one banner above the homepage announcement (visible on every screen size). Each is just an image and a link - upload the image, set the link, save. Leave a slot's image empty to hide it entirely.
+      </div>
+      <div id="aaSlots" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:16px"></div>
+      <button class="btn teal" id="aaSaveBtn" type="button" style="margin-top:16px">Save all affiliate ads</button>
+      <span class="save-status" id="aaSaveStatus"></span>
     </div>
   </section>
 
@@ -2533,6 +2574,26 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // lists, links, and Discord role mentions (rendered plainly, since a
   // role ID means nothing outside Discord itself). Not a full markdown
   // spec - just enough for driver briefing content.
+  // ✅ ADDED: renders actual embedded YouTube players instead of plain
+  // links, for both youtu.be short links and full youtube.com/watch URLs
+  // (with or without extra query params like ?si=...). Anything that isn't
+  // a recognisable YouTube link still gets a plain "Watch" link instead of
+  // being silently dropped.
+  function renderVideoEmbeds(urls){
+    if(!urls || !urls.length) return '';
+    const items = urls.map(url => {
+      const m = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([a-zA-Z0-9_-]{11})/);
+      if(m){
+        return `<div style="position:relative;padding-bottom:56.25%;height:0;margin-bottom:12px;border-radius:10px;overflow:hidden">
+          <iframe src="https://www.youtube.com/embed/${m[1]}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        </div>`;
+      }
+      return `<p style="margin:8px 0"><a href="${url}" target="_blank" rel="noopener" style="color:var(--ifwl-teal)">${url}</a></p>`;
+    }).join('');
+    return `<h4 style="margin:16px 0 8px">📺 Videos</h4>${items}`;
+  }
+  window.renderVideoEmbeds = renderVideoEmbeds;
+
   function renderRacedayMarkdown(src){
     const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     let html = esc(String(src || ''));
@@ -2562,6 +2623,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(inList) out.push('</ul>');
     return out.join('\n').replace(/\n{2,}/g, '</p><p style="margin:8px 0">').replace(/^/, '<p style="margin:8px 0">').replace(/$/, '</p>');
   }
+  window.renderRacedayMarkdown = renderRacedayMarkdown;
 
   // Shows each notification one at a time with its own 60s forced-read
   // timer; acknowledging one moves to the next if more than one applies
@@ -2581,7 +2643,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const body = q('racedayInfoBody');
       const btn = q('racedayInfoDismissBtn');
       const stripHtml = window.rdiQuickFactsStripHtml ? window.rdiQuickFactsStripHtml(n.quickFacts || {}) : '';
-      body.innerHTML = `<h3 style="margin-top:0">${n.title}</h3>` + stripHtml + renderRacedayMarkdown(n.content);
+      body.innerHTML = `<h3 style="margin-top:0">${n.title}</h3>` + stripHtml + renderRacedayMarkdown(n.content) + renderVideoEmbeds(n.videoLinks || []);
       modal.classList.remove('hidden');
       btn.disabled = true;
       let remaining = 60;
@@ -2625,6 +2687,39 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
   }
   window.applySeasonalOverlays = applySeasonalOverlays;
+
+  // ✅ ADDED: Affiliate Ads
+  let __affiliateAdsCache = null;
+  async function fetchAffiliateAds(){
+    if(__affiliateAdsCache) return __affiliateAdsCache;
+    try{
+      __affiliateAdsCache = (await apiGet('affiliateAds')).ads || {};
+    }catch(e){
+      console.warn('Could not load affiliate ads', e);
+      __affiliateAdsCache = {};
+    }
+    return __affiliateAdsCache;
+  }
+  window.fetchAffiliateAds = fetchAffiliateAds;
+  window.invalidateAffiliateAdsCache = () => { __affiliateAdsCache = null; };
+
+  async function applyAffiliateAds(){
+    const ads = await fetchAffiliateAds();
+    const slotMap = { leftTop: 'affiliateLeftTop', leftBottom: 'affiliateLeftBottom', rightTop: 'affiliateRightTop', rightBottom: 'affiliateRightBottom', topBanner: 'affiliateTopBanner' };
+    Object.entries(slotMap).forEach(([slotKey, elId]) => {
+      const el = q(elId);
+      if(!el) return;
+      const slot = ads[slotKey];
+      if(slot && slot.imageUrl){
+        el.href = slot.linkUrl || '#';
+        el.querySelector('img').src = slot.imageUrl;
+        el.style.display = '';
+      }else{
+        el.style.display = 'none';
+      }
+    });
+  }
+  window.applyAffiliateAds = applyAffiliateAds;
 
   // Trophy Cabinet's design catalog - identical pattern to Calling Cards
   // above, just a separate catalog/storage path so the two don't mix.
@@ -3921,6 +4016,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     populateTierSelect(q('dirTierFilter'), { includeBlank: true });
     initTrophyCabinetPublicPage(); // public content - loads regardless of login state
     applySeasonalOverlays();
+    applyAffiliateAds();
 
     try{
       currentProfile = await fetchMyProfile();
@@ -7621,13 +7717,11 @@ Flashing Headlights:
 
     parts.push('Good luck and enjoy the race.');
     parts.push('- IFWL Admin Team');
-
-    const videos = rdiReadVideos();
-    if(videos.length){
-      parts.push('');
-      videos.forEach(v => parts.push(v));
-    }
-
+    // Video links deliberately not appended here as plain text - they're
+    // rendered as real embedded players via renderVideoEmbeds() instead,
+    // both in the staff preview and the driver popup. Including them here
+    // too would just duplicate each one as a bare link underneath its own
+    // embedded player.
     return parts.join('\n');
   }
 
@@ -7635,7 +7729,7 @@ Flashing Headlights:
     const box = q('rdiPreviewBox');
     box.classList.remove('hidden');
     const qf = rdiReadQuickFacts();
-    box.innerHTML = rdiQuickFactsStripHtml(qf) + renderRacedayMarkdown(rdiComposeContent());
+    box.innerHTML = rdiQuickFactsStripHtml(qf) + window.renderRacedayMarkdown(rdiComposeContent()) + window.renderVideoEmbeds(rdiReadVideos());
   });
 
   // Same icon strip shown in the driver-facing popup, so staff see exactly
@@ -7799,6 +7893,71 @@ Flashing Headlights:
     }));
   }
 
+  // ✅ ADDED: Manage Affiliates staff panel
+  const AA_SLOT_LABELS = {
+    leftTop: 'Left side - top', leftBottom: 'Left side - bottom',
+    rightTop: 'Right side - top', rightBottom: 'Right side - bottom',
+    topBanner: 'Top banner (above homepage announcement)'
+  };
+
+  function aaSlotCardHtml(slotKey, label, slot){
+    slot = slot || {};
+    return `<div class="aa-slot-card" data-slot="${slotKey}">
+      <h5>${label}</h5>
+      <div class="se-preview-wrap">${slot.imageUrl ? `<img src="${slot.imageUrl}" class="se-preview-img">` : '<div class="field-hint">No image uploaded yet</div>'}</div>
+      <input type="file" class="aa-upload" accept="image/png,image/jpeg,image/webp" style="margin:8px 0">
+      <div class="field-group" style="margin-bottom:0"><label style="font-size:11px">Link URL</label><input type="url" class="aa-link" value="${(slot.linkUrl||'').replace(/"/g,'&quot;')}" placeholder="https://..."></div>
+      <span class="save-status aa-slot-status"></span>
+    </div>`;
+  }
+
+  async function initAffiliateAdsPanel(){
+    if(!q('staffAffiliateAdsPanel')) return;
+    const wrap = q('aaSlots');
+    const ads = (await window.IFWL_Api.apiGet('affiliateAds')).ads || {};
+
+    wrap.innerHTML = Object.entries(AA_SLOT_LABELS).map(([key, label]) => aaSlotCardHtml(key, label, ads[key])).join('');
+
+    wrap.querySelectorAll('.aa-slot-card').forEach(card => {
+      const slotKey = card.dataset.slot;
+      card.querySelector('.aa-upload').addEventListener('change', async (ev) => {
+        const file = ev.target.files[0];
+        if(!file) return;
+        const statusEl = card.querySelector('.aa-slot-status');
+        statusEl.textContent = 'Uploading...';
+        try{
+          const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'affiliateAd');
+          card.querySelector('.se-preview-wrap').innerHTML = `<img src="${url}" class="se-preview-img">`;
+          card.dataset.newImageUrl = url;
+          statusEl.textContent = 'Uploaded - click "Save all affiliate ads" to apply.';
+        }catch(e){
+          statusEl.textContent = 'Upload failed: ' + e.message;
+        }
+      });
+    });
+
+    q('aaSaveBtn').onclick = async () => {
+      const status = q('aaSaveStatus');
+      status.textContent = 'Saving...';
+      const adsPayload = {};
+      wrap.querySelectorAll('.aa-slot-card').forEach(card => {
+        const slotKey = card.dataset.slot;
+        const existingImg = card.querySelector('.se-preview-wrap img');
+        adsPayload[slotKey] = {
+          imageUrl: card.dataset.newImageUrl || (existingImg ? existingImg.src : ''),
+          linkUrl: card.querySelector('.aa-link').value.trim()
+        };
+      });
+      try{
+        await window.IFWL_Api.apiPost('staffAffiliateAdsSave', { ads: adsPayload });
+        window.invalidateAffiliateAdsCache?.();
+        window.applyAffiliateAds?.();
+        status.textContent = 'Saved - live on the site now.';
+        setTimeout(() => { if(q('aaSaveStatus')) q('aaSaveStatus').textContent = ''; }, 2000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+  }
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -7818,6 +7977,7 @@ Flashing Headlights:
     initSystemStatusPanel();
     renderLicenceDatabase();
     renderStaffTrophyCabinet();
+    initAffiliateAdsPanel();
     initClassStructurePanel();
     renderSeasonalEventsPanel();
   }
