@@ -1881,11 +1881,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-hint">Best-effort - reads the championship's own Races page. Works on public links; private/invite-only links may not be reachable this way. Preview only, doesn't create anything on its own.</div>
       </div>
       <div id="sgRoundsPreview" class="hidden" style="background:#12161c;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px;margin-bottom:10px"></div>
+      <div class="field-hint" style="margin-bottom:10px">The fields below are only used by the single "Add event" button underneath - if you're adding multiple rounds via "Preview rounds" above, each round has its own date/password inline and these aren't used.</div>
       <div style="display:flex;gap:10px">
-        <div class="field-group" style="flex:1"><label>Event date</label><input type="datetime-local" id="sgEventDate"></div>
+        <div class="field-group" style="flex:1"><label>Event date (for a single manually-added event)</label><input type="datetime-local" id="sgEventDate"></div>
         <div class="field-group" style="flex:1"><label>Or a free-text date label (optional)</label><input type="text" id="sgEventDateLabel" placeholder="e.g. Round 3 - TBC"></div>
       </div>
-      <div class="field-group"><label>Password (shown to eligible drivers only)</label><input type="text" id="sgPassword" placeholder="e.g. ifwl2026"></div>
+      <div class="field-group"><label>Password (for a single manually-added event, shown to eligible drivers only)</label><input type="text" id="sgPassword" placeholder="e.g. ifwl2026"></div>
       <div class="field-group"><label>Platform</label><select id="sgPlatform">
         <option value="both">Console + PC</option>
         <option value="console">Console only</option>
@@ -5310,23 +5311,35 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         return;
       }
 
-      // ✅ CHANGED: tick-to-select-many instead of click-one-to-prefill.
-      // Each ticked round becomes its OWN separate event on "Add ticked
-      // rounds" below - own title, own date, own independently-editable
-      // password afterward - not one shared form re-submitted 9 times with
-      // no clear record of what actually got created.
+      // ✅ CHANGED: per-round date and password are now inline and editable
+      // right here, pre-filled automatically - not a single shared field
+      // that looked like it applied to every round at once. Each round's
+      // own date is pre-filled from what was detected (still adjustable as
+      // a backup if it's wrong); each round's password is pre-filled from
+      // whatever's currently in the Password field below, but can be
+      // changed per-round before adding.
+      const defaultPassword = q('sgPassword').value.trim();
       preview.innerHTML = (result.warning ? `<div class="field-hint" style="margin-bottom:8px">${result.warning}</div>` : '') +
-        result.rounds.map((r, i) => `
-          <label class="note-item sg-round-row" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
-            <input type="checkbox" class="sg-round-check" data-round-idx="${i}" style="width:auto;margin-top:3px" ${r.ended ? '' : 'checked'}>
-            <div>
-              <strong>${r.name}</strong>
-              <div class="note-meta">${r.track || 'Track unknown'} &middot; ${r.dateText || 'Date unknown'}${r.ended ? ' &middot; Ended' : ''}</div>
+        result.rounds.map((r, i) => {
+          const dateVal = r.dateMs ? new Date(r.dateMs).toISOString().slice(0,16) : '';
+          return `
+          <div class="note-item sg-round-row">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+              <input type="checkbox" class="sg-round-check" data-round-idx="${i}" style="width:auto;margin-top:3px" ${r.ended ? '' : 'checked'}>
+              <div style="flex:1">
+                <strong>${r.name}</strong>
+                <div class="note-meta">${r.track || 'Track unknown'}${r.ended ? ' &middot; Ended' : ''}</div>
+              </div>
+            </label>
+            <div style="display:flex;gap:10px;margin-top:8px;padding-left:26px">
+              <div class="field-group" style="flex:1;margin-bottom:0"><label style="font-size:10px">Date/time (editable)</label><input type="datetime-local" class="sg-round-date" data-round-idx="${i}" value="${dateVal}"></div>
+              <div class="field-group" style="flex:1;margin-bottom:0"><label style="font-size:10px">Password for this round</label><input type="text" class="sg-round-password" data-round-idx="${i}" value="${defaultPassword.replace(/"/g,'&quot;')}"></div>
             </div>
-          </label>`).join('') +
+          </div>`;
+        }).join('') +
         `<div style="margin-top:10px;display:flex;gap:10px;align-items:center">
           <button class="btn teal" id="sgBulkAddBtn" type="button">Add ticked rounds as events</button>
-          <span class="field-hint">Uses the platform/tiers/notes/password set below for every round added.</span>
+          <span class="field-hint">Each round uses its own date/password above. Platform/tiers/notes below are shared across all of them.</span>
         </div>
         <div id="sgBulkAddStatus" style="margin-top:8px"></div>`;
 
@@ -5338,20 +5351,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         const platform = q('sgPlatform').value;
         const tiers = [...document.querySelectorAll('.sg-tier-check:checked')].map(el => el.value);
         const notes = q('sgNotes').value.trim();
-        const password = q('sgPassword').value.trim();
         if(!tiers.length){ status.innerHTML = '<div class="empty">Select at least one tier below first - it applies to every round being added.</div>'; return; }
 
         status.innerHTML = `<div class="empty">Adding 0 of ${checks.length}&hellip;</div>`;
         const created = [];
         const failed = [];
         for(let i = 0; i < checks.length; i++){
-          const r = result.rounds[Number(checks[i].dataset.roundIdx)];
+          const idx = Number(checks[i].dataset.roundIdx);
+          const r = result.rounds[idx];
           const title = `${r.name}${r.track ? ' - ' + r.track : ''}`;
+          // Reads THIS round's own inline date/password fields, not a
+          // shared value - each round genuinely gets its own.
+          const dateInput = preview.querySelector(`.sg-round-date[data-round-idx="${idx}"]`).value;
+          const eventDateMs = dateInput ? new Date(dateInput).getTime() : 0;
+          const password = preview.querySelector(`.sg-round-password[data-round-idx="${idx}"]`).value.trim();
           try{
             await window.IFWL_SimgridAPI.saveSimgridEvent({
               title, simgridLink: url, platform, tiers, notes, password,
-              eventDateMs: r.dateMs || 0,
-              eventDateLabel: r.dateMs ? '' : (r.dateText || title)
+              eventDateMs,
+              eventDateLabel: eventDateMs ? '' : (r.dateText || title)
             });
             created.push(title);
           }catch(e){
