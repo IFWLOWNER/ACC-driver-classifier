@@ -3828,11 +3828,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     for(const [source, rows] of bySource.entries()){
-      if(!rows.length || rows[0].sessionType !== 'R') continue;
+      if(!rows.length || !/_R\.json$/i.test(rows[0].fileName||'')) continue; // ✅ FIXED: match Race Results own proven approach - filename suffix, not the sessionType data field, which isn't reliable for this
       const raceTs = tsFromFileName(rows[0].fileName);
       if(!raceTs || raceTs < startMs || raceTs > endMs) continue;
 
-      const myIdx = rows.findIndex(r => aliasKeys.includes(window.IFWLStats.driverNameKey(r.driver)));
+      // ✅ FIXED: this was exact-match (aliasKeys.includes(...)), which
+      // almost never matches - a race's recorded driver name routinely
+      // carries a bracketed car number or small variation a driver's own
+      // self-reported alias won't have. Every other name-matching feature
+      // in this codebase (Available Races, qualification standings, the
+      // scheduled Discord notifier) uses substring matching for exactly
+      // this reason - this now matches that same convention.
+      const myIdx = rows.findIndex(r => {
+        const driverKey = window.IFWLStats.driverNameKey(r.driver);
+        return aliasKeys.some(a => driverKey.includes(a) || a.includes(driverKey));
+      });
       if(myIdx < 0) continue;
       const myRow = rows[myIdx];
       const position = myIdx + 1;
@@ -3878,22 +3888,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const body = q('spBody');
     if(!body) return;
 
+    const staffToggle = window.IFWL_STAFF
+      ? `<button class="btn ghost" id="spViewAllBtn" type="button" style="margin-bottom:14px">👥 Staff: View all drivers' season stats</button>`
+      : '';
+
+    function wireStaffToggle(){
+      q('spViewAllBtn')?.addEventListener('click', async () => {
+        q('spBody').innerHTML = '<div class="empty">Loading&hellip;</div>';
+        renderSeasonProgressionLeaderboard(await computeSeasonProgressionAllDrivers());
+      });
+    }
+
     if(!data){
-      body.innerHTML = '<div class="empty">Link your ACC driver name(s) on My Licence first to see your season progression.</div>';
+      body.innerHTML = staffToggle + '<div class="empty">Link your ACC driver name(s) on My Licence first to see your season progression.</div>';
+      wireStaffToggle();
       return;
     }
     if(data.noSeasonWindow){
-      body.innerHTML = '<div class="empty">Staff haven\'t set a Season Window yet - your progression will show here once they do.</div>';
+      body.innerHTML = staffToggle + '<div class="empty">Staff haven\'t set a Season Window yet - your progression will show here once they do.</div>';
+      wireStaffToggle();
       return;
     }
     if(!data.races.length){
-      body.innerHTML = `<div class="empty">No races found yet within ${data.seasonLabel || 'the current season window'}. Get racing!</div>`;
+      body.innerHTML = staffToggle + `<div class="empty">No races found yet within ${data.seasonLabel || 'the current season window'}. Get racing!</div>`;
+      wireStaffToggle();
       return;
     }
 
     const maxPoints = Math.max(...data.races.map(r => r.totalPoints), 1);
 
-    body.innerHTML = `
+    body.innerHTML = staffToggle + `
       <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}Position-based points (1st = 50, down to 50th = 1), plus a +10 clean-race bonus if no ticket was filed against you in the 3 days after. Mileage and tyre figures are estimates based on official circuit lengths and pit-affected laps.</div>
 
       <div class="fc-summary-grid" style="margin-top:16px">
@@ -3928,6 +3952,103 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         `).join('')}</tbody>
       </table>
     `;
+    wireStaffToggle();
+  }
+
+  // ✅ ADDED: staff-only aggregate view across every driver, for verifying
+  // the feature is actually picking up race data at all, and as a general
+  // overview tool. Deliberately skips the clean-race bonus here - checking
+  // every driver's own ticket history would need a new backend endpoint
+  // returning ALL tickets, not just the current user's own, so this is
+  // base position points only, clearly labelled as such.
+  async function computeSeasonProgressionAllDrivers(){
+    const season = await window.IFWL_SeasonAPI.fetchSeasonWindow();
+    const startMs = season.startDate ? Date.parse(season.startDate + 'T00:00:00Z') : 0;
+    const endMs = season.endDate ? Date.parse(season.endDate + 'T23:59:59Z') : Date.now();
+    if(!startMs) return { noSeasonWindow: true };
+
+    const allRows = await window.IFWLStats.buildAllRows();
+    const bySource = new Map();
+    allRows.forEach(r => {
+      if(!bySource.has(r.source)) bySource.set(r.source, []);
+      bySource.get(r.source).push(r);
+    });
+
+    function tsFromFileName(name){
+      const m = String(name||'').match(/^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/);
+      if(!m) return 0;
+      const [,yy,mm,dd,hh,mi,ss] = m;
+      return Date.UTC(2000+Number(yy), Number(mm)-1, Number(dd), Number(hh), Number(mi), Number(ss));
+    }
+
+    const driverTotals = new Map();
+    for(const [source, rows] of bySource.entries()){
+      if(!rows.length || !/_R\.json$/i.test(rows[0].fileName||'')) continue; // ✅ FIXED: match Race Results own proven approach - filename suffix, not the sessionType data field, which isn't reliable for this
+      const raceTs = tsFromFileName(rows[0].fileName);
+      if(!raceTs || raceTs < startMs || raceTs > endMs) continue;
+
+      rows.forEach((row, idx) => {
+        const points = Math.max(0, 51 - (idx + 1));
+        const key = window.IFWLStats.driverNameKey(row.driver);
+        if(!key) return;
+        if(!driverTotals.has(key)) driverTotals.set(key, { name: row.driver, races: 0, points: 0, mileageKm: 0, pitCount: 0 });
+        const entry = driverTotals.get(key);
+        entry.races++;
+        entry.points += points;
+        const trackSlug = String(row.track||'').toLowerCase().replace(/\s+/g,'_');
+        entry.mileageKm += (Number(row.lapCount)||0) * (SP_TRACK_KM[trackSlug] || 0);
+        entry.pitCount += (row.lapObjects||[]).filter(l => l.isValidForBest === false).length;
+      });
+    }
+
+    const leaderboard = [...driverTotals.values()].map(e => ({
+      ...e,
+      mileageKm: Math.round(e.mileageKm*10)/10,
+      entryFees: e.races * SP_ENTRY_FEE_PER_RACE,
+      tyres: e.pitCount * 4
+    })).sort((a,b) => b.points - a.points);
+
+    return { seasonLabel: season.label || '', leaderboard };
+  }
+
+  function renderSeasonProgressionLeaderboard(data){
+    const body = q('spBody');
+    const backBtn = `<button class="btn ghost" id="spBackToMineBtn" type="button" style="margin-bottom:14px">&larr; Back to my own progression</button>`;
+    if(data.noSeasonWindow){
+      body.innerHTML = backBtn + '<div class="empty">Staff haven\'t set a Season Window yet.</div>';
+      wireSpBackButton();
+      return;
+    }
+    if(!data.leaderboard.length){
+      body.innerHTML = backBtn + `<div class="empty">No races found yet within ${data.seasonLabel || 'the current season window'}.</div>`;
+      wireSpBackButton();
+      return;
+    }
+    body.innerHTML = backBtn + `
+      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}All drivers with at least one race this season. Base position points only - doesn't include individual clean-race bonuses (that needs each driver's own ticket history, not shown here).</div>
+      <table class="fc-stint-table" style="margin-top:14px">
+        <thead><tr><th>#</th><th>Driver</th><th>Races</th><th>Points</th><th>Mileage</th><th>Entry Fees</th><th>Tyres (est.)</th></tr></thead>
+        <tbody>${data.leaderboard.map((d,i) => `
+          <tr>
+            <td>${i+1}</td>
+            <td>${d.name}</td>
+            <td>${d.races}</td>
+            <td><strong>${d.points}</strong></td>
+            <td>${d.mileageKm.toLocaleString()} km</td>
+            <td>&pound;${d.entryFees.toLocaleString()}</td>
+            <td>${d.tyres}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table>
+    `;
+    wireSpBackButton();
+  }
+
+  function wireSpBackButton(){
+    q('spBackToMineBtn')?.addEventListener('click', async () => {
+      q('spBody').innerHTML = '<div class="empty">Loading&hellip;</div>';
+      renderSeasonProgression(await computeSeasonProgression());
+    });
   }
 
   async function initSeasonProgressionPanel(){
