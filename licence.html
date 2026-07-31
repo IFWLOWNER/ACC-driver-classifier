@@ -1686,6 +1686,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </details>
 
       <details class="help-section">
+        <summary>My Season Progression - what the points and money actually mean</summary>
+        <div class="help-content">
+          <p>Everything on My Season Progression - points, race earnings, entry fees, tyre spend, Net Event Earnings - is <strong>entirely fictional</strong>. It's a fun, season-to-season "monitor" IFWL built for its own economy testbed, not a real payout, not a real budget, and not tied to any actual money or prize.</p>
+          <p>Just as importantly: <strong>the points shown here do not line up with SimGrid's own scoring.</strong> SimGrid has its own separate points system for its own championships - this page is a completely independent IFWL-only measure, using its own position-based points (1st = 50 down to 50th = 1, plus a clean-race bonus) and its own made-up prize table. Don't compare the two directly; they're not meant to match.</p>
+        </div>
+      </details>
+
+      <details class="help-section">
         <summary>What each page does</summary>
         <div class="help-content">
           <p><strong>Home</strong> - your licence card (tier, points, image, calling card), your qualification ranking if you've raced on the IFWL Licence server, and the Driver Directory of every licensed driver in IFWL.</p>
@@ -3823,10 +3831,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     snetterton: 4.778, spa: 7.004, suzuka: 5.807, valencia: 4.005,
     watkins_glen: 5.552, zandvoort: 4.259, zolder: 4.011
   };
-  // Real-world GT3 season entry costs range roughly £23,500 (national
-  // series) to ~€120,000 (major international championships) - averaged.
-  const SP_ENTRY_FEE_PER_RACE = 100000;
-  const SP_TYRE_COST_EACH = 1500;
+  const SP_ENTRY_FEE_PER_RACE = 10000;
+  const SP_TYRE_COST_EACH = 1023;
+
+  // ✅ ADDED: Race Earnings - fictional in-universe prize money by finishing
+  // position, 1st through 50th. Entirely separate from the points system
+  // and from SimGrid's own scoring - this is IFWL's own economy testbed,
+  // not a real payout or a competitive ranking mechanism.
+  const SP_RACE_EARNINGS = {
+    1:30000, 2:22000, 3:16000, 4:12000, 5:9500, 6:8000, 7:7000, 8:6000, 9:5200, 10:4500,
+    11:4000, 12:3600, 13:3300, 14:3000, 15:2800, 16:2600, 17:2400, 18:2200, 19:2000, 20:1800,
+    21:1650, 22:1500, 23:1400, 24:1300, 25:1200, 26:1100, 27:1000, 28:950, 29:900, 30:850,
+    31:800, 32:750, 33:700, 34:650, 35:600, 36:550, 37:500, 38:475, 39:450, 40:425,
+    41:400, 42:375, 43:350, 44:325, 45:300, 46:275, 47:250, 48:225, 49:200, 50:175
+  };
 
   async function computeSeasonProgression(){
     const accDriverNames = currentProfile?.accDriverNames || [];
@@ -3898,10 +3916,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const pitCount = (myRow.lapObjects||[]).filter(l => l.isValidForBest === false).length;
       const bestLapMs = Number(myRow.bestLap) || 0;
       const consistencyPct = Number(myRow.consistencyStats?.consistency);
+      const raceEarnings = SP_RACE_EARNINGS[position] || 0;
 
       races.push({
         source, track: myRow.track, dateMs: raceTs, position, points, cleanBonus, totalPoints,
-        lapCount, mileageKm, pitCount, bestLapMs,
+        lapCount, mileageKm, pitCount, bestLapMs, raceEarnings,
         consistencyPct: Number.isFinite(consistencyPct) ? consistencyPct : null
       });
     }
@@ -3913,16 +3932,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       acc.mileageKm += r.mileageKm;
       acc.pitCount += r.pitCount;
       acc.lapCount += r.lapCount;
+      acc.raceEarnings += r.raceEarnings;
       if(r.position === 1) acc.wins++;
       if(r.position <= 3) acc.podiums++;
       if(r.consistencyPct != null){ acc.consistencySum += r.consistencyPct; acc.consistencyN++; }
       if(r.bestLapMs && (!acc.bestLapMs || r.bestLapMs < acc.bestLapMs)) acc.bestLapMs = r.bestLapMs;
       return acc;
-    }, { points: 0, mileageKm: 0, pitCount: 0, lapCount: 0, wins: 0, podiums: 0, consistencySum: 0, consistencyN: 0, bestLapMs: 0 });
+    }, { points: 0, mileageKm: 0, pitCount: 0, lapCount: 0, raceEarnings: 0, wins: 0, podiums: 0, consistencySum: 0, consistencyN: 0, bestLapMs: 0 });
 
     const avgPosition = races.length ? Math.round((races.reduce((s,r)=>s+r.position,0) / races.length) * 10) / 10 : null;
     const avgConsistency = totals.consistencyN ? Math.round((totals.consistencySum / totals.consistencyN) * 10) / 10 : null;
     const totalTyres = totals.pitCount * 4;
+    const totalTyreSpend = totalTyres * SP_TYRE_COST_EACH;
+    const totalEntryFees = races.length * SP_ENTRY_FEE_PER_RACE;
+    // Event Earnings - race winnings minus what it cost to be there (entry
+    // fees + tyres). Can go negative, same as real racing economics often do.
+    const netEventEarnings = totals.raceEarnings - totalEntryFees - totalTyreSpend;
 
     return {
       seasonLabel: season.label || '',
@@ -3931,9 +3956,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       totalPoints: totals.points,
       totalMileageKm: Math.round(totals.mileageKm * 10) / 10,
       totalLaps: totals.lapCount,
-      totalEntryFees: races.length * SP_ENTRY_FEE_PER_RACE,
+      totalEntryFees,
+      totalRaceEarnings: totals.raceEarnings,
+      netEventEarnings,
       totalTyres,
-      totalTyreSpend: totalTyres * SP_TYRE_COST_EACH,
+      totalTyreSpend,
       wins: totals.wins,
       podiums: totals.podiums,
       avgPosition,
@@ -3975,9 +4002,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     const maxPoints = Math.max(...data.races.map(r => r.totalPoints), 1);
     const fmtLap = (ms) => ms ? `${Math.floor(ms/60000)}:${((ms%60000)/1000).toFixed(3).padStart(6,'0')}` : '-';
+    const netColor = data.netEventEarnings >= 0 ? 'var(--ifwl-teal,#1fd6bd)' : 'var(--ifwl-red)';
 
     body.innerHTML = staffToggle + `
-      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}Position-based points (1st = 50, down to 50th = 1), plus a +10 clean-race bonus if no ticket was filed against you in the 3 days after. Mileage, entry fee and tyre figures are estimates - entry fee averages real-world GT3 seasonal costs, tyres assume a full 4-tyre change per pit stop at £${SP_TYRE_COST_EACH.toLocaleString()} each.</div>
+      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}Position-based points (1st = 50, down to 50th = 1), plus a +10 clean-race bonus if no ticket was filed against you in the 3 days after. Race earnings, entry fees and tyre spend are IFWL's own fictional economy testbed - see Help for details.</div>
 
       <div class="fc-summary-grid" style="margin-top:16px">
         <div class="fc-summary-box"><span>Races Completed</span><strong>${data.totalRaces}</strong></div>
@@ -3989,10 +4017,35 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="fc-summary-box"><span>Best Lap (Season)</span><strong>${fmtLap(data.bestLapMs)}</strong></div>
         <div class="fc-summary-box"><span>Total Laps</span><strong>${data.totalLaps.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Mileage Covered</span><strong>${data.totalMileageKm.toLocaleString()} km</strong></div>
+      </div>
+
+      <h4 style="margin:20px 0 10px">Event Earnings</h4>
+      <div class="fc-summary-grid">
+        <div class="fc-summary-box"><span>Race Earnings (Winnings)</span><strong>&pound;${data.totalRaceEarnings.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Entry Fees Spent</span><strong>&pound;${data.totalEntryFees.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Tyres Used (est.)</span><strong>${data.totalTyres}</strong></div>
         <div class="fc-summary-box"><span>Tyre Spend (est.)</span><strong>&pound;${data.totalTyreSpend.toLocaleString()}</strong></div>
+        <div class="fc-summary-box" style="border-color:${netColor}"><span>Net Event Earnings</span><strong style="color:${netColor}">${data.netEventEarnings < 0 ? '-' : ''}&pound;${Math.abs(data.netEventEarnings).toLocaleString()}</strong></div>
       </div>
+
+      <details style="margin:14px 0">
+        <summary style="cursor:pointer;color:var(--ifwl-teal,#1fd6bd);font-weight:700;font-size:13px">View full Race Earnings payout table (1st-50th)</summary>
+        <div class="table-wrap" style="margin-top:10px;max-height:280px;overflow-y:auto">
+          <table class="fc-stint-table">
+            <thead><tr><th>Position</th><th>Payout</th><th>Position</th><th>Payout</th></tr></thead>
+            <tbody>${(() => {
+              const positions = Object.keys(SP_RACE_EARNINGS).map(Number).sort((a,b)=>a-b);
+              const half = Math.ceil(positions.length/2);
+              const rows = [];
+              for(let i=0;i<half;i++){
+                const p1 = positions[i], p2 = positions[i+half];
+                rows.push(`<tr><td>${p1}${p1===1?'st':p1===2?'nd':p1===3?'rd':'th'}</td><td>&pound;${SP_RACE_EARNINGS[p1].toLocaleString()}</td>${p2 ? `<td>${p2}${p2===1?'st':p2===2?'nd':p2===3?'rd':'th'}</td><td>&pound;${SP_RACE_EARNINGS[p2].toLocaleString()}</td>` : '<td></td><td></td>'}</tr>`);
+              }
+              return rows.join('');
+            })()}</tbody>
+          </table>
+        </div>
+      </details>
 
       <h4 style="margin:20px 0 10px">Points by Race</h4>
       <div>${data.races.map(r => `
@@ -4005,7 +4058,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
       <h4 style="margin:20px 0 10px">Race-by-Race Breakdown</h4>
       <table class="fc-stint-table">
-        <thead><tr><th>Date</th><th>Track</th><th>Finish</th><th>Points</th><th>Clean Bonus</th><th>Total</th></tr></thead>
+        <thead><tr><th>Date</th><th>Track</th><th>Finish</th><th>Points</th><th>Clean Bonus</th><th>Total</th><th>Earnings</th></tr></thead>
         <tbody>${data.races.map(r => `
           <tr>
             <td>${new Date(r.dateMs).toLocaleDateString()}</td>
@@ -4014,6 +4067,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <td>${r.points}</td>
             <td>${r.cleanBonus ? '<span class="sp-clean-tag">+10 Clean</span>' : '-'}</td>
             <td><strong>${r.totalPoints}</strong></td>
+            <td>&pound;${r.raceEarnings.toLocaleString()}</td>
           </tr>
         `).join('')}</tbody>
       </table>
@@ -4051,7 +4105,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // single set of numbers across every driver/every race this season
     // (total mileage covered by the whole grid, total entry fees spent
     // league-wide, total tyres used, etc), per request.
-    let totalEntries = 0, totalMileageKm = 0, totalPitCount = 0, totalPoints = 0;
+    let totalEntries = 0, totalMileageKm = 0, totalPitCount = 0, totalPoints = 0, totalRaceEarnings = 0;
     const uniqueDrivers = new Set();
     let raceFileCount = 0;
 
@@ -4066,7 +4120,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         if(!key) return;
         uniqueDrivers.add(key);
         totalEntries++;
-        totalPoints += Math.max(0, 51 - (idx + 1));
+        const position = idx + 1;
+        totalPoints += Math.max(0, 51 - position);
+        totalRaceEarnings += SP_RACE_EARNINGS[position] || 0;
         const trackSlug = String(row.track||'').toLowerCase().replace(/\s+/g,'_');
         totalMileageKm += (Number(row.lapCount)||0) * (SP_TRACK_KM[trackSlug] || 0);
         totalPitCount += (row.lapObjects||[]).filter(l => l.isValidForBest === false).length;
@@ -4074,6 +4130,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     const totalTyres = totalPitCount * 4;
+    const totalTyreSpend = totalTyres * SP_TYRE_COST_EACH;
+    const totalEntryFees = totalEntries * SP_ENTRY_FEE_PER_RACE;
 
     return {
       seasonLabel: season.label || '',
@@ -4082,9 +4140,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       totalEntries,
       totalPoints,
       totalMileageKm: Math.round(totalMileageKm * 10) / 10,
-      totalEntryFees: totalEntries * SP_ENTRY_FEE_PER_RACE,
+      totalEntryFees,
       totalTyres,
-      totalTyreSpend: totalTyres * SP_TYRE_COST_EACH
+      totalTyreSpend,
+      totalRaceEarnings,
+      netEventEarnings: totalRaceEarnings - totalEntryFees - totalTyreSpend
     };
   }
 
@@ -4112,6 +4172,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="fc-summary-box"><span>Total Entry Fees</span><strong>&pound;${data.totalEntryFees.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Total Tyres Used</span><strong>${data.totalTyres.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Total Tyre Spend</span><strong>&pound;${data.totalTyreSpend.toLocaleString()}</strong></div>
+        <div class="fc-summary-box"><span>Total Race Earnings</span><strong>&pound;${data.totalRaceEarnings.toLocaleString()}</strong></div>
+        <div class="fc-summary-box" style="border-color:${data.netEventEarnings >= 0 ? 'var(--ifwl-teal,#1fd6bd)' : 'var(--ifwl-red)'}"><span>Net Event Earnings</span><strong style="color:${data.netEventEarnings >= 0 ? 'var(--ifwl-teal,#1fd6bd)' : 'var(--ifwl-red)'}">${data.netEventEarnings < 0 ? '-' : ''}&pound;${Math.abs(data.netEventEarnings).toLocaleString()}</strong></div>
       </div>
     `;
     wireSpBackButton();
