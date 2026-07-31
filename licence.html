@@ -946,6 +946,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="staffBulkSimgrid" class="owner-only-tab" type="button">Staff Bulk SimGrid</button>
       <button data-view="staffRequests" type="button">Licence Requests</button>
       <button data-view="staffSimgridEvents" class="ops-only-tab" type="button">Staff SimGrid Events</button>
+      <button data-view="staffRacedayInfo" class="ops-only-tab" type="button">Raceday Info</button>
       <button data-view="staffCallingCards" class="owner-only-tab" type="button">Staff Manage Calling Cards</button>
       <button data-view="staffNameAudit" type="button">Driver Name Audit</button>
       <button data-view="staffSystemStatus" class="owner-only-tab" type="button">System Status</button>
@@ -1307,6 +1308,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="trophy-award-actions">
         <button type="button" class="btn ghost" id="rankChangeDismissBtn">Dismiss</button>
         <button type="button" class="btn purple" id="rankChangeViewBtn">View My Licence</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="racedayInfoModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:260;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div class="trophy-award-card" style="max-width:680px;max-height:85vh;display:flex;flex-direction:column">
+      <h2 class="trophy-award-heading">🏁 Raceday Info</h2>
+      <div id="racedayInfoBody" style="margin:14px 0;overflow-y:auto;text-align:left;flex:1;color:var(--text-primary);line-height:1.6"></div>
+      <div class="trophy-award-actions">
+        <button type="button" class="btn purple" id="racedayInfoDismissBtn" disabled>Read for 60s to continue&hellip;</button>
       </div>
     </div>
   </div>
@@ -1902,6 +1913,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffRacedayInfo" id="racedayInfoPanel">
+    <div class="panel-head"><div><h3>Staff: Raceday Info</h3><small>Driver briefings shown as a forced-read notification on login, on the day of a linked event</small></div><span class="badge purple">Staff only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">
+        Write a briefing, tick which active event(s)/round(s) it applies to, and save. On the calendar day of any linked event, eligible drivers (matching that event's tier/platform) see this as a notification the moment they log in - it can't be dismissed for at least 60 seconds, so it's actually read, not just clicked past.
+      </div>
+      <div class="field-group"><label>Briefing title</label><input type="text" id="rdiTitle" placeholder="e.g. Season 3 | PC Beginner Series - Monza"></div>
+      <div class="field-group">
+        <label>Briefing content (Markdown supported - headers with #, **bold**, bullet lists with * or -, [link text](url))</label>
+        <textarea id="rdiContent" style="width:100%;min-height:260px;font-family:monospace;font-size:13px" placeholder="# DRIVER BRIEFING&#10;**Series:** ...&#10;**Track:** ..."></textarea>
+      </div>
+      <div class="field-group">
+        <label>Link to active event(s)/round(s)</label>
+        <div id="rdiEventChecks" style="max-height:260px;overflow-y:auto;background:#12161c;border:1px solid var(--ifwl-line);border-radius:10px;padding:10px"></div>
+      </div>
+      <button class="btn teal" id="rdiSaveBtn" type="button">Save briefing</button>
+      <button class="btn ghost hidden" id="rdiCancelEditBtn" type="button">Cancel edit / new briefing</button>
+      <span class="save-status" id="rdiSaveStatus"></span>
+      <hr style="border-color:var(--ifwl-line);margin:18px 0">
+      <div id="rdiList"></div>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="staffCallingCards" id="callingCardManagePanel">
     <div class="panel-head"><div><h3>Staff: Manage Calling Cards</h3><small>The image catalog Gold Patreons can choose from</small></div><span class="badge purple">Staff only</span></div>
     <div class="panel-body">
@@ -2446,6 +2480,85 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!event) return null;
     return { imageUrl: event[urlField], glow: !!event[glowField] };
   }
+
+  // ✅ ADDED: Raceday Info - basic markdown-to-HTML renderer. Handles the
+  // subset actually used in real briefings: headers, bold/italic, bullet
+  // lists, links, and Discord role mentions (rendered plainly, since a
+  // role ID means nothing outside Discord itself). Not a full markdown
+  // spec - just enough for driver briefing content.
+  function renderRacedayMarkdown(src){
+    const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let html = esc(String(src || ''));
+    html = html.replace(/&lt;@&amp;(\d+)&gt;/g, '<span class="field-hint">[role mention]</span>');
+    html = html.replace(/^### (.*)$/gm, '<h5 style="margin:14px 0 6px">$1</h5>');
+    html = html.replace(/^## (.*)$/gm, '<h4 style="margin:16px 0 8px">$1</h4>');
+    html = html.replace(/^# (.*)$/gm, '<h3 style="margin:18px 0 10px">$1</h3>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--ifwl-teal)">$1</a>');
+    html = html.replace(/(https?:\/\/[^\s<]+)/g, (m) => m.startsWith('<a') ? m : `<a href="${m}" target="_blank" rel="noopener" style="color:var(--ifwl-teal)">${m}</a>`);
+    html = html.replace(/^---$/gm, '<hr style="border-color:var(--ifwl-line);margin:14px 0">');
+    // Bullet lines (* or -) become <li>, wrapped in <ul> where they run consecutively
+    const lines = html.split('\n');
+    let out = [];
+    let inList = false;
+    for(const line of lines){
+      const bulletMatch = line.match(/^[*\-]\s+(.*)$/);
+      if(bulletMatch){
+        if(!inList){ out.push('<ul style="margin:6px 0 10px 20px">'); inList = true; }
+        out.push(`<li>${bulletMatch[1]}</li>`);
+      }else{
+        if(inList){ out.push('</ul>'); inList = false; }
+        out.push(line);
+      }
+    }
+    if(inList) out.push('</ul>');
+    return out.join('\n').replace(/\n{2,}/g, '</p><p style="margin:8px 0">').replace(/^/, '<p style="margin:8px 0">').replace(/$/, '</p>');
+  }
+
+  // Shows each notification one at a time with its own 60s forced-read
+  // timer; acknowledging one moves to the next if more than one applies
+  // today (e.g. two different rounds both raceday today).
+  async function checkRacedayNotifications(){
+    let notifications = [];
+    try{
+      notifications = (await apiGet('myRacedayNotifications')).notifications || [];
+    }catch(e){ console.warn('Could not check raceday notifications', e); return; }
+    if(!notifications.length) return;
+
+    let queue = [...notifications];
+    function showNext(){
+      if(!queue.length) return;
+      const n = queue.shift();
+      const modal = q('racedayInfoModal');
+      const body = q('racedayInfoBody');
+      const btn = q('racedayInfoDismissBtn');
+      body.innerHTML = `<h3 style="margin-top:0">${n.title}</h3>` + renderRacedayMarkdown(n.content);
+      modal.classList.remove('hidden');
+      btn.disabled = true;
+      let remaining = 60;
+      btn.textContent = `Read for ${remaining}s to continue…`;
+      const timer = setInterval(() => {
+        remaining--;
+        if(remaining <= 0){
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.textContent = queue.length ? 'Got it - next briefing' : 'Got it - close';
+        }else{
+          btn.textContent = `Read for ${remaining}s to continue…`;
+        }
+      }, 1000);
+      btn.onclick = async () => {
+        if(btn.disabled) return;
+        clearInterval(timer);
+        try{ await apiPost('myRacedayAcknowledge', { infoId: n.id }); }catch(e){ console.warn('Could not acknowledge raceday info', e); }
+        modal.classList.add('hidden');
+        if(queue.length) showNext();
+      };
+    }
+    showNext();
+  }
+  window.checkRacedayNotifications = checkRacedayNotifications;
 
   async function applySeasonalOverlays(){
     const cardImg = q('seasonalOverlayImg');
@@ -3793,6 +3906,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     window.initMyTrophyCabinetPanel?.();
     initSubmitTicketPanel();
     renderLapProgressBox();
+    checkRacedayNotifications();
     const [ticketInfo, perfStats] = await Promise.all([fetchTicketInfo(), fetchPerformanceStats(currentProfile)]);
     renderTicketData(ticketInfo);
     renderCardStats(perfStats);
@@ -7276,6 +7390,95 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     };
   }
 
+  // ✅ ADDED: Raceday Info staff panel
+  let rdiEditingId = null;
+  let rdiCachedInfos = [];
+
+  function rdiResetForm(){
+    rdiEditingId = null;
+    q('rdiTitle').value = '';
+    q('rdiContent').value = '';
+    document.querySelectorAll('.rdi-event-check').forEach(el => el.checked = false);
+    q('rdiSaveBtn').textContent = 'Save briefing';
+    q('rdiCancelEditBtn').classList.add('hidden');
+  }
+  q('rdiCancelEditBtn')?.addEventListener('click', () => { rdiResetForm(); q('rdiSaveStatus').textContent = ''; });
+
+  async function initRacedayInfoPanel(){
+    if(!q('racedayInfoPanel')) return;
+
+    // Event checkboxes - reuses the same SimGrid events list already
+    // fetched for the events panel, so a briefing can be tied to any of
+    // them without duplicating that data anywhere.
+    const events = await window.IFWL_SimgridAPI.fetchAllSimgridEvents();
+    const checkBox = q('rdiEventChecks');
+    checkBox.innerHTML = events.length
+      ? events.map(e => `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px"><input type="checkbox" class="rdi-event-check" value="${e.id}" style="width:auto"> ${e.title}${e.eventDateMs ? ` <span class="field-hint">(${new Date(e.eventDateMs).toLocaleDateString()})</span>` : ''}</label>`).join('')
+      : '<div class="empty">No active SimGrid events yet - add some under Staff SimGrid Events first.</div>';
+
+    q('rdiSaveBtn').onclick = async () => {
+      const title = q('rdiTitle').value.trim();
+      const content = q('rdiContent').value.trim();
+      const linkedEventIds = [...document.querySelectorAll('.rdi-event-check:checked')].map(el => el.value);
+      if(!title || !content){ q('rdiSaveStatus').textContent = 'Title and content are both required.'; return; }
+      q('rdiSaveStatus').textContent = rdiEditingId ? 'Updating...' : 'Saving...';
+      try{
+        await window.IFWL_Api.apiPost('staffRacedayInfoSave', { infoId: rdiEditingId || undefined, title, content, linkedEventIds });
+        const wasEditing = !!rdiEditingId;
+        rdiResetForm();
+        q('rdiSaveStatus').textContent = wasEditing ? 'Updated.' : 'Saved.';
+        await renderRacedayInfoList();
+        setTimeout(() => { if(q('rdiSaveStatus')) q('rdiSaveStatus').textContent = ''; }, 2000);
+      }catch(e){ q('rdiSaveStatus').textContent = 'Could not save: ' + e.message; }
+    };
+
+    await renderRacedayInfoList();
+  }
+
+  async function renderRacedayInfoList(){
+    const wrap = q('rdiList');
+    if(!wrap) return;
+    try{
+      rdiCachedInfos = (await window.IFWL_Api.apiGet('staffRacedayInfoList')).infos || [];
+    }catch(e){
+      wrap.innerHTML = `<div class="empty">Could not load briefings: ${e.message}</div>`;
+      return;
+    }
+    if(!rdiCachedInfos.length){ wrap.innerHTML = '<div class="empty">No raceday briefings yet.</div>'; return; }
+
+    wrap.innerHTML = rdiCachedInfos.map(info => `
+      <div class="note-item">
+        <strong>${info.title}</strong>
+        <div class="note-meta">Linked to ${info.linkedEventIds.length} event(s)</div>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button class="btn ghost" data-edit-rdi="${info.id}">Edit</button>
+          <button class="btn ghost" data-delete-rdi="${info.id}">Delete</button>
+        </div>
+      </div>
+    `).join('');
+
+    wrap.querySelectorAll('[data-edit-rdi]').forEach(btn => btn.addEventListener('click', () => {
+      const info = rdiCachedInfos.find(x => x.id === btn.dataset.editRdi);
+      if(!info) return;
+      rdiEditingId = info.id;
+      q('rdiTitle').value = info.title;
+      q('rdiContent').value = info.content;
+      document.querySelectorAll('.rdi-event-check').forEach(el => { el.checked = info.linkedEventIds.includes(el.value); });
+      q('rdiSaveBtn').textContent = `Update "${info.title}"`;
+      q('rdiCancelEditBtn').classList.remove('hidden');
+      q('rdiSaveStatus').textContent = 'Editing this briefing - saving updates it, doesn\'t create a new one.';
+      q('racedayInfoPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+
+    wrap.querySelectorAll('[data-delete-rdi]').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('Delete this briefing? It will stop showing to drivers immediately.')) return;
+      try{
+        await window.IFWL_Api.apiPost('staffRacedayInfoDelete', { infoId: btn.dataset.deleteRdi });
+        await renderRacedayInfoList();
+      }catch(e){ alert('Could not delete: ' + e.message); }
+    }));
+  }
+
   function initStaffPanels(){
     if(staffPanelsInited || !window.IFWL_STAFF) return;
     staffPanelsInited = true;
@@ -7283,6 +7486,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderRequestQueue();
     renderTierCheckboxes();
     renderSimgridEventList();
+    initRacedayInfoPanel();
     renderCallingCardList();
     renderLicenceQualPanel('PC', 'pc-licence');
     renderLicenceQualPanel('Console', 'console-licence');
