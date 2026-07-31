@@ -1422,12 +1422,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="gold-upsell-box">
         <div class="gold-upsell-inner">
           <div class="gold-upsell-title">🏆 Gold Patreon Perk &mdash; Season Progression</div>
-          <p>My Season Progression is a Gold Patreon perk - your full race-by-race points breakdown, total mileage covered, entry fees spent, and tyres used this season. Go Gold to unlock it, alongside everything else Gold gets across the Licence Centre.</p>
+          <p>My Season Progression is a Gold Patreon perk - your full race-by-race points breakdown, total mileage covered, entry fees spent, tyres used this season, and <strong>Career Perks</strong> (pick 3 season-long bonuses affecting your race earnings, tyre costs, entry fees and sponsorship income). Go Gold to unlock it, alongside everything else Gold gets across the Licence Centre.</p>
           <a class="gold-upsell-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold on Patreon &rarr;</a>
         </div>
       </div>
 
       <div class="gold-only-field">
+        <div id="spPerksBody" style="margin-bottom:20px"><div class="empty">Loading Career Perks&hellip;</div></div>
         <div id="spBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px"><div class="empty">Loading your season&hellip;</div></div>
       </div>
     </div>
@@ -1659,6 +1660,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
       <h4 style="margin:0 0 10px">Current Sponsorship Deals</h4>
       <div id="spnCurrentList"><div class="empty">Loading&hellip;</div></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Reset a Driver's Career Perks</h4>
+      <p class="field-hint" style="margin-bottom:10px">Career Perks lock in once a driver confirms their 3 choices - this is the only way to let them re-pick before the season ends (beta period).</p>
+      <div style="display:flex;gap:10px">
+        <input type="text" id="spnPerkSearchInput" placeholder="Search driver by name or licence number..." style="flex:1">
+        <button class="btn ghost" id="spnPerkSearchBtn" type="button">Search</button>
+      </div>
+      <div id="spnPerkSearchResults" style="margin-top:10px"></div>
     </div>
   </section>
 
@@ -3899,6 +3910,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     41:400, 42:375, 43:350, 44:325, 45:300, 46:275, 47:250, 48:225, 49:200, 50:175
   };
 
+  // ✅ ADDED: Career Perks - Gold-only, pick exactly 3 of 5, locked for the
+  // season once chosen (only staff can reset, beta period).
+  const SP_PERK_CATALOG = [
+    { id: 'trackAnalysis', name: 'Enhanced Track Analysis Researcher', flavor: 'Your team employs an advanced circuit analyst who studies braking zones, racing lines, surface changes and historical telemetry before every event.', effect: 'Increases all race earnings by 2.2%.' },
+    { id: 'tyreManagement', name: 'Advanced Tyre Management Programme', flavor: 'Your team has invested in specialist tyre monitoring equipment, pressure analysis and a dedicated tyre-performance engineer.', effect: 'Reduces the purchase cost of every tyre by 5%.' },
+    { id: 'pitCrewTraining', name: 'Precision Pit-Crew Training', flavor: 'Your pit crew completes additional training focused on wheel changes, refuelling procedures, driver changes and repairing minor damage under pressure.', effect: 'Reduces your race entry fees by 6%.' },
+    { id: 'sponsorshipNetwork', name: 'Performance Sponsorship Network', flavor: 'A specialist motorsport agency actively promotes your driver to racing brands, equipment manufacturers and commercial partners.', effect: 'Increases sponsorship payments by 8% - only applies to a deal won while you hold this perk, never retroactively.' },
+    { id: 'strategyCommand', name: 'Race Strategy Command Centre', flavor: 'Your team gains access to an advanced strategy department that analyses fuel usage, weather changes, pit windows, traffic and safety-car probability.', effect: 'Adds a 3% bonus to race earnings whenever you finish without receiving a penalty.' }
+  ];
+
   async function computeSeasonProgression(){
     const accDriverNames = currentProfile?.accDriverNames || [];
     if(!accDriverNames.length) return null;
@@ -3921,10 +3942,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
 
     let ticketDates = [];
+    let penalizedTickets = [];
     try{
       const ticketData = await fetchTicketInfo();
-      ticketDates = (ticketData.tickets || []).filter(t => t.wasAccused && t.timestampMs).map(t => t.timestampMs);
+      const myTickets = (ticketData.tickets || []).filter(t => t.wasAccused);
+      ticketDates = myTickets.filter(t => t.timestampMs).map(t => t.timestampMs);
+      // Distinct from the clean-race bonus above (which counts ANY ticket) -
+      // this specifically looks for a ticket that actually resulted in a
+      // penalty, for the Strategy Command Centre perk ("finishes without
+      // receiving a penalty").
+      penalizedTickets = myTickets.filter(t => t.finalPenalty && !/no action|dismiss/i.test(t.finalPenalty) && t.timestampMs);
     }catch(e){ console.warn('Could not load ticket history for clean-race check', e); }
+
+    let myPerks = [];
+    try{ myPerks = (await apiGet('myCareerPerks')).perks || []; }catch(e){ console.warn('Could not load career perks', e); }
+    const hasPerk = (id) => myPerks.includes(id);
+    const SP_PERK_TRACK_ANALYSIS_BONUS = 0.022;
+    const SP_PERK_STRATEGY_BONUS = 0.03;
+    const SP_PERK_TYRE_DISCOUNT = 0.05;
+    const SP_PERK_ENTRY_FEE_DISCOUNT = 0.06;
 
     const races = [];
 
@@ -3969,7 +4005,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const pitCount = (myRow.lapObjects||[]).filter(l => l.isValidForBest === false).length;
       const bestLapMs = Number(myRow.bestLap) || 0;
       const consistencyPct = Number(myRow.consistencyStats?.consistency);
-      const raceEarnings = SP_RACE_EARNINGS[position] || 0;
+
+      // Career Perks - Enhanced Track Analysis Researcher (+2.2% flat) and
+      // Race Strategy Command Centre (+3%, only on races where no ticket
+      // against this driver actually resulted in a penalty). Both apply to
+      // every race while the perk is held - unlike the sponsorship perk,
+      // these aren't locked to "at the time" since race earnings for a
+      // given race are only ever calculated once, at render time, using
+      // whatever perks are currently active.
+      let raceEarnings = SP_RACE_EARNINGS[position] || 0;
+      if(hasPerk('trackAnalysis')) raceEarnings = Math.round(raceEarnings * (1 + SP_PERK_TRACK_ANALYSIS_BONUS));
+      const noPenaltyThisRace = !penalizedTickets.some(t => (t.track||'').toLowerCase() === (myRow.track||'').toLowerCase() && t.timestampMs >= raceTs && t.timestampMs <= raceTs + (3*24*60*60*1000));
+      if(hasPerk('strategyCommand') && noPenaltyThisRace) raceEarnings = Math.round(raceEarnings * (1 + SP_PERK_STRATEGY_BONUS));
 
       races.push({
         source, track: myRow.track, dateMs: raceTs, position, points, cleanBonus, totalPoints,
@@ -3996,8 +4043,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const avgPosition = races.length ? Math.round((races.reduce((s,r)=>s+r.position,0) / races.length) * 10) / 10 : null;
     const avgConsistency = totals.consistencyN ? Math.round((totals.consistencySum / totals.consistencyN) * 10) / 10 : null;
     const totalTyres = totals.pitCount * 4;
-    const totalTyreSpend = totalTyres * SP_TYRE_COST_EACH;
-    const totalEntryFees = races.length * SP_ENTRY_FEE_PER_RACE;
+    // Advanced Tyre Management Programme (-5% per tyre) and Precision
+    // Pit-Crew Training (-6%, applied to Entry Fees since there's no
+    // separate pit-service cost tracked anywhere in this economy - closest
+    // real cost category to discount).
+    const effectiveTyreCost = hasPerk('tyreManagement') ? SP_TYRE_COST_EACH * (1 - SP_PERK_TYRE_DISCOUNT) : SP_TYRE_COST_EACH;
+    const totalTyreSpend = Math.round(totalTyres * effectiveTyreCost);
+    const effectiveEntryFee = hasPerk('pitCrewTraining') ? SP_ENTRY_FEE_PER_RACE * (1 - SP_PERK_ENTRY_FEE_DISCOUNT) : SP_ENTRY_FEE_PER_RACE;
+    const totalEntryFees = Math.round(races.length * effectiveEntryFee);
 
     // ✅ ADDED: sponsorship, if the driver currently holds one - its amount
     // is straight income, added into Net Event Earnings alongside race
@@ -4021,6 +4074,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       totalEntryFees,
       totalRaceEarnings: totals.raceEarnings,
       sponsorship,
+      myPerks,
       netEventEarnings,
       totalTyres,
       totalTyreSpend,
@@ -4251,6 +4305,71 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
 
+  async function renderCareerPerksSection(){
+    const box = q('spPerksBody');
+    if(!box) return;
+    let perks = [];
+    try{ perks = (await apiGet('myCareerPerks')).perks || []; }catch(e){ box.innerHTML = `<div class="empty">Could not load Career Perks: ${e.message}</div>`; return; }
+
+    if(perks.length){
+      // Locked in - read-only display of the 3 chosen perks and their effects.
+      box.innerHTML = `
+        <h4 style="margin:0 0 10px">Career Perks <span class="field-hint" style="text-transform:none;font-weight:400">(locked for this season)</span></h4>
+        <div class="fc-summary-grid">
+          ${perks.map(id => {
+            const perk = SP_PERK_CATALOG.find(p => p.id === id);
+            if(!perk) return '';
+            return `<div class="fc-summary-box" style="text-align:left"><span>${perk.name}</span><strong style="font-size:13px;font-weight:600">${perk.effect}</strong></div>`;
+          }).join('')}
+        </div>
+      `;
+      return;
+    }
+
+    // Not chosen yet - show the picker, exactly 3 required.
+    box.innerHTML = `
+      <h4 style="margin:0 0 10px">Career Perks</h4>
+      <p class="field-hint" style="margin-bottom:10px">Choose exactly 3 of the 5 perks below. Once confirmed, they're locked in for the rest of the season - only staff can reset them (beta period).</p>
+      <div id="spnPerkChecks" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
+        ${SP_PERK_CATALOG.map(perk => `
+          <label class="aa-slot-card" style="display:block;cursor:pointer">
+            <div style="display:flex;align-items:flex-start;gap:8px">
+              <input type="checkbox" class="sp-perk-check" value="${perk.id}" style="width:auto;margin-top:3px">
+              <div>
+                <strong>${perk.name}</strong>
+                <p class="field-hint" style="margin:4px 0">${perk.flavor}</p>
+                <p style="color:var(--ifwl-teal,#1fd6bd);font-size:12.5px;font-weight:700;margin:4px 0 0">${perk.effect}</p>
+              </div>
+            </div>
+          </label>
+        `).join('')}
+      </div>
+      <button class="btn purple" id="spnConfirmPerksBtn" type="button" style="margin-top:14px">Confirm my 3 perks for this season</button>
+      <span class="save-status" id="spnPerksStatus"></span>
+    `;
+
+    const checks = () => [...box.querySelectorAll('.sp-perk-check')];
+    checks().forEach(c => c.addEventListener('change', () => {
+      const checked = checks().filter(x => x.checked);
+      if(checked.length > 3) c.checked = false; // hard stop at 3, no silent over-select
+    }));
+
+    q('spnConfirmPerksBtn').addEventListener('click', async () => {
+      const chosen = checks().filter(c => c.checked).map(c => c.value);
+      const status = q('spnPerksStatus');
+      if(chosen.length !== 3){ status.textContent = 'Pick exactly 3 perks first.'; return; }
+      if(!confirm('Lock these 3 perks in for the rest of the season? You cannot change them yourself once confirmed.')) return;
+      status.textContent = 'Saving...';
+      try{
+        await apiPost('saveMyCareerPerks', { perks: chosen });
+        await renderCareerPerksSection();
+        await initSeasonProgressionPanel(); // recompute earnings with the new perks applied
+      }catch(e){
+        status.textContent = 'Could not save: ' + e.message;
+      }
+    });
+  }
+
   async function initSeasonProgressionPanel(){
     if(!q('seasonProgressionPanel')) return;
 
@@ -4281,6 +4400,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     if(!(window.IFWL_GOLD || window.IFWL_STAFF)) return; // gold-only-field CSS hides the panel body anyway; skip the work entirely for everyone else
+    renderCareerPerksSection();
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
@@ -8618,6 +8738,35 @@ Flashing Headlights:
     };
 
     renderCurrentSponsorships();
+
+    // Career Perks reset - reuses the same staffSearch() Driver Name Audit
+    // already relies on, so no new search endpoint needed.
+    q('spnPerkSearchBtn').onclick = async () => {
+      const term = q('spnPerkSearchInput').value.trim().toLowerCase();
+      const resultsBox = q('spnPerkSearchResults');
+      resultsBox.innerHTML = '<div class="empty">Searching&hellip;</div>';
+      try{
+        const drivers = await staffSearch(term);
+        if(!drivers.length){ resultsBox.innerHTML = '<div class="empty">No drivers found.</div>'; return; }
+        resultsBox.innerHTML = drivers.slice(0, 20).map(d => `
+          <div class="note-item">
+            <strong>${d.name}</strong>
+            <div class="note-meta">${d.licenceNumber}</div>
+            <div style="margin-top:8px"><button class="btn ghost" data-reset-perks="${d.discordId}">Reset Career Perks</button></div>
+          </div>
+        `).join('');
+        resultsBox.querySelectorAll('[data-reset-perks]').forEach(btn => btn.addEventListener('click', async () => {
+          if(!confirm('Reset this driver\'s Career Perks? They\'ll be able to pick 3 new ones next time they visit Season Progression.')) return;
+          try{
+            await window.IFWL_Api.apiPost('staffResetCareerPerks', { driverId: btn.dataset.resetPerks });
+            btn.textContent = 'Reset ✓';
+            btn.disabled = true;
+          }catch(e){ alert('Could not reset: ' + e.message); }
+        }));
+      }catch(e){
+        resultsBox.innerHTML = `<div class="empty">Search failed: ${e.message}</div>`;
+      }
+    };
   }
 
   async function renderCurrentSponsorships(){
