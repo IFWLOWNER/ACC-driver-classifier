@@ -978,6 +978,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="staffMessages" class="ops-only-tab" type="button">Messages</button>
       <button data-view="staffTrophyCabinet" class="owner-only-tab" type="button">Manage Trophy Cabinet</button>
       <button data-view="staffAffiliateAds" class="owner-only-tab" type="button">Manage Affiliates</button>
+      <button data-view="staffSponsorships" class="owner-only-tab" type="button">Manage Sponsorships</button>
       <button data-view="commentatorWatch" class="owner-only-tab" type="button">Drivers to Watch (Preview)</button>
     </div>
   </div>
@@ -1350,6 +1351,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </div>
 
+  <div id="sponsorshipModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:260;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div class="trophy-award-card">
+      <h2 class="trophy-award-heading">🤝 You've Landed a Sponsor!</h2>
+      <div id="sponsorshipModalBody" style="margin:14px 0"></div>
+      <div class="trophy-award-actions">
+        <button type="button" class="btn purple" id="sponsorshipModalDismissBtn">Nice one!</button>
+      </div>
+    </div>
+  </div>
+
   <section class="panel view-panel" data-view="ticketHistory" id="ticketHistoryPanel">
     <div class="panel-head"><div><h3>Steward Ticket History</h3><small>Every ticket on your record, every status, regardless of outcome - detail shown depends on your Patreon tier (your Overall Score, Consistency and Race Risk are on your licence card above)</small></div><span class="badge purple" id="ticketPanelBadge">Your full record</span></div>
 
@@ -1627,6 +1638,30 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffSponsorships" id="staffSponsorshipsPanel">
+    <div class="panel-head"><div><h3>Staff: Manage Sponsorships</h3><small>Fictional random sponsorship deals - part of the same Season Progression economy testbed</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">Build a pool of sponsors below, then hit "Run Sponsorship Lottery" whenever you want to roll it - each driver who's raced this season and doesn't already hold a deal gets a 5% chance. A hit picks a random sponsor from the pool and a random amount within its min/max range. One active deal per driver at a time.</div>
+
+      <h4 style="margin:20px 0 10px">Sponsor Pool</h4>
+      <div id="spnPoolRows"></div>
+      <button class="btn ghost" id="spnAddSponsorBtn" type="button" style="margin-bottom:14px">+ Add sponsor</button>
+      <button class="btn teal" id="spnSavePoolBtn" type="button">Save sponsor pool</button>
+      <span class="save-status" id="spnSaveStatus"></span>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Run the Lottery</h4>
+      <button class="btn purple" id="spnRunLotteryBtn" type="button">🎲 Run Sponsorship Lottery</button>
+      <div id="spnLotteryResult" style="margin-top:14px"></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Current Sponsorship Deals</h4>
+      <div id="spnCurrentList"><div class="empty">Loading&hellip;</div></div>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="termsOfService" id="termsOfServicePanel">
     <div class="panel-head"><div><h3>Terms of Service</h3><small>What's expected of every IFWL member, and what happens if it isn't followed</small></div></div>
     <div class="panel-body" style="font-size:13.5px;line-height:1.65;color:var(--text-muted)">
@@ -1689,7 +1724,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <summary>My Season Progression - what the points and money actually mean</summary>
         <div class="help-content">
           <p>Everything on My Season Progression - points, race earnings, entry fees, tyre spend, Net Event Earnings - is <strong>entirely fictional</strong>. It's a fun, season-to-season "monitor" IFWL built for its own economy testbed, not a real payout, not a real budget, and not tied to any actual money or prize.</p>
-          <p>Just as importantly: <strong>the points shown here do not line up with SimGrid's own scoring.</strong> SimGrid has its own separate points system for its own championships - this page is a completely independent IFWL-only measure, using its own position-based points (1st = 50 down to 50th = 1, plus a clean-race bonus) and its own made-up prize table. Don't compare the two directly; they're not meant to match.</p>
+
+          <p><strong>Points: how they're worked out.</strong> Every race pays points based purely on where you finished, using the formula <strong>51 minus your finishing position</strong>:</p>
+          <ul>
+            <li>1st place = 50 points</li>
+            <li>2nd place = 49 points</li>
+            <li>10th place = 41 points</li>
+            <li>25th place = 26 points</li>
+            <li>50th place = 1 point</li>
+            <li>51st or lower = 0 points</li>
+          </ul>
+          <p>On top of that, every race carries a possible <strong>+10 Clean Race bonus</strong>. You get it automatically if no steward ticket was filed <em>against you specifically</em> (not just mentioning you as the reporter) within the 3 days immediately following that race. If a ticket naming you as the accused was raised in that window, the bonus is withheld for that race - your base finishing points still count either way.</p>
+
+          <p><strong>Entry fees:</strong> a flat £10,000 "cost" applied per race entered, regardless of result - averaged from how real-world GT3 seasonal entry costs typically range.</p>
+
+          <p><strong>Tyre spend:</strong> each pit stop is assumed to be a full 4-tyre change, at £1,023 per tyre. That figure is priced against <strong>Michelin's IMSA-spec tyre (the H1+ compound)</strong> - the closest real-world equivalent to what a GT3 car actually runs on, since there isn't a public GT3-specific retail price to reference directly.</p>
+
+          <p><strong>Race Earnings:</strong> a separate, fictional prize-money table paying out by finishing position (1st down to 50th) - view the full table via "View full Race Earnings payout table" on the page itself. <strong>Net Event Earnings</strong> is simply Race Earnings won, minus that race's entry fee and tyre spend - so a poor finish can genuinely cost more than it earns, the same way real racing economics often work.</p>
+
+          <p><strong>On SimGrid specifically:</strong> to be clear, IFWL runs its actual championships and events using SimGrid's own scheduling and event tools - SimGrid is very much part of how IFWL races are organised. What this page does <em>not</em> do is use SimGrid's own built-in points-scoring system for this economy - the points, clean bonus and prize table above are entirely IFWL's own separate calculation, run independently of whatever scoring format a given SimGrid championship itself might use. Don't compare the two directly; they're never meant to match.</p>
         </div>
       </details>
 
@@ -3945,9 +3998,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const totalTyres = totals.pitCount * 4;
     const totalTyreSpend = totalTyres * SP_TYRE_COST_EACH;
     const totalEntryFees = races.length * SP_ENTRY_FEE_PER_RACE;
-    // Event Earnings - race winnings minus what it cost to be there (entry
-    // fees + tyres). Can go negative, same as real racing economics often do.
-    const netEventEarnings = totals.raceEarnings - totalEntryFees - totalTyreSpend;
+
+    // ✅ ADDED: sponsorship, if the driver currently holds one - its amount
+    // is straight income, added into Net Event Earnings alongside race
+    // winnings.
+    let sponsorship = null;
+    try{ sponsorship = (await apiGet('mySponsorship')).sponsorship; }catch(e){ console.warn('Could not load sponsorship', e); }
+    const sponsorshipAmount = sponsorship?.amount || 0;
+
+    // Event Earnings - race winnings (plus any sponsorship) minus what it
+    // cost to be there (entry fees + tyres). Can go negative, same as real
+    // racing economics often do.
+    const netEventEarnings = totals.raceEarnings + sponsorshipAmount - totalEntryFees - totalTyreSpend;
 
     return {
       seasonLabel: season.label || '',
@@ -3958,6 +4020,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       totalLaps: totals.lapCount,
       totalEntryFees,
       totalRaceEarnings: totals.raceEarnings,
+      sponsorship,
       netEventEarnings,
       totalTyres,
       totalTyreSpend,
@@ -4020,8 +4083,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </div>
 
       <h4 style="margin:20px 0 10px">Event Earnings</h4>
+      ${data.sponsorship ? `<div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08)"><strong>🤝 Sponsored by ${data.sponsorship.companyName}</strong><br>${data.sponsorship.dealDescription}</div>` : ''}
       <div class="fc-summary-grid">
         <div class="fc-summary-box"><span>Race Earnings (Winnings)</span><strong>&pound;${data.totalRaceEarnings.toLocaleString()}</strong></div>
+        ${data.sponsorship ? `<div class="fc-summary-box"><span>Sponsorship</span><strong>&pound;${data.sponsorship.amount.toLocaleString()}</strong></div>` : ''}
         <div class="fc-summary-box"><span>Entry Fees Spent</span><strong>&pound;${data.totalEntryFees.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Tyres Used (est.)</span><strong>${data.totalTyres}</strong></div>
         <div class="fc-summary-box"><span>Tyre Spend (est.)</span><strong>&pound;${data.totalTyreSpend.toLocaleString()}</strong></div>
@@ -4219,9 +4284,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
+      if(data?.sponsorship && !data.sponsorship.acknowledged) checkSponsorshipPopup(data.sponsorship);
     }catch(e){
       q('spBody').innerHTML = `<div class="empty">Could not load season progression: ${e.message}</div>`;
     }
+  }
+
+  // ✅ ADDED: one-time celebration popup for a fresh, unacknowledged
+  // sponsorship deal - shown once, then the deal just sits as a permanent
+  // stat card on the page afterward rather than popping up every visit.
+  function checkSponsorshipPopup(sponsorship){
+    const modal = q('sponsorshipModal');
+    if(!modal) return;
+    q('sponsorshipModalBody').innerHTML = `
+      <p style="font-size:16px"><strong>${sponsorship.companyName}</strong> have come on board as your sponsor!</p>
+      <p style="color:var(--text-muted)">${sponsorship.dealDescription}</p>
+      <p style="font-size:22px;font-weight:800;color:#ffb238;margin-top:10px">&pound;${sponsorship.amount.toLocaleString()}</p>
+    `;
+    modal.classList.remove('hidden');
+    q('sponsorshipModalDismissBtn').onclick = async () => {
+      modal.classList.add('hidden');
+      try{ await apiPost('myAcknowledgeSponsorship', {}); }catch(e){ console.warn('Could not acknowledge sponsorship', e); }
+    };
   }
 
   async function renderQualificationStanding(){
@@ -8425,6 +8509,140 @@ Flashing Headlights:
     });
   }
 
+  // ✅ ADDED: Manage Sponsorships staff panel
+  let spnRowCount = 0;
+
+  function spnRowHtml(idx, s){
+    s = s || {};
+    return `<div class="se-event-row" data-row-idx="${idx}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h5 style="margin:0">Sponsor ${idx+1}</h5>
+        <button class="btn ghost" data-remove-sponsor="${idx}" type="button">✕ Remove</button>
+      </div>
+      <div class="field-group"><label>Company name</label><input type="text" class="spn-company" value="${(s.companyName||'').replace(/"/g,'&quot;')}" placeholder="e.g. Velocity Surge Energy"></div>
+      <div class="field-group"><label>Deal description (shown to the driver)</label><textarea class="spn-desc" style="width:100%;min-height:60px">${s.dealDescription||''}</textarea></div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1"><label>Min amount (£)</label><input type="number" class="spn-min" value="${s.minAmount ?? ''}" min="0"></div>
+        <div class="field-group" style="flex:1"><label>Max amount (£)</label><input type="number" class="spn-max" value="${s.maxAmount ?? ''}" min="0"></div>
+      </div>
+    </div>`;
+  }
+
+  function spnAddRow(s){
+    const idx = spnRowCount++;
+    q('spnPoolRows').insertAdjacentHTML('beforeend', spnRowHtml(idx, s));
+    document.querySelector(`[data-remove-sponsor="${idx}"]`)?.addEventListener('click', (e) => e.target.closest('[data-row-idx]').remove());
+  }
+
+  async function initSponsorshipsPanel(){
+    if(!q('staffSponsorshipsPanel')) return;
+
+    const { sponsors } = await window.IFWL_Api.apiGet('staffSponsorPoolList');
+    q('spnPoolRows').innerHTML = ''; spnRowCount = 0;
+    sponsors.forEach(s => spnAddRow(s));
+    if(!sponsors.length) spnAddRow();
+
+    q('spnAddSponsorBtn').onclick = () => spnAddRow();
+
+    q('spnSavePoolBtn').onclick = async () => {
+      const status = q('spnSaveStatus');
+      const pool = [...q('spnPoolRows').querySelectorAll('[data-row-idx]')].map(row => ({
+        companyName: row.querySelector('.spn-company').value.trim(),
+        dealDescription: row.querySelector('.spn-desc').value.trim(),
+        minAmount: Number(row.querySelector('.spn-min').value) || 0,
+        maxAmount: Number(row.querySelector('.spn-max').value) || 0
+      })).filter(s => s.companyName);
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_Api.apiPost('staffSponsorPoolSave', { sponsors: pool });
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('spnSaveStatus')) q('spnSaveStatus').textContent = ''; }, 2000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+
+    q('spnRunLotteryBtn').onclick = async () => {
+      const resultBox = q('spnLotteryResult');
+      resultBox.innerHTML = '<div class="empty">Working out who raced this season and checking existing deals&hellip;</div>';
+      try{
+        // Same season-window + race-file detection Season Progression's own
+        // staff view uses, then matched against real licence profiles via
+        // accDriverNames (substring match, same convention as everywhere
+        // else) to get real discordIds - the backend needs actual driver
+        // IDs to check/write activeSponsorship, not just in-game names.
+        const season = await window.IFWL_SeasonAPI.fetchSeasonWindow();
+        const startMs = season.startDate ? Date.parse(season.startDate + 'T00:00:00Z') : 0;
+        const endMs = season.endDate ? Date.parse(season.endDate + 'T23:59:59Z') : Date.now();
+        if(!startMs){ resultBox.innerHTML = '<div class="empty">No Season Window set yet.</div>'; return; }
+
+        const allRows = await window.IFWLStats.buildAllRows();
+        const bySource = new Map();
+        allRows.forEach(r => { if(!bySource.has(r.source)) bySource.set(r.source, []); bySource.get(r.source).push(r); });
+        function tsFromFileName(name){
+          const m = String(name||'').match(/^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/);
+          if(!m) return 0;
+          const [,yy,mm,dd,hh,mi,ss] = m;
+          return Date.UTC(2000+Number(yy), Number(mm)-1, Number(dd), Number(hh), Number(mi), Number(ss));
+        }
+        const seasonDriverKeys = new Set();
+        for(const [source, rows] of bySource.entries()){
+          if(!rows.length || !/_R\.json$/i.test(rows[0].fileName||'')) continue;
+          const ts = tsFromFileName(rows[0].fileName);
+          if(!ts || ts < startMs || ts > endMs) continue;
+          rows.forEach(row => { const k = window.IFWLStats.driverNameKey(row.driver); if(k) seasonDriverKeys.add(k); });
+        }
+
+        const profiles = await staffSearch('');
+        const eligibleIds = profiles.filter(p => {
+          if(p.activeSponsorship) return false;
+          const aliases = (p.accDriverNames||[]).map(n => window.IFWLStats.driverNameKey(n));
+          if(!aliases.length) return false;
+          return [...seasonDriverKeys].some(dk => aliases.some(a => dk.includes(a) || a.includes(dk)));
+        }).map(p => p.discordId);
+
+        if(!eligibleIds.length){ resultBox.innerHTML = '<div class="empty">No eligible drivers found (either nobody raced yet this season, or everyone already has a deal).</div>'; return; }
+
+        resultBox.innerHTML = `<div class="empty">Rolling against ${eligibleIds.length} eligible driver(s)&hellip;</div>`;
+        const result = await window.IFWL_Api.apiPost('staffRunSponsorshipLottery', { eligibleDriverIds: eligibleIds });
+
+        resultBox.innerHTML = `
+          <div class="notice-card">Rolled against <strong>${result.rolledCount}</strong> eligible driver(s) - <strong>${result.winnerCount}</strong> hit a sponsorship.</div>
+          ${result.winners.length ? `<table class="fc-stint-table" style="margin-top:10px">
+            <thead><tr><th>Driver</th><th>Sponsor</th><th>Amount</th></tr></thead>
+            <tbody>${result.winners.map(w => `<tr><td>${w.driverName}</td><td>${w.companyName}</td><td>&pound;${w.amount.toLocaleString()}</td></tr>`).join('')}</tbody>
+          </table>` : ''}
+        `;
+        renderCurrentSponsorships();
+      }catch(e){
+        resultBox.innerHTML = `<div class="empty">Could not run the lottery: ${e.message}</div>`;
+      }
+    };
+
+    renderCurrentSponsorships();
+  }
+
+  async function renderCurrentSponsorships(){
+    const wrap = q('spnCurrentList');
+    if(!wrap) return;
+    try{
+      const { sponsorships } = await window.IFWL_Api.apiGet('staffCurrentSponsorships');
+      if(!sponsorships.length){ wrap.innerHTML = '<div class="empty">No active sponsorship deals right now.</div>'; return; }
+      wrap.innerHTML = sponsorships.map(s => `
+        <div class="note-item">
+          <strong>${s.driverName}</strong>
+          <div class="note-meta">${s.companyName} &middot; &pound;${s.amount.toLocaleString()} &middot; ${new Date(s.awardedAtMs).toLocaleDateString()}</div>
+          <div style="margin-top:8px"><button class="btn ghost" data-clear-sponsorship="${s.driverId}">Clear deal</button></div>
+        </div>
+      `).join('');
+      wrap.querySelectorAll('[data-clear-sponsorship]').forEach(btn => btn.addEventListener('click', async () => {
+        if(!confirm('Clear this sponsorship deal? The driver becomes eligible to roll again next lottery.')) return;
+        try{ await window.IFWL_Api.apiPost('staffClearSponsorship', { driverId: btn.dataset.clearSponsorship }); await renderCurrentSponsorships(); }
+        catch(e){ alert('Could not clear: ' + e.message); }
+      }));
+    }catch(e){
+      wrap.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`;
+    }
+  }
+
   async function initAffiliateAdsPanel(){
     if(!q('staffAffiliateAdsPanel')) return;
     const wrap = q('aaSlots');
@@ -8477,6 +8695,7 @@ Flashing Headlights:
     renderLicenceDatabase();
     renderStaffTrophyCabinet();
     initAffiliateAdsPanel();
+    initSponsorshipsPanel();
     initClassStructurePanel();
     renderSeasonalEventsPanel();
   }
