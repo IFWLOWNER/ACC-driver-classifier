@@ -1419,18 +1419,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <span class="save-status" id="spBgUploadStatus" style="margin-left:8px"></span>
       </div>
 
-      <div class="gold-upsell-box">
-        <div class="gold-upsell-inner">
-          <div class="gold-upsell-title">🏆 Gold Patreon Perk &mdash; Season Progression</div>
-          <p>My Season Progression is a Gold Patreon perk - your full race-by-race points breakdown, total mileage covered, entry fees spent, tyres used this season, and <strong>Career Perks</strong> (pick 3 season-long bonuses affecting your race earnings, tyre costs, entry fees and sponsorship income). Go Gold to unlock it, alongside everything else Gold gets across the Licence Centre.</p>
-          <a class="gold-upsell-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold on Patreon &rarr;</a>
-        </div>
-      </div>
-
-      <div class="gold-only-field">
-        <div id="spPerksBody" style="margin-bottom:20px"><div class="empty">Loading Career Perks&hellip;</div></div>
-        <div id="spBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px"><div class="empty">Loading your season&hellip;</div></div>
-      </div>
+      <div id="spPerksBody" style="margin-bottom:20px"><div class="empty">Loading Career Perks&hellip;</div></div>
+      <div id="spBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px"><div class="empty">Loading your season&hellip;</div></div>
     </div>
   </section>
 
@@ -4086,9 +4076,45 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     };
   }
 
+  // ✅ CHANGED: three-tier reveal instead of an all-or-nothing Gold gate.
+  // Bronze/no-tier sees the full page shape (every label) with every value
+  // masked, plus a strong "upgrade to Gold" push. Silver sees a genuinely
+  // real taste of the numbers (races/points/laps/mileage/winnings) with
+  // everything else still locked, plus a lighter "unlock full access" nudge.
+  // Gold sees everything. The goal is the locked shape itself is the hook,
+  // not just a wall of text.
+  const SP_SILVER_VISIBLE = ['totalRaces', 'totalPoints', 'totalLaps', 'totalMileageKm', 'totalRaceEarnings'];
+
+  function spCurrentTier(){
+    if(window.IFWL_GOLD) return 'gold';
+    if(window.IFWL_SILVER_PLUS) return 'silver';
+    return 'bronze';
+  }
+
+  function spStatBox(label, value, statKey, tier){
+    const visible = tier === 'gold' || (tier === 'silver' && SP_SILVER_VISIBLE.includes(statKey));
+    return `<div class="fc-summary-box"><span>${label}</span><strong>${visible ? value : '🔒'}</strong></div>`;
+  }
+
+  function spUpgradeBanner(tier){
+    if(tier === 'gold') return '';
+    if(tier === 'bronze'){
+      return `<div class="gold-upsell-box" style="margin-bottom:16px"><div class="gold-upsell-inner">
+        <div class="gold-upsell-title">🏆 Unlock Full Online IFWL Season Career Mode</div>
+        <p>Career Perks, your complete race-by-race breakdown, and every stat below are a Gold Patreon perk. Go Gold to see it all - and everything else Gold gets across the Licence Centre.</p>
+        <a class="gold-upsell-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold on Patreon &rarr;</a>
+      </div></div>`;
+    }
+    return `<div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08);margin-bottom:16px">
+      <strong>🔒 You're seeing a preview.</strong> Unlock Gold for Career Perks, your full race-by-race breakdown, and every locked stat below.
+      <a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener" style="color:#ffb238;font-weight:700;margin-left:6px">Unlock Gold &rarr;</a>
+    </div>`;
+  }
+
   function renderSeasonProgression(data){
     const body = q('spBody');
     if(!body) return;
+    const tier = spCurrentTier();
 
     const staffToggle = window.IFWL_STAFF
       ? `<button class="btn ghost" id="spViewAllBtn" type="button" style="margin-bottom:14px">👥 Staff: View all drivers' season stats</button>`
@@ -4102,17 +4128,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     if(!data){
-      body.innerHTML = staffToggle + '<div class="empty">Link your ACC driver name(s) on My Licence first to see your season progression.</div>';
+      body.innerHTML = staffToggle + spUpgradeBanner(tier) + '<div class="empty">Link your ACC driver name(s) on My Licence first to see your season progression.</div>';
       wireStaffToggle();
       return;
     }
     if(data.noSeasonWindow){
-      body.innerHTML = staffToggle + '<div class="empty">Staff haven\'t set a Season Window yet - your progression will show here once they do.</div>';
+      body.innerHTML = staffToggle + spUpgradeBanner(tier) + '<div class="empty">Staff haven\'t set a Season Window yet - your progression will show here once they do.</div>';
       wireStaffToggle();
       return;
     }
     if(!data.races.length){
-      body.innerHTML = staffToggle + `<div class="empty">No races found yet within ${data.seasonLabel || 'the current season window'}. Get racing!</div>`;
+      body.innerHTML = staffToggle + spUpgradeBanner(tier) + `<div class="empty">No races found yet within ${data.seasonLabel || 'the current season window'}. Get racing!</div>`;
       wireStaffToggle();
       return;
     }
@@ -4120,31 +4146,32 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const maxPoints = Math.max(...data.races.map(r => r.totalPoints), 1);
     const fmtLap = (ms) => ms ? `${Math.floor(ms/60000)}:${((ms%60000)/1000).toFixed(3).padStart(6,'0')}` : '-';
     const netColor = data.netEventEarnings >= 0 ? 'var(--ifwl-teal,#1fd6bd)' : 'var(--ifwl-red)';
+    const gold = tier === 'gold';
 
-    body.innerHTML = staffToggle + `
+    body.innerHTML = staffToggle + spUpgradeBanner(tier) + `
       <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}Position-based points (1st = 50, down to 50th = 1), plus a +10 clean-race bonus if no ticket was filed against you in the 3 days after. Race earnings, entry fees and tyre spend are IFWL's own fictional economy testbed - see Help for details.</div>
 
       <div class="fc-summary-grid" style="margin-top:16px">
-        <div class="fc-summary-box"><span>Races Completed</span><strong>${data.totalRaces}</strong></div>
-        <div class="fc-summary-box"><span>Total Points</span><strong>${data.totalPoints}</strong></div>
-        <div class="fc-summary-box"><span>Wins</span><strong>${data.wins}</strong></div>
-        <div class="fc-summary-box"><span>Podiums</span><strong>${data.podiums}</strong></div>
-        <div class="fc-summary-box"><span>Avg. Finish</span><strong>${data.avgPosition != null ? 'P'+data.avgPosition : '-'}</strong></div>
-        <div class="fc-summary-box"><span>Avg. Consistency</span><strong>${data.avgConsistency != null ? data.avgConsistency+'%' : '-'}</strong></div>
-        <div class="fc-summary-box"><span>Best Lap (Season)</span><strong>${fmtLap(data.bestLapMs)}</strong></div>
-        <div class="fc-summary-box"><span>Total Laps</span><strong>${data.totalLaps.toLocaleString()}</strong></div>
-        <div class="fc-summary-box"><span>Mileage Covered</span><strong>${data.totalMileageKm.toLocaleString()} km</strong></div>
+        ${spStatBox('Races Completed', data.totalRaces, 'totalRaces', tier)}
+        ${spStatBox('Total Points', data.totalPoints, 'totalPoints', tier)}
+        ${spStatBox('Wins', data.wins, 'wins', tier)}
+        ${spStatBox('Podiums', data.podiums, 'podiums', tier)}
+        ${spStatBox('Avg. Finish', data.avgPosition != null ? 'P'+data.avgPosition : '-', 'avgPosition', tier)}
+        ${spStatBox('Avg. Consistency', data.avgConsistency != null ? data.avgConsistency+'%' : '-', 'avgConsistency', tier)}
+        ${spStatBox('Best Lap (Season)', fmtLap(data.bestLapMs), 'bestLapMs', tier)}
+        ${spStatBox('Total Laps', data.totalLaps.toLocaleString(), 'totalLaps', tier)}
+        ${spStatBox('Mileage Covered', data.totalMileageKm.toLocaleString() + ' km', 'totalMileageKm', tier)}
       </div>
 
       <h4 style="margin:20px 0 10px">Event Earnings</h4>
-      ${data.sponsorship ? `<div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08)"><strong>🤝 Sponsored by ${data.sponsorship.companyName}</strong><br>${data.sponsorship.dealDescription}</div>` : ''}
+      ${gold && data.sponsorship ? `<div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08)"><strong>🤝 Sponsored by ${data.sponsorship.companyName}</strong><br>${data.sponsorship.dealDescription}</div>` : ''}
       <div class="fc-summary-grid">
-        <div class="fc-summary-box"><span>Race Earnings (Winnings)</span><strong>&pound;${data.totalRaceEarnings.toLocaleString()}</strong></div>
-        ${data.sponsorship ? `<div class="fc-summary-box"><span>Sponsorship</span><strong>&pound;${data.sponsorship.amount.toLocaleString()}</strong></div>` : ''}
-        <div class="fc-summary-box"><span>Entry Fees Spent</span><strong>&pound;${data.totalEntryFees.toLocaleString()}</strong></div>
-        <div class="fc-summary-box"><span>Tyres Used (est.)</span><strong>${data.totalTyres}</strong></div>
-        <div class="fc-summary-box"><span>Tyre Spend (est.)</span><strong>&pound;${data.totalTyreSpend.toLocaleString()}</strong></div>
-        <div class="fc-summary-box" style="border-color:${netColor}"><span>Net Event Earnings</span><strong style="color:${netColor}">${data.netEventEarnings < 0 ? '-' : ''}&pound;${Math.abs(data.netEventEarnings).toLocaleString()}</strong></div>
+        ${spStatBox('Race Earnings (Winnings)', '&pound;' + data.totalRaceEarnings.toLocaleString(), 'totalRaceEarnings', tier)}
+        ${gold && data.sponsorship ? `<div class="fc-summary-box"><span>Sponsorship</span><strong>&pound;${data.sponsorship.amount.toLocaleString()}</strong></div>` : ''}
+        ${spStatBox('Entry Fees Spent', '&pound;' + data.totalEntryFees.toLocaleString(), 'totalEntryFees', tier)}
+        ${spStatBox('Tyres Used (est.)', data.totalTyres, 'totalTyres', tier)}
+        ${spStatBox('Tyre Spend (est.)', '&pound;' + data.totalTyreSpend.toLocaleString(), 'totalTyreSpend', tier)}
+        <div class="fc-summary-box" style="border-color:${gold ? netColor : 'var(--ifwl-line)'}"><span>Net Event Earnings</span><strong style="color:${gold ? netColor : 'inherit'}">${gold ? (data.netEventEarnings < 0 ? '-' : '') + '&pound;' + Math.abs(data.netEventEarnings).toLocaleString() : '🔒'}</strong></div>
       </div>
 
       <details style="margin:14px 0">
@@ -4166,6 +4193,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
       </details>
 
+      ${gold ? `
       <h4 style="margin:20px 0 10px">Points by Race</h4>
       <div>${data.races.map(r => `
         <div class="sp-bar-row">
@@ -4190,6 +4218,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           </tr>
         `).join('')}</tbody>
       </table>
+      ` : `<div class="empty" style="margin-top:16px">🔒 Race-by-race breakdown and points chart are Gold only.</div>`}
     `;
     wireStaffToggle();
   }
@@ -4308,6 +4337,26 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function renderCareerPerksSection(){
     const box = q('spPerksBody');
     if(!box) return;
+
+    // Bronze/Silver see the same 5 perk shapes, permanently locked - this is
+    // deliberately shown regardless of tier (not hidden entirely), since the
+    // locked shape itself is the hook toward upgrading, per request.
+    if(!window.IFWL_GOLD && !window.IFWL_STAFF){
+      box.innerHTML = `
+        <h4 style="margin:0 0 10px">Career Perks</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
+          ${SP_PERK_CATALOG.map(perk => `
+            <div class="aa-slot-card" style="opacity:.5;position:relative">
+              <div style="position:absolute;top:10px;right:12px;font-size:16px">🔒</div>
+              <strong>${perk.name}</strong>
+              <p class="field-hint" style="margin:6px 0 0">Gold Patreon only</p>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      return;
+    }
+
     let perks = [];
     try{ perks = (await apiGet('myCareerPerks')).perks || []; }catch(e){ box.innerHTML = `<div class="empty">Could not load Career Perks: ${e.message}</div>`; return; }
 
@@ -4329,7 +4378,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // Not chosen yet - show the picker, exactly 3 required.
     box.innerHTML = `
       <h4 style="margin:0 0 10px">Career Perks</h4>
-      <p class="field-hint" style="margin-bottom:10px">Choose exactly 3 of the 5 perks below. Once confirmed, they're locked in for the rest of the season - only staff can reset them (beta period).</p>
+      <div class="notice-card">Choose exactly 3 of the 5 perks below. Once confirmed, they're locked in for the rest of the season - only staff can reset them (beta period).</div>
+      <div style="height:4px"></div>
       <div id="spnPerkChecks" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
         ${SP_PERK_CATALOG.map(perk => `
           <label class="aa-slot-card" style="display:block;cursor:pointer">
@@ -4399,7 +4449,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       });
     }
 
-    if(!(window.IFWL_GOLD || window.IFWL_STAFF)) return; // gold-only-field CSS hides the panel body anyway; skip the work entirely for everyone else
+    // ✅ CHANGED: no more early-exit for non-Gold - Bronze/Silver get the
+    // full page shape with tiered masking applied inside the render
+    // functions themselves (renderCareerPerksSection / renderSeasonProgression),
+    // rather than being shown nothing at all.
     renderCareerPerksSection();
     try{
       const data = await computeSeasonProgression();
