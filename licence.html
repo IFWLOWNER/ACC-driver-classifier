@@ -1401,7 +1401,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   <section class="panel view-panel" data-view="seasonProgression" id="seasonProgressionPanel">
     <div class="panel-head"><div><h3>My Season Progression</h3><small>Every race you've competed in this season, broken down</small></div></div>
-    <div class="panel-body">
+    <div class="panel-body" id="seasonProgressionBody" style="border-radius:14px;overflow:hidden">
+      <div id="spOwnerBgControl" class="hidden" style="background:#12161c;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px;margin-bottom:16px">
+        <label style="display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">Owner: Panel background image</label>
+        <input type="file" id="spBgUpload" accept="image/png,image/jpeg,image/webp">
+        <span class="save-status" id="spBgUploadStatus" style="margin-left:8px"></span>
+      </div>
+
       <div class="gold-upsell-box">
         <div class="gold-upsell-inner">
           <div class="gold-upsell-title">🏆 Gold Patreon Perk &mdash; Season Progression</div>
@@ -1411,7 +1417,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </div>
 
       <div class="gold-only-field">
-        <div id="spBody"><div class="empty">Loading your season&hellip;</div></div>
+        <div id="spBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px"><div class="empty">Loading your season&hellip;</div></div>
       </div>
     </div>
   </section>
@@ -3546,7 +3552,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     const rowsHtml = detail.rows.map(r => `<tr>
       <td>${r.racePos}</td>
-      <td class="driver">${r.driver}</td>
+      <td class="driver">${r.driver}${currentProfile ? ` <button class="btn ghost sp-add-name-btn" data-driver-name="${r.driver.replace(/"/g,'&quot;')}" style="font-size:10px;padding:2px 7px;margin-left:6px">+ Add to my licence</button>` : ''}</td>
       <td>${r.carName}</td>
       <td>${window.IFWLStats.msTime(r.bestLap)}</td>
       <td>${window.IFWLStats.msTime(r.totalTime)}</td>
@@ -3591,6 +3597,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       wrap.classList.add('hidden');
       wrap.innerHTML = '';
       q('raceResultsBody').scrollIntoView({behavior:'smooth', block:'start'});
+    });
+
+    // ✅ ADDED: lets any logged-in driver claim a name straight from a race
+    // result, regardless of Patreon tier - no need to go find and retype it
+    // on My Licence. Reuses the exact same accDriverNames field, so Driver
+    // Name Audit picks this up automatically with no extra work.
+    wrap.querySelectorAll('.sp-add-name-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const name = btn.dataset.driverName;
+        const current = currentProfile?.accDriverNames || [];
+        if(current.some(n => n.toLowerCase() === name.toLowerCase())){
+          btn.textContent = 'Already added';
+          return;
+        }
+        if(current.length >= 5){
+          btn.textContent = 'Limit reached (5)';
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Adding...';
+        try{
+          const updated = [...current, name];
+          await saveMyProfile({ accDriverNames: updated });
+          if(currentProfile) currentProfile.accDriverNames = updated;
+          btn.textContent = '✓ Added';
+        }catch(e){
+          btn.disabled = false;
+          btn.textContent = 'Failed - retry';
+        }
+      });
     });
 
     if(isGoldOrStaff){
@@ -4011,35 +4047,45 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return Date.UTC(2000+Number(yy), Number(mm)-1, Number(dd), Number(hh), Number(mi), Number(ss));
     }
 
-    const driverTotals = new Map();
+    // ✅ CHANGED: league-wide totals only, not a per-driver leaderboard - a
+    // single set of numbers across every driver/every race this season
+    // (total mileage covered by the whole grid, total entry fees spent
+    // league-wide, total tyres used, etc), per request.
+    let totalEntries = 0, totalMileageKm = 0, totalPitCount = 0, totalPoints = 0;
+    const uniqueDrivers = new Set();
+    let raceFileCount = 0;
+
     for(const [source, rows] of bySource.entries()){
-      if(!rows.length || !/_R\.json$/i.test(rows[0].fileName||'')) continue; // ✅ FIXED: match Race Results own proven approach - filename suffix, not the sessionType data field, which isn't reliable for this
+      if(!rows.length || !/_R\.json$/i.test(rows[0].fileName||'')) continue;
       const raceTs = tsFromFileName(rows[0].fileName);
       if(!raceTs || raceTs < startMs || raceTs > endMs) continue;
+      raceFileCount++;
 
       rows.forEach((row, idx) => {
-        const points = Math.max(0, 51 - (idx + 1));
         const key = window.IFWLStats.driverNameKey(row.driver);
         if(!key) return;
-        if(!driverTotals.has(key)) driverTotals.set(key, { name: row.driver, races: 0, points: 0, mileageKm: 0, pitCount: 0 });
-        const entry = driverTotals.get(key);
-        entry.races++;
-        entry.points += points;
+        uniqueDrivers.add(key);
+        totalEntries++;
+        totalPoints += Math.max(0, 51 - (idx + 1));
         const trackSlug = String(row.track||'').toLowerCase().replace(/\s+/g,'_');
-        entry.mileageKm += (Number(row.lapCount)||0) * (SP_TRACK_KM[trackSlug] || 0);
-        entry.pitCount += (row.lapObjects||[]).filter(l => l.isValidForBest === false).length;
+        totalMileageKm += (Number(row.lapCount)||0) * (SP_TRACK_KM[trackSlug] || 0);
+        totalPitCount += (row.lapObjects||[]).filter(l => l.isValidForBest === false).length;
       });
     }
 
-    const leaderboard = [...driverTotals.values()].map(e => ({
-      ...e,
-      mileageKm: Math.round(e.mileageKm*10)/10,
-      entryFees: e.races * SP_ENTRY_FEE_PER_RACE,
-      tyres: e.pitCount * 4,
-      tyreSpend: (e.pitCount * 4) * SP_TYRE_COST_EACH
-    })).sort((a,b) => b.points - a.points);
+    const totalTyres = totalPitCount * 4;
 
-    return { seasonLabel: season.label || '', leaderboard };
+    return {
+      seasonLabel: season.label || '',
+      raceFileCount,
+      uniqueDriverCount: uniqueDrivers.size,
+      totalEntries,
+      totalPoints,
+      totalMileageKm: Math.round(totalMileageKm * 10) / 10,
+      totalEntryFees: totalEntries * SP_ENTRY_FEE_PER_RACE,
+      totalTyres,
+      totalTyreSpend: totalTyres * SP_TYRE_COST_EACH
+    };
   }
 
   function renderSeasonProgressionLeaderboard(data){
@@ -4050,28 +4096,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       wireSpBackButton();
       return;
     }
-    if(!data.leaderboard.length){
+    if(!data.raceFileCount){
       body.innerHTML = backBtn + `<div class="empty">No races found yet within ${data.seasonLabel || 'the current season window'}.</div>`;
       wireSpBackButton();
       return;
     }
     body.innerHTML = backBtn + `
-      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}All drivers with at least one race this season. Base position points only - doesn't include individual clean-race bonuses (that needs each driver's own ticket history, not shown here).</div>
-      <table class="fc-stint-table" style="margin-top:14px">
-        <thead><tr><th>#</th><th>Driver</th><th>Races</th><th>Points</th><th>Mileage</th><th>Entry Fees</th><th>Tyres (est.)</th><th>Tyre Spend</th></tr></thead>
-        <tbody>${data.leaderboard.map((d,i) => `
-          <tr>
-            <td>${i+1}</td>
-            <td>${d.name}</td>
-            <td>${d.races}</td>
-            <td><strong>${d.points}</strong></td>
-            <td>${d.mileageKm.toLocaleString()} km</td>
-            <td>&pound;${d.entryFees.toLocaleString()}</td>
-            <td>${d.tyres}</td>
-            <td>&pound;${d.tyreSpend.toLocaleString()}</td>
-          </tr>
-        `).join('')}</tbody>
-      </table>
+      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}League-wide totals across every driver and every race this season - not a per-driver breakdown.</div>
+      <div class="fc-summary-grid" style="margin-top:16px">
+        <div class="fc-summary-box"><span>Race Files</span><strong>${data.raceFileCount}</strong></div>
+        <div class="fc-summary-box"><span>Unique Drivers</span><strong>${data.uniqueDriverCount}</strong></div>
+        <div class="fc-summary-box"><span>Total Grid Entries</span><strong>${data.totalEntries.toLocaleString()}</strong></div>
+        <div class="fc-summary-box"><span>Total Points Awarded</span><strong>${data.totalPoints.toLocaleString()}</strong></div>
+        <div class="fc-summary-box"><span>Total Mileage</span><strong>${data.totalMileageKm.toLocaleString()} km</strong></div>
+        <div class="fc-summary-box"><span>Total Entry Fees</span><strong>&pound;${data.totalEntryFees.toLocaleString()}</strong></div>
+        <div class="fc-summary-box"><span>Total Tyres Used</span><strong>${data.totalTyres.toLocaleString()}</strong></div>
+        <div class="fc-summary-box"><span>Total Tyre Spend</span><strong>&pound;${data.totalTyreSpend.toLocaleString()}</strong></div>
+      </div>
     `;
     wireSpBackButton();
   }
@@ -4085,6 +4126,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   async function initSeasonProgressionPanel(){
     if(!q('seasonProgressionPanel')) return;
+
+    // Background image and the owner upload control both apply regardless
+    // of Gold status - everyone should see the nice background behind the
+    // upsell box too, not just Gold members, and Owner can always manage it.
+    try{
+      const { imageUrl } = await apiGet('seasonProgressionBg');
+      const target = q('seasonProgressionBody');
+      if(target) target.style.cssText += imageUrl ? `background-image:linear-gradient(rgba(6,9,13,.55),rgba(6,9,13,.55)),url('${imageUrl}');background-size:cover;background-position:center;` : '';
+    }catch(e){ console.warn('Could not load season progression background', e); }
+
+    if(window.IFWL_OWNER){
+      q('spOwnerBgControl')?.classList.remove('hidden');
+      q('spBgUpload')?.addEventListener('change', async (ev) => {
+        const file = ev.target.files[0];
+        if(!file) return;
+        const status = q('spBgUploadStatus');
+        status.textContent = 'Uploading...';
+        try{
+          const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'seasonProgressionBg');
+          await window.IFWL_Api.apiPost('staffSeasonProgressionBgSave', { imageUrl: url });
+          status.textContent = 'Saved - refresh to see it applied.';
+        }catch(e){
+          status.textContent = 'Failed: ' + e.message;
+        }
+      });
+    }
+
     if(!(window.IFWL_GOLD || window.IFWL_STAFF)) return; // gold-only-field CSS hides the panel body anyway; skip the work entirely for everyone else
     try{
       const data = await computeSeasonProgression();
