@@ -3787,7 +3787,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     snetterton: 4.778, spa: 7.004, suzuka: 5.807, valencia: 4.005,
     watkins_glen: 5.552, zandvoort: 4.259, zolder: 4.011
   };
-  const SP_ENTRY_FEE_PER_RACE = 1000;
+  // Real-world GT3 season entry costs range roughly £23,500 (national
+  // series) to ~€120,000 (major international championships) - averaged.
+  const SP_ENTRY_FEE_PER_RACE = 100000;
+  const SP_TYRE_COST_EACH = 1500;
 
   async function computeSeasonProgression(){
     const accDriverNames = currentProfile?.accDriverNames || [];
@@ -3857,10 +3860,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const mileageKm = lapCount * kmPerLap;
 
       const pitCount = (myRow.lapObjects||[]).filter(l => l.isValidForBest === false).length;
+      const bestLapMs = Number(myRow.bestLap) || 0;
+      const consistencyPct = Number(myRow.consistencyStats?.consistency);
 
       races.push({
         source, track: myRow.track, dateMs: raceTs, position, points, cleanBonus, totalPoints,
-        lapCount, mileageKm, pitCount
+        lapCount, mileageKm, pitCount, bestLapMs,
+        consistencyPct: Number.isFinite(consistencyPct) ? consistencyPct : null
       });
     }
 
@@ -3870,8 +3876,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       acc.points += r.totalPoints;
       acc.mileageKm += r.mileageKm;
       acc.pitCount += r.pitCount;
+      acc.lapCount += r.lapCount;
+      if(r.position === 1) acc.wins++;
+      if(r.position <= 3) acc.podiums++;
+      if(r.consistencyPct != null){ acc.consistencySum += r.consistencyPct; acc.consistencyN++; }
+      if(r.bestLapMs && (!acc.bestLapMs || r.bestLapMs < acc.bestLapMs)) acc.bestLapMs = r.bestLapMs;
       return acc;
-    }, { points: 0, mileageKm: 0, pitCount: 0 });
+    }, { points: 0, mileageKm: 0, pitCount: 0, lapCount: 0, wins: 0, podiums: 0, consistencySum: 0, consistencyN: 0, bestLapMs: 0 });
+
+    const avgPosition = races.length ? Math.round((races.reduce((s,r)=>s+r.position,0) / races.length) * 10) / 10 : null;
+    const avgConsistency = totals.consistencyN ? Math.round((totals.consistencySum / totals.consistencyN) * 10) / 10 : null;
+    const totalTyres = totals.pitCount * 4;
 
     return {
       seasonLabel: season.label || '',
@@ -3879,8 +3894,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       totalRaces: races.length,
       totalPoints: totals.points,
       totalMileageKm: Math.round(totals.mileageKm * 10) / 10,
+      totalLaps: totals.lapCount,
       totalEntryFees: races.length * SP_ENTRY_FEE_PER_RACE,
-      totalTyres: totals.pitCount * 4
+      totalTyres,
+      totalTyreSpend: totalTyres * SP_TYRE_COST_EACH,
+      wins: totals.wins,
+      podiums: totals.podiums,
+      avgPosition,
+      avgConsistency,
+      bestLapMs: totals.bestLapMs
     };
   }
 
@@ -3916,16 +3938,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     const maxPoints = Math.max(...data.races.map(r => r.totalPoints), 1);
+    const fmtLap = (ms) => ms ? `${Math.floor(ms/60000)}:${((ms%60000)/1000).toFixed(3).padStart(6,'0')}` : '-';
 
     body.innerHTML = staffToggle + `
-      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}Position-based points (1st = 50, down to 50th = 1), plus a +10 clean-race bonus if no ticket was filed against you in the 3 days after. Mileage and tyre figures are estimates based on official circuit lengths and pit-affected laps.</div>
+      <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}Position-based points (1st = 50, down to 50th = 1), plus a +10 clean-race bonus if no ticket was filed against you in the 3 days after. Mileage, entry fee and tyre figures are estimates - entry fee averages real-world GT3 seasonal costs, tyres assume a full 4-tyre change per pit stop at £${SP_TYRE_COST_EACH.toLocaleString()} each.</div>
 
       <div class="fc-summary-grid" style="margin-top:16px">
         <div class="fc-summary-box"><span>Races Completed</span><strong>${data.totalRaces}</strong></div>
         <div class="fc-summary-box"><span>Total Points</span><strong>${data.totalPoints}</strong></div>
+        <div class="fc-summary-box"><span>Wins</span><strong>${data.wins}</strong></div>
+        <div class="fc-summary-box"><span>Podiums</span><strong>${data.podiums}</strong></div>
+        <div class="fc-summary-box"><span>Avg. Finish</span><strong>${data.avgPosition != null ? 'P'+data.avgPosition : '-'}</strong></div>
+        <div class="fc-summary-box"><span>Avg. Consistency</span><strong>${data.avgConsistency != null ? data.avgConsistency+'%' : '-'}</strong></div>
+        <div class="fc-summary-box"><span>Best Lap (Season)</span><strong>${fmtLap(data.bestLapMs)}</strong></div>
+        <div class="fc-summary-box"><span>Total Laps</span><strong>${data.totalLaps.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Mileage Covered</span><strong>${data.totalMileageKm.toLocaleString()} km</strong></div>
         <div class="fc-summary-box"><span>Entry Fees Spent</span><strong>&pound;${data.totalEntryFees.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Tyres Used (est.)</span><strong>${data.totalTyres}</strong></div>
+        <div class="fc-summary-box"><span>Tyre Spend (est.)</span><strong>&pound;${data.totalTyreSpend.toLocaleString()}</strong></div>
       </div>
 
       <h4 style="margin:20px 0 10px">Points by Race</h4>
@@ -4005,7 +4035,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       ...e,
       mileageKm: Math.round(e.mileageKm*10)/10,
       entryFees: e.races * SP_ENTRY_FEE_PER_RACE,
-      tyres: e.pitCount * 4
+      tyres: e.pitCount * 4,
+      tyreSpend: (e.pitCount * 4) * SP_TYRE_COST_EACH
     })).sort((a,b) => b.points - a.points);
 
     return { seasonLabel: season.label || '', leaderboard };
@@ -4027,7 +4058,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     body.innerHTML = backBtn + `
       <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}All drivers with at least one race this season. Base position points only - doesn't include individual clean-race bonuses (that needs each driver's own ticket history, not shown here).</div>
       <table class="fc-stint-table" style="margin-top:14px">
-        <thead><tr><th>#</th><th>Driver</th><th>Races</th><th>Points</th><th>Mileage</th><th>Entry Fees</th><th>Tyres (est.)</th></tr></thead>
+        <thead><tr><th>#</th><th>Driver</th><th>Races</th><th>Points</th><th>Mileage</th><th>Entry Fees</th><th>Tyres (est.)</th><th>Tyre Spend</th></tr></thead>
         <tbody>${data.leaderboard.map((d,i) => `
           <tr>
             <td>${i+1}</td>
@@ -4037,6 +4068,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <td>${d.mileageKm.toLocaleString()} km</td>
             <td>&pound;${d.entryFees.toLocaleString()}</td>
             <td>${d.tyres}</td>
+            <td>&pound;${d.tyreSpend.toLocaleString()}</td>
           </tr>
         `).join('')}</tbody>
       </table>
