@@ -4501,16 +4501,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
-      if(data?.sponsorship && !data.sponsorship.acknowledged) checkSponsorshipPopup(data.sponsorship);
+      // ✅ FIXED: the server-side "acknowledged" flag alone wasn't enough -
+      // if someone reloads or re-logs-in quickly (e.g. testing something
+      // else entirely), the next page load's read can race ahead of the
+      // previous dismiss's write actually landing, showing the popup again
+      // even though it was already dismissed seconds earlier. This adds a
+      // client-side guard that's set the instant it's dismissed, not
+      // dependent on that round-trip completing first - keyed to the
+      // specific deal (awardedAtMs) so a genuinely new sponsorship later
+      // still pops up correctly.
+      const dealKey = data?.sponsorship ? `ifwl_sponsor_seen_${data.sponsorship.awardedAtMs}` : null;
+      if(data?.sponsorship && !data.sponsorship.acknowledged && dealKey && !sessionStorage.getItem(dealKey)){
+        checkSponsorshipPopup(data.sponsorship, dealKey);
+      }
     }catch(e){
       q('spBody').innerHTML = `<div class="empty">Could not load season progression: ${e.message}</div>`;
     }
   }
 
-  // ✅ ADDED: one-time celebration popup for a fresh, unacknowledged
-  // sponsorship deal - shown once, then the deal just sits as a permanent
-  // stat card on the page afterward rather than popping up every visit.
-  function checkSponsorshipPopup(sponsorship){
+  // One-time celebration popup for a fresh, unacknowledged sponsorship deal
+  // - shown once, then the deal just sits as a permanent stat card on the
+  // page afterward rather than popping up every visit.
+  function checkSponsorshipPopup(sponsorship, dealKey){
     const modal = q('sponsorshipModal');
     if(!modal) return;
     q('sponsorshipModalBody').innerHTML = `
@@ -4521,6 +4533,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     modal.classList.remove('hidden');
     q('sponsorshipModalDismissBtn').onclick = async () => {
       modal.classList.add('hidden');
+      if(dealKey) sessionStorage.setItem(dealKey, '1'); // set immediately, don't wait on the network call below
       try{ await apiPost('myAcknowledgeSponsorship', {}); }catch(e){ console.warn('Could not acknowledge sponsorship', e); }
     };
   }
