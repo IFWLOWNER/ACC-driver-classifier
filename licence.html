@@ -1648,6 +1648,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
       <hr style="border-color:var(--ifwl-line);margin:22px 0">
 
+      <h4 style="margin:0 0 10px">Auto-Roll Schedule</h4>
+      <div class="notice-card">Off by default - the lottery only runs when you click the button above, unless you turn this on. When enabled, it checks once an hour and rolls automatically on whichever day(s) you tick below, at most once per day.</div>
+      <label style="display:flex;align-items:center;gap:8px;margin:12px 0"><input type="checkbox" id="spnScheduleEnabled" style="width:auto"> Enable auto-roll</label>
+      <div id="spnScheduleDays" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <label style="display:flex;align-items:center;gap:6px;background:#12161c;border:1px solid var(--ifwl-line);border-radius:8px;padding:6px 12px;cursor:pointer"><input type="checkbox" class="spn-schedule-day" value="0" style="width:auto">Sun</label>
+        <label style="display:flex;align-items:center;gap:6px;background:#12161c;border:1px solid var(--ifwl-line);border-radius:8px;padding:6px 12px;cursor:pointer"><input type="checkbox" class="spn-schedule-day" value="1" style="width:auto">Mon</label>
+        <label style="display:flex;align-items:center;gap:6px;background:#12161c;border:1px solid var(--ifwl-line);border-radius:8px;padding:6px 12px;cursor:pointer"><input type="checkbox" class="spn-schedule-day" value="2" style="width:auto">Tue</label>
+        <label style="display:flex;align-items:center;gap:6px;background:#12161c;border:1px solid var(--ifwl-line);border-radius:8px;padding:6px 12px;cursor:pointer"><input type="checkbox" class="spn-schedule-day" value="3" style="width:auto">Wed</label>
+        <label style="display:flex;align-items:center;gap:6px;background:#12161c;border:1px solid var(--ifwl-line);border-radius:8px;padding:6px 12px;cursor:pointer"><input type="checkbox" class="spn-schedule-day" value="4" style="width:auto">Thu</label>
+        <label style="display:flex;align-items:center;gap:6px;background:#12161c;border:1px solid var(--ifwl-line);border-radius:8px;padding:6px 12px;cursor:pointer"><input type="checkbox" class="spn-schedule-day" value="5" style="width:auto">Fri</label>
+        <label style="display:flex;align-items:center;gap:6px;background:#12161c;border:1px solid var(--ifwl-line);border-radius:8px;padding:6px 12px;cursor:pointer"><input type="checkbox" class="spn-schedule-day" value="6" style="width:auto">Sat</label>
+      </div>
+      <button class="btn teal" id="spnSaveScheduleBtn" type="button">Save schedule</button>
+      <span class="save-status" id="spnScheduleStatus"></span>
+      <div id="spnScheduleLastRun" class="field-hint" style="margin-top:8px"></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
       <h4 style="margin:0 0 10px">Current Sponsorship Deals</h4>
       <div id="spnCurrentList"><div class="empty">Loading&hellip;</div></div>
 
@@ -8792,6 +8810,27 @@ Flashing Headlights:
     };
 
     renderCurrentSponsorships();
+
+    // Auto-roll schedule
+    try{
+      const sched = await window.IFWL_Api.apiGet('sponsorshipSchedule');
+      q('spnScheduleEnabled').checked = !!sched.enabled;
+      document.querySelectorAll('.spn-schedule-day').forEach(el => { el.checked = sched.daysOfWeek.includes(Number(el.value)); });
+      q('spnScheduleLastRun').textContent = sched.lastRunDateStr ? `Last auto-rolled: ${sched.lastRunDateStr}` : 'Never auto-rolled yet.';
+    }catch(e){ console.warn('Could not load sponsorship schedule', e); }
+
+    q('spnSaveScheduleBtn').onclick = async () => {
+      const status = q('spnScheduleStatus');
+      const enabled = q('spnScheduleEnabled').checked;
+      const daysOfWeek = [...document.querySelectorAll('.spn-schedule-day:checked')].map(el => Number(el.value));
+      if(enabled && !daysOfWeek.length){ status.textContent = 'Tick at least one day, or turn auto-roll off.'; return; }
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_Api.apiPost('staffSponsorshipScheduleSave', { enabled, daysOfWeek });
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('spnScheduleStatus')) q('spnScheduleStatus').textContent = ''; }, 2000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
 
     // Career Perks reset - reuses the same staffSearch() Driver Name Audit
     // already relies on, so no new search endpoint needed.
