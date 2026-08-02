@@ -856,6 +856,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 .bop-delta-row strong.bop-loss{color:#ff6b6b}
 .bop-lap-row{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--text-muted);flex-wrap:wrap}
 .bop-lap-row strong{color:#fff}
+/* ✅ ADDED: Scout The Field */
+.scout-checkbox-row{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0 16px}
+.scout-checkbox-row label{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer}
+.scout-table{width:100%;border-collapse:collapse;font-size:13px}
+.scout-table th{text-align:left;padding:10px 12px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.02em;border-bottom:1px solid var(--ifwl-line)}
+.scout-table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05)}
+.scout-table tr:hover td{background:rgba(31,214,189,.05)}
+.trend-gain{color:#33d99b;font-weight:800}
+.trend-loss{color:#ff6b6b;font-weight:800}
+.trend-flat{color:var(--text-muted)}
 .footer-note{font-size:12px;color:var(--text-dim);text-align:center;margin-top:26px;line-height:1.5}
 </style>
 </head>
@@ -992,6 +1002,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="view-tab-menu">
       <button data-view="fuelCalc" type="button">Fuel Calculator</button>
       <button data-view="bopTracker" type="button">BOP TRACKer</button>
+      <button data-view="scoutField" type="button">Scout The Field</button>
     </div>
   </div>
 
@@ -1718,6 +1729,46 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
 
         <div id="bopResults" style="margin-top:16px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="scoutField" id="scoutFieldPanel">
+    <div class="panel-head"><div><h3>Scout The Field</h3><small>Best times and improvement trend for every driver getting laps in, per track</small></div></div>
+    <div class="panel-body">
+      <div class="gold-upsell-box">
+        <div class="gold-upsell-inner">
+          <div class="gold-upsell-title">🔭 Gold Patreon Perk &mdash; Scout The Field</div>
+          <p>Scout The Field is a Gold Patreon perk - see every driver's best lap at a track across the Beginner, Pro-Am and Monday Funday servers, and whether they're getting faster or not since they first turned up. Go Gold to unlock it, alongside everything else Gold gets across the Licence Centre.</p>
+          <a class="gold-upsell-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold on Patreon &rarr;</a>
+        </div>
+      </div>
+
+      <div class="gold-only-field">
+        <p class="field-hint" style="margin-bottom:16px">Pulled from the same synced session data as everything else on this site - not a separate leaderboard. "Improvement" compares a driver's best lap in their very first recorded session at this track against their all-time best now, so one bad session on its own won't flip it red.</p>
+
+        <div class="bop-platform-toggle">
+          <button class="bop-platform-btn" id="scoutPlatformPc" type="button">PC</button>
+          <button class="bop-platform-btn" id="scoutPlatformConsole" type="button">Console</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+          <div class="field-group"><label>Track</label><select id="scoutTrackSelect"><option value="">Select a track&hellip;</option></select></div>
+          <div class="field-group"><label>Search driver name</label><input type="text" id="scoutSearchInput" placeholder="Filter by name..."></div>
+        </div>
+
+        <div class="scout-checkbox-row">
+          <label><input type="checkbox" id="scoutServerBeginner" checked> Beginner</label>
+          <label><input type="checkbox" id="scoutServerProam" checked> Pro-Am</label>
+          <label><input type="checkbox" id="scoutServerMonday"> Monday Funday</label>
+        </div>
+
+        <div class="bop-platform-toggle" style="margin-bottom:16px">
+          <button class="bop-platform-btn active" id="scoutSortBest" type="button">Sort: Fastest Lap</button>
+          <button class="bop-platform-btn" id="scoutSortImproved" type="button">Sort: Most Improved</button>
+        </div>
+
+        <div id="scoutResults"></div>
       </div>
     </div>
   </section>
@@ -6570,10 +6621,184 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
   initBopTrackerPanel();
 
+  // ✅ ADDED: Scout The Field - Gold perk. Best lap + improvement trend per
+  // driver at a track, computed entirely from already-synced session data
+  // (no new backend needed) across the Beginner/Pro-Am/Monday Funday
+  // servers - deliberately excludes the Licence server, since that's
+  // already covered by Qualification Ranking elsewhere and mixing
+  // qualification-pace laps in here would muddy "getting laps in casually"
+  // with "grinding for a licence tier".
+  function scoutFileTsMs(fileName){
+    const name = String(fileName||'').split('/').pop();
+    const m = name.match(/^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/);
+    if(!m) return 0;
+    const [,yy,mm,dd,hh,mi,ss] = m;
+    return Date.UTC(2000+Number(yy), Number(mm)-1, Number(dd), Number(hh), Number(mi), Number(ss));
+  }
+
+  let scoutSelectedPlatform = 'pc';
+  let scoutSortMode = 'best'; // 'best' | 'improved'
+  let scoutWired = false;
+  let scoutAllRowsCache = null;
+
+  async function scoutComputeResults(track){
+    if(!track) return [];
+    const servers = [];
+    if(q('scoutServerBeginner')?.checked) servers.push('beginner');
+    if(q('scoutServerProam')?.checked) servers.push('proam');
+    if(q('scoutServerMonday')?.checked) servers.push('monday-funday');
+    if(!servers.length) return [];
+
+    const prefix = scoutSelectedPlatform === 'console' ? 'console-' : 'pc-';
+    scoutAllRowsCache = scoutAllRowsCache || await window.IFWLStats.buildAllRows();
+
+    const matching = scoutAllRowsCache.filter(r => {
+      const sid = String(r.serverId||'');
+      if(!sid.startsWith(prefix)) return false;
+      if(!servers.includes(sid.slice(prefix.length))) return false;
+      if(String(r.track||'').toLowerCase() !== track) return false;
+      return (Number(r.bestLap)||0) > 0;
+    });
+
+    const byDriver = new Map();
+    matching.forEach(r => {
+      const key = window.IFWLStats.driverNameKey(r.driver);
+      if(!key) return;
+      if(!byDriver.has(key)) byDriver.set(key, { name: r.driver, sessions: [] });
+      const entry = byDriver.get(key);
+      entry.name = r.driver;
+      entry.sessions.push({ bestLap: Number(r.bestLap), tsMs: scoutFileTsMs(r.fileName) });
+    });
+
+    const results = [];
+    byDriver.forEach(entry => {
+      const sessions = [...entry.sessions].sort((a,b) => a.tsMs - b.tsMs);
+      const currentBestMs = Math.min(...sessions.map(s => s.bestLap));
+      const firstSessionBestMs = sessions[0].bestLap;
+      const improvementMs = firstSessionBestMs - currentBestMs; // positive = got faster since their first outing
+      results.push({
+        name: entry.name,
+        sessionCount: sessions.length,
+        currentBestMs,
+        firstSeenMs: sessions[0].tsMs,
+        lastSeenMs: sessions[sessions.length-1].tsMs,
+        improvementMs
+      });
+    });
+    return results;
+  }
+
+  function scoutFmtMs(ms){
+    if(!ms) return '-';
+    const mm = Math.floor(ms/60000);
+    const ss = ((ms%60000)/1000).toFixed(3).padStart(6,'0');
+    return `${mm}:${ss}`;
+  }
+  function scoutFmtDate(ms){
+    return ms ? new Date(ms).toLocaleDateString() : '-';
+  }
+  function scoutFmtImprovement(ms){
+    if(!Number.isFinite(ms)) return { text: '-', cls: 'trend-flat' };
+    if(Math.abs(ms) < 50) return { text: '±0.000s', cls: 'trend-flat' };
+    const sec = (ms/1000).toFixed(3);
+    return ms > 0 ? { text: `-${sec}s`, cls: 'trend-gain' } : { text: `+${Math.abs(sec)}s`, cls: 'trend-loss' };
+  }
+
+  async function scoutRenderResults(){
+    const box = q('scoutResults');
+    if(!box) return;
+    const track = q('scoutTrackSelect')?.value;
+    if(!track){ box.innerHTML = ''; return; }
+
+    box.innerHTML = '<div class="empty">Loading&hellip;</div>';
+    let results = await scoutComputeResults(track);
+
+    const search = (q('scoutSearchInput')?.value || '').trim().toLowerCase();
+    if(search) results = results.filter(r => r.name.toLowerCase().includes(search));
+
+    if(!results.length){
+      box.innerHTML = '<div class="empty">No recorded laps found for this track/platform on the selected server(s) yet.</div>';
+      return;
+    }
+
+    results.sort(scoutSortMode === 'improved'
+      ? (a,b) => b.improvementMs - a.improvementMs
+      : (a,b) => a.currentBestMs - b.currentBestMs);
+
+    box.innerHTML = `<table class="scout-table">
+      <thead><tr><th>Driver</th><th>Best Lap</th><th>Sessions</th><th>First Seen</th><th>Most Recent</th><th>Improvement</th></tr></thead>
+      <tbody>${results.map(r => {
+        const imp = scoutFmtImprovement(r.improvementMs);
+        const improvementCell = r.sessionCount > 1
+          ? `<span class="${imp.cls}">${imp.text}</span>`
+          : `<span class="trend-flat">Only 1 session - no trend yet</span>`;
+        return `<tr>
+          <td>${r.name}</td>
+          <td>${scoutFmtMs(r.currentBestMs)}</td>
+          <td>${r.sessionCount}</td>
+          <td>${scoutFmtDate(r.firstSeenMs)}</td>
+          <td>${scoutFmtDate(r.lastSeenMs)}</td>
+          <td>${improvementCell}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  }
+
+  async function scoutLoadAndRender(){
+    const trackSelect = q('scoutTrackSelect');
+    if(trackSelect && trackSelect.options.length <= 1){
+      try{
+        scoutAllRowsCache = scoutAllRowsCache || await window.IFWLStats.buildAllRows();
+        const tracks = [...new Set(scoutAllRowsCache.map(r => String(r.track||'').toLowerCase()).filter(Boolean))].sort();
+        trackSelect.innerHTML = '<option value="">Select a track&hellip;</option>' + tracks.map(t => `<option value="${t}">${bopTrackLabel(t)}</option>`).join('');
+      }catch(e){ console.warn('Could not load track list for Scout The Field', e); }
+    }
+
+    scoutSelectedPlatform = (currentProfile?.platform === 'console') ? 'console' : 'pc';
+    q('scoutPlatformPc')?.classList.toggle('active', scoutSelectedPlatform === 'pc');
+    q('scoutPlatformConsole')?.classList.toggle('active', scoutSelectedPlatform === 'console');
+
+    if(!scoutWired){
+      scoutWired = true;
+      q('scoutPlatformPc')?.addEventListener('click', () => {
+        scoutSelectedPlatform = 'pc';
+        q('scoutPlatformPc').classList.add('active'); q('scoutPlatformConsole').classList.remove('active');
+        scoutRenderResults();
+      });
+      q('scoutPlatformConsole')?.addEventListener('click', () => {
+        scoutSelectedPlatform = 'console';
+        q('scoutPlatformConsole').classList.add('active'); q('scoutPlatformPc').classList.remove('active');
+        scoutRenderResults();
+      });
+      q('scoutSortBest')?.addEventListener('click', () => {
+        scoutSortMode = 'best';
+        q('scoutSortBest').classList.add('active'); q('scoutSortImproved').classList.remove('active');
+        scoutRenderResults();
+      });
+      q('scoutSortImproved')?.addEventListener('click', () => {
+        scoutSortMode = 'improved';
+        q('scoutSortImproved').classList.add('active'); q('scoutSortBest').classList.remove('active');
+        scoutRenderResults();
+      });
+      q('scoutTrackSelect')?.addEventListener('change', scoutRenderResults);
+      q('scoutSearchInput')?.addEventListener('input', scoutRenderResults);
+      q('scoutServerBeginner')?.addEventListener('change', scoutRenderResults);
+      q('scoutServerProam')?.addEventListener('change', scoutRenderResults);
+      q('scoutServerMonday')?.addEventListener('change', scoutRenderResults);
+    }
+  }
+
+  function initScoutFieldPanel(){
+    if(!q('scoutFieldPanel')) return;
+    if(window.IFWL_GOLD || window.IFWL_STAFF) scoutLoadAndRender();
+  }
+  initScoutFieldPanel();
+
   window.addEventListener('ifwl-auth-changed', e=>{
     if(e.detail?.meta) init();
   });
   window.addEventListener('ifwl-auth-changed', initBopTrackerPanel);
+  window.addEventListener('ifwl-auth-changed', initScoutFieldPanel);
 })();
 </script>
 
