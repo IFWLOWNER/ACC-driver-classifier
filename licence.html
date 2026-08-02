@@ -859,13 +859,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 /* ✅ ADDED: Scout The Field */
 .scout-checkbox-row{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0 16px}
 .scout-checkbox-row label{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer}
-.scout-table{width:100%;border-collapse:collapse;font-size:13px}
-.scout-table th{text-align:left;padding:10px 12px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.02em;border-bottom:1px solid var(--ifwl-line)}
-.scout-table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05)}
-.scout-table tr:hover td{background:rgba(31,214,189,.05)}
 .trend-gain{color:#33d99b;font-weight:800}
 .trend-loss{color:#ff6b6b;font-weight:800}
 .trend-flat{color:var(--text-muted)}
+.scout-card{border:1px solid var(--ifwl-line);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#12161c}
+.scout-card-top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+.scout-card-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.scout-card-name h4{margin:0;font-size:15px;color:#fff}
+.scout-medal{font-size:16px}
+.scout-badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+.scout-badge.linked{background:rgba(31,214,189,.14);color:var(--ifwl-teal)}
+.scout-badge.unlinked{background:rgba(255,178,56,.14);color:var(--ifwl-amber)}
+.scout-badge.active{background:rgba(51,217,155,.14);color:#33d99b}
+.scout-badge.inactive{background:rgba(255,255,255,.06);color:var(--text-dim)}
+.scout-card-lap{text-align:right}
+.scout-card-lap strong{font-size:20px;color:#fff;display:block}
+.scout-card-lap span{font-size:11px;color:var(--text-muted)}
+.scout-stat-strip{display:flex;flex-wrap:wrap;gap:18px;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:10px}
+.scout-stat-strip div{display:flex;flex-direction:column;min-width:90px}
+.scout-stat-strip span{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.02em}
+.scout-stat-strip strong{font-size:14px;color:#fff;margin-top:2px}
+.scout-card-bottom{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.scout-sparkline{opacity:.9}
 .footer-note{font-size:12px;color:var(--text-dim);text-align:center;margin-top:26px;line-height:1.5}
 </style>
 </head>
@@ -1763,11 +1778,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <label><input type="checkbox" id="scoutServerMonday"> Monday Funday</label>
         </div>
 
-        <div class="bop-platform-toggle" style="margin-bottom:16px">
-          <button class="bop-platform-btn active" id="scoutSortBest" type="button">Sort: Fastest Lap</button>
-          <button class="bop-platform-btn" id="scoutSortImproved" type="button">Sort: Most Improved</button>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:6px">
+          <div class="field-group"><label>Sort by</label>
+            <select id="scoutSortSelect">
+              <option value="best">Fastest Lap</option>
+              <option value="improved">Most Improved</option>
+              <option value="laps">Most Laps Driven</option>
+              <option value="sessions">Most Sessions</option>
+              <option value="clean">Cleanest</option>
+              <option value="span">Longest Active Span</option>
+            </select>
+          </div>
+          <div class="field-group"><label>Min. sessions</label><input type="number" id="scoutMinSessions" value="1" min="1" step="1"></div>
+          <div class="field-group" style="justify-content:flex-end;display:flex;flex-direction:column">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;height:38px"><input type="checkbox" id="scoutActiveOnly"> Active in last 30 days only</label>
+          </div>
         </div>
 
+        <div id="scoutSummaryLine" class="field-hint" style="margin-bottom:12px"></div>
         <div id="scoutResults"></div>
       </div>
     </div>
@@ -6637,17 +6665,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   let scoutSelectedPlatform = 'pc';
-  let scoutSortMode = 'best'; // 'best' | 'improved'
   let scoutWired = false;
   let scoutAllRowsCache = null;
+  let scoutLinkedNamesCache = null;
 
   async function scoutComputeResults(track){
-    if(!track) return [];
+    if(!track) return { results: [], sessionsScanned: 0 };
     const servers = [];
     if(q('scoutServerBeginner')?.checked) servers.push('beginner');
     if(q('scoutServerProam')?.checked) servers.push('proam');
     if(q('scoutServerMonday')?.checked) servers.push('monday-funday');
-    if(!servers.length) return [];
+    if(!servers.length) return { results: [], sessionsScanned: 0 };
 
     const prefix = scoutSelectedPlatform === 'console' ? 'console-' : 'pc-';
     scoutAllRowsCache = scoutAllRowsCache || await window.IFWLStats.buildAllRows();
@@ -6660,6 +6688,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return (Number(r.bestLap)||0) > 0;
     });
 
+    // ✅ ADDED: linked/unlinked - which names already match an existing IFWL
+    // licence's linked ACC name(s). Same lenient substring match convention
+    // used everywhere else in the app for this exact reason (a session name
+    // often carries a bracketed car number a driver's self-reported name
+    // won't include verbatim).
+    if(!scoutLinkedNamesCache){
+      try{ scoutLinkedNamesCache = await window.IFWL_ClaimAPI.fetchLinkedDriverNames(); }
+      catch(e){ scoutLinkedNamesCache = []; console.warn('Could not load linked driver names for Scout The Field', e); }
+    }
+    const isLinked = (name) => {
+      const n = String(name||'').trim().toLowerCase();
+      if(!n) return false;
+      return scoutLinkedNamesCache.some(ln => n.includes(ln) || ln.includes(n));
+    };
+
     const byDriver = new Map();
     matching.forEach(r => {
       const key = window.IFWLStats.driverNameKey(r.driver);
@@ -6667,25 +6710,64 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       if(!byDriver.has(key)) byDriver.set(key, { name: r.driver, sessions: [] });
       const entry = byDriver.get(key);
       entry.name = r.driver;
-      entry.sessions.push({ bestLap: Number(r.bestLap), tsMs: scoutFileTsMs(r.fileName) });
+      const lapObjects = Array.isArray(r.lapObjects) ? r.lapObjects : [];
+      const hasLapData = lapObjects.length > 0;
+      const validCount = hasLapData ? lapObjects.filter(l => l.isValidForBest !== false).length : 0;
+      entry.sessions.push({
+        bestLap: Number(r.bestLap),
+        tsMs: scoutFileTsMs(r.fileName),
+        lapCount: Number(r.lapCount) || lapObjects.length || 0,
+        validLapCount: validCount,
+        totalLapObjectCount: lapObjects.length
+      });
     });
 
+    // ✅ ADDED: field best (P1) at this track/platform/server-set, for the
+    // gap-to-best figure on every other row.
+    let fieldBestMs = 0;
+    byDriver.forEach(entry => entry.sessions.forEach(s => {
+      if(s.bestLap > 0 && (!fieldBestMs || s.bestLap < fieldBestMs)) fieldBestMs = s.bestLap;
+    }));
+
+    const nowMs = Date.now();
     const results = [];
     byDriver.forEach(entry => {
       const sessions = [...entry.sessions].sort((a,b) => a.tsMs - b.tsMs);
       const currentBestMs = Math.min(...sessions.map(s => s.bestLap));
       const firstSessionBestMs = sessions[0].bestLap;
-      const improvementMs = firstSessionBestMs - currentBestMs; // positive = got faster since their first outing
+      const improvementMs = firstSessionBestMs - currentBestMs;
+      const firstSeenMs = sessions[0].tsMs;
+      const lastSeenMs = sessions[sessions.length-1].tsMs;
+
+      const totalLaps = sessions.reduce((sum,s) => sum + (s.lapCount||0), 0);
+      // Clean lap rate: only counted where we actually have per-lap validity
+      // data (totalLapObjectCount>0) - sessions without it are excluded from
+      // the rate rather than silently counted as 100% or 0% clean.
+      let validSum = 0, lapObjSum = 0;
+      sessions.forEach(s => { if(s.totalLapObjectCount){ validSum += s.validLapCount; lapObjSum += s.totalLapObjectCount; } });
+      const cleanRatePct = lapObjSum ? Math.round((validSum/lapObjSum)*100) : null;
+
+      const activeSpanDays = firstSeenMs && lastSeenMs ? Math.round((lastSeenMs - firstSeenMs)/86400000) : 0;
+      const stillActive = lastSeenMs ? (nowMs - lastSeenMs) <= (30*86400000) : false;
+      const gapToBestMs = fieldBestMs ? (currentBestMs - fieldBestMs) : null;
+      const gapToBestPct = (fieldBestMs && gapToBestMs != null) ? (gapToBestMs/fieldBestMs)*100 : null;
+
       results.push({
         name: entry.name,
         sessionCount: sessions.length,
         currentBestMs,
-        firstSeenMs: sessions[0].tsMs,
-        lastSeenMs: sessions[sessions.length-1].tsMs,
-        improvementMs
+        firstSeenMs, lastSeenMs,
+        improvementMs,
+        totalLaps,
+        cleanRatePct,
+        activeSpanDays,
+        stillActive,
+        gapToBestMs, gapToBestPct,
+        linked: isLinked(entry.name),
+        sparkPoints: sessions.map(s => ({ tsMs: s.tsMs, bestLap: s.bestLap }))
       });
     });
-    return results;
+    return { results, sessionsScanned: matching.length };
   }
 
   function scoutFmtMs(ms){
@@ -6700,48 +6782,108 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function scoutFmtImprovement(ms){
     if(!Number.isFinite(ms)) return { text: '-', cls: 'trend-flat' };
     if(Math.abs(ms) < 50) return { text: '±0.000s', cls: 'trend-flat' };
-    const sec = (ms/1000).toFixed(3);
-    return ms > 0 ? { text: `-${sec}s`, cls: 'trend-gain' } : { text: `+${Math.abs(sec)}s`, cls: 'trend-loss' };
+    const sec = (Math.abs(ms)/1000).toFixed(3);
+    return ms > 0 ? { text: `-${sec}s`, cls: 'trend-gain' } : { text: `+${sec}s`, cls: 'trend-loss' };
+  }
+  function scoutFmtGap(ms, pct){
+    if(ms == null) return '-';
+    if(Math.abs(ms) < 50) return 'P1 - field best';
+    return `+${(ms/1000).toFixed(3)}s (${pct.toFixed(1)}%)`;
+  }
+
+  // ✅ ADDED: a tiny inline sparkline - best lap per session over time, so a
+  // driver who improved-then-plateaued (or dipped mid-stretch) is visible at
+  // a glance instead of collapsing their whole history into one delta. Y-axis
+  // is inverted (a faster/lower lap time plots HIGHER) so the line reads the
+  // same way "improving" reads everywhere else: trending up = getting better.
+  function scoutSparklineSvg(points){
+    if(!points || points.length < 2) return '';
+    const w = 140, h = 34, pad = 3;
+    const laps = points.map(p => p.bestLap);
+    const min = Math.min(...laps), max = Math.max(...laps);
+    const range = (max - min) || 1;
+    const coords = points.map((p,i) => {
+      const x = pad + (i/(points.length-1)) * (w - pad*2);
+      const y = pad + ((p.bestLap - min)/range) * (h - pad*2); // fast lap (low ms) = small y = near the top
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const lastX = coords[coords.length-1].split(',')[0];
+    const lastY = coords[coords.length-1].split(',')[1];
+    return `<svg class="scout-sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <polyline points="${coords.join(' ')}" fill="none" stroke="#1fd6bd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${lastX}" cy="${lastY}" r="2.6" fill="#1fd6bd"/>
+    </svg>`;
   }
 
   async function scoutRenderResults(){
     const box = q('scoutResults');
+    const summary = q('scoutSummaryLine');
     if(!box) return;
     const track = q('scoutTrackSelect')?.value;
-    if(!track){ box.innerHTML = ''; return; }
+    if(!track){ box.innerHTML = '<div class="empty">Select a track to scout.</div>'; if(summary) summary.textContent = ''; return; }
 
     box.innerHTML = '<div class="empty">Loading&hellip;</div>';
-    let results = await scoutComputeResults(track);
+    const { results: allResults, sessionsScanned } = await scoutComputeResults(track);
 
     const search = (q('scoutSearchInput')?.value || '').trim().toLowerCase();
+    const minSessions = Math.max(1, Number(q('scoutMinSessions')?.value) || 1);
+    const activeOnly = !!q('scoutActiveOnly')?.checked;
+
+    let results = allResults.filter(r => r.sessionCount >= minSessions);
     if(search) results = results.filter(r => r.name.toLowerCase().includes(search));
+    if(activeOnly) results = results.filter(r => r.stillActive);
+
+    if(summary) summary.textContent = `${results.length} driver${results.length===1?'':'s'} · ${sessionsScanned} session${sessionsScanned===1?'':'s'} scanned`;
 
     if(!results.length){
-      box.innerHTML = '<div class="empty">No recorded laps found for this track/platform on the selected server(s) yet.</div>';
+      box.innerHTML = '<div class="empty">No recorded laps match these filters yet - try fewer server restrictions or a lower minimum session count.</div>';
       return;
     }
 
-    results.sort(scoutSortMode === 'improved'
-      ? (a,b) => b.improvementMs - a.improvementMs
-      : (a,b) => a.currentBestMs - b.currentBestMs);
+    const sortMode = q('scoutSortSelect')?.value || 'best';
+    const sorters = {
+      best: (a,b) => a.currentBestMs - b.currentBestMs,
+      improved: (a,b) => b.improvementMs - a.improvementMs,
+      laps: (a,b) => b.totalLaps - a.totalLaps,
+      sessions: (a,b) => b.sessionCount - a.sessionCount,
+      clean: (a,b) => (b.cleanRatePct ?? -1) - (a.cleanRatePct ?? -1),
+      span: (a,b) => b.activeSpanDays - a.activeSpanDays
+    };
+    results.sort(sorters[sortMode] || sorters.best);
 
-    box.innerHTML = `<table class="scout-table">
-      <thead><tr><th>Driver</th><th>Best Lap</th><th>Sessions</th><th>First Seen</th><th>Most Recent</th><th>Improvement</th></tr></thead>
-      <tbody>${results.map(r => {
-        const imp = scoutFmtImprovement(r.improvementMs);
-        const improvementCell = r.sessionCount > 1
-          ? `<span class="${imp.cls}">${imp.text}</span>`
-          : `<span class="trend-flat">Only 1 session - no trend yet</span>`;
-        return `<tr>
-          <td>${r.name}</td>
-          <td>${scoutFmtMs(r.currentBestMs)}</td>
-          <td>${r.sessionCount}</td>
-          <td>${scoutFmtDate(r.firstSeenMs)}</td>
-          <td>${scoutFmtDate(r.lastSeenMs)}</td>
-          <td>${improvementCell}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table>`;
+    const medals = ['🥇','🥈','🥉'];
+
+    box.innerHTML = results.map((r, idx) => {
+      const imp = scoutFmtImprovement(r.improvementMs);
+      const improvementHtml = r.sessionCount > 1
+        ? `<span class="${imp.cls}">${imp.text}</span>`
+        : `<span class="trend-flat">Only 1 session - no trend yet</span>`;
+      const medal = (sortMode === 'best' && idx < 3) ? `<span class="scout-medal">${medals[idx]}</span>` : '';
+      const linkedBadge = r.linked ? '<span class="scout-badge linked">Linked</span>' : '<span class="scout-badge unlinked">Unlinked</span>';
+      const activeBadge = r.stillActive ? '<span class="scout-badge active">Active</span>' : '<span class="scout-badge inactive">Inactive 30d+</span>';
+      const spark = scoutSparklineSvg(r.sparkPoints);
+
+      return `<div class="scout-card">
+        <div class="scout-card-top">
+          <div class="scout-card-name">
+            ${medal}<h4>${r.name}</h4>${linkedBadge}${activeBadge}
+          </div>
+          <div class="scout-card-lap"><strong>${scoutFmtMs(r.currentBestMs)}</strong><span>${scoutFmtGap(r.gapToBestMs, r.gapToBestPct)}</span></div>
+        </div>
+        <div class="scout-stat-strip">
+          <div><span>Total Laps</span><strong>${r.totalLaps || '-'}</strong></div>
+          <div><span>Clean Rate</span><strong>${r.cleanRatePct != null ? r.cleanRatePct + '%' : '-'}</strong></div>
+          <div><span>Sessions</span><strong>${r.sessionCount}</strong></div>
+          <div><span>Active Span</span><strong>${r.activeSpanDays > 0 ? r.activeSpanDays + ' day' + (r.activeSpanDays===1?'':'s') : (r.sessionCount>1 ? 'Same day' : '-')}</strong></div>
+          <div><span>First Seen</span><strong>${scoutFmtDate(r.firstSeenMs)}</strong></div>
+          <div><span>Most Recent</span><strong>${scoutFmtDate(r.lastSeenMs)}</strong></div>
+        </div>
+        <div class="scout-card-bottom">
+          <div>${improvementHtml}</div>
+          ${spark}
+        </div>
+      </div>`;
+    }).join('');
   }
 
   async function scoutLoadAndRender(){
@@ -6757,6 +6899,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     scoutSelectedPlatform = (currentProfile?.platform === 'console') ? 'console' : 'pc';
     q('scoutPlatformPc')?.classList.toggle('active', scoutSelectedPlatform === 'pc');
     q('scoutPlatformConsole')?.classList.toggle('active', scoutSelectedPlatform === 'console');
+    if(!q('scoutTrackSelect')?.value){ const box=q('scoutResults'); if(box) box.innerHTML = '<div class="empty">Select a track to scout.</div>'; }
 
     if(!scoutWired){
       scoutWired = true;
@@ -6770,16 +6913,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         q('scoutPlatformConsole').classList.add('active'); q('scoutPlatformPc').classList.remove('active');
         scoutRenderResults();
       });
-      q('scoutSortBest')?.addEventListener('click', () => {
-        scoutSortMode = 'best';
-        q('scoutSortBest').classList.add('active'); q('scoutSortImproved').classList.remove('active');
-        scoutRenderResults();
-      });
-      q('scoutSortImproved')?.addEventListener('click', () => {
-        scoutSortMode = 'improved';
-        q('scoutSortImproved').classList.add('active'); q('scoutSortBest').classList.remove('active');
-        scoutRenderResults();
-      });
+      q('scoutSortSelect')?.addEventListener('change', scoutRenderResults);
+      q('scoutMinSessions')?.addEventListener('input', scoutRenderResults);
+      q('scoutActiveOnly')?.addEventListener('change', scoutRenderResults);
       q('scoutTrackSelect')?.addEventListener('change', scoutRenderResults);
       q('scoutSearchInput')?.addEventListener('input', scoutRenderResults);
       q('scoutServerBeginner')?.addEventListener('change', scoutRenderResults);
