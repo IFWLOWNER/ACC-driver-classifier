@@ -636,6 +636,12 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .rank-change-row.down{border-color:rgba(255,178,56,.4)}
 .rank-change-row .rank-change-icon{font-size:22px}
 .rank-change-row strong{display:block;font-size:13.5px;color:var(--text-primary)}
+/* ✅ ADDED: Gold-only ahead/behind rival rows inside the rank-change popup */
+.rank-rivals{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.rank-rival-row{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.03)}
+.rank-rival-row span:first-child{font-size:15px}
+.rank-rival-row strong{display:inline;font-size:12.5px;color:var(--text-primary)}
+.rank-rival-none{opacity:.7}
 .my-trophy-tile{--trophy-light-color:255,224,160}
 .my-trophy-tile.lit{
   background:radial-gradient(circle at 50% 30%, rgba(var(--trophy-light-color),.28), rgba(20,14,8,.55) 70%);
@@ -4907,21 +4913,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let html = '';
     let pcIndex = -1, consoleIndex = -1;
+    let pcStandings = [], consoleStandings = [];
     try{
-      const pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()});
+      pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()});
       pcIndex = findMyStandingRow(pcStandings, accDriverNames);
       if(pcIndex >= 0) html += await buildQualStandingCard('PC', pcIndex, pcStandings, 'pc-licence', accDriverNames);
     }catch(e){ /* one platform failing shouldn't block the other */ }
 
     try{
-      const consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()});
+      consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()});
       consoleIndex = findMyStandingRow(consoleStandings, accDriverNames);
       if(consoleIndex >= 0) html += await buildQualStandingCard('Console', consoleIndex, consoleStandings, 'console-licence', accDriverNames);
     }catch(e){ /* as above */ }
 
     body.innerHTML = html || '<div class="empty">No laps recorded yet on the IFWL Licence server(s) under your linked name(s). Head to the PC or Console laps list under "Claim Your Laps" once you\'ve raced there.</div>';
 
-    checkRankChange(pcIndex, consoleIndex); // fire-and-forget - never blocks the card itself rendering
+    checkRankChange(pcIndex, consoleIndex, pcStandings, consoleStandings); // fire-and-forget - never blocks the card itself rendering
   }
 
   // ✅ ADDED: rank-change login notice. Rank position is already a Gold
@@ -4930,7 +4937,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // someone who can't otherwise see it on the page at all. Silently stores
   // the rank on first-ever view (nothing to compare against yet), only pops
   // up once there's a genuine change from what they last saw.
-  async function checkRankChange(pcIndex, consoleIndex){
+  async function checkRankChange(pcIndex, consoleIndex, pcStandings, consoleStandings){
     const isGoldOrStaff = window.IFWL_GOLD || window.IFWL_STAFF;
     if(!isGoldOrStaff) return;
 
@@ -4941,12 +4948,32 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const prevRank = currentProfile?.lastSeenQualRank || {};
     const hasPrev = prevRank.pc != null || prevRank.console != null;
 
+    // ✅ ADDED: Gold bonus - who's directly ahead of you (the driver who
+    // just beat you) and directly behind you (the driver you're currently
+    // beating), at your CURRENT position on whichever platform actually
+    // changed. Not a new data source or new exposure - standings is the
+    // exact same sorted array already used to build the card above, and
+    // Gold already sees the full field via Live Timings; this just saves
+    // them from having to go find their own row in that full list.
+    const rivalAt = (standings, index, offset) => {
+      const row = standings?.[index + offset];
+      return row ? { name: row.driver, gapPct: row.avgGapPct } : null;
+    };
+
     const changes = [];
     if(newRank.pc != null && prevRank.pc != null && newRank.pc !== prevRank.pc){
-      changes.push({ platform: 'PC', from: prevRank.pc, to: newRank.pc });
+      changes.push({
+        platform: 'PC', from: prevRank.pc, to: newRank.pc,
+        ahead: rivalAt(pcStandings, pcIndex, -1),
+        behind: rivalAt(pcStandings, pcIndex, 1)
+      });
     }
     if(newRank.console != null && prevRank.console != null && newRank.console !== prevRank.console){
-      changes.push({ platform: 'Console', from: prevRank.console, to: newRank.console });
+      changes.push({
+        platform: 'Console', from: prevRank.console, to: newRank.console,
+        ahead: rivalAt(consoleStandings, consoleIndex, -1),
+        behind: rivalAt(consoleStandings, consoleIndex, 1)
+      });
     }
 
     if(hasPrev && changes.length) showRankChangeModal(changes);
@@ -4963,14 +4990,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const modal = q('rankChangeModal');
     if(!modal) return;
     const body = q('rankChangeBody');
+    const rivalRow = (label, icon, rival, emptyMsg) => rival
+      ? `<div class="rank-rival-row"><span>${icon}</span><div><strong>${label}: ${rival.name}</strong>${rival.gapPct != null ? `<div class="field-hint">+${rival.gapPct}% gap to best</div>` : ''}</div></div>`
+      : `<div class="rank-rival-row rank-rival-none"><span>${icon}</span><div><strong>${label}:</strong> <span class="field-hint">${emptyMsg}</span></div></div>`;
     body.innerHTML = changes.map(c => {
       const up = c.to < c.from; // lower number = better position
       const places = Math.abs(c.to - c.from);
+      const rivalsHtml = `<div class="rank-rivals">
+          ${rivalRow('Ahead of you', '🥇', c.ahead, "You're in 1st - nobody ahead of you!")}
+          ${rivalRow('Behind you', '🎯', c.behind, "Nobody behind you yet")}
+        </div>`;
       return `<div class="rank-change-row ${up ? 'up' : 'down'}">
         <span class="rank-change-icon">${up ? '📈' : '📉'}</span>
         <div>
           <strong>${c.platform}: ${up ? 'Up' : 'Down'} ${places} place${places === 1 ? '' : 's'}</strong>
           <div class="field-hint">#${c.from} &rarr; #${c.to}</div>
+          ${rivalsHtml}
         </div>
       </div>`;
     }).join('');
