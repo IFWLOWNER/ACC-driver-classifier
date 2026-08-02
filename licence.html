@@ -34,6 +34,32 @@
   --tier-none:#4b5760; --tier-prov:#ffb238; --tier-beg:#1fd6bd;
   --tier-am:#c65be8; --tier-pro-a:#eaf3ff; --tier-pro-b:#c65be8; --tier-pro-c:#1fd6bd;
 }
+/* ✅ ADDED: Gold Patreon Site Accent Theme - purely a CSS reskin of the
+   driver's OWN view of the whole Licence Centre. --ifwl-teal/--ifwl-teal-deep
+   drive nearly every "primary accent" element site-wide (active nav tabs,
+   teal buttons, links, sparkline strokes, etc) since they're all already
+   built on top of these two CSS variables - so overriding just these two,
+   via a body class, reskins the whole page for free without touching every
+   individual rule. Deliberately a curated palette, not free-text hex input,
+   and deliberately distinct from the site's OTHER semantic colours
+   (--ifwl-purple/amber/green/red already mean specific things elsewhere -
+   e.g. purple = "Owner only" badges, red = a negative/loss figure - so no
+   theme reuses those exact tones, to avoid a driver's own accent colour
+   looking like an unrelated status indicator).
+   Only ever applied via the logged-in driver's OWN accentTheme field on
+   their OWN body element - never visible to, or affected by, anyone else. */
+body.theme-crimson{--ifwl-teal:#ff4d6a;--ifwl-teal-deep:#b8283f}
+body.theme-ocean{--ifwl-teal:#38b6ff;--ifwl-teal-deep:#1a6fa8}
+body.theme-royal{--ifwl-teal:#8f7bff;--ifwl-teal-deep:#5a4bb8}
+body.theme-sunset{--ifwl-teal:#ff9a3d;--ifwl-teal-deep:#c86a1f}
+body.theme-emerald{--ifwl-teal:#1fbf82;--ifwl-teal-deep:#0d7d54}
+body.theme-hotpink{--ifwl-teal:#ff4fa3;--ifwl-teal-deep:#c22a78}
+body.theme-chrome{--ifwl-teal:#dfe6ea;--ifwl-teal-deep:#9aa7ae}
+.accent-swatch-row{display:flex;gap:10px;flex-wrap:wrap}
+.accent-swatch{width:42px;height:42px;border-radius:50%;border:2px solid transparent;cursor:pointer;position:relative;transition:transform .12s}
+.accent-swatch:hover{transform:scale(1.08)}
+.accent-swatch.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+.accent-swatch.active::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#03211c;font-weight:900;font-size:16px}
 *{box-sizing:border-box}
 body{margin:0;font-family:var(--font-body);background:var(--page-bg);color:var(--text-primary);min-height:100vh;
   background-image:radial-gradient(circle at 15% -10%,rgba(31,214,189,.14),transparent 40%),radial-gradient(circle at 100% 10%,rgba(198,91,232,.12),transparent 38%),linear-gradient(180deg,rgba(10,13,17,.93),rgba(9,11,14,.95) 60%,rgba(8,9,12,.97)),url('https://ifwlowner.github.io/ACC-driver-classifier/ifwl_bg.webp');
@@ -1192,6 +1218,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-group gold-only-field">
           <label>Gold: header background image (max 5MB)</label>
           <div class="upload-drop">Drop or choose an image &mdash; JPG/PNG, 5MB max.<br><input type="file" id="headerUploadInput" accept="image/png,image/jpeg,image/webp"></div>
+        </div>
+
+        <div class="field-group gold-only-field">
+          <label>Gold: Site Accent Theme</label>
+          <div class="field-hint" style="margin-bottom:8px">Recolours your own view of the whole Licence Centre - nav, buttons, borders. Only you see it; nobody else's view changes.</div>
+          <div id="accentThemeSwatches" class="accent-swatch-row"></div>
         </div>
 
         <div class="gold-upsell-box">
@@ -3323,6 +3355,48 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       console.warn(e.message);
       return null;
     }
+  }
+
+  // ✅ ADDED: Site Accent Theme - Gold cosmetic. Curated palette only
+  // (matches the CSS body.theme-* classes defined near :root). Applying is
+  // just a body class swap - every element already styled off
+  // var(--ifwl-teal)/var(--ifwl-teal-deep) picks it up automatically.
+  const ACCENT_THEMES = [
+    { key: 'teal', label: 'Teal (default)', swatch: '#1fd6bd' },
+    { key: 'crimson', label: 'Crimson', swatch: '#ff4d6a' },
+    { key: 'ocean', label: 'Ocean', swatch: '#38b6ff' },
+    { key: 'royal', label: 'Royal', swatch: '#8f7bff' },
+    { key: 'sunset', label: 'Sunset', swatch: '#ff9a3d' },
+    { key: 'emerald', label: 'Emerald', swatch: '#1fbf82' },
+    { key: 'hotpink', label: 'Hot Pink', swatch: '#ff4fa3' },
+    { key: 'chrome', label: 'Chrome', swatch: '#dfe6ea' }
+  ];
+
+  function applyAccentTheme(){
+    document.body.classList.remove(...ACCENT_THEMES.map(t => `theme-${t.key}`));
+    const key = (window.IFWL_GOLD && currentProfile?.accentTheme) ? currentProfile.accentTheme : 'teal';
+    if(key !== 'teal') document.body.classList.add(`theme-${key}`);
+    renderAccentThemeSwatches();
+  }
+
+  function renderAccentThemeSwatches(){
+    const wrap = q('accentThemeSwatches');
+    if(!wrap) return;
+    const activeKey = currentProfile?.accentTheme || 'teal';
+    wrap.innerHTML = ACCENT_THEMES.map(t =>
+      `<button type="button" class="accent-swatch${t.key===activeKey?' active':''}" style="background:${t.swatch}" data-theme="${t.key}" title="${t.label}" aria-label="${t.label}"></button>`
+    ).join('');
+    wrap.querySelectorAll('.accent-swatch').forEach(btn => btn.addEventListener('click', async () => {
+      const key = btn.dataset.theme;
+      document.body.classList.remove(...ACCENT_THEMES.map(t => `theme-${t.key}`));
+      if(key !== 'teal') document.body.classList.add(`theme-${key}`); // instant feedback, before the save even completes
+      wrap.querySelectorAll('.accent-swatch').forEach(b => b.classList.toggle('active', b === btn));
+      try{
+        currentProfile = await saveMyProfile({ accentTheme: key });
+      }catch(e){
+        console.warn('Could not save accent theme', e);
+      }
+    }));
   }
 
   async function saveMyProfile(patch){
@@ -5515,6 +5589,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     hideLicenceRefusedGate();
     currentProfile = await resolveStoredImages(currentProfile);
+    applyAccentTheme();
 
     // The single most important gate on this whole page: nothing else here
     // is useful without this link, so nothing else loads until it exists.
@@ -5690,6 +5765,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     document.body.classList.toggle('staff-access', sim.staff);
     document.body.classList.toggle('owner-access', sim.owner);
     document.body.classList.toggle('ops-access', sim.opsPlus);
+    applyAccentTheme();
 
     document.querySelectorAll('.view-as-btn').forEach(b => b.classList.toggle('active', b.dataset.viewAs === mode));
     const tag = q('viewAsActiveTag');
