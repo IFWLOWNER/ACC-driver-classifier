@@ -852,6 +852,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 .bop-delta-row div{display:flex;flex-direction:column}
 .bop-delta-row span{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.02em}
 .bop-delta-row strong{font-size:16px;color:#fff;margin-top:2px}
+.bop-delta-row strong.bop-gain{color:#33d99b}
+.bop-delta-row strong.bop-loss{color:#ff6b6b}
 .bop-lap-row{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--text-muted);flex-wrap:wrap}
 .bop-lap-row strong{color:#fff}
 .footer-note{font-size:12px;color:var(--text-dim);text-align:center;margin-top:26px;line-height:1.5}
@@ -1712,7 +1714,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:6px">
           <div class="field-group"><label>Track</label><select id="bopTrackSelect"><option value="">Select a track&hellip;</option></select></div>
-          <div class="field-group"><label>Your reference lap time (optional, mm:ss.mmm)</label><input type="text" id="bopRefLapInput" placeholder="e.g. 1:42.350"></div>
+          <div class="field-group"><label>Reference lap time (mm:ss.mmm)</label><input type="text" id="bopRefLapInput" placeholder="e.g. 1:42.350"><div class="field-hint" id="bopRefLapNote"></div></div>
         </div>
 
         <div id="bopResults" style="margin-top:16px"></div>
@@ -6394,6 +6396,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   let bopTrackerWired = false;
   let bopSelectedPlatform = 'pc';
+  let bopLastAutoFilledLapStr = ''; // tracks what WE last typed in, so we don't stomp a driver's own manual entry
+
+  // ✅ ADDED: real reference lap, pulled from this league's own synced
+  // session data rather than a manually-typed guess. Deliberately does NOT
+  // fall back to an "online average" - there's no reliable public dataset
+  // for per-car/per-track ACC lap times, and fabricating one would be worse
+  // than just saying there's no data yet. Uses the fastest VALID lap
+  // recorded on the matching platform's licence server at this track,
+  // across any car - a track-level baseline, not claimed to be specific to
+  // any one car's BOP history.
+  async function bopFieldFastestLapMs(track, platform){
+    try{
+      const serverId = platform === 'console' ? 'console-licence' : 'pc-licence';
+      const allRows = await window.IFWLStats.buildAllRows();
+      let best = 0;
+      allRows.forEach(r => {
+        if(r.serverId !== serverId) return;
+        if(String(r.track||'').toLowerCase() !== track) return;
+        const lap = Number(r.bestLap) || 0;
+        if(lap > 0 && (!best || lap < best)) best = lap;
+      });
+      return best || null;
+    }catch(e){
+      console.warn('Could not compute fastest recorded lap for BOP TRACKer', e);
+      return null;
+    }
+  }
 
   function bopRenderResults(data){
     const box = q('bopResults');
@@ -6423,6 +6452,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const refLapStr = q('bopRefLapInput')?.value.trim();
     const refLapMs = refLapStr ? bopParseLapToMs(refLapStr) : null;
 
+    // Loss=red, gain=green - "loss" means slower (positive seconds), "gain"
+    // means faster (negative seconds), matching how the figures are already signed.
+    const deltaClass = (sec) => sec > 0.0005 ? 'bop-loss' : sec < -0.0005 ? 'bop-gain' : '';
+
     box.innerHTML = cars.map(({car, entry, deltaSec}, idx) => {
       const isMeta = idx === 0;
       const vsMeta = deltaSec - metaDelta;
@@ -6438,13 +6471,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <div class="bop-bar-row"><span>Ballast</span><div class="bop-bar"><div class="bop-bar-fill" style="width:${ballastPct}%"></div></div><strong>${entry.ballastKg > 0 ? '+' : ''}${entry.ballastKg}kg</strong></div>
           <div class="bop-bar-row"><span>Restrictor</span><div class="bop-bar"><div class="bop-bar-fill restrictor" style="width:${restrictorPct}%"></div></div><strong>${entry.restrictor||0}%</strong></div>
           <div class="bop-delta-row">
-            <div><span>Vs no BOP</span><strong>${bopFmtDelta(deltaSec)}</strong></div>
-            <div><span>Vs META car</span><strong>${isMeta ? '±0.000s' : bopFmtDelta(vsMeta)}</strong></div>
+            <div><span>Vs no BOP</span><strong class="${deltaClass(deltaSec)}">${bopFmtDelta(deltaSec)}</strong></div>
+            <div><span>Vs META car</span><strong class="${isMeta ? '' : deltaClass(vsMeta)}">${isMeta ? '±0.000s' : bopFmtDelta(vsMeta)}</strong></div>
           </div>
           ${lapRow}
         </div>
       </div>`;
     }).join('');
+  }
+
+  async function bopUpdateReferenceLap(track, platform){
+    const input = q('bopRefLapInput');
+    const note = q('bopRefLapNote');
+    if(!input) return;
+
+    // Only auto-fill if the box is empty or still holds what WE put there
+    // last time - never overwrite a lap the driver typed in themselves.
+    const untouched = !input.value.trim() || input.value.trim() === bopLastAutoFilledLapStr;
+    const fastestMs = await bopFieldFastestLapMs(track, platform);
+
+    if(fastestMs){
+      const lapStr = bopFmtMsAsLap(fastestMs);
+      if(untouched){
+        input.value = lapStr;
+        bopLastAutoFilledLapStr = lapStr;
+      }
+      if(note) note.textContent = `Auto-filled from the fastest recorded lap on this track/platform in IFWL session data. Edit it to use your own.`;
+    } else {
+      if(untouched){ input.value = ''; bopLastAutoFilledLapStr = ''; }
+      if(note) note.textContent = 'No recorded laps for this track/platform yet - type your own reference lap if you have one.';
+    }
   }
 
   async function bopLoadAndRender(){
@@ -6466,21 +6522,31 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('bopPlatformPc')?.classList.toggle('active', bopSelectedPlatform === 'pc');
       q('bopPlatformConsole')?.classList.toggle('active', bopSelectedPlatform === 'console');
 
+      const trackNow = q('bopTrackSelect')?.value;
+      if(trackNow) await bopUpdateReferenceLap(trackNow, bopSelectedPlatform);
       bopRenderResults(data);
 
       if(!bopTrackerWired){
         bopTrackerWired = true;
-        q('bopPlatformPc')?.addEventListener('click', () => {
+        q('bopPlatformPc')?.addEventListener('click', async () => {
           bopSelectedPlatform = 'pc';
           q('bopPlatformPc').classList.add('active'); q('bopPlatformConsole').classList.remove('active');
+          const t = q('bopTrackSelect')?.value;
+          if(t) await bopUpdateReferenceLap(t, bopSelectedPlatform);
           bopRenderResults(data);
         });
-        q('bopPlatformConsole')?.addEventListener('click', () => {
+        q('bopPlatformConsole')?.addEventListener('click', async () => {
           bopSelectedPlatform = 'console';
           q('bopPlatformConsole').classList.add('active'); q('bopPlatformPc').classList.remove('active');
+          const t = q('bopTrackSelect')?.value;
+          if(t) await bopUpdateReferenceLap(t, bopSelectedPlatform);
           bopRenderResults(data);
         });
-        q('bopTrackSelect')?.addEventListener('change', () => bopRenderResults(data));
+        q('bopTrackSelect')?.addEventListener('change', async () => {
+          const t = q('bopTrackSelect')?.value;
+          if(t) await bopUpdateReferenceLap(t, bopSelectedPlatform);
+          bopRenderResults(data);
+        });
         q('bopRefLapInput')?.addEventListener('input', () => bopRenderResults(data));
       }
     }catch(e){
