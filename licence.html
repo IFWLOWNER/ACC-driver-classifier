@@ -6398,21 +6398,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   let bopSelectedPlatform = 'pc';
   let bopLastAutoFilledLapStr = ''; // tracks what WE last typed in, so we don't stomp a driver's own manual entry
 
-  // ✅ ADDED: real reference lap, pulled from this league's own synced
+  // ✅ CHANGED: real reference lap, pulled from this league's own synced
   // session data rather than a manually-typed guess. Deliberately does NOT
   // fall back to an "online average" - there's no reliable public dataset
   // for per-car/per-track ACC lap times, and fabricating one would be worse
   // than just saying there's no data yet. Uses the fastest VALID lap
-  // recorded on the matching platform's licence server at this track,
-  // across any car - a track-level baseline, not claimed to be specific to
-  // any one car's BOP history.
+  // recorded ANYWHERE on the matching platform - not just the Licence
+  // server, which only ever sees qualification-pace laps. IFWL runs four
+  // servers per platform (Licence, Pro-Am, Beginner, Monday Funday), and a
+  // genuinely fast/representative lap is just as likely to have been set on
+  // Pro-Am as on Licence, so this checks all four rather than missing faster
+  // laps sitting on the others.
   async function bopFieldFastestLapMs(track, platform){
     try{
-      const serverId = platform === 'console' ? 'console-licence' : 'pc-licence';
+      const prefix = platform === 'console' ? 'console-' : 'pc-';
       const allRows = await window.IFWLStats.buildAllRows();
       let best = 0;
       allRows.forEach(r => {
-        if(r.serverId !== serverId) return;
+        if(!String(r.serverId||'').startsWith(prefix)) return;
         if(String(r.track||'').toLowerCase() !== track) return;
         const lap = Number(r.bestLap) || 0;
         if(lap > 0 && (!best || lap < best)) best = lap;
@@ -6449,6 +6452,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     cars.sort((a,b) => a.deltaSec - b.deltaSec);
     const metaDelta = cars[0].deltaSec;
+    // ✅ FIXED: multiple cars can genuinely tie for best (e.g. several all
+    // sitting at the same -30kg ballast floor) - the badge now goes to
+    // EVERY car within a hair of the best delta, not just whichever one
+    // happened to sort first. Ties are labelled honestly rather than
+    // implying one car is uniquely superior when it isn't.
+    const metaCount = cars.filter(c => Math.abs(c.deltaSec - metaDelta) < 0.0005).length;
+    const metaBadgeText = metaCount > 1 ? `🏆 META - Tied for best at this track (${metaCount} cars)` : '🏆 META - Best at this track';
     const refLapStr = q('bopRefLapInput')?.value.trim();
     const refLapMs = refLapStr ? bopParseLapToMs(refLapStr) : null;
 
@@ -6456,8 +6466,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // means faster (negative seconds), matching how the figures are already signed.
     const deltaClass = (sec) => sec > 0.0005 ? 'bop-loss' : sec < -0.0005 ? 'bop-gain' : '';
 
-    box.innerHTML = cars.map(({car, entry, deltaSec}, idx) => {
-      const isMeta = idx === 0;
+    box.innerHTML = cars.map(({car, entry, deltaSec}) => {
+      const isMeta = Math.abs(deltaSec - metaDelta) < 0.0005;
       const vsMeta = deltaSec - metaDelta;
       const ballastPct = bopBarPct(entry.ballastKg, -30, 40);
       const restrictorPct = bopBarPct(entry.restrictor, 0, 30);
@@ -6466,7 +6476,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const lapRow = (refLapMs != null) ? `<div class="bop-lap-row"><span>Reference lap</span><strong>${bopFmtMsAsLap(refLapMs)}</strong><span>&rarr;</span><span>With this car's BOP</span><strong>${bopFmtMsAsLap(projectedMs)}</strong></div>` : '';
       return `<div class="bop-car-card${isMeta ? ' bop-car-meta' : ''}"${bgStyle}>
         <div class="bop-car-card-overlay">
-          ${isMeta ? '<div class="bop-meta-badge">🏆 META - Best at this track</div>' : ''}
+          ${isMeta ? `<div class="bop-meta-badge">${metaBadgeText}</div>` : ''}
           <div class="bop-car-head"><h4>${car.name}</h4><span class="field-hint">${car.carClass||''}</span></div>
           <div class="bop-bar-row"><span>Ballast</span><div class="bop-bar"><div class="bop-bar-fill" style="width:${ballastPct}%"></div></div><strong>${entry.ballastKg > 0 ? '+' : ''}${entry.ballastKg}kg</strong></div>
           <div class="bop-bar-row"><span>Restrictor</span><div class="bop-bar"><div class="bop-bar-fill restrictor" style="width:${restrictorPct}%"></div></div><strong>${entry.restrictor||0}%</strong></div>
@@ -6496,7 +6506,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         input.value = lapStr;
         bopLastAutoFilledLapStr = lapStr;
       }
-      if(note) note.textContent = `Auto-filled from the fastest recorded lap on this track/platform in IFWL session data. Edit it to use your own.`;
+      if(note) note.textContent = `Auto-filled from the fastest recorded lap at this track across every ${platform === 'console' ? 'Console' : 'PC'} server (Licence, Pro-Am, Beginner, Monday Funday). Edit it to use your own.`;
     } else {
       if(untouched){ input.value = ''; bopLastAutoFilledLapStr = ''; }
       if(note) note.textContent = 'No recorded laps for this track/platform yet - type your own reference lap if you have one.';
