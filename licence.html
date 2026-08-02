@@ -1040,6 +1040,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <summary>Economy</summary>
         <div class="staff-accordion-items">
           <button data-view="staffSponsorships" class="owner-only-tab" type="button">Manage Sponsorships</button>
+          <button data-view="staffSeasonalCosts" class="owner-only-tab" type="button">Seasonal Costs</button>
         </div>
       </details>
 
@@ -1765,6 +1766,44 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn ghost" id="spnPerkSearchBtn" type="button">Search</button>
       </div>
       <div id="spnPerkSearchResults" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffSeasonalCosts" id="staffSeasonalCostsPanel">
+    <div class="panel-head"><div><h3>Staff: Seasonal Costs</h3><small>The economy figures behind My Season Progression - entry fee, tyre make/model &amp; price, the Race Earnings payout table, and every track's mileage per lap</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">Changes here update <strong>every driver's</strong> My Season Progression numbers as soon as they next load the page - including the Race Earnings payout table, tyre spend, entry fees and mileage. All of this remains IFWL's fictional economy testbed, not a real payout - see Help for details.</div>
+
+      <h4 style="margin:20px 0 10px">Entry Fee &amp; Tyres</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+        <div class="field-group"><label>Entry fee per race (&pound;)</label><input type="number" id="scEntryFee" min="0" step="1"></div>
+        <div class="field-group"><label>Tyre make</label><input type="text" id="scTyreMake" placeholder="e.g. Michelin"></div>
+        <div class="field-group"><label>Tyre model</label><input type="text" id="scTyreModel" placeholder="e.g. IMSA-spec H1+ compound"></div>
+        <div class="field-group"><label>Price per tyre (&pound;)</label><input type="number" id="scTyrePrice" min="0" step="1"></div>
+      </div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Race Earnings Payout Table (1st-50th)</h4>
+      <p class="field-hint" style="margin-bottom:10px">Prize money by finishing position - all 50 positions are required, so a position left blank is treated as an error rather than silently paying &pound;0.</p>
+      <div class="table-wrap" style="max-height:340px;overflow-y:auto">
+        <table class="fc-stint-table">
+          <thead><tr><th>Pos</th><th>Payout (&pound;)</th><th>Pos</th><th>Payout (&pound;)</th></tr></thead>
+          <tbody id="scEarningsRows"></tbody>
+        </table>
+      </div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Tracks &amp; Mileage per Lap</h4>
+      <p class="field-hint" style="margin-bottom:10px">Slug must match the track name ACC's own session files record (same convention as the Fuel Calculator's track list) or that track's laps won't count toward mileage.</p>
+      <div id="scTrackRows"></div>
+      <button class="btn ghost" id="scAddTrackBtn" type="button" style="margin-top:6px">+ Add track</button>
+
+      <div style="margin-top:20px">
+        <button class="btn teal" id="scSaveBtn" type="button">Save seasonal costs</button>
+        <span class="save-status" id="scSaveStatus"></span>
+      </div>
     </div>
   </section>
 
@@ -2728,6 +2767,68 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const cs = await fetchClassStructureConfig();
     return serverId === 'console-licence' ? cs.console : cs.pc;
   };
+
+  // ✅ ADDED: seasonal costs (entry fee, tyre make/model/price, race
+  // earnings payout table, track km-per-lap list) - staff-editable via
+  // Staff > Economy > Seasonal Costs. Cached per page load, same pattern as
+  // class structure above, since My Season Progression calls this on every
+  // render and it only changes when Owner staff update it. Falls back to
+  // the same figures that used to be hardcoded here, so a fetch failure
+  // never breaks the page - it just quietly uses the old defaults.
+  const SEASONAL_COSTS_FALLBACK = {
+    entryFeePerRace: 10000,
+    tyre: { make: 'Michelin', model: 'IMSA-spec H1+ compound', pricePerTyre: 1023 },
+    raceEarnings: {
+      1:30000, 2:22000, 3:16000, 4:12000, 5:9500, 6:8000, 7:7000, 8:6000, 9:5200, 10:4500,
+      11:4000, 12:3600, 13:3300, 14:3000, 15:2800, 16:2600, 17:2400, 18:2200, 19:2000, 20:1800,
+      21:1650, 22:1500, 23:1400, 24:1300, 25:1200, 26:1100, 27:1000, 28:950, 29:900, 30:850,
+      31:800, 32:750, 33:700, 34:650, 35:600, 36:550, 37:500, 38:475, 39:450, 40:425,
+      41:400, 42:375, 43:350, 44:325, 45:300, 46:275, 47:250, 48:225, 49:200, 50:175
+    },
+    tracks: [
+      { slug: 'barcelona', name: 'Barcelona', kmPerLap: 4.655 }, { slug: 'brands_hatch', name: 'Brands Hatch', kmPerLap: 3.908 },
+      { slug: 'cota', name: 'Circuit of the Americas', kmPerLap: 5.513 }, { slug: 'donington', name: 'Donington Park', kmPerLap: 4.020 },
+      { slug: 'hungaroring', name: 'Hungaroring', kmPerLap: 4.381 }, { slug: 'imola', name: 'Imola', kmPerLap: 4.909 },
+      { slug: 'indianapolis', name: 'Indianapolis', kmPerLap: 3.984 }, { slug: 'kyalami', name: 'Kyalami', kmPerLap: 4.522 },
+      { slug: 'laguna_seca', name: 'Laguna Seca', kmPerLap: 3.602 }, { slug: 'misano', name: 'Misano', kmPerLap: 4.226 },
+      { slug: 'monza', name: 'Monza', kmPerLap: 5.793 }, { slug: 'mount_panorama', name: 'Mount Panorama (Bathurst)', kmPerLap: 6.213 },
+      { slug: 'nurburgring', name: 'Nurburgring GP', kmPerLap: 5.148 }, { slug: 'nurburgring_24h', name: 'Nurburgring 24h (Nordschleife)', kmPerLap: 25.378 },
+      { slug: 'oulton_park', name: 'Oulton Park', kmPerLap: 4.307 }, { slug: 'paul_ricard', name: 'Paul Ricard', kmPerLap: 5.842 },
+      { slug: 'red_bull_ring', name: 'Red Bull Ring', kmPerLap: 4.318 }, { slug: 'silverstone', name: 'Silverstone', kmPerLap: 5.891 },
+      { slug: 'snetterton', name: 'Snetterton', kmPerLap: 4.778 }, { slug: 'spa', name: 'Spa-Francorchamps', kmPerLap: 7.004 },
+      { slug: 'suzuka', name: 'Suzuka', kmPerLap: 5.807 }, { slug: 'valencia', name: 'Valencia', kmPerLap: 4.005 },
+      { slug: 'watkins_glen', name: 'Watkins Glen', kmPerLap: 5.552 }, { slug: 'zandvoort', name: 'Zandvoort', kmPerLap: 4.259 },
+      { slug: 'zolder', name: 'Zolder', kmPerLap: 4.011 }
+    ]
+  };
+  let __seasonalCostsCache = null;
+  async function fetchSeasonalCosts(){
+    if(__seasonalCostsCache) return __seasonalCostsCache;
+    try{
+      const data = await apiGet('seasonalCosts');
+      __seasonalCostsCache = {
+        entryFeePerRace: data.entryFeePerRace,
+        tyre: data.tyre,
+        raceEarnings: data.raceEarnings,
+        tracks: data.tracks,
+        trackKmLookup: Object.fromEntries((data.tracks||[]).map(t => [t.slug, t.kmPerLap]))
+      };
+    }catch(e){
+      console.warn('Could not load seasonal costs, using fallback defaults', e);
+      __seasonalCostsCache = {
+        ...SEASONAL_COSTS_FALLBACK,
+        trackKmLookup: Object.fromEntries(SEASONAL_COSTS_FALLBACK.tracks.map(t => [t.slug, t.kmPerLap]))
+      };
+    }
+    return __seasonalCostsCache;
+  }
+  async function saveSeasonalCosts(data){
+    const saved = await apiPost('staffSeasonalCostsSave', data);
+    __seasonalCostsCache = null; // force a fresh fetch next time - other drivers picking this up happens on their own next page load/render
+    return saved;
+  }
+  window.IFWL_SeasonalCostsAPI = { fetchSeasonalCosts, saveSeasonalCosts };
+  window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   // ✅ ADDED: Seasonal Licence Overlays
   let __seasonalEventsCache = null;
@@ -4007,35 +4108,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>`;
   }
 
-  // ✅ ADDED: My Season Progression
-  // Real-world official circuit lengths (km per lap) - ACC's in-sim layouts
-  // are very close to these but not laser-precise, so mileage here is a
-  // meaningful estimate, not exact in-game telemetry. Keyed by the same
-  // track slugs ACC's own session files and the rest of this site already
-  // use (matching the Fuel Calculator's track list).
-  const SP_TRACK_KM = {
-    barcelona: 4.655, brands_hatch: 3.908, cota: 5.513, donington: 4.020,
-    hungaroring: 4.381, imola: 4.909, indianapolis: 3.984, kyalami: 4.522,
-    laguna_seca: 3.602, misano: 4.226, monza: 5.793, mount_panorama: 6.213,
-    nurburgring: 5.148, nurburgring_24h: 25.378, oulton_park: 4.307,
-    paul_ricard: 5.842, red_bull_ring: 4.318, silverstone: 5.891,
-    snetterton: 4.778, spa: 7.004, suzuka: 5.807, valencia: 4.005,
-    watkins_glen: 5.552, zandvoort: 4.259, zolder: 4.011
-  };
-  const SP_ENTRY_FEE_PER_RACE = 10000;
-  const SP_TYRE_COST_EACH = 1023;
-
-  // ✅ ADDED: Race Earnings - fictional in-universe prize money by finishing
-  // position, 1st through 50th. Entirely separate from the points system
-  // and from SimGrid's own scoring - this is IFWL's own economy testbed,
-  // not a real payout or a competitive ranking mechanism.
-  const SP_RACE_EARNINGS = {
-    1:30000, 2:22000, 3:16000, 4:12000, 5:9500, 6:8000, 7:7000, 8:6000, 9:5200, 10:4500,
-    11:4000, 12:3600, 13:3300, 14:3000, 15:2800, 16:2600, 17:2400, 18:2200, 19:2000, 20:1800,
-    21:1650, 22:1500, 23:1400, 24:1300, 25:1200, 26:1100, 27:1000, 28:950, 29:900, 30:850,
-    31:800, 32:750, 33:700, 34:650, 35:600, 36:550, 37:500, 38:475, 39:450, 40:425,
-    41:400, 42:375, 43:350, 44:325, 45:300, 46:275, 47:250, 48:225, 49:200, 50:175
-  };
+  // ✅ CHANGED: My Season Progression's economy figures (entry fee, tyre
+  // make/model/price, track km-per-lap, race earnings payout table) used to
+  // be hardcoded constants here - now staff-editable via Staff > Economy >
+  // Seasonal Costs, fetched live via window.IFWL_SeasonalCostsAPI below.
 
   // ✅ ADDED: Career Perks - Gold-only, pick exactly 3 of 5, locked for the
   // season once chosen (only staff can reset, beta period).
@@ -4051,6 +4127,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const accDriverNames = currentProfile?.accDriverNames || [];
     if(!accDriverNames.length) return null;
 
+    const costs = await window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts();
     const season = await window.IFWL_SeasonAPI.fetchSeasonWindow();
     const startMs = season.startDate ? Date.parse(season.startDate + 'T00:00:00Z') : 0;
     const endMs = season.endDate ? Date.parse(season.endDate + 'T23:59:59Z') : Date.now();
@@ -4125,7 +4202,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const totalPoints = points + (cleanBonus ? 10 : 0);
 
       const trackSlug = String(myRow.track||'').toLowerCase().replace(/\s+/g,'_');
-      const kmPerLap = SP_TRACK_KM[trackSlug] || 0;
+      const kmPerLap = costs.trackKmLookup[trackSlug] || 0;
       const lapCount = Number(myRow.lapCount) || 0;
       const mileageKm = lapCount * kmPerLap;
 
@@ -4140,7 +4217,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // these aren't locked to "at the time" since race earnings for a
       // given race are only ever calculated once, at render time, using
       // whatever perks are currently active.
-      let raceEarnings = SP_RACE_EARNINGS[position] || 0;
+      let raceEarnings = costs.raceEarnings[position] || 0;
       if(hasPerk('trackAnalysis')) raceEarnings = Math.round(raceEarnings * (1 + SP_PERK_TRACK_ANALYSIS_BONUS));
       const noPenaltyThisRace = !penalizedTickets.some(t => (t.track||'').toLowerCase() === (myRow.track||'').toLowerCase() && t.timestampMs >= raceTs && t.timestampMs <= raceTs + (3*24*60*60*1000));
       if(hasPerk('strategyCommand') && noPenaltyThisRace) raceEarnings = Math.round(raceEarnings * (1 + SP_PERK_STRATEGY_BONUS));
@@ -4174,9 +4251,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // Pit-Crew Training (-6%, applied to Entry Fees since there's no
     // separate pit-service cost tracked anywhere in this economy - closest
     // real cost category to discount).
-    const effectiveTyreCost = hasPerk('tyreManagement') ? SP_TYRE_COST_EACH * (1 - SP_PERK_TYRE_DISCOUNT) : SP_TYRE_COST_EACH;
+    const effectiveTyreCost = hasPerk('tyreManagement') ? costs.tyre.pricePerTyre * (1 - SP_PERK_TYRE_DISCOUNT) : costs.tyre.pricePerTyre;
     const totalTyreSpend = Math.round(totalTyres * effectiveTyreCost);
-    const effectiveEntryFee = hasPerk('pitCrewTraining') ? SP_ENTRY_FEE_PER_RACE * (1 - SP_PERK_ENTRY_FEE_DISCOUNT) : SP_ENTRY_FEE_PER_RACE;
+    const effectiveEntryFee = hasPerk('pitCrewTraining') ? costs.entryFeePerRace * (1 - SP_PERK_ENTRY_FEE_DISCOUNT) : costs.entryFeePerRace;
     const totalEntryFees = Math.round(races.length * effectiveEntryFee);
 
     // ✅ ADDED: sponsorship, if the driver currently holds one - its amount
@@ -4209,7 +4286,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       podiums: totals.podiums,
       avgPosition,
       avgConsistency,
-      bestLapMs: totals.bestLapMs
+      bestLapMs: totals.bestLapMs,
+      tyre: costs.tyre,
+      raceEarningsTable: costs.raceEarnings
     };
   }
 
@@ -4307,7 +4386,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         ${gold && data.sponsorship ? `<div class="fc-summary-box"><span>Sponsorship</span><strong>&pound;${data.sponsorship.amount.toLocaleString()}</strong></div>` : ''}
         ${spStatBox('Entry Fees Spent', '&pound;' + data.totalEntryFees.toLocaleString(), 'totalEntryFees', tier)}
         ${spStatBox('Tyres Used (est.)', data.totalTyres, 'totalTyres', tier)}
-        ${spStatBox('Tyre Spend (est.)', '&pound;' + data.totalTyreSpend.toLocaleString(), 'totalTyreSpend', tier)}
+        ${spStatBox(`Tyre Spend (est.)${data.tyre ? ` - ${data.tyre.make} ${data.tyre.model}` : ''}`, '&pound;' + data.totalTyreSpend.toLocaleString(), 'totalTyreSpend', tier)}
         <div class="fc-summary-box" style="border-color:${gold ? netColor : 'var(--ifwl-line)'}"><span>Net Event Earnings</span><strong style="color:${gold ? netColor : 'inherit'}">${gold ? (data.netEventEarnings < 0 ? '-' : '') + '&pound;' + Math.abs(data.netEventEarnings).toLocaleString() : '🔒'}</strong></div>
       </div>
 
@@ -4317,12 +4396,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <table class="fc-stint-table">
             <thead><tr><th>Position</th><th>Payout</th><th>Position</th><th>Payout</th></tr></thead>
             <tbody>${(() => {
-              const positions = Object.keys(SP_RACE_EARNINGS).map(Number).sort((a,b)=>a-b);
+              const earnings = data.raceEarningsTable || {};
+              const positions = Object.keys(earnings).map(Number).sort((a,b)=>a-b);
               const half = Math.ceil(positions.length/2);
               const rows = [];
               for(let i=0;i<half;i++){
                 const p1 = positions[i], p2 = positions[i+half];
-                rows.push(`<tr><td>${p1}${p1===1?'st':p1===2?'nd':p1===3?'rd':'th'}</td><td>&pound;${SP_RACE_EARNINGS[p1].toLocaleString()}</td>${p2 ? `<td>${p2}${p2===1?'st':p2===2?'nd':p2===3?'rd':'th'}</td><td>&pound;${SP_RACE_EARNINGS[p2].toLocaleString()}</td>` : '<td></td><td></td>'}</tr>`);
+                rows.push(`<tr><td>${p1}${p1===1?'st':p1===2?'nd':p1===3?'rd':'th'}</td><td>&pound;${(earnings[p1]||0).toLocaleString()}</td>${p2 ? `<td>${p2}${p2===1?'st':p2===2?'nd':p2===3?'rd':'th'}</td><td>&pound;${(earnings[p2]||0).toLocaleString()}</td>` : '<td></td><td></td>'}</tr>`);
               }
               return rows.join('');
             })()}</tbody>
@@ -4367,6 +4447,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // returning ALL tickets, not just the current user's own, so this is
   // base position points only, clearly labelled as such.
   async function computeSeasonProgressionAllDrivers(){
+    const costs = await window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts();
     const season = await window.IFWL_SeasonAPI.fetchSeasonWindow();
     const startMs = season.startDate ? Date.parse(season.startDate + 'T00:00:00Z') : 0;
     const endMs = season.endDate ? Date.parse(season.endDate + 'T23:59:59Z') : Date.now();
@@ -4407,16 +4488,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         totalEntries++;
         const position = idx + 1;
         totalPoints += Math.max(0, 51 - position);
-        totalRaceEarnings += SP_RACE_EARNINGS[position] || 0;
+        totalRaceEarnings += costs.raceEarnings[position] || 0;
         const trackSlug = String(row.track||'').toLowerCase().replace(/\s+/g,'_');
-        totalMileageKm += (Number(row.lapCount)||0) * (SP_TRACK_KM[trackSlug] || 0);
+        totalMileageKm += (Number(row.lapCount)||0) * (costs.trackKmLookup[trackSlug] || 0);
         totalPitCount += (row.lapObjects||[]).filter(l => l.isValidForBest === false).length;
       });
     }
 
     const totalTyres = totalPitCount * 4;
-    const totalTyreSpend = totalTyres * SP_TYRE_COST_EACH;
-    const totalEntryFees = totalEntries * SP_ENTRY_FEE_PER_RACE;
+    const totalTyreSpend = Math.round(totalTyres * costs.tyre.pricePerTyre);
+    const totalEntryFees = totalEntries * costs.entryFeePerRace;
 
     return {
       seasonLabel: season.label || '',
@@ -9326,6 +9407,113 @@ Flashing Headlights:
     }
   }
 
+  // ✅ ADDED: Staff Seasonal Costs - entry fee, tyre make/model/price, the
+  // Race Earnings payout table (1st-50th) and every track's km-per-lap.
+  // Reads via window.IFWL_SeasonalCostsAPI, same cache the driver-facing
+  // My Season Progression page uses - saving here invalidates that cache so
+  // the very next computeSeasonProgression() call (staff's own, or any
+  // driver's on their next visit) picks up the new figures immediately.
+  let scTrackRowCount = 0;
+
+  function scTrackRowHtml(idx, t){
+    t = t || {};
+    return `<div class="se-event-row" data-row-idx="${idx}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h5 style="margin:0">Track ${idx+1}</h5>
+        <button class="btn ghost" data-remove-track="${idx}" type="button">✕ Remove</button>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field-group" style="flex:2;min-width:160px"><label>Track name</label><input type="text" class="sc-track-name" value="${(t.name||'').replace(/"/g,'&quot;')}" placeholder="e.g. Silverstone"></div>
+        <div class="field-group" style="flex:2;min-width:160px"><label>Slug (matches ACC session data)</label><input type="text" class="sc-track-slug" value="${(t.slug||'').replace(/"/g,'&quot;')}" placeholder="e.g. silverstone"></div>
+        <div class="field-group" style="flex:1;min-width:120px"><label>Km per lap</label><input type="number" class="sc-track-km" value="${t.kmPerLap ?? ''}" min="0" step="0.001"></div>
+      </div>
+    </div>`;
+  }
+
+  function scAddTrackRow(t){
+    const idx = scTrackRowCount++;
+    q('scTrackRows').insertAdjacentHTML('beforeend', scTrackRowHtml(idx, t));
+    document.querySelector(`[data-remove-track="${idx}"]`)?.addEventListener('click', (e) => e.target.closest('[data-row-idx]').remove());
+  }
+
+  function scOrdinal(n){ return n===1?'st':n===2?'nd':n===3?'rd':'th'; }
+
+  async function initSeasonalCostsPanel(){
+    if(!q('staffSeasonalCostsPanel')) return;
+
+    let costs;
+    try{
+      costs = await window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts();
+    }catch(e){
+      q('scEarningsRows').innerHTML = `<tr><td colspan="4">Could not load current seasonal costs: ${e.message}</td></tr>`;
+      return;
+    }
+
+    q('scEntryFee').value = costs.entryFeePerRace;
+    q('scTyreMake').value = costs.tyre.make;
+    q('scTyreModel').value = costs.tyre.model;
+    q('scTyrePrice').value = costs.tyre.pricePerTyre;
+
+    // Race Earnings - 25 rows x (position/payout, position/payout), same
+    // half-split layout as the driver-facing payout table.
+    const earnings = costs.raceEarnings || {};
+    const half = 25;
+    let earningsRowsHtml = '';
+    for(let i=0;i<half;i++){
+      const p1 = i+1, p2 = i+1+half;
+      earningsRowsHtml += `<tr>
+        <td>${p1}${scOrdinal(p1)}</td>
+        <td><input type="number" class="sc-earning-input" data-position="${p1}" value="${earnings[p1] ?? ''}" min="0" step="1" style="width:100%"></td>
+        <td>${p2}${scOrdinal(p2)}</td>
+        <td><input type="number" class="sc-earning-input" data-position="${p2}" value="${earnings[p2] ?? ''}" min="0" step="1" style="width:100%"></td>
+      </tr>`;
+    }
+    q('scEarningsRows').innerHTML = earningsRowsHtml;
+
+    // Tracks
+    q('scTrackRows').innerHTML = ''; scTrackRowCount = 0;
+    (costs.tracks || []).forEach(t => scAddTrackRow(t));
+    if(!(costs.tracks||[]).length) scAddTrackRow();
+
+    q('scAddTrackBtn').onclick = () => scAddTrackRow();
+
+    q('scSaveBtn').onclick = async () => {
+      const status = q('scSaveStatus');
+
+      const entryFeePerRace = Number(q('scEntryFee').value) || 0;
+      const tyre = {
+        make: q('scTyreMake').value.trim(),
+        model: q('scTyreModel').value.trim(),
+        pricePerTyre: Number(q('scTyrePrice').value) || 0
+      };
+      if(!tyre.make || !tyre.model){ status.textContent = 'Tyre make and model are both required.'; return; }
+
+      const raceEarnings = {};
+      let earningsError = '';
+      document.querySelectorAll('.sc-earning-input').forEach(inp => {
+        const pos = Number(inp.dataset.position);
+        const val = Number(inp.value);
+        if(!Number.isFinite(val) || val < 0 || inp.value === ''){ earningsError = `Position ${pos} needs a payout value (0 is fine, blank isn't).`; return; }
+        raceEarnings[pos] = val;
+      });
+      if(earningsError){ status.textContent = earningsError; return; }
+
+      const tracks = [...q('scTrackRows').querySelectorAll('[data-row-idx]')].map(row => ({
+        name: row.querySelector('.sc-track-name').value.trim(),
+        slug: row.querySelector('.sc-track-slug').value.trim().toLowerCase().replace(/\s+/g,'_'),
+        kmPerLap: Number(row.querySelector('.sc-track-km').value) || 0
+      })).filter(t => t.name && t.slug && t.kmPerLap);
+      if(!tracks.length){ status.textContent = 'At least one track with a name, slug and km/lap is required.'; return; }
+
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_SeasonalCostsAPI.saveSeasonalCosts({ entryFeePerRace, tyre, raceEarnings, tracks });
+        status.textContent = 'Saved - every driver picks this up on their next visit.';
+        setTimeout(() => { if(q('scSaveStatus')) q('scSaveStatus').textContent = ''; }, 3000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+  }
+
   async function initAffiliateAdsPanel(){
     if(!q('staffAffiliateAdsPanel')) return;
     const wrap = q('aaSlots');
@@ -9380,6 +9568,7 @@ Flashing Headlights:
     initAffiliateAdsPanel();
     window.initOpsRaceTeamsPanel?.();
     initSponsorshipsPanel();
+    initSeasonalCostsPanel();
     initClassStructurePanel();
     renderSeasonalEventsPanel();
   }
