@@ -548,13 +548,14 @@
   <div class="login-wall-card">
     <img class="login-wall-logo" src="ifwllogo1.png" alt="IFWL.NET">
     <h1>IFWL Live Timings</h1>
-    <p id="loginWallMessage">Login with Discord to enter. You must hold the IFWL Active Racer role, or an eligible Patreon/staff role.</p>
+    <p id="loginWallMessage">Login with Discord to enter. You must hold an active IFWL Licence to access Live Timings.</p>
     <div class="login-wall-levels">
-      <div class="login-wall-level"><strong>Active Racer access</strong><span>Simple timing results, fastest laps and standard race finish information.</span></div>
+      <div class="login-wall-level"><strong>IFWL Licence holders</strong><span>Simple timing results, fastest laps and standard race finish information - requires an active IFWL Licence.</span></div>
       <div class="login-wall-level premium"><strong>Patreon Driver Home</strong><span>Bronze, Silver, Gold and authorised staff unlock all sessions, sectors, consistency, Race Risk, graphs and a personal driver dashboard.</span></div>
     </div>
     <div class="login-wall-actions">
       <button class="login-wall-discord" id="loginWallDiscordBtn" type="button">Login with Discord</button>
+      <a class="login-wall-patreon" href="https://ifwlowner.github.io/ACC-driver-classifier/licence.html" id="loginWallLicenceLink">Go to Licence Centre</a>
       <a class="login-wall-patreon" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Join Patreon</a>
       <button class="login-wall-logout hidden" id="loginWallLogoutBtn" type="button">Logout</button>
     </div>
@@ -4567,6 +4568,12 @@
 /* Discord login and Patreon detailed-access layer reused from IFWL TuneBuilder. */
 (() => {
   const AUTH={FUNCTION:'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate',REDIRECT_URI:location.origin+location.pathname,SESSION_KEY:'IFWL_PATREON_SESSION',META_KEY:'IFWL_PATREON_META'};
+  // ✅ ADDED: this block and the login-wall block below it are separate
+  // closures (each own IIFE) - exposing these two lets the wall's licence
+  // check reuse the same session token and Cloud Function this script
+  // already uses, without duplicating the AUTH config in two places.
+  window.IFWL_TIMINGS_getSessionToken = () => readStore(AUTH.SESSION_KEY);
+  window.IFWL_TIMINGS_AUTH_FUNCTION = AUTH.FUNCTION;
   const q=id=>document.getElementById(id), bar=q('ifwlAccountBar'), title=q('ifwlAccountTitle'), text=q('ifwlAccountText'), pill=q('ifwlAccessPill'), login=q('discordLoginBtn'), navLogin=q('discordAccountBtn'), logout=q('discordLogoutBtn'), modal=q('ifwlAuthModal'), modalLogin=q('ifwlModalLoginBtn'), close=q('ifwlAuthCloseBtn'), err=q('ifwlAuthError');
   let meta=null;
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -4671,6 +4678,31 @@
   wallLogin?.addEventListener('click',()=>q('discordLoginBtn')?.click());
   wallLogout?.addEventListener('click',()=>q('discordLogoutBtn')?.click());
 
+  // ✅ ADDED: hard requirement - an actual IFWL Licence, not just a Discord
+  // role. Reuses the SAME rtGate ?licenceProfile=1 endpoint the main
+  // Licence Centre page uses to check/auto-issue a licence - a driver only
+  // has a licenceNumber once that's actually happened for their account, so
+  // this is a genuine "are you a real IFWL licence holder" check, not just
+  // a role flag that could be present without ever completing onboarding.
+  // Cached per session token so re-checking on every ifwl-auth-changed
+  // event (there are several listeners on this page) doesn't refetch every
+  // time - only actually re-checks if the token itself changes (new login).
+  let licenceCheckCache=null;
+  async function hasIfwlLicence(){
+    const token=window.IFWL_TIMINGS_getSessionToken?.()||'';
+    if(!token)return false;
+    if(licenceCheckCache&&licenceCheckCache.token===token)return licenceCheckCache.hasLicence;
+    let hasLicence=false;
+    try{
+      const authFn=window.IFWL_TIMINGS_AUTH_FUNCTION;
+      const r=await fetch(`${authFn}?licenceProfile=1&token=${encodeURIComponent(token)}`,{cache:'no-store'});
+      const d=await r.json().catch(()=>null);
+      hasLicence=!!(r.ok&&d&&d.profile&&d.profile.licenceNumber);
+    }catch(e){hasLicence=false}
+    licenceCheckCache={token,hasLicence};
+    return hasLicence;
+  }
+
   function moveDriverHome(){
     const panel=q('myDriverPanel'),main=document.querySelector('main'),status=q('status'); if(!panel||!main)return;
     if(status?.nextSibling) main.insertBefore(panel,status.nextSibling); else main.prepend(panel);
@@ -4719,10 +4751,28 @@
     const load=q('loadMyProfileBtn');if(load){load.click()}
     let attempts=0;const timer=setInterval(()=>{attempts++;filterDriverSelect(q('myDriverSearch')?.value||'');renderPremiumAnalytics();if(attempts>24)clearInterval(timer)},500);
   }
-  function applyAccess(meta){
-    const detailed=!!window.IFWL_TIMINGS_DETAILED,allowed=isActive(meta);
-    if(!meta){showWall('Login with Discord to enter. You must hold the IFWL Active Racer role, or an eligible Patreon/staff role.');return}
-    if(!allowed){showWall('Your Discord account was found, but the IFWL Active Racer role or eligible Patreon/staff access was not detected.','Access denied for this account.');return}
+  async function applyAccess(meta){
+    const detailed=!!window.IFWL_TIMINGS_DETAILED,roleAllowed=isActive(meta);
+    if(!meta){showWall('Login with Discord to enter. You must hold an active IFWL Licence to access Live Timings.');return}
+    if(!roleAllowed){showWall('Your Discord account was found, but the IFWL Active Racer role or eligible Patreon/staff access was not detected.','Access denied for this account.');return}
+
+    // ✅ ADDED: staff are exempt from needing a personal licence, same
+    // principle as the main Licence Centre page - they need to be able to
+    // manage/moderate Live Timings regardless of whether they personally
+    // hold a driver licence. Everyone else must actually be an IFWL Licence
+    // holder, not just hold an eligible Discord role.
+    if(!isStaff(meta)){
+      showWall('Checking your IFWL Licence...');
+      const licenceOk=await hasIfwlLicence();
+      window.IFWL_TIMINGS_HAS_LICENCE=licenceOk;
+      if(!licenceOk){
+        showWall('You need an active IFWL Licence to access Live Timings. Head to the Licence Centre to get set up, then come back and log in again.','No IFWL Licence found for this Discord account.');
+        return;
+      }
+    } else {
+      window.IFWL_TIMINGS_HAS_LICENCE=true;
+    }
+
     hideWall();document.body.classList.toggle('premium-home',detailed);document.body.classList.toggle('simple-access',!detailed);
     const title=q('ifwlAccountTitle'),txt=q('ifwlAccountText');
     if(detailed){if(title)title.innerHTML='Patreon Driver Home <span class="access-pill granted">Full detailed access</span>';if(txt)txt.textContent='Your full driver dashboard, all sessions, consistency, Race Risk, sectors and graphs are unlocked.';moveDriverHome();setTimeout(loadPremiumData,300)}
@@ -5809,3 +5859,4 @@
 
 </body>
 </html>
+
