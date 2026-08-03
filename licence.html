@@ -4542,14 +4542,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const effectiveEntryFee = hasPerk('pitCrewTraining') ? costs.entryFeePerRace * (1 - SP_PERK_ENTRY_FEE_DISCOUNT) : costs.entryFeePerRace;
     const totalEntryFees = Math.round(races.length * effectiveEntryFee);
 
-    // ✅ ADDED: sponsorship, if the driver currently holds one - its amount
-    // is straight income, added into Net Event Earnings alongside race
-    // winnings.
-    let sponsorship = null;
-    try{ sponsorship = (await apiGet('mySponsorship')).sponsorship; }catch(e){ console.warn('Could not load sponsorship', e); }
-    const sponsorshipAmount = sponsorship?.amount || 0;
+    // ✅ CHANGED: a driver can now hold several simultaneous sponsorships -
+    // every deal's amount counts as income toward Net Event Earnings, not
+    // just one.
+    let sponsorships = [];
+    try{ sponsorships = (await apiGet('mySponsorship')).sponsorships || []; }catch(e){ console.warn('Could not load sponsorships', e); }
+    const sponsorshipAmount = sponsorships.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
 
-    // Event Earnings - race winnings (plus any sponsorship) minus what it
+    // Event Earnings - race winnings (plus any sponsorships) minus what it
     // cost to be there (entry fees + tyres). Can go negative, same as real
     // racing economics often do.
     const netEventEarnings = totals.raceEarnings + sponsorshipAmount - totalEntryFees - totalTyreSpend;
@@ -4563,7 +4563,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       totalLaps: totals.lapCount,
       totalEntryFees,
       totalRaceEarnings: totals.raceEarnings,
-      sponsorship,
+      sponsorships,
       myPerks,
       netEventEarnings,
       totalTyres,
@@ -4666,10 +4666,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </div>
 
       <h4 style="margin:20px 0 10px">Event Earnings</h4>
-      ${gold && data.sponsorship ? `<div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08)"><strong>🤝 Sponsored by ${data.sponsorship.companyName}</strong><br>${data.sponsorship.dealDescription}</div>` : ''}
+      ${gold && data.sponsorships?.length ? `<div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08)"><strong>🤝 Sponsored by ${data.sponsorships.length} compan${data.sponsorships.length===1?'y':'ies'}</strong><br>${data.sponsorships.map(s => `${s.companyName} - ${s.dealDescription}`).join('<br>')}</div>` : ''}
       <div class="fc-summary-grid">
         ${spStatBox('Race Earnings (Winnings)', '&pound;' + data.totalRaceEarnings.toLocaleString(), 'totalRaceEarnings', tier)}
-        ${gold && data.sponsorship ? `<div class="fc-summary-box"><span>Sponsorship</span><strong>&pound;${data.sponsorship.amount.toLocaleString()}</strong></div>` : ''}
+        ${gold && data.sponsorships?.length ? `<div class="fc-summary-box"><span>Sponsorship${data.sponsorships.length>1?'s':''}</span><strong>&pound;${data.sponsorships.reduce((sum,s)=>sum+(Number(s.amount)||0),0).toLocaleString()}</strong></div>` : ''}
         ${spStatBox('Entry Fees Spent', '&pound;' + data.totalEntryFees.toLocaleString(), 'totalEntryFees', tier)}
         ${spStatBox('Tyres Used (est.)', data.totalTyres, 'totalTyres', tier)}
         ${spStatBox(`Tyre Spend (est.)${data.tyre ? ` - ${data.tyre.make} ${data.tyre.model}` : ''}`, '&pound;' + data.totalTyreSpend.toLocaleString(), 'totalTyreSpend', tier)}
@@ -4967,13 +4967,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // previous dismiss's write actually landing, showing the popup again
       // even though it was already dismissed seconds earlier. This adds a
       // client-side guard that's set the instant it's dismissed, not
-      // dependent on that round-trip completing first - keyed to the
-      // specific deal (awardedAtMs) so a genuinely new sponsorship later
-      // still pops up correctly.
-      const dealKey = data?.sponsorship ? `ifwl_sponsor_seen_${data.sponsorship.awardedAtMs}` : null;
-      if(data?.sponsorship && !data.sponsorship.acknowledged && dealKey && !sessionStorage.getItem(dealKey)){
-        checkSponsorshipPopup(data.sponsorship, dealKey);
-      }
+      // dependent on that round-trip completing first - keyed per deal
+      // (id, or awardedAtMs for older deals from before ids existed) so a
+      // genuinely new sponsorship still pops up correctly.
+      // ✅ CHANGED: a driver can now hold several sponsorships at once, so
+      // every unseen/unacknowledged deal queues up and is shown one at a
+      // time rather than assuming there's ever only one.
+      const unseenDeals = (data?.sponsorships||[]).filter(s => !s.acknowledged && !sessionStorage.getItem(`ifwl_sponsor_seen_${s.id || s.awardedAtMs}`));
+      if(unseenDeals.length) checkSponsorshipPopup(unseenDeals);
     }catch(e){
       q('spBody').innerHTML = `<div class="empty">Could not load season progression: ${e.message}</div>`;
     }
@@ -5055,6 +5056,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         Donation verified (permanent - Owner only)
       </label>
       ${!opts.isOwnerRole ? '<p class="field-hint">Only the site Owner role can tick this.</p>' : ''}
+
+      <hr style="border-color:var(--ifwl-line);margin:20px 0">
+      <h4 style="margin:0 0 10px">Ops-Only: Team Restrictions</h4>
+      <p class="field-hint" style="margin-bottom:10px">For situations like a suspected poaching/recruitment concern - reins in a specific team without disbanding it, kicking anyone, or penalising members who had nothing to do with it.</p>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <input type="checkbox" id="rtApplicationsLocked" style="width:auto" ${team.applicationsLocked ? 'checked' : ''}>
+        Applications Closed - blocks NEW join requests. Existing roster is untouched.
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <input type="checkbox" id="rtHiddenFromDirectory" style="width:auto" ${team.hiddenFromDirectory ? 'checked' : ''}>
+        Hidden From Public Browse List - won't show up when browsing teams. Direct links and existing members still work as normal.
+      </label>
+      <div class="field-group"><label>Internal note (staff only - never shown to the team or anyone public)</label><textarea id="rtRestrictionNote" style="width:100%;min-height:60px">${(team.restrictionNote||'').replace(/</g,'&lt;')}</textarea></div>
+      <button class="btn ghost" id="rtSaveRestrictionsBtn" type="button">Save restrictions</button>
+      <span class="save-status" id="rtRestrictionStatus"></span>
       ` : ''}
 
       <hr style="border-color:var(--ifwl-line);margin:20px 0">
@@ -5099,6 +5115,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           catch(e){ alert('Could not update: ' + e.message); donationBox.checked = !donationBox.checked; }
         });
       }
+      container.querySelector('#rtSaveRestrictionsBtn')?.addEventListener('click', async () => {
+        const status = container.querySelector('#rtRestrictionStatus');
+        status.textContent = 'Saving...';
+        try{
+          await apiPost('staffSetTeamRestrictions', {
+            teamId,
+            applicationsLocked: container.querySelector('#rtApplicationsLocked').checked,
+            hiddenFromDirectory: container.querySelector('#rtHiddenFromDirectory').checked,
+            restrictionNote: container.querySelector('#rtRestrictionNote').value
+          });
+          status.textContent = 'Saved.';
+          setTimeout(() => { if(container.querySelector('#rtRestrictionStatus')) container.querySelector('#rtRestrictionStatus').textContent = ''; }, 2000);
+        }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+      });
       container.querySelector('#rtDisbandBtn')?.addEventListener('click', async () => {
         if(!confirm(`Disband ${team.teamName}? This removes every member's logo and can't be undone.`)) return;
         try{ await apiPost('disbandRaceTeam', { teamId }); container.innerHTML = '<div class="empty">Team disbanded.</div>'; }
@@ -5238,6 +5268,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="note-item">
         ${t.logoUrl ? `<img src="${t.logoUrl}" style="width:32px;height:32px;border-radius:6px;float:left;margin-right:10px" alt="">` : ''}
         <strong>${t.teamName}</strong>
+        ${(t.applicationsLocked || t.hiddenFromDirectory) ? `<span class="scout-badge unlinked" style="margin-left:8px">${[t.applicationsLocked?'Apps Closed':'',t.hiddenFromDirectory?'Hidden':''].filter(Boolean).join(' + ')}</span>` : ''}
         <div style="margin-top:8px;clear:both"><button class="btn ghost" data-manage="${t.id}">Manage</button></div>
       </div>
     `).join('') : '<div class="empty">No active teams yet.</div>';
@@ -5250,22 +5281,30 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
   window.initOpsRaceTeamsPanel = initOpsRaceTeamsPanel;
 
-  // One-time celebration popup for a fresh, unacknowledged sponsorship deal
-  // - shown once, then the deal just sits as a permanent stat card on the
-  // page afterward rather than popping up every visit.
-  function checkSponsorshipPopup(sponsorship, dealKey){
+  // Celebration popup for fresh, unacknowledged sponsorship deal(s) - shown
+  // once each, then each just sits as a permanent stat card on the page
+  // afterward rather than popping up every visit. ✅ CHANGED: a driver can
+  // now hold several simultaneous deals, so this takes a QUEUE and shows
+  // each one in turn - dismissing one immediately reveals the next, rather
+  // than assuming there's ever only one to show.
+  function checkSponsorshipPopup(queue){
+    if(!queue || !queue.length) return;
     const modal = q('sponsorshipModal');
     if(!modal) return;
+    const [sponsorship, ...rest] = queue;
+    const dealKey = `ifwl_sponsor_seen_${sponsorship.id || sponsorship.awardedAtMs}`;
     q('sponsorshipModalBody').innerHTML = `
       <p style="font-size:16px"><strong>${sponsorship.companyName}</strong> have come on board as your sponsor!</p>
       <p style="color:var(--text-muted)">${sponsorship.dealDescription}</p>
       <p style="font-size:22px;font-weight:800;color:#ffb238;margin-top:10px">&pound;${sponsorship.amount.toLocaleString()}</p>
+      ${rest.length ? `<p class="field-hint" style="margin-top:8px">${rest.length} more new sponsor${rest.length===1?'':'s'} to see after this one.</p>` : ''}
     `;
     modal.classList.remove('hidden');
     q('sponsorshipModalDismissBtn').onclick = async () => {
       modal.classList.add('hidden');
-      if(dealKey) sessionStorage.setItem(dealKey, '1'); // set immediately, don't wait on the network call below
-      try{ await apiPost('myAcknowledgeSponsorship', {}); }catch(e){ console.warn('Could not acknowledge sponsorship', e); }
+      sessionStorage.setItem(dealKey, '1'); // set immediately, don't wait on the network call below
+      try{ await apiPost('myAcknowledgeSponsorship', { dealId: sponsorship.id }); }catch(e){ console.warn('Could not acknowledge sponsorship', e); }
+      if(rest.length) checkSponsorshipPopup(rest); // next stacked deal, if any
     };
   }
 
@@ -10062,7 +10101,10 @@ Flashing Headlights:
         // staff view uses, then matched against real licence profiles via
         // accDriverNames (substring match, same convention as everywhere
         // else) to get real discordIds - the backend needs actual driver
-        // IDs to check/write activeSponsorship, not just in-game names.
+        // IDs to write a new sponsorship deal, not just in-game names.
+        // ✅ CHANGED: no longer excludes drivers who already hold a deal -
+        // drivers can now stack multiple simultaneous sponsorships, so the
+        // eligible pool no longer shrinks every roll as more people win.
         const season = await window.IFWL_SeasonAPI.fetchSeasonWindow();
         const startMs = season.startDate ? Date.parse(season.startDate + 'T00:00:00Z') : 0;
         const endMs = season.endDate ? Date.parse(season.endDate + 'T23:59:59Z') : Date.now();
@@ -10087,13 +10129,12 @@ Flashing Headlights:
 
         const profiles = await staffSearch('');
         const eligibleIds = profiles.filter(p => {
-          if(p.activeSponsorship) return false;
           const aliases = (p.accDriverNames||[]).map(n => window.IFWLStats.driverNameKey(n));
           if(!aliases.length) return false;
           return [...seasonDriverKeys].some(dk => aliases.some(a => dk.includes(a) || a.includes(dk)));
         }).map(p => p.discordId);
 
-        if(!eligibleIds.length){ resultBox.innerHTML = '<div class="empty">No eligible drivers found (either nobody raced yet this season, or everyone already has a deal).</div>'; return; }
+        if(!eligibleIds.length){ resultBox.innerHTML = '<div class="empty">No eligible drivers found - nobody raced yet this season.</div>'; return; }
 
         resultBox.innerHTML = `<div class="empty">Rolling against ${eligibleIds.length} eligible driver(s)&hellip;</div>`;
         const result = await window.IFWL_Api.apiPost('staffRunSponsorshipLottery', { eligibleDriverIds: eligibleIds });
@@ -10174,12 +10215,12 @@ Flashing Headlights:
         <div class="note-item">
           <strong>${s.driverName}</strong>
           <div class="note-meta">${s.companyName} &middot; &pound;${s.amount.toLocaleString()} &middot; ${new Date(s.awardedAtMs).toLocaleDateString()}</div>
-          <div style="margin-top:8px"><button class="btn ghost" data-clear-sponsorship="${s.driverId}">Clear deal</button></div>
+          <div style="margin-top:8px"><button class="btn ghost" data-clear-sponsorship="${s.driverId}" data-clear-deal-id="${s.id||''}">Clear deal</button></div>
         </div>
       `).join('');
       wrap.querySelectorAll('[data-clear-sponsorship]').forEach(btn => btn.addEventListener('click', async () => {
-        if(!confirm('Clear this sponsorship deal? The driver becomes eligible to roll again next lottery.')) return;
-        try{ await window.IFWL_Api.apiPost('staffClearSponsorship', { driverId: btn.dataset.clearSponsorship }); await renderCurrentSponsorships(); }
+        if(!confirm('Clear this sponsorship deal? This only removes this one deal - any other sponsorships this driver holds are untouched.')) return;
+        try{ await window.IFWL_Api.apiPost('staffClearSponsorship', { driverId: btn.dataset.clearSponsorship, dealId: btn.dataset.clearDealId || undefined }); await renderCurrentSponsorships(); }
         catch(e){ alert('Could not clear: ' + e.message); }
       }));
     }catch(e){
