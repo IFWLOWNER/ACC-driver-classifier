@@ -97,11 +97,22 @@
     padding:22px;
     margin-bottom:20px;
   }
+  .hero-lede{ margin:0 0 14px; color:var(--muted); font-size:.92rem; }
   .steps{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; }
-  .step{ background:var(--panel-2); border:1px solid var(--line); border-radius:14px; padding:14px; }
+  .step{ background:var(--panel-2); border:1px solid var(--line); border-radius:14px; padding:14px; transition:.2s ease; position:relative; }
   .step b{ display:block; font-family:var(--font-mono); font-size:.78rem; color:var(--amber); margin-bottom:6px; }
   .step span{ font-weight:700; letter-spacing:-.01em; }
   .step small{ display:block; color:var(--muted); margin-top:6px; line-height:1.45; font-size:.86rem; }
+  .step.is-active{ border-color:var(--amber); box-shadow:0 0 0 3px rgba(255,183,3,.14); }
+  .step.is-active b{ color:var(--amber); }
+  .step.is-done{ border-color:#1d4b32; background:#0f2a1c; }
+  .step.is-done b::after{ content:" ✓"; color:var(--green); }
+
+  @keyframes pulseGlow{
+    0%,100%{ box-shadow:0 10px 22px rgba(255,183,3,.18); }
+    50%{ box-shadow:0 10px 34px rgba(255,183,3,.62); }
+  }
+  button.pulse{ animation:pulseGlow 1.6s ease-in-out infinite; }
 
   .grid{ display:grid; grid-template-columns:380px 1fr; gap:20px; align-items:start; }
 
@@ -236,6 +247,15 @@
     padding:2px 8px; font-size:.68rem; font-weight:700; font-family:var(--font-mono);
     text-transform:uppercase; letter-spacing:.03em; cursor:help;
   }
+  .issue-line{
+    margin-top:7px; display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+    font-size:.8rem; font-weight:700; color:#ffbb70;
+  }
+  .issue-remove{
+    padding:5px 10px; border-radius:8px; font-size:.74rem; font-weight:700;
+    background:#2a1516; color:#ff9c95; border:1px solid #4a2224;
+  }
+  .issue-remove:hover{ background:#3a1c1e; }
   .admin-tag{
     display:inline-flex; align-items:center; gap:4px; margin-left:8px; vertical-align:middle;
     background:#2a1516; color:#ff9c95; border:1px solid #4a2224; border-radius:999px;
@@ -302,19 +322,20 @@
     </header>
 
     <section class="hero">
+      <p class="hero-lede">Follow these four steps in order. Each step lights up when it's your turn.</p>
       <div class="steps">
-        <div class="step"><b>01</b><span>Upload JSON</span><small>The SimGrid / ACC base entrylist file.</small></div>
-        <div class="step"><b>02</b><span>Upload CSV</span><small>Reads car number, real name, username, class.</small></div>
-        <div class="step"><b>03</b><span>Add race control</b></span><small>One tap for regular staff, or add anyone else.</small></div>
-        <div class="step"><b>04</b><span>Download JSON</span><small>Exports a working <strong>entrylist.json</strong>.</small></div>
+        <div class="step" id="step1"><b>01</b><span>Upload JSON</span><small>The base entrylist file SimGrid gave you.</small></div>
+        <div class="step" id="step2"><b>02</b><span>Upload CSV</span><small>The driver list SimGrid gave you — sets everyone's class automatically.</small></div>
+        <div class="step" id="step3"><b>03</b><span>Add race control</span><small>Tap to add regular staff, or anyone else who needs a slot.</small></div>
+        <div class="step" id="step4"><b>04</b><span>Download</span><small>Saves entrylist.json — upload that file to your server.</small></div>
       </div>
     </section>
 
     <section class="grid">
       <aside class="card">
         <div class="card-head">
-          <h2>Build settings</h2>
-          <p>Everything runs in the browser. No files are uploaded anywhere.</p>
+          <h2>Build your entrylist</h2>
+          <p>Everything happens on this page — nothing is uploaded to the internet.</p>
         </div>
         <div class="card-body">
           <label class="upload-zone" id="jsonDrop">
@@ -331,11 +352,11 @@
             <span class="file-pill" id="csvName"></span>
           </label>
 
-          <label class="field-label" for="defaultCategory">Fallback category</label>
+          <label class="field-label" for="defaultCategory">If we can't read a driver's class, use:</label>
           <select id="defaultCategory">
-            <option value="0">Beginner / Rookie — ACC value 0</option>
-            <option value="1">AM — ACC value 1</option>
-            <option value="3">Pro — ACC value 3</option>
+            <option value="0">Beginner / Rookie</option>
+            <option value="1">AM</option>
+            <option value="3">Pro</option>
           </select>
 
           <hr class="divider" />
@@ -469,6 +490,37 @@
     let csvRows = [];
     let generatedRoot = null;
     let reviewRows = [];
+    let hasDownloaded = false;
+
+    // Highlights whichever of the 4 steps is next, and gives the one button that
+    // matters right now a gentle glow — so nobody has to guess what to do next.
+    function updateGuidance(){
+      const s1 = document.getElementById('step1');
+      const s2 = document.getElementById('step2');
+      const s3 = document.getElementById('step3');
+      const s4 = document.getElementById('step4');
+      [s1,s2,s3,s4].forEach(s => s.classList.remove('is-active','is-done'));
+
+      if(!baseJson){
+        s1.classList.add('is-active');
+      } else {
+        s1.classList.add('is-done');
+        if(!csvRows.length){
+          s2.classList.add('is-active');
+        } else {
+          s2.classList.add('is-done');
+          if(!generatedRoot){
+            s3.classList.add('is-active');
+          } else {
+            s3.classList.add('is-done');
+            if(!hasDownloaded) s4.classList.add('is-active'); else s4.classList.add('is-done');
+          }
+        }
+      }
+
+      els.buildBtn.classList.toggle('pulse', !!baseJson && !generatedRoot);
+      els.downloadBtn.classList.toggle('pulse', !!generatedRoot && !els.downloadBtn.disabled && !hasDownloaded);
+    }
 
     setupDrop('jsonDrop', els.jsonFile);
     setupDrop('csvDrop', els.csvFile);
@@ -483,6 +535,7 @@
     els.addCommentatorBtn.addEventListener('click', addCommentator);
 
     renderRoster();
+    updateGuidance();
 
     function setupDrop(id, input){
       const zone = document.getElementById(id);
@@ -532,6 +585,7 @@
       } catch(err){
         baseJson = null;
         setStatus(`JSON load failed: ${err.message}`, 'bad');
+        updateGuidance();
       }
     }
 
@@ -546,6 +600,7 @@
         csvRows = [];
         setStatus(`CSV load failed: ${err.message}`, 'bad');
       }
+      updateGuidance();
     }
 
     function setFilePill(el, name){
@@ -741,7 +796,7 @@
     }
 
     function rebuildReviewRows(){
-      if(!generatedRoot || !Array.isArray(generatedRoot.entries)){ reviewRows = []; renderRoster(); return; }
+      if(!generatedRoot || !Array.isArray(generatedRoot.entries)){ reviewRows = []; renderRoster(); updateGuidance(); return; }
       reviewRows = generatedRoot.entries.map((entry, index) => {
         const d = Array.isArray(entry.drivers) && entry.drivers.length ? entry.drivers[0] : {};
         const number = toInt(entry.raceNumber) ?? 0;
@@ -770,6 +825,7 @@
 
       renderRows();
       renderRoster();
+      updateGuidance();
     }
 
     function renderRows(){
@@ -790,12 +846,17 @@
                 <option value="1" ${r.category===1?'selected':''}>AM — 1</option>
                 <option value="3" ${r.category===3?'selected':''}>Pro — 3</option>
               </select>`;
-          const idFlag = r.idIssue ? `<span class="id-flag" title="${escapeHtml(r.idIssue)}">⚠ ID issue</span>` : '';
+          const idFlag = r.idIssue ? `<span class="id-flag">⚠ ID issue</span>` : '';
           const adminTag = (r.isAdmin && !isStaffRow) ? `<span class="admin-tag" title="Also has server admin rights">Admin</span>` : '';
+          const issueLine = r.idIssue ? `
+            <div class="issue-line">
+              ⚠ ${escapeHtml(r.idIssue)}
+              <button type="button" class="issue-remove" data-remove-index="${r.index}">${r.idIssue.includes('Duplicate') ? 'Remove duplicate' : 'Remove this entry'}</button>
+            </div>` : '';
           return `
           <tr class="${r.idIssue ? 'flag-row' : ''}">
             <td><span class="${plateClass}">${escapeHtml(r.number || '')}</span></td>
-            <td><div class="driver-name">${escapeHtml(r.name)}${adminTag}${idFlag}</div><div class="driver-sub">${escapeHtml(r.playerID || 'No player ID found')}</div></td>
+            <td><div class="driver-name">${escapeHtml(r.name)}${adminTag}${idFlag}</div><div class="driver-sub">${escapeHtml(r.playerID || 'No player ID found')}</div>${issueLine}</td>
             <td>${escapeHtml(r.team || '—')}</td>
             <td>${escapeHtml(String(r.car || '—'))}</td>
             <td>${classCell}</td>
@@ -813,8 +874,23 @@
           row.entry.driverCategory = cat;
           updateOutputFromReview();
         }));
+        document.querySelectorAll('button[data-remove-index]').forEach(btn => btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.removeIndex, 10);
+          removeEntryAtIndex(idx);
+        }));
       }
       updateStats();
+    }
+
+    function removeEntryAtIndex(idx){
+      if(!generatedRoot || !Array.isArray(generatedRoot.entries)) return;
+      const row = reviewRows.find(r => r.index === idx);
+      if(!row) return;
+      const label = row.name && row.name !== '(driver)' ? row.name : (row.playerID || 'that entry');
+      generatedRoot.entries.splice(idx, 1);
+      rebuildReviewRows();
+      updateOutputFromReview();
+      setStatus(`Removed ${label} from the entrylist.`, 'ok');
     }
 
     function sourceTag(source){
@@ -846,6 +922,7 @@
         els.output.value = '';
         els.downloadBtn.disabled = true;
         els.copyBtn.disabled = true;
+        updateGuidance();
         return;
       }
       if(Array.isArray(generatedRoot.entries)){
@@ -859,6 +936,7 @@
       els.downloadBtn.disabled = false;
       els.copyBtn.disabled = false;
       updateStats();
+      updateGuidance();
     }
 
     // ---- Race control roster (hard-wired presets) ----
@@ -972,6 +1050,8 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      hasDownloaded = true;
+      updateGuidance();
       showToast('entrylist.json downloaded');
     }
 
@@ -988,13 +1068,13 @@
     }
 
     function resetAll(){
-      baseJson = null; csvRows = []; generatedRoot = null; reviewRows = [];
+      baseJson = null; csvRows = []; generatedRoot = null; reviewRows = []; hasDownloaded = false;
       els.jsonFile.value = ''; els.csvFile.value = '';
       els.jsonName.classList.remove('show'); els.csvName.classList.remove('show');
       els.output.value = ''; els.search.value = '';
       els.rows.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">No drivers loaded yet.</td></tr>`;
       els.downloadBtn.disabled = true; els.copyBtn.disabled = true;
-      updateStats(); renderRoster(); setStatus('Reset complete. Load your JSON and CSV to begin.');
+      updateStats(); renderRoster(); updateGuidance(); setStatus('Reset complete. Load your JSON and CSV to begin.');
     }
 
     function escapeHtml(v){
