@@ -22,6 +22,7 @@
     --blue:#3ea6ff;
     --red:#ef4444;
     --orange:#f97316;
+    --purple:#a78bfa;
     --shadow:0 24px 70px rgba(0,0,0,.55);
     --shadow-soft:0 10px 30px rgba(0,0,0,.35);
     --radius:20px;
@@ -256,6 +257,9 @@
     background:#2a1516; color:#ff9c95; border:1px solid #4a2224;
   }
   .issue-remove:hover{ background:#3a1c1e; }
+  .class-flag-line{ margin-top:7px; font-size:.8rem; font-weight:700; color:#cbb8ff; }
+  tr.class-issue-row td{ background:rgba(167,139,250,.09); }
+  tr.class-issue-row:hover td{ background:rgba(167,139,250,.15); }
   .admin-tag{
     display:inline-flex; align-items:center; gap:4px; margin-left:8px; vertical-align:middle;
     background:#2a1516; color:#ff9c95; border:1px solid #4a2224; border-radius:999px;
@@ -418,6 +422,7 @@
             <span><i style="background:var(--amber)"></i>AM</span>
             <span><i style="background:var(--blue)"></i>Pro</span>
             <span><i style="background:var(--orange)"></i>Flagged ID</span>
+            <span><i style="background:var(--purple)"></i>No CSV match</span>
             <span><i style="background:var(--red)"></i>Steward / broadcast</span>
           </div>
 
@@ -491,6 +496,7 @@
     let generatedRoot = null;
     let reviewRows = [];
     let hasDownloaded = false;
+    let lastCsvNumbers = new Set();
 
     // Highlights whichever of the 4 steps is next, and gives the one button that
     // matters right now a gentle glow — so nobody has to guess what to do next.
@@ -697,6 +703,10 @@
       return null;
     }
 
+    function categoryLabel(cat){
+      return cat === 3 ? 'Pro' : (cat === 1 ? 'AM' : 'Beginner');
+    }
+
     function mapClass(raw, fallback){
       if(raw === null || raw === undefined || String(raw).trim() === '') return fallback;
       let t = String(raw).trim().replace(/[–—]/g, '-');
@@ -737,6 +747,11 @@
           teamName: get(row, 'team name')
         });
       });
+
+      // Remember exactly which race numbers this CSV actually covered, so we can flag
+      // any driver already in the JSON who the CSV never mentioned — otherwise they
+      // silently keep whatever category was already sitting in the base file (often 0).
+      lastCsvNumbers = new Set(csvByNumber.keys());
 
       csvByNumber.forEach(row => {
         const cat = mapClass(row.classText, fallback);
@@ -782,10 +797,14 @@
       rebuildReviewRows();
       updateOutputFromReview();
       const flaggedCount = reviewRows.filter(r => r.idIssue).length;
+      const unmatchedCount = reviewRows.filter(r => r.classIssue).length;
+      const warnings = [];
+      if(unmatchedCount) warnings.push(`${unmatchedCount} driver(s) have no matching CSV row — their class wasn't confirmed, check them manually`);
+      if(flaggedCount) warnings.push(`${flaggedCount} player ID(s) look wrong`);
       setStatus(
         `Generated preview with ${reviewRows.length} entries. Check classes, then download.` +
-        (flaggedCount ? ` ⚠ ${flaggedCount} player ID(s) look wrong — fix on SimGrid's end before this event.` : ''),
-        flaggedCount ? 'warn' : 'ok'
+        (warnings.length ? ` ⚠ ${warnings.join('; ')}.` : ''),
+        warnings.length ? 'warn' : 'ok'
       );
     }
 
@@ -812,6 +831,12 @@
         const isStaffRow = (entry.isServerAdmin === 1 && !hasDriverInfo) || source === 'preset';
         return { index, entry, number, name, team: entry.teamName || '', car: entry.forcedCarModel ?? entry.carModel ?? '', playerID: d.playerID || '', category, source, isAdmin: entry.isServerAdmin === 1, hasDriverInfo, isStaffRow };
       }).sort((a,b) => (a.number || 99999) - (b.number || 99999));
+
+      reviewRows.forEach(r => {
+        r.classIssue = (!r.isStaffRow && lastCsvNumbers.size > 0 && r.number && !lastCsvNumbers.has(r.number))
+          ? `No matching row in the CSV — this driver's class was never confirmed for this event (currently showing ${categoryLabel(r.category)} from the base file)`
+          : null;
+      });
 
       const idCounts = new Map();
       reviewRows.forEach(r => { if(r.playerID) idCounts.set(r.playerID, (idCounts.get(r.playerID) || 0) + 1); });
@@ -853,10 +878,12 @@
               ⚠ ${escapeHtml(r.idIssue)}
               <button type="button" class="issue-remove" data-remove-index="${r.index}">${r.idIssue.includes('Duplicate') ? 'Remove duplicate' : 'Remove this entry'}</button>
             </div>` : '';
+          const classFlagLine = r.classIssue ? `<div class="class-flag-line">⚠ ${escapeHtml(r.classIssue)}</div>` : '';
+          const rowClasses = [r.idIssue ? 'flag-row' : '', r.classIssue ? 'class-issue-row' : ''].filter(Boolean).join(' ');
           return `
-          <tr class="${r.idIssue ? 'flag-row' : ''}">
+          <tr class="${rowClasses}">
             <td><span class="${plateClass}">${escapeHtml(r.number || '')}</span></td>
-            <td><div class="driver-name">${escapeHtml(r.name)}${adminTag}${idFlag}</div><div class="driver-sub">${escapeHtml(r.playerID || 'No player ID found')}</div>${issueLine}</td>
+            <td><div class="driver-name">${escapeHtml(r.name)}${adminTag}${idFlag}</div><div class="driver-sub">${escapeHtml(r.playerID || 'No player ID found')}</div>${issueLine}${classFlagLine}</td>
             <td>${escapeHtml(r.team || '—')}</td>
             <td>${escapeHtml(String(r.car || '—'))}</td>
             <td>${classCell}</td>
@@ -1068,7 +1095,7 @@
     }
 
     function resetAll(){
-      baseJson = null; csvRows = []; generatedRoot = null; reviewRows = []; hasDownloaded = false;
+      baseJson = null; csvRows = []; generatedRoot = null; reviewRows = []; hasDownloaded = false; lastCsvNumbers = new Set();
       els.jsonFile.value = ''; els.csvFile.value = '';
       els.jsonName.classList.remove('show'); els.csvName.classList.remove('show');
       els.output.value = ''; els.search.value = '';
