@@ -1070,6 +1070,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <button data-view="staffRequests" type="button">Licence Requests</button>
           <button data-view="staffTierManage" class="ops-only-tab" type="button">Manage Licence Tiers</button>
           <button data-view="staffNameAudit" type="button">Driver Name Audit</button>
+          <button data-view="staffEntrylistCrossRef" class="ops-only-tab" type="button">Entrylist Cross-Reference</button>
         </div>
       </details>
 
@@ -2526,6 +2527,31 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <thead><tr><th>Claimed ACC Name</th><th>Linked Driver</th><th>Licence No.</th><th>Discord Username</th><th>Remove</th></tr></thead>
         <tbody id="nameAuditBody"><tr><td colspan="5" class="empty">Loading&hellip;</td></tr></tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffEntrylistCrossRef" id="entrylistCrossRefPanel">
+    <div class="panel-head"><div><h3>Staff: Entrylist Cross-Reference</h3><small>Upload a SimGrid entrylist (CSV and/or JSON) and see who's already an IFWL licence holder - and who isn't</small></div><span class="badge purple">Ops only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">Neither the entrylist CSV nor the ACC entrylist JSON includes Discord usernames or IDs - matching here is done by <strong>real name</strong> against each driver's linked ACC name(s), the same lenient matching used everywhere else on this site. Always sanity-check the matched list before bulk-assigning - a name match isn't a guarantee, just a strong hint.</div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px">
+        <div class="field-group">
+          <label>Entrylist CSV (from SimGrid) - upload or paste</label>
+          <div class="upload-drop">Drop or choose the .csv file<br><input type="file" id="ecrCsvFile" accept=".csv,text/csv"></div>
+          <textarea id="ecrCsvText" style="width:100%;min-height:100px;font-family:monospace;font-size:11px;margin-top:6px" placeholder="Or paste the CSV content here..."></textarea>
+        </div>
+        <div class="field-group">
+          <label>Entrylist JSON (ACC server file) - upload or paste, optional</label>
+          <div class="upload-drop">Drop or choose the .json file<br><input type="file" id="ecrJsonFile" accept=".json,application/json"></div>
+          <textarea id="ecrJsonText" style="width:100%;min-height:100px;font-family:monospace;font-size:11px;margin-top:6px" placeholder="Or paste the JSON content here (only needed if you don't have the CSV)..."></textarea>
+        </div>
+      </div>
+
+      <button class="btn teal" id="ecrRunBtn" type="button">Cross-reference against licence holders</button>
+      <span class="save-status" id="ecrRunStatus"></span>
+
+      <div id="ecrResults" style="margin-top:20px"></div>
     </div>
   </section>
 
@@ -10478,6 +10504,224 @@ Flashing Headlights:
     };
   }
 
+  // ✅ ADDED: Entrylist Cross-Reference. Parses a SimGrid entrylist CSV
+  // and/or the raw ACC server entrylist.json, matches every entry against
+  // real licence profiles by name (neither file carries a Discord
+  // username/ID), and gives staff two clean lists: matched drivers (with a
+  // bulk "assign tier" action) and unmatched drivers (with a name list to
+  // copy for reaching out on Discord).
+  function ecrParseCsv(text){
+    const rows = [];
+    let i = 0, field = '', row = [], inQuotes = false;
+    const pushField = () => { row.push(field); field = ''; };
+    const pushRow = () => { pushField(); rows.push(row); row = []; };
+    while(i < text.length){
+      const c = text[i];
+      if(inQuotes){
+        if(c === '"'){
+          if(text[i+1] === '"'){ field += '"'; i += 2; continue; }
+          inQuotes = false; i++; continue;
+        }
+        field += c; i++; continue;
+      }
+      if(c === '"'){ inQuotes = true; i++; continue; }
+      if(c === ','){ pushField(); i++; continue; }
+      if(c === '\r'){ i++; continue; }
+      if(c === '\n'){ pushRow(); i++; continue; }
+      field += c; i++;
+    }
+    if(field.length || row.length) pushRow();
+    if(!rows.length) return [];
+    const headers = rows[0].map(h => h.trim().toLowerCase());
+    return rows.slice(1).filter(r => r.some(c => c.trim())).map(r => {
+      const obj = {};
+      headers.forEach((h, idx) => obj[h] = (r[idx] || '').trim());
+      return obj;
+    });
+  }
+
+  function ecrDecodeFile(file){
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onerror = () => reject(new Error('Could not read file'));
+      fr.onload = () => {
+        const buf = new Uint8Array(fr.result);
+        // Detect BOM - the ACC entrylist.json comes out of the game server
+        // as UTF-16LE, which readAsText() would otherwise mangle.
+        let text;
+        if(buf[0]===0xFF && buf[1]===0xFE) text = new TextDecoder('utf-16le').decode(buf.slice(2));
+        else if(buf[0]===0xFE && buf[1]===0xFF) text = new TextDecoder('utf-16be').decode(buf.slice(2));
+        else if(buf[0]===0xEF && buf[1]===0xBB && buf[2]===0xBF) text = new TextDecoder('utf-8').decode(buf.slice(3));
+        else text = new TextDecoder('utf-8').decode(buf);
+        resolve(text);
+      };
+      fr.readAsArrayBuffer(file);
+    });
+  }
+
+  function ecrExtractFromCsv(rows){
+    return rows.map(r => ({
+      realName: r['real name'] || '',
+      username: r['username'] || '',
+      steamId: r['steam64_id'] || '',
+      platform: r['platform'] || '',
+      carNumber: r['car number'] || '',
+      carName: r['car name'] || '',
+      registeredAt: r['registered at'] || ''
+    })).filter(e => e.realName);
+  }
+
+  function ecrExtractFromJson(text){
+    let data;
+    try{ data = JSON.parse(text); }catch(e){ throw new Error('Entrylist JSON could not be parsed: ' + e.message); }
+    const entries = Array.isArray(data) ? data : (Array.isArray(data.entries) ? data.entries : []);
+    return entries.map(e => {
+      const d = (e.drivers || [])[0] || {};
+      const realName = [d.firstName, d.lastName].map(s => (s||'').trim()).filter(Boolean).join(' ');
+      return {
+        realName,
+        steamId: String(d.playerID || '').replace(/^S/i, ''),
+        carNumber: String(e.raceNumber ?? ''),
+        forcedCarModel: e.forcedCarModel
+      };
+    }).filter(e => e.realName);
+  }
+
+  function ecrNormName(s){
+    return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+  }
+
+  async function ecrRunCrossReference(){
+    const status = q('ecrRunStatus');
+    const resultsBox = q('ecrResults');
+    status.textContent = 'Reading files...';
+    resultsBox.innerHTML = '';
+
+    try{
+      // Gather entrylist entries from whichever source(s) are provided -
+      // CSV preferred (has real name, platform and car number directly);
+      // JSON entries are merged in by steamId, filling gaps if CSV alone
+      // didn't cover everyone.
+      let csvText = q('ecrCsvText').value.trim();
+      const csvFile = q('ecrCsvFile').files[0];
+      if(!csvText && csvFile) csvText = await ecrDecodeFile(csvFile);
+
+      let jsonText = q('ecrJsonText').value.trim();
+      const jsonFile = q('ecrJsonFile').files[0];
+      if(!jsonText && jsonFile) jsonText = await ecrDecodeFile(jsonFile);
+
+      if(!csvText && !jsonText){ status.textContent = 'Upload or paste at least one file (CSV or JSON).'; return; }
+
+      const bySteamId = new Map();
+      if(csvText){
+        ecrExtractFromCsv(ecrParseCsv(csvText)).forEach(e => bySteamId.set(e.steamId || `name:${ecrNormName(e.realName)}`, e));
+      }
+      if(jsonText){
+        ecrExtractFromJson(jsonText).forEach(e => {
+          const key = e.steamId || `name:${ecrNormName(e.realName)}`;
+          const existing = bySteamId.get(key);
+          bySteamId.set(key, existing ? { ...e, ...existing } : e); // CSV fields win where both exist
+        });
+      }
+      const entrylistDrivers = [...bySteamId.values()];
+      if(!entrylistDrivers.length){ status.textContent = 'No usable entries found in the file(s) provided.'; return; }
+
+      status.textContent = `Matching ${entrylistDrivers.length} entrant(s) against licence holders...`;
+      const allProfiles = await staffSearch('');
+
+      const matched = [];
+      const unmatched = [];
+      entrylistDrivers.forEach(entry => {
+        const n = ecrNormName(entry.realName);
+        const hit = allProfiles.find(p => {
+          if(ecrNormName(p.name) === n) return true;
+          return (p.accDriverNames||[]).some(a => { const an = ecrNormName(a); return an && (an.includes(n) || n.includes(an)); });
+        });
+        if(hit) matched.push({ entry, profile: hit });
+        else unmatched.push(entry);
+      });
+
+      status.textContent = `${matched.length} matched, ${unmatched.length} not found.`;
+      ecrRenderResults(matched, unmatched);
+    }catch(e){
+      status.textContent = 'Could not cross-reference: ' + e.message;
+    }
+  }
+
+  async function ecrRenderResults(matched, unmatched){
+    const box = q('ecrResults');
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+
+    const matchedHtml = matched.length ? `
+      <h4 style="margin:0 0 10px">Matched - already IFWL licence holders (${matched.length})</h4>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn ghost" id="ecrSelectAllBtn" type="button">Select all</button>
+        <select id="ecrBulkTierSelect">${tiers.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}</select>
+        <button class="btn teal" id="ecrAssignBtn" type="button">Assign tier to selected</button>
+        <span class="save-status" id="ecrAssignStatus"></span>
+      </div>
+      <div class="table-wrap" style="max-height:340px;overflow-y:auto">
+        <table class="fc-stint-table">
+          <thead><tr><th></th><th>Entrylist Name</th><th>Licence Driver</th><th>Licence No.</th><th>Current Tier</th></tr></thead>
+          <tbody>${matched.map(({entry, profile}) => `
+            <tr>
+              <td><input type="checkbox" class="ecr-match-check" data-driver-id="${profile.discordId}" checked></td>
+              <td>${entry.realName}</td>
+              <td>${profile.name}</td>
+              <td>${profile.licenceNumber || '-'}</td>
+              <td>${profile.tier || 'No Licence'}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    ` : '<div class="empty">No matches found.</div>';
+
+    const unmatchedHtml = `
+      <h4 style="margin:20px 0 10px">Not found - no IFWL licence (${unmatched.length})</h4>
+      ${unmatched.length ? `
+      <button class="btn ghost" id="ecrCopyNamesBtn" type="button" style="margin-bottom:10px">Copy names for Discord</button>
+      <div class="table-wrap" style="max-height:300px;overflow-y:auto">
+        <table class="fc-stint-table">
+          <thead><tr><th>Entrylist Name</th><th>Platform</th><th>Car #</th><th>Steam64 ID</th></tr></thead>
+          <tbody>${unmatched.map(e => `<tr><td>${e.realName}</td><td>${e.platform||'-'}</td><td>${e.carNumber||'-'}</td><td>${e.steamId||'-'}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>` : '<div class="empty">Everyone on the entrylist already has a licence.</div>'}
+    `;
+
+    box.innerHTML = matchedHtml + unmatchedHtml;
+
+    q('ecrSelectAllBtn')?.addEventListener('click', () => {
+      const boxes = [...box.querySelectorAll('.ecr-match-check')];
+      const allChecked = boxes.every(c => c.checked);
+      boxes.forEach(c => c.checked = !allChecked);
+    });
+
+    q('ecrAssignBtn')?.addEventListener('click', async () => {
+      const astatus = q('ecrAssignStatus');
+      const toTier = q('ecrBulkTierSelect').value;
+      const driverIds = [...box.querySelectorAll('.ecr-match-check:checked')].map(c => c.dataset.driverId);
+      if(!driverIds.length){ astatus.textContent = 'Nothing selected.'; return; }
+      if(!confirm(`Set ${toTier} for ${driverIds.length} selected driver(s)?`)) return;
+      astatus.textContent = 'Assigning...';
+      try{
+        const result = await window.IFWL_Api.apiPost('staffBulkAssignTierToDrivers', { driverIds, toTier, note: 'Entrylist cross-reference' });
+        astatus.textContent = `Done - ${result.updated} driver(s) updated.`;
+      }catch(e){ astatus.textContent = 'Could not assign: ' + e.message; }
+    });
+
+    q('ecrCopyNamesBtn')?.addEventListener('click', () => {
+      const names = unmatched.map(e => e.realName).join('\n');
+      navigator.clipboard?.writeText(names).then(() => {
+        const btn = q('ecrCopyNamesBtn'); const old = btn.textContent;
+        btn.textContent = 'Copied!'; setTimeout(() => { if(q('ecrCopyNamesBtn')) q('ecrCopyNamesBtn').textContent = old; }, 1500);
+      }).catch(() => alert('Could not copy - your browser may be blocking clipboard access.'));
+    });
+  }
+
+  function initEntrylistCrossRefPanel(){
+    if(!q('entrylistCrossRefPanel')) return;
+    q('ecrRunBtn').onclick = ecrRunCrossReference;
+  }
+
   async function initAffiliateAdsPanel(){
     if(!q('staffAffiliateAdsPanel')) return;
     const wrap = q('aaSlots');
@@ -10531,6 +10775,7 @@ Flashing Headlights:
     renderStaffTrophyCabinet();
     initAffiliateAdsPanel();
     initStaffBopTrackerPanel();
+    initEntrylistCrossRefPanel();
     window.initOpsRaceTeamsPanel?.();
     initSponsorshipsPanel();
     initSeasonalCostsPanel();
@@ -10546,3 +10791,5 @@ Flashing Headlights:
 
 </body>
 </html>
+
+   
