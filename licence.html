@@ -832,6 +832,11 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .cw-card-stats strong{display:block;margin-top:3px;font-size:14px;font-family:var(--font-mono);color:var(--ifwl-teal)}
 .cw-card-gap{padding:6px 14px 12px;font-size:11.5px;color:var(--text-muted);font-weight:700;background:#11151b}
 .cw-card-pronunciation{padding:6px 14px;font-size:11.5px;color:var(--ifwl-amber);font-weight:700;background:rgba(255,178,56,.08);border-top:1px solid rgba(255,178,56,.18)}
+.race-pos-badge{position:absolute;top:10px;right:10px;z-index:2;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:900;background:rgba(10,13,17,.75);color:#fff;border:1px solid rgba(255,255,255,.2)}
+.race-pos-badge.race-pos-gold{background:rgba(255,210,63,.22);color:#ffd23f;border-color:rgba(255,210,63,.5)}
+.race-pos-badge.race-pos-silver{background:rgba(216,222,226,.2);color:#d8dee2;border-color:rgba(216,222,226,.45)}
+.race-pos-badge.race-pos-bronze{background:rgba(205,127,50,.22);color:#cd7f32;border-color:rgba(205,127,50,.5)}
+.race-view-toggle{display:flex;gap:8px;margin:0 18px 14px}
 .platform-tag{position:absolute;top:10px;right:10px;z-index:2;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.03em}
 .dir-card-team-logo{position:absolute;top:36px;right:10px;z-index:2;width:26px;height:26px;object-fit:cover;border-radius:6px;box-shadow:0 0 8px 2px rgba(31,214,189,.65),0 0 2px 1px rgba(31,214,189,.9)}
 .platform-tag.plat-pc{background:rgba(0,120,212,.85);color:#fff}
@@ -1022,7 +1027,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <button class="view-tab dropdown-toggle" type="button">Racing &#9662;</button>
     <div class="view-tab-menu">
       <button data-view="raceResults" type="button">Race Results</button>
-      <button data-view="seasonProgression" type="button">IFWL season career</button>
+      <button data-view="seasonProgression" type="button">My Season Progression</button>
       <button data-view="raceTeams" type="button">Race Teams</button>
       <button data-view="myRaceTeam" type="button">My Race Team</button>
       <button data-view="claimLapsPC" type="button">Claim Your Laps (PC)</button>
@@ -1052,6 +1057,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <button class="view-tab dropdown-toggle" type="button">Support &#9662;</button>
     <div class="view-tab-menu">
       <button data-view="submitTicket" type="button">Submit a Ticket</button>
+      <button data-view="raiseConcern" type="button">Raise a Concern</button>
       <button data-view="ticketHistory" type="button">Your Ticket History</button>
       <button data-view="help" type="button">Help</button>
       <button data-view="inbox" type="button">Inbox <span id="inboxUnreadBadge" class="inbox-unread-badge hidden">0</span></button>
@@ -1463,6 +1469,39 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         Need to add a statement to a ticket that already exists (yours or someone else's)?
         <a href="https://ifwlowner.github.io/ACC-driver-classifier/openstatements.html" target="_blank" rel="noopener" style="color:var(--ifwl-purple);font-weight:800">Submit a statement here &rarr;</a>
       </div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="raiseConcern" id="raiseConcernPanel">
+    <div class="panel-head"><div><h3>Raise a Concern</h3><small>For anything that isn't a steward ticket</small></div></div>
+    <div class="panel-body">
+      <div class="notice-card" style="border-left-color:var(--ifwl-amber);background:rgba(255,178,56,.08)">
+        <strong>This is NOT a Steward Ticket.</strong> There's no accused driver here, and this doesn't go to stewards for a ruling. Use <strong>Submit a Ticket</strong> instead if you want to report another driver for something that happened in a specific race.
+        <br><br>
+        Use <strong>Raise a Concern</strong> for anything that doesn't fit that - for example: the server didn't seem correctly set up, you think a steward needs to be made aware of something that's now past the 24-hour ticket window, or you want to raise a general concern about the grid as a whole. There's no accused party and no ruling attached - it's simply a message to League Owner or Staff.
+      </div>
+
+      <div class="field-group" style="margin-top:16px">
+        <label>Send to</label>
+        <select id="concernSendTo">
+          <option value="staff">Staff</option>
+          <option value="owner">League Owner</option>
+        </select>
+        <div class="field-hint">"Staff" reaches every Ops Manager and Steward. "League Owner" is only ever visible to the Owner role - not Ops, not Stewards.</div>
+      </div>
+
+      <div class="field-group">
+        <label>Subject</label>
+        <input type="text" id="concernSubject" placeholder="A short summary, e.g. Server setup issue at Round 4" maxlength="150">
+      </div>
+
+      <div class="field-group">
+        <label>Details</label>
+        <textarea id="concernMessage" style="width:100%;min-height:160px" maxlength="4000" placeholder="Explain what happened and what you'd like looked at. Be as specific as you can - dates, tracks, session types."></textarea>
+      </div>
+
+      <button class="btn teal" id="concernSubmitBtn" type="button">Send</button>
+      <span class="save-status" id="concernSubmitStatus"></span>
     </div>
   </section>
 
@@ -4183,6 +4222,56 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   let raceChartsRows = [];
+  // ✅ ADDED: Driver Directory-styled cards for a race's results - same
+  // card look used in the Directory and Drivers to Watch, alongside the
+  // existing results table (not replacing it). Matched via accDriverNames,
+  // same lenient convention used everywhere else - a driver in the raw
+  // session data with no matching licence just falls back to a plain card
+  // with their name and no photo/team/tier.
+  function raceResultCardHtml(r, dirEntry){
+    const tier = findTier(dirEntry?.tier || 'No Licence');
+    const thumb = dirEntry?.avatarMode === 'upload' && dirEntry?.photoUploadUrl ? dirEntry.photoUploadUrl
+                : dirEntry?.avatarMode === 'url' && dirEntry?.avatarUrl ? dirEntry.avatarUrl
+                : '';
+    const avatarCell = thumb ? `<div class="dir-card-avatar"><img src="${thumb}" alt=""></div>` : `<div class="dir-card-avatar-empty"></div>`;
+    const hasHeader = !!dirEntry?.headerUploadUrl;
+    const bgStyle = hasHeader ? ` style="background-image:url('${dirEntry.headerUploadUrl}')"` : '';
+    const outlineClass = dirEntry?.patreonOutlineTier ? ` dir-card-${dirEntry.patreonOutlineTier}` : '';
+    const posClass = r.racePos === 1 ? 'race-pos-gold' : r.racePos === 2 ? 'race-pos-silver' : r.racePos === 3 ? 'race-pos-bronze' : '';
+    return `<div class="cw-card">
+      <div class="dir-card${hasHeader ? ' has-header' : ''}${outlineClass}"${bgStyle}>
+        <div class="race-pos-badge ${posClass}">P${r.racePos}</div>
+        ${dirEntry?.teamLogoUrl ? `<img class="dir-card-team-logo" style="top:10px" src="${dirEntry.teamLogoUrl}" alt="${dirEntry.teamName||'Team'}" title="${dirEntry.teamName||''}">` : ''}
+        <div class="dir-card-overlay">
+          ${avatarCell}
+          <div class="dir-card-info">
+            <strong>${r.driver}</strong>
+            <span class="mono">${dirEntry?.licenceNumber || '-'}</span>
+            <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${dirEntry?.tier || 'No Licence'}</span>
+          </div>
+        </div>
+      </div>
+      <div class="cw-card-gap">${r.carName} &middot; Best ${window.IFWLStats.msTime(r.bestLap)} &middot; ${r.lapCount} laps</div>
+    </div>`;
+  }
+
+  async function buildRaceResultCardsHtml(rows){
+    let roster = [], directory = [];
+    try{ [roster, directory] = await Promise.all([ fetchLicenceRosterPublic(), fetchDirectory() ]); }
+    catch(e){ console.warn('Could not load directory data for race result cards', e); }
+
+    const byAccName = new Map();
+    roster.forEach(r => (r.accDriverNames || []).forEach(n => byAccName.set(window.IFWLStats.driverNameKey(n), r)));
+    const byLicenceNumber = new Map();
+    directory.forEach(d => { if(d.licenceNumber && d.licenceNumber !== '-') byLicenceNumber.set(d.licenceNumber, d); });
+
+    return `<div class="cw-grid">${rows.map(r => {
+      const rosterEntry = byAccName.get(window.IFWLStats.driverNameKey(r.driver));
+      const dirEntry = rosterEntry ? byLicenceNumber.get(rosterEntry.licenceNumber) : null;
+      return raceResultCardHtml(r, dirEntry);
+    }).join('')}</div>`;
+  }
+
   async function loadRaceDetailView(meta){
     const wrap = q('raceDetailWrap');
     wrap.classList.remove('hidden');
@@ -4234,13 +4323,32 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="titlebar" style="margin:0 18px 12px;background:none;border:none;padding:0"><h2 style="font-size:20px">${meta.track}</h2></div>
       ${upsell}
       ${goldSection}
-      <div class="table-wrap">
+      <div class="race-view-toggle">
+        <button class="bop-platform-btn active" id="raceViewTableBtn" type="button">Table View</button>
+        <button class="bop-platform-btn" id="raceViewCardsBtn" type="button">Card View</button>
+      </div>
+      <div class="table-wrap" id="raceResultsTableWrap">
         <table class="results-table">
           <thead><tr><th>Pos.</th><th>Driver</th><th>Car</th><th>Best Lap</th><th>Total Time</th><th>Laps</th><th class="race-detailed-col">Consistency</th><th class="race-detailed-col">Race Risk %</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>
+      <div id="raceResultsCardsWrap" class="hidden" style="padding:0 18px"><div class="empty">Loading cards&hellip;</div></div>
     `;
+
+    let cardsLoaded = false;
+    q('raceViewTableBtn').addEventListener('click', () => {
+      q('raceViewTableBtn').classList.add('active'); q('raceViewCardsBtn').classList.remove('active');
+      q('raceResultsTableWrap').classList.remove('hidden'); q('raceResultsCardsWrap').classList.add('hidden');
+    });
+    q('raceViewCardsBtn').addEventListener('click', async () => {
+      q('raceViewCardsBtn').classList.add('active'); q('raceViewTableBtn').classList.remove('active');
+      q('raceResultsTableWrap').classList.add('hidden'); q('raceResultsCardsWrap').classList.remove('hidden');
+      if(!cardsLoaded){
+        cardsLoaded = true;
+        q('raceResultsCardsWrap').innerHTML = await buildRaceResultCardsHtml(detail.rows);
+      }
+    });
 
     q('backToRaceListBtn').addEventListener('click', () => {
       wrap.classList.add('hidden');
@@ -6619,6 +6727,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('fcAutofillBtn')?.addEventListener('click', fcAutofillLapTime);
     q('fcCalculateBtn')?.addEventListener('click', fcCalculate);
   }
+  // ✅ ADDED: Raise a Concern - deliberately simple, no accused-driver
+  // picker, no incident/rule-breach fields. Posts straight to the same
+  // driver<->staff messaging thread system as everything else in Inbox, so
+  // a driver can see any reply the same place they'd see a staff DM.
+  function initRaiseConcernForm(){
+    const btn = q('concernSubmitBtn');
+    if(!btn) return;
+    btn.addEventListener('click', async () => {
+      const status = q('concernSubmitStatus');
+      const sendTo = q('concernSendTo').value;
+      const subject = q('concernSubject').value.trim();
+      const message = q('concernMessage').value.trim();
+      if(!subject){ status.textContent = 'A subject is required.'; return; }
+      if(!message){ status.textContent = 'Please add some details before sending.'; return; }
+
+      btn.disabled = true;
+      status.textContent = 'Sending...';
+      try{
+        await apiPost('submitConcern', { sendTo, subject, message });
+        status.textContent = `Sent to ${sendTo === 'owner' ? 'the League Owner' : 'Staff'}. You'll see any reply in your Inbox.`;
+        q('concernSubject').value = ''; q('concernMessage').value = ''; q('concernSendTo').value = 'staff';
+      }catch(e){
+        status.textContent = 'Could not send: ' + e.message;
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  }
+  initRaiseConcernForm();
+
   initFuelCalculator();
 
   // ✅ ADDED: BOP TRACKer - see which car is the current META at a track,
@@ -8408,8 +8546,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const threads = data.threads || [];
     if(!threads.length){ list.innerHTML = '<div class="empty">No message threads yet.</div>'; return; }
     list.innerHTML = threads.map(t => `<div class="msg-thread-row${t.unread ? ' msg-unread' : ''}" data-staff-thread="${t.id}">
-      <div><div class="msg-subject">${t.subject}${t.unread ? ` <span class="inbox-unread-badge">${t.unread}</span>` : ''}</div>
-      <div class="msg-meta">To ${t.driverName} &middot; from ${t.staffName} &middot; ${t.lastMessageAtMs ? new Date(t.lastMessageAtMs).toLocaleString() : ''}${t.lastMessageBy === 'driver' ? ' &middot; driver replied' : ''}</div></div>
+      <div><div class="msg-subject">${t.subject}${t.unread ? ` <span class="inbox-unread-badge">${t.unread}</span>` : ''}${t.threadType==='concern' ? ' <span class="scout-badge unlinked">Concern</span>' : ''}${t.restrictedToOwner ? ' <span class="scout-badge unlinked">Owner Only</span>' : ''}</div>
+      <div class="msg-meta">${t.threadType==='concern' ? `From ${t.driverName} &middot; sent to ${t.staffName}` : `To ${t.driverName} &middot; from ${t.staffName}`} &middot; ${t.lastMessageAtMs ? new Date(t.lastMessageAtMs).toLocaleString() : ''}${t.lastMessageBy === 'driver' ? ' &middot; driver replied' : ''}</div></div>
       <span class="field-hint">Open &rarr;</span>
     </div>`).join('');
     list.querySelectorAll('[data-staff-thread]').forEach(row => row.addEventListener('click', () => openStaffThread(row.dataset.staffThread)));
