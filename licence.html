@@ -7971,6 +7971,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         return;
       }
 
+      // ✅ ADDED: real track dropdown instead of "Track unknown" free text -
+      // SimGrid's own page rarely gives us a clean, matchable track name, so
+      // rather than showing a dead end, staff pick the actual track from
+      // the same track list Seasonal Costs already maintains. Pre-selects a
+      // match if SimGrid's scraped text happens to line up with a known
+      // track name, otherwise starts on "Not set".
+      let trackOptions = [];
+      try{ trackOptions = (await window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts()).tracks || []; }catch(e){ console.warn('Could not load track list for round preview', e); }
+      const matchTrackSlug = (scrapedName) => {
+        const n = String(scrapedName||'').toLowerCase().trim();
+        if(!n) return '';
+        const hit = trackOptions.find(t => t.name.toLowerCase() === n || n.includes(t.name.toLowerCase()) || t.name.toLowerCase().includes(n));
+        return hit ? hit.slug : '';
+      };
+
       // ✅ CHANGED: per-round date and password are now inline and editable
       // right here. Also adds a "fill all" control that works whenever you
       // use it - the earlier version only pre-filled from the shared
@@ -7978,31 +7993,47 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // clicked, which meant typing a password AFTER previewing (or before
       // it was filled in) left every round blank with no way to bulk-fix it
       // short of retyping 9 times.
+      // ✅ FIXED: the shared "Password" field near the top of this form (for
+      // single manually-added events) and these per-round password fields
+      // were two completely disconnected inputs - a password typed up top
+      // never carried through here, which looked exactly like "passwords
+      // just don't show up for drivers" even though nothing was actually
+      // broken in the save/display pipeline. This now seeds the "fill all"
+      // field (and every round) from whatever's already in the top field.
+      const sharedPassword = q('sgPassword')?.value.trim() || '';
       preview.innerHTML = (result.warning ? `<div class="field-hint" style="margin-bottom:8px">${result.warning}</div>` : '') +
         `<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--ifwl-line)">
-          <div class="field-group" style="flex:1;margin-bottom:0"><label>Fill all round passwords below with:</label><input type="text" id="sgFillAllPasswordInput" placeholder="e.g. ifwl2026"></div>
+          <div class="field-group" style="flex:1;margin-bottom:0"><label>Fill all round passwords below with:</label><input type="text" id="sgFillAllPasswordInput" placeholder="e.g. ifwl2026" value="${sharedPassword.replace(/"/g,'&quot;')}"></div>
           <button class="btn ghost" id="sgFillAllPasswordBtn" type="button">Apply to all rounds</button>
         </div>` +
+        (sharedPassword ? `<div class="field-hint" style="margin:-8px 0 14px">Pre-filled from the Password field above - click "Apply to all rounds" to push it into every round below, or edit each one individually.</div>` : '') +
         result.rounds.map((r, i) => {
           const dateVal = r.dateMs ? new Date(r.dateMs).toISOString().slice(0,16) : '';
+          const preselectedSlug = matchTrackSlug(r.track);
           return `
           <div class="note-item sg-round-row">
             <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
               <input type="checkbox" class="sg-round-check" data-round-idx="${i}" style="width:auto;margin-top:3px" ${r.ended ? '' : 'checked'}>
               <div style="flex:1">
                 <strong>${r.name}</strong>
-                <div class="note-meta">${r.track || 'Track unknown'}${r.ended ? ' &middot; Ended' : ''}</div>
+                <div class="note-meta">${r.ended ? 'Ended' : 'Upcoming'}${r.track ? ` &middot; SimGrid says: "${r.track}"` : ''}</div>
               </div>
             </label>
-            <div style="display:flex;gap:10px;margin-top:8px;padding-left:26px">
-              <div class="field-group" style="flex:1;margin-bottom:0"><label style="font-size:10px">Date/time (editable)</label><input type="datetime-local" class="sg-round-date" data-round-idx="${i}" value="${dateVal}"></div>
-              <div class="field-group" style="flex:1;margin-bottom:0"><label style="font-size:10px">Password for this round</label><input type="text" class="sg-round-password" data-round-idx="${i}" value=""></div>
+            <div style="display:flex;gap:10px;margin-top:8px;padding-left:26px;flex-wrap:wrap">
+              <div class="field-group" style="flex:1;min-width:160px;margin-bottom:0"><label style="font-size:10px">Track</label>
+                <select class="sg-round-track" data-round-idx="${i}">
+                  <option value="">Not set</option>
+                  ${trackOptions.map(t => `<option value="${t.slug}" ${t.slug===preselectedSlug?'selected':''}>${t.name}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field-group" style="flex:1;min-width:140px;margin-bottom:0"><label style="font-size:10px">Date/time (editable)</label><input type="datetime-local" class="sg-round-date" data-round-idx="${i}" value="${dateVal}"></div>
+              <div class="field-group" style="flex:1;min-width:140px;margin-bottom:0"><label style="font-size:10px">Password for this round</label><input type="text" class="sg-round-password" data-round-idx="${i}" value="${sharedPassword.replace(/"/g,'&quot;')}"></div>
             </div>
           </div>`;
         }).join('') +
         `<div style="margin-top:10px;display:flex;gap:10px;align-items:center">
           <button class="btn teal" id="sgBulkAddBtn" type="button">Add ticked rounds as events</button>
-          <span class="field-hint">Each round uses its own date/password above. Platform/tiers/notes below are shared across all of them.</span>
+          <span class="field-hint">Each round uses its own track/date/password above. Platform/tiers/notes below are shared across all of them.</span>
         </div>
         <div id="sgBulkAddStatus" style="margin-top:8px"></div>`;
 
@@ -8027,7 +8058,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         for(let i = 0; i < checks.length; i++){
           const idx = Number(checks[i].dataset.roundIdx);
           const r = result.rounds[idx];
-          const title = `${r.name}${r.track ? ' - ' + r.track : ''}`;
+          // Track now comes from the staff-selected dropdown, not SimGrid's
+          // own scraped text - that text is shown alongside it purely as a
+          // hint, never trusted directly into the saved title.
+          const trackSlug = preview.querySelector(`.sg-round-track[data-round-idx="${idx}"]`).value;
+          const trackName = trackOptions.find(t => t.slug === trackSlug)?.name || '';
+          const title = `${r.name}${trackName ? ' - ' + trackName : ''}`;
           // Reads THIS round's own inline date/password fields, not a
           // shared value - each round genuinely gets its own.
           const dateInput = preview.querySelector(`.sg-round-date[data-round-idx="${idx}"]`).value;
