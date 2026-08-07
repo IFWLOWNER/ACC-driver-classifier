@@ -2939,7 +2939,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     return apiPost('staffSimgridEventDelete', { eventId });
   }
-  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent };
+  async function uploadEventRoster(eventId, entries){
+    return apiPost('staffEventRosterUpload', { eventId, entries });
+  }
+  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, uploadEventRoster };
 
   // Server contract: ?linkedDriverNames=1&token=... -> { ok, names: [lowercased strings] }
   // Returns which ACC names are already claimed, not by whom - claiming itself
@@ -4145,6 +4148,53 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
 
+  // ✅ ADDED: same directory-card look used everywhere else, for whichever
+  // drivers staff have uploaded a signup roster for on this event. Matched
+  // by real name against accDriverNames, same lenient convention as
+  // everywhere else - a name with no matching licence just falls back to a
+  // plain card with no photo/team/tier, same as Race Results cards.
+  function eventRosterCardHtml(entry, dirEntry){
+    const tier = findTier(dirEntry?.tier || 'No Licence');
+    const thumb = dirEntry?.avatarMode === 'upload' && dirEntry?.photoUploadUrl ? dirEntry.photoUploadUrl
+                : dirEntry?.avatarMode === 'url' && dirEntry?.avatarUrl ? dirEntry.avatarUrl
+                : '';
+    const avatarCell = thumb ? `<div class="dir-card-avatar"><img src="${thumb}" alt=""></div>` : `<div class="dir-card-avatar-empty"></div>`;
+    const hasHeader = !!dirEntry?.headerUploadUrl;
+    const bgStyle = hasHeader ? ` style="background-image:url('${dirEntry.headerUploadUrl}')"` : '';
+    const outlineClass = dirEntry?.patreonOutlineTier ? ` dir-card-${dirEntry.patreonOutlineTier}` : '';
+    return `<div class="cw-card">
+      <div class="dir-card${hasHeader ? ' has-header' : ''}${outlineClass}"${bgStyle}>
+        ${dirEntry?.teamLogoUrl ? `<img class="dir-card-team-logo" style="top:10px" src="${dirEntry.teamLogoUrl}" alt="${dirEntry.teamName||'Team'}" title="${dirEntry.teamName||''}">` : ''}
+        <div class="dir-card-overlay">
+          ${avatarCell}
+          <div class="dir-card-info">
+            <strong>${entry.realName}</strong>
+            <span class="mono">${dirEntry?.licenceNumber || '-'}</span>
+            <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${dirEntry?.tier || 'No Licence'}</span>
+          </div>
+        </div>
+      </div>
+      <div class="cw-card-gap">${entry.carName || entry.carNumber ? [entry.carNumber ? `#${entry.carNumber}` : '', entry.carName].filter(Boolean).join(' ') : (entry.platform || '')}</div>
+    </div>`;
+  }
+
+  async function buildEventRosterCardsHtml(roster){
+    let roster_, directory;
+    try{ [roster_, directory] = await Promise.all([ fetchLicenceRosterPublic(), fetchDirectory() ]); }
+    catch(e){ console.warn('Could not load directory data for event roster cards', e); return '<div class="empty">Could not load driver details.</div>'; }
+
+    const byAccName = new Map();
+    roster_.forEach(r => (r.accDriverNames || []).forEach(n => byAccName.set(window.IFWLStats.driverNameKey(n), r)));
+    const byLicenceNumber = new Map();
+    directory.forEach(d => { if(d.licenceNumber && d.licenceNumber !== '-') byLicenceNumber.set(d.licenceNumber, d); });
+
+    return `<div class="cw-grid">${roster.map(entry => {
+      const rosterEntry = byAccName.get(window.IFWLStats.driverNameKey(entry.realName));
+      const dirEntry = rosterEntry ? byLicenceNumber.get(rosterEntry.licenceNumber) : null;
+      return eventRosterCardHtml(entry, dirEntry);
+    }).join('')}</div>`;
+  }
+
   function renderAvailableRaces(events){
     const body = q('availableRacesBody');
     if(!events.length){ body.innerHTML = '<div class="empty">No invite-only races available for your current tier yet.</div>'; return; }
@@ -4152,6 +4202,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     body.innerHTML = events.map(e => {
       const platformLabel = e.platform === 'console' ? 'Console' : e.platform === 'pc' ? 'PC' : 'Console + PC';
       const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : (e.eventDateLabel || '');
+      const rosterCount = (e.roster || []).length;
       return `<div class="race-event-card">
         <img src="${e.simgridImageUrl || placeholder}" alt="">
         <div>
@@ -4160,10 +4211,34 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           ${dateStr ? `<p style="color:var(--ifwl-teal);font-size:12.5px;margin:4px 0 0;font-weight:700">📅 ${dateStr}</p>` : ''}
           ${e.password ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">🔒 Password: <code style="background:#12161c;padding:2px 6px;border-radius:5px;color:var(--text-primary)">${e.password}</code></p>` : ''}
           ${e.notes ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${e.notes}</p>` : ''}
+          ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="margin-top:8px;font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
         </div>
         <a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>
-      </div>`;
+      </div>
+      ${rosterCount ? `<div class="hidden" id="eventRoster_${e.id}" style="margin:-6px 0 14px"></div>` : ''}`;
     }).join('');
+
+    body.querySelectorAll('[data-toggle-roster]').forEach(btn => {
+      const eventId = btn.dataset.toggleRoster;
+      const container = q(`eventRoster_${eventId}`);
+      let loaded = false;
+      btn.addEventListener('click', async () => {
+        const isHidden = container.classList.contains('hidden');
+        if(isHidden){
+          container.classList.remove('hidden');
+          btn.textContent = btn.textContent.replace('\u2193', '\u2191');
+          if(!loaded){
+            loaded = true;
+            const event = events.find(e => e.id === eventId);
+            container.innerHTML = '<div class="empty">Loading drivers&hellip;</div>';
+            container.innerHTML = await buildEventRosterCardsHtml(event.roster || []);
+          }
+        } else {
+          container.classList.add('hidden');
+          btn.textContent = btn.textContent.replace('\u2191', '\u2193');
+        }
+      });
+    });
   }
 
   let raceResultsCache = [];
@@ -7793,10 +7868,30 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <strong>${e.title}</strong>${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
         <div class="note-meta">${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
         <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 This event's password: ${e.password}` : ' &middot; No password set for this event'}</div>
-        <div style="margin-top:8px;display:flex;gap:8px"><button class="btn ghost" data-edit-event="${e.id}">Edit</button><button class="btn ghost" data-delete-event="${e.id}">Delete</button></div>
+        <div class="note-meta">👥 ${e.rosterCount ? `${e.rosterCount} driver(s) signed up (shown as cards under Available Races)` : 'No signup roster uploaded yet'}</div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn ghost" data-edit-event="${e.id}">Edit</button>
+          <button class="btn ghost" data-delete-event="${e.id}">Delete</button>
+          <label class="btn ghost" style="cursor:pointer;margin:0">Upload Roster (CSV/JSON)<input type="file" accept=".csv,.json,text/csv,application/json" data-roster-upload="${e.id}" style="display:none"></label>
+        </div>
       </div>
     `;
     }).join('');
+    wrap.querySelectorAll('[data-roster-upload]').forEach(input => input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if(!file) return;
+      const eventId = input.dataset.rosterUpload;
+      try{
+        const text = await ecrDecodeFile(file);
+        const entries = file.name.toLowerCase().endsWith('.json')
+          ? ecrExtractFromJson(text)
+          : ecrExtractFromCsv(ecrParseCsv(text));
+        if(!entries.length){ alert("No usable entries found in that file - check it's the right export."); input.value = ''; return; }
+        const result = await window.IFWL_SimgridAPI.uploadEventRoster(eventId, entries);
+        alert(`Roster uploaded - ${result.rosterCount} driver(s) saved. Drivers will now see this as cards under Available Races.`);
+        await renderSimgridEventList();
+      }catch(e){ alert('Could not upload roster: ' + e.message); input.value = ''; }
+    }));
     wrap.querySelectorAll('[data-delete-event]').forEach(btn => btn.addEventListener('click', async () => {
       if(!confirm('Delete this event? Drivers will stop seeing it in Available Races.')) return;
       try{ await window.IFWL_SimgridAPI.deleteSimgridEvent(btn.dataset.deleteEvent); await renderSimgridEventList(); }
