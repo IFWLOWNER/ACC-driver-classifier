@@ -708,9 +708,45 @@
     }
 
     function ticketPenaltyInfo(ticket){
+      // Severity (mild/standard/severe) is a property of the penalty CODE, so prefer the
+      // code the Head Steward actually finalised with (finalPenaltyCode), falling back to
+      // the pre-finalisation fields for older tickets.
+      const codeForSeverity = ticket.finalPenaltyCode || ticket.postRaceCode || ticket.ruleBreach || "";
+      const severity = parseSeverityFromText(codeForSeverity);
+
+      // Seconds/DQ/label: prefer finalPenaltyTime — this is the actual value the Head Steward
+      // chose at finalisation (headsteward.html writes this field) and is the only field that
+      // reflects a custom/overridden penalty (e.g. a one-off 20s) rather than the code's default.
+      const fpt = String(ticket.finalPenaltyTime || "").trim().toUpperCase();
+      if (fpt === "DQ") return { seconds: 0, dq: true, label: "DQ", severity };
+      if (fpt === "NFA") return { seconds: 0, dq: false, label: "NFA", severity };
+      if (fpt) {
+        const n = parseInt(fpt.replace(/\D/g, ""), 10);
+        if (!isNaN(n) && n > 0) return { seconds: n, dq: false, label: `${n}s`, severity };
+      }
+
+      // Fall back to the free-text "Penalty Applied / Result" field.
+      const fp = String(ticket.finalPenalty || "").trim();
+      if (fp) {
+        const parsed = parsePenaltyFromText(fp);
+        if (parsed && parsed.label && parsed.label !== "-") {
+          return { seconds: parsed.seconds, dq: parsed.dq, label: parsed.label, severity };
+        }
+      }
+
+      // Legacy fallback: derive everything (including severity) from postRaceCode/ruleBreach —
+      // only used for old tickets finalised before finalPenaltyCode/finalPenaltyTime existed.
       const prc = ticket.postRaceCode || "";
       const rb  = ticket.ruleBreach || "";
       return parsePenaltyFromText(prc || rb);
+    }
+
+    // Human-readable "as finalised" penalty for the Ticket Summary card — shows exactly what
+    // the Head Steward applied (including a custom override), not the code's default.
+    function formatFinalPenalty(ticket){
+      const info = ticketPenaltyInfo(ticket);
+      if (!info || !info.label || info.label === "-") return "—";
+      return info.label;
     }
 
     function isBeginnerTicket(ticket){
@@ -797,7 +833,10 @@
             competition: x.competition || "",
             timestamp: x.timestamp || null,
             postRaceCode: x.postRaceCode || "",
-            ruleBreach: x.ruleBreach || ""
+            ruleBreach: x.ruleBreach || "",
+            finalPenaltyCode: x.finalPenaltyCode || "",
+            finalPenalty: x.finalPenalty || "",
+            finalPenaltyTime: x.finalPenaltyTime || ""
           };
         });
 
@@ -993,6 +1032,7 @@
         ["Status", status],
         ["Rule Breach", x.ruleBreach],
         ["Post-race Code", x.postRaceCode],
+        ["Final Penalty", formatFinalPenalty(x)],
         ["Decision", x.stewardDecision],
         ["Proof", linkOrDash(x.proofUrl)],
         ["Created", created]
