@@ -401,7 +401,29 @@
     }
 
     function ticketPenalty(ticket){
-      // prefer postRaceCode, fallback ruleBreach
+      // 1) Prefer finalPenaltyTime — this is the actual value the Head Steward chose when
+      //    finalising the ticket (headsteward.html writes this field), and it's the only
+      //    field that reflects a custom/overridden penalty (e.g. 20s) rather than whatever
+      //    the RP-code default would imply. It's normalised to "DQ", "NFA", or a number of seconds.
+      const fpt = String(ticket.finalPenaltyTime || "").trim().toUpperCase();
+      if (fpt === "DQ") return "DQ";
+      if (fpt === "NFA") return "NFA";
+      if (fpt) {
+        const n = parseInt(fpt.replace(/\D/g, ""), 10);
+        if (!isNaN(n) && n > 0) return `${n}s`;
+      }
+
+      // 2) Fall back to the free-text "Penalty Applied / Result" field the Head Steward typed
+      //    (covers older records saved before finalPenaltyTime existed, or unusual custom text).
+      const fp = String(ticket.finalPenalty || "").trim();
+      if (fp) {
+        const parsed = parsePenaltyFromText(fp);
+        if (parsed && parsed !== "-") return parsed;
+      }
+
+      // 3) Legacy fallback: derive from postRaceCode/ruleBreach via the static RP-code table.
+      //    Only used for old tickets finalised before the finalPenaltyTime/finalPenalty fields
+      //    were introduced — this is the path that used to show the stale/default penalty.
       const prc = ticket.postRaceCode || "";
       const rb  = ticket.ruleBreach || "";
       return parsePenaltyFromText(prc || rb);
@@ -452,7 +474,7 @@
       const s = q.toLowerCase().trim();
       const hay = [
         t.id, t.status, t.event, t.competition, t.accused, t.reporter, t.track,
-        t.stewardDecision, t.postRaceCode, t.ruleBreach,
+        t.stewardDecision, t.postRaceCode, t.ruleBreach, t.finalPenalty, t.finalPenaltyTime,
         t.simgridGreenlitBy, t.simgridRevokedBy, t.simgridPendingBy,
         t.simgridSubmittedBy
       ].map(x => String(x || "").toLowerCase()).join(" | ");
@@ -956,6 +978,11 @@
             track: x.track || "",
             postRaceCode: x.postRaceCode || "",
             ruleBreach: x.ruleBreach || "",
+            // Actual penalty chosen by the Head Steward at finalisation (source of truth —
+            // this is what reflects custom penalties, e.g. a one-off 20s instead of a code default)
+            finalPenaltyCode: x.finalPenaltyCode || "",
+            finalPenalty: x.finalPenalty || "",
+            finalPenaltyTime: x.finalPenaltyTime || "",
             stewardDecision: x.stewardDecision || "",
             proofUrl: x.proofUrl || "",
             timestamp: x.timestamp || null,
