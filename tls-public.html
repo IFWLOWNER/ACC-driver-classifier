@@ -457,35 +457,28 @@ main{width:min(1360px,88vw);margin:28px auto 60px}
   // (order 0, "No Licence" by default) — every driver gets that
   // placeholder automatically on first login, so it doesn't count
   // as actually holding a licence.
+  //
+  // NOTE: this base URL is the same Cloud Function endpoint the Licence
+  // Centre itself calls (window.IFWL_AUTH.FUNCTION there) — it's not
+  // something ifwl-stats-engine.js provides, so it's hardcoded here
+  // directly rather than depending on a script that doesn't set it up.
+  // If this endpoint is ever migrated, both pages need updating together.
+  // No session token is sent — licenceTierList/licenceRoster are documented
+  // server-side as public, unauthenticated reads.
   // ---------------------------------------------------------------
-  async function apiGet(action, extra){
-    const token = window.IFWL_AUTH?.sessionToken ? window.IFWL_AUTH.sessionToken() : "";
-    const base = window.IFWL_AUTH?.FUNCTION || "";
-    if (!base) throw new Error("Licence API base URL unavailable (ifwl-stats-engine.js not loaded).");
-    const url = `${base}?${action}=1&token=${encodeURIComponent(token || "")}${extra || ""}`;
+  const LICENCE_API_BASE = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
+
+  async function apiGet(action){
+    const url = `${LICENCE_API_BASE}?${action}=1&token=`; // no token — licenceTierList/licenceRoster are public reads
     const r = await fetch(url, { cache:"no-store" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; throw err; }
     return d;
   }
 
-  async function waitForEngineReady(maxMs = 8000){
-    const start = Date.now();
-    while (Date.now() - start < maxMs){
-      if (window.IFWL_AUTH && window.IFWL_AUTH.FUNCTION) return true;
-      await new Promise(r => setTimeout(r, 80));
-    }
-    return false;
-  }
-
   async function loadLicensedRoster(){
     licensedRoster = [];
     nameKeyToRosterEntry = {};
-
-    const engineReady = await waitForEngineReady();
-    if (!engineReady) {
-      throw new Error("Licence engine unavailable — check ifwl-stats-engine.js is loaded on this page.");
-    }
 
     const [tierRes, rosterRes] = await Promise.all([
       apiGet("licenceTierList").catch(e => { console.warn("Tier list load failed:", e); return { tiers: [] }; }),
