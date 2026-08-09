@@ -644,8 +644,8 @@
     }
 
     async function setSubmittedToSimgrid(ticketId){
-      if (!isSimgridOnly){
-        toast("Only SimGrid users can submit tickets to SimGrid.");
+      if (!isSimgrid){
+        toast("Only accounts with the SimGrid role can submit tickets to SimGrid.");
         return;
       }
       if (!ticketId) return;
@@ -755,11 +755,15 @@
         }`;
 
       const permLabel =
+        (isHeadSteward && isSimgrid) ? "Head Steward + SimGrid" :
         isHeadSteward ? "Head Steward" :
         isSimgridOnly ? "SimGrid" :
         "Read-only";
       $("permPill").textContent = `Permissions: ${permLabel}`;
-      $("headHint").textContent = isHeadSteward ? " You can approve/revoke tickets below." : (isSimgridOnly ? " You can publish greenlit tickets to SimGrid." : "");
+      $("headHint").textContent =
+        (isHeadSteward && isSimgrid) ? " You can approve/revoke tickets, and publish greenlit tickets to SimGrid." :
+        isHeadSteward ? " You can approve/revoke tickets below." :
+        (isSimgridOnly ? " You can publish greenlit tickets to SimGrid." : "");
 
       $("hint").textContent = `Showing ${filtered.length} ticket(s). (Newest first)`;
 
@@ -783,15 +787,18 @@
         const isBusy = busyIds.has(t.id);
 
         const canHeadAct = isHeadSteward && !isBusy;
-        const canSimgridAct = isSimgridOnly && !isBusy;
+        // Anyone with the "simgrid" role can publish, even if they're ALSO a Head Steward
+        const canSimgridAct = isSimgrid && !isBusy;
 
         // actions
         let actionHtml = "—";
+        let hasAction = false;
 
         // Completed tickets: no actions
         if (!submitted){
           // Head steward actions
           if (isHeadSteward){
+            hasAction = true;
             if (green){
               actionHtml = `
                 <button class="danger" ${canHeadAct ? "" : "disabled"} data-action="revoke" data-id="${escapeHtml(t.id)}">
@@ -818,20 +825,25 @@
             }
           }
 
-          // SimGrid actions (ONLY simgrid users, ONLY when already greenlit)
-          if (isSimgridOnly && green){
-            actionHtml = `
+          // SimGrid publish action — anyone with the "simgrid" role (Head Steward or SimGrid-only),
+          // shown ALONGSIDE any Head Steward actions rather than replacing them, once greenlit.
+          if (isSimgrid && green){
+            const simgridBtn = `
               <button class="primary" ${canSimgridAct ? "" : "disabled"} data-action="submitSimgrid" data-id="${escapeHtml(t.id)}">
                 Published to SimGrid
               </button>
             `;
+            actionHtml = hasAction
+              ? (actionHtml + `<div style="margin-top:8px;">${simgridBtn}</div>`)
+              : simgridBtn;
+            hasAction = true;
           }
 
-          if ((isHeadSteward || isSimgridOnly) && isBusy){
+          if (hasAction && isBusy){
             actionHtml += `<div class="muted" style="margin-top:6px;">Updating…</div>`;
           }
         } else {
-          if ((isHeadSteward || isSimgridOnly) && isBusy){
+          if ((isHeadSteward || isSimgrid) && isBusy){
             actionHtml += `<div class="muted" style="margin-top:6px;">Updating…</div>`;
           }
         }
@@ -878,7 +890,7 @@
 
           // Permissions gate
           if (action === "submitSimgrid"){
-            if (!isSimgridOnly) return toast("Read-only account.");
+            if (!isSimgrid) return toast("Read-only account.");
           } else {
             if (!isHeadSteward) return toast("Read-only account.");
           }
@@ -1066,7 +1078,9 @@
           const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
           const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Admin";
 
-          if (isHeadSteward){
+          if (isHeadSteward && isSimgrid){
+            $("welcomeLine").textContent = `Welcome, ${niceName}. You can approve/revoke finalised tickets for publishing (or mark them pending), and publish greenlit tickets to SimGrid.`;
+          } else if (isHeadSteward){
             $("welcomeLine").textContent = `Welcome, ${niceName}. You can approve/revoke finalised tickets for publishing (or mark them pending).`;
           } else if (isSimgridOnly){
             $("welcomeLine").textContent = `Welcome, ${niceName}. You can publish greenlit tickets to SimGrid to complete them.`;
@@ -1077,6 +1091,7 @@
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "admin"}`;
 
           const permLabel =
+            (isHeadSteward && isSimgrid) ? "Head Steward + SimGrid" :
             isHeadSteward ? "Head Steward" :
             isSimgridOnly ? "SimGrid" :
             "Read-only";
