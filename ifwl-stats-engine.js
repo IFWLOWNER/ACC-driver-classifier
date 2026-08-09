@@ -246,6 +246,11 @@
         track: data.trackName || data.metaData || 'unknown',
         driver: driverName(l),
         carNo: l.car?.raceNumber ?? '-',
+        // ✅ ADDED: the numeric ACC car model ID for this session, so views
+        // further down (e.g. Licence session history) can match it against
+        // the BOP TRACKer car catalog (pcCarModelId/consoleCarModelId) to
+        // show the car name + image without a second data source.
+        carModel: l.car?.carModel,
         bestLap: l.timing?.bestLap || 0,
         lapCount: l.timing?.lapCount || 0,
         lapObjects: lm.lapObjects,
@@ -964,7 +969,19 @@
     }));
 
     return matches.map(r => {
+      // validLaps preserves the chronological order laps were recorded in
+      // (same convention IFWL Consistency Index elsewhere in this engine
+      // relies on) - so index 0 here is the session's outlap.
       const validLaps = (r.lapObjects || []).filter(l => l.isValidForBest).map(l => l.laptime);
+      // ✅ ADDED: Slowest lap, excluding the outlap. The outlap is defined
+      // the same way the Consistency Index already treats it elsewhere in
+      // this engine - the first chronological valid lap of the session -
+      // and is only dropped when there's at least one other valid lap to
+      // compare against, so a single-lap session still shows a value
+      // rather than nothing.
+      const slowestLap = validLaps.length > 1
+        ? Math.max(...validLaps.slice(1))
+        : (validLaps[0] || null);
       return {
         fileName: r.fileName,
         track: r.track,
@@ -975,6 +992,8 @@
         lapCount: r.lapCount,
         bestLap: r.bestLap,
         avgLap: validLaps.length ? Math.round(validLaps.reduce((a,b)=>a+b,0) / validLaps.length) : null,
+        slowestLap,
+        carModel: r.carModel,
         lapObjects: r.lapObjects || []
       };
     }).sort((a,b) => a.tsMs - b.tsMs);
