@@ -311,6 +311,12 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .sd-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}
 .sd-table th{text-align:left;color:var(--ifwl-teal);padding:6px 8px;border-bottom:1px solid var(--ifwl-line)}
 .sd-table td{padding:6px 8px;border-bottom:1px solid var(--ifwl-line-soft);font-family:var(--font-mono)}
+/* ✅ ADDED: car cell in the session stats table (Session Inspector + Your
+   Qualification Ranking) - small thumbnail + name, falls back gracefully
+   to name-only text when no BOP TRACKer image is on file for that car. */
+.sd-car-cell{display:flex;align-items:center;gap:8px;font-family:var(--font-body)}
+.sd-car-thumb{width:34px;height:22px;object-fit:cover;border-radius:4px;border:1px solid var(--ifwl-line);flex:0 0 auto;background:#0a0d11}
+.sd-car-name{font-size:11px;line-height:1.25}
 .btn-view-sessions{background:transparent;border:1px solid var(--ifwl-line);color:var(--text-muted);font-size:11px;padding:5px 9px;border-radius:7px;cursor:pointer;margin-top:6px;width:100%}
 .btn-view-sessions:hover{border-color:var(--ifwl-teal);color:var(--ifwl-teal)}
 /* ✅ ADDED: Licence Database */
@@ -4576,6 +4582,51 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
 
+  // ✅ ADDED: matches a session's numeric car model ID against BOP
+  // TRACKer's own car catalog (the same catalog/images staff already
+  // maintain there) so the session stats table below can show a name +
+  // thumbnail without a second, separately-maintained image source.
+  // platformKey is 'pc' or 'console' - picks which of the catalog's two
+  // model-ID fields to compare against, same convention BOP TRACKer itself
+  // uses when matching a car to its BOP entry.
+  function sessionCarInfo(carCatalog, carModel, platformKey){
+    if(carModel == null) return null;
+    return (carCatalog || []).find(c => {
+      const id = platformKey === 'console'
+        ? (Number.isFinite(c.consoleCarModelId) ? c.consoleCarModelId : c.pcCarModelId)
+        : c.pcCarModelId;
+      return id === carModel;
+    }) || null;
+  }
+
+  // ✅ ADDED: shared Fastest / Slowest (excl. outlap) / Average / Car table,
+  // used by both the staff Session Inspector drilldown and the driver-facing
+  // Your Qualification Ranking card so the two stay visually and logically
+  // identical rather than drifting into two separate implementations.
+  function buildSessionStatsTableHtml(sessions, carCatalog, platformKey){
+    const rows = sessions.map(s => {
+      const car = sessionCarInfo(carCatalog, s.carModel, platformKey);
+      const carCell = car
+        ? `<div class="sd-car-cell">${car.imageUrl ? `<img class="sd-car-thumb" src="${car.imageUrl}" alt="" loading="lazy">` : ''}<span class="sd-car-name">${car.name}</span></div>`
+        : `<span class="field-hint">Unknown car</span>`;
+      return `<tr>
+        <td>${s.dateLabel}</td>
+        <td>${s.track}</td>
+        <td>${s.sessionLabel}</td>
+        <td class="mono">${s.lapCount}</td>
+        <td class="mono">${s.bestLap ? window.IFWLStats.msTime(s.bestLap) : '-'}</td>
+        <td class="mono">${s.slowestLap ? window.IFWLStats.msTime(s.slowestLap) : '-'}</td>
+        <td class="mono">${s.avgLap ? window.IFWLStats.msTime(s.avgLap) : '-'}</td>
+        <td>${carCell}</td>
+      </tr>`;
+    }).join('');
+    return `<table class="sd-table">
+      <thead><tr><th>Date</th><th>Track</th><th>Session</th><th>Laps</th><th>Fastest</th><th>Slowest*</th><th>Average</th><th>Car</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="field-hint" style="margin-top:6px">*Excludes the outlap.</p>`;
+  }
+
   // ✅ ADDED: the lap-time chart on Your Qualification Ranking, tier-gated -
   //   Bronze/below -> nothing (returns '')
   //   Silver       -> their own lap-time line, no field reference lines
@@ -4601,7 +4652,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       ? `${sessions.length} session(s) &middot; dotted colour lines show tier field averages &middot; hover a dot for that lap's exact time`
       : `${sessions.length} session(s) &middot; hover a dot for that lap's exact time &middot; <a href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold</a> to see Pro/Am/Beginner field averages on this chart`;
 
-    return `<div class="qual-chart-wrap"><p class="qual-chart-sub">${sub}</p>${chart}</div>`;
+    // ✅ ADDED: per-session Fastest/Slowest/Average/Car breakdown - same
+    // detail tier as the rest of this card, so it's Gold/staff only rather
+    // than adding a new thing for Silver to see that nothing else here does.
+    let statsTable = '';
+    if(isGoldOrStaff){
+      try{
+        const platformKey = serverId.startsWith('console') ? 'console' : 'pc';
+        const bopData = await window.IFWL_BopAPI.fetchBopTrackerData();
+        statsTable = buildSessionStatsTableHtml(sessions, bopData.carCatalog, platformKey);
+      }catch(e){ /* table just omitted if the car catalog can't be reached */ }
+    }
+
+    return `<div class="qual-chart-wrap"><p class="qual-chart-sub">${sub}</p>${chart}${statsTable}</div>`;
   }
 
   async function buildQualStandingCard(platformLabel, myIndex, standings, serverId, accDriverNames){
@@ -8290,23 +8353,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       console.warn('Could not load tier lap averages', e.message);
     }
 
-    const rows = sessions.map(s => `<tr>
-      <td>${s.dateLabel}</td>
-      <td>${s.track}</td>
-      <td>${s.sessionLabel}</td>
-      <td class="mono">${s.lapCount}</td>
-      <td class="mono">${s.bestLap ? window.IFWLStats.msTime(s.bestLap) : '-'}</td>
-      <td class="mono">${s.avgLap ? window.IFWLStats.msTime(s.avgLap) : '-'}</td>
-    </tr>`).join('');
+    // ✅ ADDED: car catalog for the Car column - best-effort, table still
+    // renders (minus car names/images) if BOP TRACKer data can't be reached.
+    let carCatalog = [];
+    try{ carCatalog = (await window.IFWL_BopAPI.fetchBopTrackerData()).carCatalog || []; }
+    catch(e){ console.warn('Could not load car catalog for session table', e.message); }
+    const platformKey = platform === 'Console' ? 'console' : 'pc';
 
     panel.innerHTML = `
       <h4>${driverLabel} &mdash; every session on the IFWL ${platform} Licence server</h4>
       <p class="sd-sub">${sessions.length} session(s) &middot; dashed white lines mark where one session ends and the next begins &middot; dotted colour lines show tier field averages &middot; hover a dot for that lap's exact time</p>
       ${window.IFWLStats.buildDriverSessionChartHtml(sessions, tierAverages)}
-      <table class="sd-table">
-        <thead><tr><th>Date</th><th>Track</th><th>Session</th><th>Laps</th><th>Best</th><th>Avg</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+      ${buildSessionStatsTableHtml(sessions, carCatalog, platformKey)}
     `;
   }
 
