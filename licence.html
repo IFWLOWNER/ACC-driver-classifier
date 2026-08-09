@@ -4591,11 +4591,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // uses when matching a car to its BOP entry.
   function sessionCarInfo(carCatalog, carModel, platformKey){
     if(carModel == null) return null;
+    // ✅ FIXED: coerce both sides to numbers before comparing. carModel here
+    // comes straight from the parsed ACC session JSON (always numeric), but
+    // catalog IDs can come back from a couple of different paths (direct
+    // save vs re-fetch) - a strict === was silently failing to match
+    // anything whenever either side wasn't already a number.
+    const wanted = Number(carModel);
     return (carCatalog || []).find(c => {
-      const id = platformKey === 'console'
-        ? (Number.isFinite(c.consoleCarModelId) ? c.consoleCarModelId : c.pcCarModelId)
+      const rawId = platformKey === 'console'
+        ? (Number.isFinite(Number(c.consoleCarModelId)) ? c.consoleCarModelId : c.pcCarModelId)
         : c.pcCarModelId;
-      return id === carModel;
+      return Number(rawId) === wanted;
     }) || null;
   }
 
@@ -4606,9 +4612,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function buildSessionStatsTableHtml(sessions, carCatalog, platformKey){
     const rows = sessions.map(s => {
       const car = sessionCarInfo(carCatalog, s.carModel, platformKey);
+      // ✅ FIXED: previously fell straight to a bare "Unknown car" whenever
+      // there was no BOP TRACKer catalog entry for this car model - which
+      // meant the whole column looked broken/empty on any server where the
+      // catalog isn't fully populated, even though the session JSON itself
+      // always carries a car model number. Now: catalog match (name +
+      // image) > raw car model number as plain text > only "Unknown car"
+      // if the session genuinely has no car model recorded at all.
       const carCell = car
         ? `<div class="sd-car-cell">${car.imageUrl ? `<img class="sd-car-thumb" src="${car.imageUrl}" alt="" loading="lazy">` : ''}<span class="sd-car-name">${car.name}</span></div>`
-        : `<span class="field-hint">Unknown car</span>`;
+        : (s.carModel != null
+            ? `<span class="field-hint">Car model ${s.carModel}</span>`
+            : `<span class="field-hint">Unknown car</span>`);
       return `<tr>
         <td>${s.dateLabel}</td>
         <td>${s.track}</td>
@@ -4626,6 +4641,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </table>
     <p class="field-hint" style="margin-top:6px">*Excludes the outlap.</p>`;
   }
+  // ✅ FIXED: this block and the Staff Panel block below are two separate
+  // top-level <script> closures - a plain function declared in one isn't
+  // visible in the other. Exposing both helpers on window makes them
+  // reachable from anywhere on the page, same as every other cross-block
+  // API here (window.IFWL_BopAPI, window.IFWLStats, etc).
+  window.sessionCarInfo = sessionCarInfo;
+  window.buildSessionStatsTableHtml = buildSessionStatsTableHtml;
 
   // ✅ ADDED: the lap-time chart on Your Qualification Ranking, tier-gated -
   //   Bronze/below -> nothing (returns '')
@@ -8364,7 +8386,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <h4>${driverLabel} &mdash; every session on the IFWL ${platform} Licence server</h4>
       <p class="sd-sub">${sessions.length} session(s) &middot; dashed white lines mark where one session ends and the next begins &middot; dotted colour lines show tier field averages &middot; hover a dot for that lap's exact time</p>
       ${window.IFWLStats.buildDriverSessionChartHtml(sessions, tierAverages)}
-      ${buildSessionStatsTableHtml(sessions, carCatalog, platformKey)}
+      ${window.buildSessionStatsTableHtml(sessions, carCatalog, platformKey)}
     `;
   }
 
