@@ -317,6 +317,26 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .sd-car-cell{display:flex;align-items:center;gap:8px;font-family:var(--font-body)}
 .sd-car-thumb{width:34px;height:22px;object-fit:cover;border-radius:4px;border:1px solid var(--ifwl-line);flex:0 0 auto;background:#0a0d11}
 .sd-car-name{font-size:11px;line-height:1.25}
+/* ✅ ADDED: IFWL Career Shop - driver-facing item grid, balance readout and
+   transaction receipt list. Deliberately reuses .aa-slot-card/.fc-summary-box
+   language from Career Perks/Season Progression rather than inventing a
+   fourth visual style on the same page. */
+.shop-balance-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.shop-balance-box{background:linear-gradient(135deg,rgba(31,214,189,.14),rgba(31,214,189,.04));border:1px solid rgba(31,214,189,.35);border-radius:12px;padding:10px 16px}
+.shop-balance-box span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.shop-balance-box strong{font-family:var(--font-display);font-size:22px;color:var(--ifwl-teal)}
+.shop-category-title{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:16px 0 8px}
+.shop-item-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.shop-item-card{position:relative;overflow:hidden}
+.shop-item-thumb{width:100%;height:110px;object-fit:cover;border-radius:8px;background:#0a0d11;margin-bottom:8px;display:block}
+.shop-item-owned-badge{position:absolute;top:10px;right:10px;background:rgba(51,217,155,.16);color:var(--ifwl-green);border:1px solid rgba(51,217,155,.4);border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;text-transform:uppercase}
+.shop-receipt-list{margin-top:14px}
+.shop-receipt-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--ifwl-line-soft);font-size:12px}
+.shop-receipt-row .shop-receipt-meta{color:var(--text-muted)}
+.shop-receipt-amount.pos{color:var(--ifwl-green)}
+.shop-receipt-amount.neg{color:var(--ifwl-red)}
+#shopTransactionModal{position:fixed;inset:0;z-index:199997;background:rgba(4,6,9,.82);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
+#shopTransactionModal.hidden{display:none!important}
 .btn-view-sessions{background:transparent;border:1px solid var(--ifwl-line);color:var(--text-muted);font-size:11px;padding:5px 9px;border-radius:7px;cursor:pointer;margin-top:6px;width:100%}
 .btn-view-sessions:hover{border-color:var(--ifwl-teal);color:var(--ifwl-teal)}
 /* ✅ ADDED: Licence Database */
@@ -992,6 +1012,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </div>
 </div>
 
+<!-- ✅ ADDED: IFWL Career Shop transaction notice - same one-shot popup
+     pattern as the Steward Notice above, so a driver never misses a manual
+     credit/debit/refund staff issue them, complete with the reason. -->
+<div id="shopTransactionModal" class="hidden">
+  <div class="login-wall-card">
+    <div class="licence-org" style="font-size:13px;color:var(--ifwl-teal)">IFWL CAREER SHOP</div>
+    <h1 style="background:linear-gradient(100deg,#fff,var(--ifwl-teal));-webkit-background-clip:text;background-clip:text;color:transparent">Account Update</h1>
+    <p id="shopTransactionText">Loading&hellip;</p>
+    <div class="login-wall-actions" style="margin-top:14px">
+      <button class="login-wall-logout" id="shopTransactionDismissBtn" type="button">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+
 <div class="top-strip">IFWL &mdash; <span>LICENCE CENTRE</span></div>
 <nav class="nav">
   <div class="logo"><img src="https://ifwlowner.github.io/ACC-driver-classifier/ifwllogo1.png" alt="IFWL" style="height:34px;display:block"></div>
@@ -1132,6 +1167,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="staff-accordion-items">
           <button data-view="staffSponsorships" class="owner-only-tab" type="button">Manage Sponsorships</button>
           <button data-view="staffSeasonalCosts" class="owner-only-tab" type="button">Seasonal Costs</button>
+          <button data-view="staffCareerShop" class="owner-only-tab" type="button">IFWL Shop</button>
         </div>
       </details>
 
@@ -1632,6 +1668,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <span class="save-status" id="spBgUploadStatus" style="margin-left:8px"></span>
       </div>
 
+      <div id="spShopBody" style="margin-bottom:20px"><div class="empty">Loading IFWL Career Shop&hellip;</div></div>
       <div id="spPerksBody" style="margin-bottom:20px"><div class="empty">Loading Career Perks&hellip;</div></div>
       <div id="spBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px"><div class="empty">Loading your season&hellip;</div></div>
     </div>
@@ -2038,6 +2075,57 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn teal" id="scSaveBtn" type="button">Save seasonal costs</button>
         <span class="save-status" id="scSaveStatus"></span>
       </div>
+    </div>
+  </section>
+
+  <!-- ✅ ADDED: Staff: IFWL Shop - catalog editor (image/cost/bonus %),
+       manual credit/debit issuer, and refund tool. Same structural pattern
+       as BOP TRACKer's Car Catalog editor just above it. -->
+  <section class="panel view-panel" data-view="staffCareerShop" id="staffCareerShopPanel">
+    <div class="panel-head"><div><h3>Staff: IFWL Shop</h3><small>Manage Career Shop items, and issue manual credits/debits/refunds with a receipt every driver can see</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+
+      <div class="notice-card">Every purchase, refund and manual adjustment here is logged with a reason and shown to the driver as a receipt (plus a one-time popup). All balances and item ownership reset when the season resets, same as Career Perks.</div>
+
+      <h4 style="margin:20px 0 10px">Add Shop Item</h4>
+      <div class="field-group"><label>Item name</label><input type="text" id="csNewItemName" placeholder="e.g. Team Truck"></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
+        <div class="field-group">
+          <label>Category</label>
+          <select id="csNewItemCategory">
+            <option value="supportStaff">Support Staff (boosts sponsorship revenue)</option>
+            <option value="teamGear">Team Gear (boosts race income)</option>
+          </select>
+        </div>
+        <div class="field-group"><label>Cost (&pound;)</label><input type="number" id="csNewItemCost" min="0" step="1"></div>
+        <div class="field-group"><label>Bonus %</label><input type="number" id="csNewItemBonusPct" min="0" step="0.1" placeholder="e.g. 15"></div>
+      </div>
+      <div class="field-group">
+        <label>Item image (JPG/PNG, 5MB max)</label>
+        <div class="upload-drop">Drop or choose an image &mdash; JPG/PNG, 5MB max.<br><input type="file" id="csNewItemImageInput" accept="image/png,image/jpeg"></div>
+      </div>
+      <button class="btn ghost" id="csAddItemBtn" type="button">+ Add item to shop</button>
+      <span class="save-status" id="csAddItemStatus"></span>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <div id="csCatalogRows"></div>
+      <button class="btn teal" id="csSaveCatalogBtn" type="button" style="margin-top:10px">Save shop changes</button>
+      <span class="save-status" id="csCatalogSaveStatus"></span>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Issue Manual Credit / Debit</h4>
+      <p class="field-hint" style="margin-bottom:10px">A reason is always required - this is exactly what the driver sees on their receipt and in their popup.</p>
+      <div class="field-group"><label>Search driver</label><input type="text" id="csTxSearchInput" placeholder="Search by name or licence number..."></div>
+      <div id="csTxSearchResults"></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Refund a Purchase</h4>
+      <p class="field-hint" style="margin-bottom:10px">Search the same way, then pick one of their owned items below. Money is always refunded - reclaiming the item (and its bonus) is optional, staff's discretion.</p>
+      <div class="field-group"><label>Search driver</label><input type="text" id="csRefundSearchInput" placeholder="Search by name or licence number..."></div>
+      <div id="csRefundSearchResults"></div>
     </div>
   </section>
 
@@ -3145,6 +3233,55 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return saved;
   }
   window.IFWL_SeasonalCostsAPI = { fetchSeasonalCosts, saveSeasonalCosts };
+
+  // ✅ ADDED: IFWL Career Shop data layer. Mirrors the Seasonal Costs
+  // pattern above (catalog fetch/save, cached, invalidated on save) plus a
+  // per-driver ledger (balance derived server-side from this season's race
+  // + sponsorship earnings, plus every purchase/refund/manual adjustment
+  // logged with a reason). Needs matching backend actions:
+  //   ?careerShopCatalog=1&token=...        (GET,  staff+driver, the item list)
+  //   ?staffCareerShopCatalogSave=1&token=...(POST, Owner-only, {items:[...]})
+  //   ?myCareerShopLedger=1&token=...       (GET,  own balance/owned items/transactions, season-scoped)
+  //   ?careerShopPurchase=1&token=...       (POST, {itemId}, server verifies balance + not already owned)
+  //   ?staffCareerShopTransaction=1&token=...(POST, Owner-only, {driverId, amount, reason})
+  //   ?staffCareerShopRefund=1&token=...    (POST, Owner-only, {driverId, purchaseId, reclaimItem, reason})
+  //   ?staffCareerShopDriverLedger=1&token=...&driverId=...  (GET, Owner-only, another driver's balance/owned items, for the Refund tool)
+  let __careerShopCatalogCache = null;
+  async function fetchCareerShopCatalog(){
+    if(__careerShopCatalogCache) return __careerShopCatalogCache;
+    __careerShopCatalogCache = (await apiGet('careerShopCatalog')).items || [];
+    return __careerShopCatalogCache;
+  }
+  async function saveCareerShopCatalog(items){
+    const saved = await apiPost('staffCareerShopCatalogSave', { items });
+    __careerShopCatalogCache = null;
+    return saved.items || items;
+  }
+  async function fetchMyCareerShopLedger(force){
+    return apiGet('myCareerShopLedger' + (force ? '&force=1' : ''));
+  }
+  async function purchaseCareerShopItem(itemId){
+    return apiPost('careerShopPurchase', { itemId });
+  }
+  // ✅ ADDED: staff-only - any driver's ledger, for the Refund tool to show
+  // what they currently own.
+  async function fetchDriverCareerShopLedger(driverId){
+    return apiGet('staffCareerShopDriverLedger', `&driverId=${encodeURIComponent(driverId)}`);
+  }
+  // ✅ ADDED: staff-only - manual credit/debit and refund actions. A reason
+  // is always required (accountability), enforced client-side here but the
+  // backend should reject a blank reason too, same as every other
+  // required-field save on this page.
+  async function issueCareerShopTransaction(driverId, amount, reason){
+    if(!reason || !reason.trim()) throw new Error('A reason is required.');
+    return apiPost('staffCareerShopTransaction', { driverId, amount, reason: reason.trim() });
+  }
+  async function refundCareerShopPurchase(driverId, purchaseId, reclaimItem, reason){
+    if(!reason || !reason.trim()) throw new Error('A reason is required.');
+    return apiPost('staffCareerShopRefund', { driverId, purchaseId, reclaimItem: !!reclaimItem, reason: reason.trim() });
+  }
+  window.IFWL_CareerShopAPI = { fetchCareerShopCatalog, saveCareerShopCatalog, fetchMyCareerShopLedger, purchaseCareerShopItem, fetchDriverCareerShopLedger, issueCareerShopTransaction, refundCareerShopPurchase };
+  window.invalidateCareerShopCatalogCache = () => { __careerShopCatalogCache = null; };
   window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   // ✅ ADDED: Seasonal Licence Overlays
@@ -4777,6 +4914,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let myPerks = [];
     try{ myPerks = (await apiGet('myCareerPerks')).perks || []; }catch(e){ console.warn('Could not load career perks', e); }
+
+    // ✅ ADDED: IFWL Career Shop - Team Gear race-income bonus. Sums the
+    // bonus % of every owned Team Gear item (staff sets each one's %
+    // individually - no auto-decay formula), applied as one combined
+    // multiplier alongside the existing Career Perk multipliers below.
+    let shopRaceIncomeBonusPct = 0;
+    try{
+      const [catalog, ledger] = await Promise.all([
+        window.IFWL_CareerShopAPI.fetchCareerShopCatalog(),
+        window.IFWL_CareerShopAPI.fetchMyCareerShopLedger()
+      ]);
+      const ownedIds = new Set(ledger.ownedItemIds || []);
+      shopRaceIncomeBonusPct = catalog
+        .filter(c => c.category === 'teamGear' && ownedIds.has(c.id))
+        .reduce((sum, c) => sum + (Number(c.bonusPct) || 0), 0);
+    }catch(e){ console.warn('Could not load IFWL Career Shop for race income bonus', e); }
     const hasPerk = (id) => myPerks.includes(id);
     const SP_PERK_TRACK_ANALYSIS_BONUS = 0.022;
     const SP_PERK_STRATEGY_BONUS = 0.03;
@@ -4838,6 +4991,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       if(hasPerk('trackAnalysis')) raceEarnings = Math.round(raceEarnings * (1 + SP_PERK_TRACK_ANALYSIS_BONUS));
       const noPenaltyThisRace = !penalizedTickets.some(t => (t.track||'').toLowerCase() === (myRow.track||'').toLowerCase() && t.timestampMs >= raceTs && t.timestampMs <= raceTs + (3*24*60*60*1000));
       if(hasPerk('strategyCommand') && noPenaltyThisRace) raceEarnings = Math.round(raceEarnings * (1 + SP_PERK_STRATEGY_BONUS));
+      if(shopRaceIncomeBonusPct > 0) raceEarnings = Math.round(raceEarnings * (1 + shopRaceIncomeBonusPct / 100));
 
       races.push({
         source, track: myRow.track, dateMs: raceTs, position, points, cleanBonus, totalPoints,
@@ -5169,6 +5323,125 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
 
+  // ✅ ADDED: IFWL Career Shop - driver-facing. Same tier-agnostic shape as
+  // Career Perks just below (everyone sees the shop; balance/purchasing
+  // just needs a real account, no Gold gate - it's spending money you
+  // already earned, not an upsell).
+  function csFmtMoney(n){ return (n < 0 ? '-' : '') + '&pound;' + Math.abs(Math.round(n)).toLocaleString(); }
+  const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear' };
+  const CS_CATEGORY_BLURB = {
+    supportStaff: 'Boosts sponsorship revenue for every new deal you win from here on.',
+    teamGear: "Boosts your race income per race, stacking with every other piece you own."
+  };
+
+  async function renderCareerShopSection(){
+    const box = q('spShopBody');
+    if(!box) return;
+
+    let catalog = [], ledger;
+    try{
+      catalog = await window.IFWL_CareerShopAPI.fetchCareerShopCatalog();
+      ledger = await window.IFWL_CareerShopAPI.fetchMyCareerShopLedger();
+    }catch(e){ box.innerHTML = `<div class="empty">Could not load the IFWL Career Shop: ${e.message}</div>`; return; }
+
+    const ownedIds = new Set(ledger.ownedItemIds || []);
+    const balance = Number(ledger.balance) || 0;
+
+    const categoryGrid = (catKey) => {
+      const items = catalog.filter(c => c.category === catKey);
+      if(!items.length) return '';
+      return `
+        <div class="shop-category-title">${CS_CATEGORY_LABEL[catKey]}</div>
+        <p class="field-hint" style="margin:-4px 0 8px">${CS_CATEGORY_BLURB[catKey]}</p>
+        <div class="shop-item-grid">
+          ${items.map(item => {
+            const owned = ownedIds.has(item.id);
+            const canAfford = balance >= (Number(item.cost) || 0);
+            return `<div class="shop-item-card aa-slot-card">
+              ${owned ? '<div class="shop-item-owned-badge">Owned</div>' : ''}
+              ${item.imageUrl ? `<img class="shop-item-thumb" src="${item.imageUrl}" alt="">` : ''}
+              <strong>${item.name}</strong>
+              <p class="field-hint" style="margin:4px 0">+${item.bonusPct}% ${catKey === 'supportStaff' ? 'sponsorship revenue' : 'race income per race'}</p>
+              <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px">
+                <span class="mono" style="font-weight:800">${csFmtMoney(item.cost)}</span>
+                ${owned
+                  ? ''
+                  : `<button class="btn ${canAfford ? 'teal' : 'ghost'}" data-buy-item="${item.id}" ${canAfford ? '' : 'disabled title="Not enough balance yet"'}>Purchase</button>`}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      `;
+    };
+
+    const receipts = (ledger.transactions || []).slice(0, 12).map(t => {
+      const amt = Number(t.amount) || 0;
+      return `<div class="shop-receipt-row">
+        <div>
+          <div>${t.description || t.reason || '-'}</div>
+          <div class="shop-receipt-meta">${t.dateLabel || ''}${t.issuedBy ? ' &middot; ' + t.issuedBy : ''}</div>
+        </div>
+        <div class="shop-receipt-amount ${amt >= 0 ? 'pos' : 'neg'}">${amt >= 0 ? '+' : ''}${csFmtMoney(amt)}</div>
+      </div>`;
+    }).join('');
+
+    box.innerHTML = `
+      <h4 style="margin:0 0 10px">IFWL Career Shop</h4>
+      <div class="shop-balance-row">
+        <div class="shop-balance-box"><span>Spendable Balance</span><strong>${csFmtMoney(balance)}</strong></div>
+      </div>
+      ${categoryGrid('supportStaff')}
+      ${categoryGrid('teamGear')}
+      ${!catalog.length ? '<div class="empty">Nothing in the shop yet - check back once staff have added items.</div>' : ''}
+      ${ledger.transactions && ledger.transactions.length ? `
+        <details class="shop-receipt-list">
+          <summary style="cursor:pointer;color:var(--ifwl-teal)">View transaction history (${ledger.transactions.length})</summary>
+          ${receipts}
+        </details>
+      ` : ''}
+    `;
+
+    box.querySelectorAll('[data-buy-item]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const item = catalog.find(c => c.id === btn.dataset.buyItem);
+        if(!item) return;
+        if(!confirm(`Purchase "${item.name}" for ${item.cost.toLocaleString()}? This will lock in for the rest of the season.`)) return;
+        btn.disabled = true; btn.textContent = 'Purchasing...';
+        try{
+          await window.IFWL_CareerShopAPI.purchaseCareerShopItem(item.id);
+          await renderCareerShopSection();
+          await initSeasonProgressionPanel(); // recompute race earnings with the new Team Gear bonus applied
+        }catch(e){
+          alert('Could not purchase: ' + e.message);
+          btn.disabled = false; btn.textContent = 'Purchase';
+        }
+      });
+    });
+  }
+
+  // ✅ ADDED: one-shot popup for a new IFWL Career Shop transaction, same
+  // fingerprint/localStorage pattern checkTicketNotice() already uses below,
+  // so a driver never misses a manual credit/debit/refund - and it won't
+  // re-show once dismissed even if the same transaction is still the latest
+  // on their next few visits.
+  function shopTxNoticeSeenKey(){ return 'IFWL_SHOP_TX_SEEN:' + window.IFWL_AUTH.userId(window.IFWL_META); }
+  async function checkShopTransactionNotice(){
+    let ledger;
+    try{ ledger = await window.IFWL_CareerShopAPI.fetchMyCareerShopLedger(); }
+    catch(e){ return; }
+    const latest = (ledger.transactions || []).find(t => t.isManual && t.id);
+    if(!latest) return;
+    if(localStorage.getItem(shopTxNoticeSeenKey()) === latest.id) return;
+
+    const amt = Number(latest.amount) || 0;
+    q('shopTransactionText').textContent = `${amt >= 0 ? 'You received' : 'A deduction of'} ${csFmtMoney(Math.abs(amt)).replace(/&pound;/,'£')} ${amt >= 0 ? '' : 'was made '}to your IFWL Career Shop balance - reason: "${latest.reason || latest.description || 'No reason given'}".`;
+    q('shopTransactionModal').classList.remove('hidden');
+    q('shopTransactionDismissBtn').onclick = () => {
+      localStorage.setItem(shopTxNoticeSeenKey(), latest.id);
+      q('shopTransactionModal').classList.add('hidden');
+    };
+  }
+
   async function renderCareerPerksSection(){
     const box = q('spPerksBody');
     if(!box) return;
@@ -5288,6 +5561,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // full page shape with tiered masking applied inside the render
     // functions themselves (renderCareerPerksSection / renderSeasonProgression),
     // rather than being shown nothing at all.
+    renderCareerShopSection();
     renderCareerPerksSection();
     try{
       const data = await computeSeasonProgression();
@@ -5973,6 +6247,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     hideDriverLinkGate();
     checkTicketNotice();
+    checkShopTransactionNotice();
 
     if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
     renderQualificationStanding();
@@ -10893,6 +11168,221 @@ Flashing Headlights:
     };
   }
 
+  // ✅ ADDED: Staff: IFWL Shop. Catalog editor follows the exact same
+  // pattern as BOP TRACKer's Car Catalog just above it (image upload, add
+  // row, edit inline, save-all). Manual transaction/refund tools reuse
+  // staffSearch() - the same driver search Driver Name Audit and the
+  // Career Perks reset tool already rely on, so no new search endpoint
+  // is needed.
+  let csShopItems = [];
+  let csSelectedTxDriver = null;
+  let csSelectedRefundDriver = null;
+
+  function csItemRowHtml(idx, item){
+    item = item || {};
+    const safeName = String(item.name||'').replace(/</g,'&lt;');
+    return `<div class="se-event-row" data-row-idx="${idx}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h5 style="margin:0">${safeName || ('Item ' + (idx+1))}</h5>
+        <button class="btn ghost" data-remove-csitem="${idx}" type="button">✕ Remove</button>
+      </div>
+      ${item.imageUrl ? `<img src="${item.imageUrl}" alt="" style="width:100%;max-width:220px;height:100px;object-fit:cover;border-radius:8px;display:block;margin-bottom:8px;background:#0d1116">` : ''}
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field-group" style="flex:2;min-width:160px"><label>Item name</label><input type="text" class="cs-item-name" value="${(item.name||'').replace(/"/g,'&quot;')}"></div>
+        <div class="field-group" style="flex:1;min-width:170px">
+          <label>Category</label>
+          <select class="cs-item-category">
+            <option value="supportStaff" ${item.category === 'supportStaff' ? 'selected' : ''}>Support Staff (sponsorship)</option>
+            <option value="teamGear" ${item.category === 'teamGear' ? 'selected' : ''}>Team Gear (race income)</option>
+          </select>
+        </div>
+        <div class="field-group" style="flex:1;min-width:110px"><label>Cost (&pound;)</label><input type="number" class="cs-item-cost" value="${item.cost ?? ''}" min="0" step="1"></div>
+        <div class="field-group" style="flex:1;min-width:100px"><label>Bonus %</label><input type="number" class="cs-item-bonus" value="${item.bonusPct ?? ''}" min="0" step="0.1"></div>
+      </div>
+      <input type="hidden" class="cs-item-image-url" value="${(item.imageUrl||'').replace(/"/g,'&quot;')}">
+    </div>`;
+  }
+
+  function csRenderCatalogRows(){
+    const wrap = q('csCatalogRows');
+    if(!wrap) return;
+    wrap.innerHTML = csShopItems.length
+      ? csShopItems.map((it,idx) => csItemRowHtml(idx, it)).join('')
+      : '<div class="empty">No items in the shop yet - add one above.</div>';
+    wrap.querySelectorAll('[data-remove-csitem]').forEach(btn => btn.addEventListener('click', () => {
+      csShopItems.splice(Number(btn.dataset.removeCsitem), 1);
+      csRenderCatalogRows();
+    }));
+  }
+
+  async function initCareerShopPanel(){
+    if(!q('staffCareerShopPanel')) return;
+
+    let catalog = [];
+    try{ catalog = await window.IFWL_CareerShopAPI.fetchCareerShopCatalog(); }
+    catch(e){ q('csCatalogRows').innerHTML = `<div class="empty">Could not load shop catalog: ${e.message}</div>`; }
+    csShopItems = catalog.map(c => ({...c}));
+    csRenderCatalogRows();
+
+    q('csAddItemBtn').onclick = async () => {
+      const status = q('csAddItemStatus');
+      const name = q('csNewItemName').value.trim();
+      const category = q('csNewItemCategory').value;
+      const cost = Number(q('csNewItemCost').value);
+      const bonusPct = Number(q('csNewItemBonusPct').value);
+      if(!name){ status.textContent = 'Item name is required.'; return; }
+      if(!Number.isFinite(cost) || cost < 0){ status.textContent = 'A valid cost is required.'; return; }
+      if(!Number.isFinite(bonusPct) || bonusPct <= 0){ status.textContent = 'A bonus % greater than 0 is required.'; return; }
+
+      let imageUrl = '';
+      const file = q('csNewItemImageInput').files[0];
+      if(file){
+        status.textContent = 'Uploading image...';
+        try{ imageUrl = (await window.IFWL_UploadAPI.uploadLicenceImage(file, 'careerShopItem')).url; }
+        catch(e){ status.textContent = 'Image upload failed: ' + e.message; return; }
+      }
+
+      csShopItems.push({ id: 'shopitem_' + Date.now(), name, category, cost, bonusPct, imageUrl });
+      csRenderCatalogRows();
+
+      status.textContent = 'Saving...';
+      try{
+        csShopItems = await window.IFWL_CareerShopAPI.saveCareerShopCatalog(csShopItems);
+        csRenderCatalogRows();
+        q('csNewItemName').value = ''; q('csNewItemCost').value = ''; q('csNewItemBonusPct').value = ''; q('csNewItemImageInput').value = '';
+        status.textContent = 'Added.';
+        setTimeout(() => { if(q('csAddItemStatus')) q('csAddItemStatus').textContent = ''; }, 2000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+
+    q('csSaveCatalogBtn').onclick = async () => {
+      const status = q('csCatalogSaveStatus');
+      const rows = [...q('csCatalogRows').querySelectorAll('[data-row-idx]')];
+      const items = rows.map(row => {
+        const idx = Number(row.dataset.rowIdx);
+        return {
+          id: csShopItems[idx]?.id || ('shopitem_' + Date.now() + '_' + idx),
+          name: row.querySelector('.cs-item-name').value.trim(),
+          category: row.querySelector('.cs-item-category').value,
+          cost: Number(row.querySelector('.cs-item-cost').value),
+          bonusPct: Number(row.querySelector('.cs-item-bonus').value),
+          imageUrl: row.querySelector('.cs-item-image-url').value
+        };
+      }).filter(it => it.name && Number.isFinite(it.cost) && it.cost >= 0 && Number.isFinite(it.bonusPct) && it.bonusPct > 0);
+
+      if(!items.length){ status.textContent = 'At least one item with a name, cost and bonus % is required.'; return; }
+
+      status.textContent = 'Saving...';
+      try{
+        csShopItems = await window.IFWL_CareerShopAPI.saveCareerShopCatalog(items);
+        csRenderCatalogRows();
+        status.textContent = 'Saved - every driver picks this up on their next visit.';
+        setTimeout(() => { if(q('csCatalogSaveStatus')) q('csCatalogSaveStatus').textContent = ''; }, 3000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+
+    // ---- Manual credit/debit ----
+    q('csTxSearchInput').addEventListener('input', async () => {
+      const term = q('csTxSearchInput').value.trim().toLowerCase();
+      const resultsBox = q('csTxSearchResults');
+      csSelectedTxDriver = null;
+      if(!term){ resultsBox.innerHTML = ''; return; }
+      resultsBox.innerHTML = '<div class="empty">Searching&hellip;</div>';
+      let drivers;
+      try{ drivers = await staffSearch(term); }
+      catch(e){ resultsBox.innerHTML = `<div class="empty">Search failed: ${e.message}</div>`; return; }
+      if(!drivers.length){ resultsBox.innerHTML = '<div class="empty">No drivers found.</div>'; return; }
+      resultsBox.innerHTML = drivers.slice(0, 20).map(d => `
+        <div class="note-item" style="cursor:pointer" data-tx-driver="${d.discordId}" data-tx-driver-name="${(d.name||'').replace(/"/g,'&quot;')}">
+          <strong>${d.name}</strong> <span class="note-meta">(${d.licenceNumber})</span>
+        </div>
+      `).join('');
+      resultsBox.querySelectorAll('[data-tx-driver]').forEach(row => row.addEventListener('click', () => {
+        csSelectedTxDriver = { id: row.dataset.txDriver, name: row.dataset.txDriverName };
+        resultsBox.innerHTML = `
+          <div class="notice-card">Issuing a manual credit/debit to <strong>${csSelectedTxDriver.name}</strong>.</div>
+          <div class="field-group"><label>Amount (&pound;) - negative for a debit</label><input type="number" id="csTxAmount" step="1"></div>
+          <div class="field-group"><label>Reason (required - shown to the driver on their receipt)</label><textarea id="csTxReason" style="width:100%;min-height:70px"></textarea></div>
+          <button class="btn teal" id="csTxSubmitBtn" type="button">Issue transaction</button>
+          <button class="btn ghost" id="csTxCancelBtn" type="button">Cancel</button>
+          <span class="save-status" id="csTxSubmitStatus"></span>
+        `;
+        q('csTxCancelBtn').onclick = () => { csSelectedTxDriver = null; resultsBox.innerHTML = ''; q('csTxSearchInput').value = ''; };
+        q('csTxSubmitBtn').onclick = async () => {
+          const status = q('csTxSubmitStatus');
+          const amount = Number(q('csTxAmount').value);
+          const reason = q('csTxReason').value;
+          if(!Number.isFinite(amount) || amount === 0){ status.textContent = 'Enter a non-zero amount.'; return; }
+          if(!reason.trim()){ status.textContent = 'A reason is required.'; return; }
+          if(!confirm(`Issue ${amount >= 0 ? '+' : ''}£${amount.toLocaleString()} to ${csSelectedTxDriver.name}?`)) return;
+          status.textContent = 'Issuing...';
+          try{
+            await window.IFWL_CareerShopAPI.issueCareerShopTransaction(csSelectedTxDriver.id, amount, reason);
+            status.textContent = 'Issued - visible to the driver next time they load the page.';
+            setTimeout(() => { resultsBox.innerHTML = ''; q('csTxSearchInput').value = ''; csSelectedTxDriver = null; }, 1800);
+          }catch(e){ status.textContent = 'Could not issue: ' + e.message; }
+        };
+      }));
+    });
+
+    // ---- Refund a purchase ----
+    q('csRefundSearchInput').addEventListener('input', async () => {
+      const term = q('csRefundSearchInput').value.trim().toLowerCase();
+      const resultsBox = q('csRefundSearchResults');
+      csSelectedRefundDriver = null;
+      if(!term){ resultsBox.innerHTML = ''; return; }
+      resultsBox.innerHTML = '<div class="empty">Searching&hellip;</div>';
+      let drivers;
+      try{ drivers = await staffSearch(term); }
+      catch(e){ resultsBox.innerHTML = `<div class="empty">Search failed: ${e.message}</div>`; return; }
+      if(!drivers.length){ resultsBox.innerHTML = '<div class="empty">No drivers found.</div>'; return; }
+      resultsBox.innerHTML = drivers.slice(0, 20).map(d => `
+        <div class="note-item" style="cursor:pointer" data-refund-driver="${d.discordId}" data-refund-driver-name="${(d.name||'').replace(/"/g,'&quot;')}">
+          <strong>${d.name}</strong> <span class="note-meta">(${d.licenceNumber})</span>
+        </div>
+      `).join('');
+      resultsBox.querySelectorAll('[data-refund-driver]').forEach(row => row.addEventListener('click', async () => {
+        const driverId = row.dataset.refundDriver;
+        const driverName = row.dataset.refundDriverName;
+        resultsBox.innerHTML = '<div class="empty">Loading this driver\'s purchases&hellip;</div>';
+        let ledger;
+        try{ ledger = await window.IFWL_CareerShopAPI.fetchDriverCareerShopLedger(driverId); }
+        catch(e){ resultsBox.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+        // Assumes each purchase transaction carries {type:'purchase', id, itemId, itemName, amount, refunded}
+        const purchases = (ledger.transactions || []).filter(t => t.type === 'purchase' && !t.refunded);
+        if(!purchases.length){ resultsBox.innerHTML = `<div class="empty">${driverName} has no active purchases this season to refund.</div>`; return; }
+        resultsBox.innerHTML = `
+          <div class="notice-card">Refunding a purchase for <strong>${driverName}</strong>.</div>
+          ${purchases.map(p => `
+            <div class="note-item">
+              <strong>${p.itemName || p.description || 'Item'}</strong> <span class="note-meta">-&pound;${Math.abs(Number(p.amount)||0).toLocaleString()}</span>
+              <div style="margin-top:8px">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px"><input type="checkbox" class="cs-refund-reclaim" style="width:auto"> Also reclaim the item (removes its bonus)</label>
+                <textarea class="cs-refund-reason" placeholder="Reason (required)..." style="width:100%;min-height:50px;margin-bottom:8px"></textarea>
+                <button class="btn teal" data-do-refund="${p.id}" data-refund-item="${p.itemId||''}" type="button">Refund this purchase</button>
+                <span class="save-status cs-refund-status"></span>
+              </div>
+            </div>
+          `).join('')}
+        `;
+        resultsBox.querySelectorAll('[data-do-refund]').forEach(btn => btn.addEventListener('click', async () => {
+          const card = btn.closest('.note-item');
+          const status = card.querySelector('.cs-refund-status');
+          const reclaimItem = card.querySelector('.cs-refund-reclaim').checked;
+          const reason = card.querySelector('.cs-refund-reason').value;
+          if(!reason.trim()){ status.textContent = 'A reason is required.'; return; }
+          if(!confirm(`Refund this purchase for ${driverName}?${reclaimItem ? ' The item and its bonus will also be reclaimed.' : ' They keep the item.'}`)) return;
+          status.textContent = 'Refunding...';
+          try{
+            await window.IFWL_CareerShopAPI.refundCareerShopPurchase(driverId, btn.dataset.doRefund, reclaimItem, reason);
+            status.textContent = 'Refunded.';
+            btn.disabled = true;
+          }catch(e){ status.textContent = 'Could not refund: ' + e.message; }
+        }));
+      }));
+    });
+  }
+
   // ✅ ADDED: Entrylist Cross-Reference. Parses a SimGrid entrylist CSV
   // and/or the raw ACC server entrylist.json, matches every entry against
   // real licence profiles by name (neither file carries a Discord
@@ -11164,6 +11654,7 @@ Flashing Headlights:
     renderStaffTrophyCabinet();
     initAffiliateAdsPanel();
     initStaffBopTrackerPanel();
+    initCareerShopPanel();
     initEntrylistCrossRefPanel();
     window.initOpsRaceTeamsPanel?.();
     initSponsorshipsPanel();
