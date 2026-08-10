@@ -677,6 +677,19 @@
   </header>
 
   <div class="wrap">
+    <!-- NEW: Live Ticket Queue (Race 1 sheet -> TLS) -->
+    <div class="card" id="liveQueueCard" style="grid-column: 1 / -1;">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div class="title" style="margin:0;">Live Ticket Queue — Race 1</div>
+          <div class="muted">Actioned in-race by live stewards. Confirm the driver link and submit to add it to TLS.</div>
+        </div>
+        <button id="liveQueueRefreshBtn">Refresh</button>
+      </div>
+      <div class="muted" id="liveQueueHint" style="margin-top:8px;">Loading…</div>
+      <div id="liveQueueList" style="margin-top:10px; display:flex; flex-direction:column; gap:10px;"></div>
+    </div>
+
     <!-- LEFT -->
     <div class="card">
       <div class="row" style="justify-content:space-between;">
@@ -3660,6 +3673,242 @@ This status was changed from the Head Steward web dashboard so the ticket can be
         }
       });
     })();
+  </script>
+
+  <!-- ====================================================================
+       NEW: Live Ticket Queue — pulls "Applied" tickets from the live
+       stewarding Google Sheet (Race 1 tab) and lets the Head Steward
+       confirm the driver link before it's submitted as a Finalised
+       ticket, feeding TLS. These were already actioned in-race by
+       live stewards, so no CAUSE deliberation is required here —
+       this is a driver-link confirmation + submit step only.
+  ==================================================================== -->
+  <script>
+    /* ====================== CONFIGURE THESE ====================== */
+    const LQ_SHEET_ID = "PASTE_YOUR_GOOGLE_SHEET_ID_HERE";
+    const LQ_SHEET_TAB = "Race 1";
+    const LQ_EVENT_LABEL = "Race 1";          // written to ticket.event
+    const LQ_COMPETITION_LABEL = "PC Pro-Am"; // written to ticket.competition
+    /* =============================================================== */
+
+    let lqSheetTickets = [];       // Applied=true tickets from the sheet
+    let lqSubmittedIds = new Set(); // liveSheetTicketId values already in Firestore
+    let lqDriverDirectory = [];    // [{ carNumber, name }]
+    let lqDriverByCar = new Map(); // carNumber(string) -> name
+
+    function lqEscapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    async function lqFetchSheetTickets() {
+      const url = `https://docs.google.com/spreadsheets/d/${LQ_SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(LQ_SHEET_TAB)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Sheet HTTP " + res.status);
+      const text = await res.text();
+      const jsonText = text.substring(text.indexOf("{"), text.lastIndexOf("}") + 1);
+      const data = JSON.parse(jsonText);
+      const rows = data.table.rows.slice(3); // skip title / greenflag / header rows
+
+      const out = [];
+      for (const r of rows) {
+        const c = r.c;
+        const val = (i) => (c[i] && c[i].v !== null && c[i].v !== undefined) ? c[i].v : "";
+        const ticketId = val(0);
+        if (!ticketId) continue;
+        const applied = val(11) === true || val(11) === "TRUE";
+        if (!applied) continue; // only actioned tickets belong in this queue
+
+        out.push({
+          id: String(ticketId),
+          sessionTime: val(1),
+          cars: val(3),
+          ruling: val(5),
+          penalty: val(7),
+          penalisedCar: String(val(8) || "").trim(),
+          description: val(9)
+        });
+      }
+      return out;
+    }
+
+    function lqParseCarFromName(name) {
+      const m = String(name || "").match(/^\s*\[\s*(\d+)\s*\]/);
+      return m ? m[1] : null;
+    }
+
+    async function lqLoadDriverDirectory() {
+      lqDriverByCar = new Map();
+      lqDriverDirectory = [];
+
+      try {
+        const licSnap = await db.collection("licences").limit(2000).get();
+        licSnap.forEach(doc => {
+          const d = doc.data() || {};
+          const name = d.name || "";
+          const car = lqParseCarFromName(name);
+          if (car && !lqDriverByCar.has(car)) lqDriverByCar.set(car, name);
+          if (name) lqDriverDirectory.push({ carNumber: car, name });
+        });
+      } catch (e) { console.warn("licences load failed:", e); }
+
+      try {
+        const drvSnap = await db.collection("drivers").limit(2000).get();
+        drvSnap.forEach(doc => {
+          const d = doc.data() || {};
+          const name = d.fullName || "";
+          const car = lqParseCarFromName(name);
+          // licences (season 4) takes priority; only fill gaps from legacy drivers
+          if (car && !lqDriverByCar.has(car)) lqDriverByCar.set(car, name);
+          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name });
+        });
+      } catch (e) { console.warn("drivers load failed:", e); }
+    }
+
+    async function lqLoadSubmittedIds() {
+      lqSubmittedIds = new Set();
+      try {
+        const snap = await db.collection("tickets").where("liveSheetRace", "==", LQ_EVENT_LABEL).get();
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          if (d.liveSheetTicketId) lqSubmittedIds.add(String(d.liveSheetTicketId));
+        });
+      } catch (e) { console.warn("submitted-id lookup failed:", e); }
+    }
+
+    function lqDriverOptionsHtml(selectedName) {
+      const opts = ['<option value="">— Select driver —</option>'];
+      const sorted = lqDriverDirectory.slice().sort((a, b) => a.name.localeCompare(b.name));
+      for (const d of sorted) {
+        const sel = d.name === selectedName ? "selected" : "";
+        opts.push(`<option value="${lqEscapeHtml(d.name)}" ${sel}>${lqEscapeHtml(d.name)}</option>`);
+      }
+      return opts.join("");
+    }
+
+    function lqRender() {
+      const list = $("liveQueueList");
+      const hint = $("liveQueueHint");
+
+      const pending = lqSheetTickets.filter(t => !lqSubmittedIds.has(t.id));
+
+      if (pending.length === 0) {
+        hint.textContent = "No actioned tickets waiting to be submitted.";
+        list.innerHTML = "";
+        return;
+      }
+
+      hint.textContent = `${pending.length} actioned ticket(s) waiting for driver confirmation.`;
+
+      list.innerHTML = pending.map(t => {
+        const matchedName = lqDriverByCar.get(String(t.penalisedCar)) || "";
+        return `
+          <div class="card" style="margin:0; border-color:#e5e7eb;" data-ticket="${lqEscapeHtml(t.id)}">
+            <div class="row" style="justify-content:space-between; align-items:flex-start;">
+              <div>
+                <div style="font-weight:800;">Ticket ${lqEscapeHtml(t.id)} <span class="muted">(${lqEscapeHtml(t.sessionTime)})</span></div>
+                <div style="margin-top:4px;"><b>Cars:</b> ${lqEscapeHtml(t.cars)}</div>
+                <div><b>Ruling:</b> ${lqEscapeHtml(t.ruling)} &nbsp; <b>Penalty:</b> ${lqEscapeHtml(t.penalty || "—")} on car ${lqEscapeHtml(t.penalisedCar)}</div>
+                ${t.description ? `<div class="muted" style="margin-top:4px;">${lqEscapeHtml(t.description)}</div>` : ""}
+              </div>
+              <span class="tag green">⚡ No deliberation needed — actioned in-race</span>
+            </div>
+
+            <div class="row" style="margin-top:10px; align-items:flex-end;">
+              <div style="flex:1; min-width:220px;">
+                <label class="muted">Driver (car ${lqEscapeHtml(t.penalisedCar)})${matchedName ? "" : " — no automatic match, please select"}</label>
+                <select class="lqDriverSelect">${lqDriverOptionsHtml(matchedName)}</select>
+              </div>
+              <button class="primary lqSubmitBtn">Submit to TLS</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      list.querySelectorAll(".lqSubmitBtn").forEach(btn => {
+        btn.onclick = () => lqSubmitTicket(btn);
+      });
+    }
+
+    async function lqSubmitTicket(btn) {
+      const cardEl = btn.closest("[data-ticket]");
+      const ticketId = cardEl.getAttribute("data-ticket");
+      const t = lqSheetTickets.find(x => x.id === ticketId);
+      if (!t) return;
+
+      const select = cardEl.querySelector(".lqDriverSelect");
+      const driverName = select.value;
+      if (!driverName) { toast("Select a driver first"); return; }
+
+      const ok = confirm(`Submit ticket ${ticketId} for ${driverName} to TLS? This was already actioned in-race — no further deliberation needed.`);
+      if (!ok) return;
+
+      btn.disabled = true;
+      btn.textContent = "Submitting…";
+
+      try {
+        const docId = `LIVE-${LQ_EVENT_LABEL.replace(/\s+/g, "")}-${ticketId}`;
+        await db.collection("tickets").doc(docId).set({
+          status: "Finalised",
+          accused: driverName,
+          reporter: "Live Stewarding",
+          event: LQ_EVENT_LABEL,
+          competition: LQ_COMPETITION_LABEL,
+          ruleBreach: t.ruling,
+          postRaceCode: t.ruling,
+          finalPenaltyCode: t.ruling,
+          finalPenalty: t.penalty || t.ruling,
+          finalPenaltyTime: t.penalty || "",
+          fullIncident: t.description || "",
+          stewardDecision: t.description || `${t.ruling} — actioned live during ${LQ_EVENT_LABEL}`,
+          stewardTag: currentEmail || "Live Stewarding",
+          finalisedBy: currentEmail || "Live Stewarding",
+          finalisedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          liveSheetTicketId: t.id,
+          liveSheetRace: LQ_EVENT_LABEL,
+          noDeliberationNeeded: true,
+          source: "live_stewarding_sheet"
+        }, { merge: true });
+
+        lqSubmittedIds.add(t.id);
+        toast(`Ticket ${ticketId} submitted to TLS ✅`);
+        lqRender();
+      } catch (e) {
+        console.error(e);
+        toast("Submit failed: " + (e?.message || e));
+        btn.disabled = false;
+        btn.textContent = "Submit to TLS";
+      }
+    }
+
+    async function lqRefresh() {
+      const hint = $("liveQueueHint");
+      hint.textContent = "Loading…";
+      try {
+        const [sheetTickets] = await Promise.all([
+          lqFetchSheetTickets(),
+          lqDriverDirectory.length ? Promise.resolve() : lqLoadDriverDirectory(),
+          lqLoadSubmittedIds()
+        ]);
+        lqSheetTickets = sheetTickets;
+        lqRender();
+      } catch (e) {
+        console.error(e);
+        hint.textContent = "Couldn't load the live sheet — check LQ_SHEET_ID and sharing settings.";
+      }
+    }
+
+    const lqRefreshBtn = document.getElementById("liveQueueRefreshBtn");
+    if (lqRefreshBtn) lqRefreshBtn.onclick = () => lqRefresh();
+
+    // Wait for the existing auth gate to confirm this is a signed-in head steward
+    // before touching Firestore, then do an initial load + light polling.
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        lqRefresh();
+        setInterval(lqRefresh, 30000);
+      }
+    });
   </script>
 
   <!--
