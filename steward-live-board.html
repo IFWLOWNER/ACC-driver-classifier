@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Live Stewards Board — Race 1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: Arial, sans-serif; margin:0; background:#f3f4f6; color:#111827; }
+  header {
+    padding:14px 18px; background:#111827; color:#fff;
+    display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;
+  }
+  header h1 { font-size:16px; margin:0; }
+  header .meta { font-size:12px; opacity:0.85; }
+  .controls { padding:12px 18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#fff; border-bottom:1px solid #e5e7eb; }
+  .controls input, .controls select {
+    padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:14px;
+  }
+  .controls button {
+    padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer; font-size:14px;
+  }
+  .controls button.primary { background:#111827; color:#fff; border-color:#111827; }
+  .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .list { padding:14px 18px; display:flex; flex-direction:column; gap:10px; max-width:1100px; margin:0 auto; }
+  .ticket {
+    background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px 14px;
+    display:grid; grid-template-columns: 90px 1fr 160px; gap:12px; align-items:center;
+  }
+  .ticket .id { font-family: ui-monospace, Menlo, monospace; font-weight:700; font-size:13px; }
+  .ticket .times { font-size:11px; color:#6b7280; margin-top:2px; }
+  .ticket .cars { font-weight:600; font-size:14px; margin:2px 0; }
+  .ticket .detail { font-size:12px; color:#374151; }
+  .ticket .detail b { color:#111827; }
+  .badge {
+    display:inline-block; padding:6px 10px; border-radius:999px; font-size:11px; font-weight:700;
+    text-align:center; white-space:nowrap;
+  }
+  .badge.investigating { background:#fef3c7; color:#92400e; }
+  .badge.pending { background:#fde68a; color:#78350f; }
+  .badge.applied { background:#d1fae5; color:#065f46; }
+  .badge.nfa { background:#e5e7eb; color:#374151; }
+  .empty { text-align:center; color:#6b7280; padding:40px; }
+  .err { background:#fee2e2; color:#991b1b; padding:10px 14px; font-size:13px; }
+  @media (max-width:600px){
+    .ticket { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Live Stewards Board — Race 1</h1>
+    <div class="meta" id="lastUpdated">Not loaded yet</div>
+  </div>
+  <div class="meta"><span class="status-dot" id="liveDot" style="background:#9ca3af;"></span><span id="liveLabel">Connecting…</span></div>
+</header>
+
+<div class="controls">
+  <input id="search" placeholder="Filter by car #, ticket #, ruling…" style="flex:1; min-width:180px;">
+  <select id="statusFilter">
+    <option value="all">All statuses</option>
+    <option value="investigating">Under investigation</option>
+    <option value="pending">Ruling made — pending action</option>
+    <option value="applied">Penalty applied</option>
+    <option value="nfa">No further action</option>
+  </select>
+  <button id="refreshBtn" class="primary">Refresh now</button>
+</div>
+
+<div id="errBox"></div>
+<div class="list" id="list"><div class="empty">Loading tickets…</div></div>
+
+<script>
+/* ====================== CONFIGURE THESE TWO LINES ====================== */
+const SHEET_ID   = "PASTE_YOUR_GOOGLE_SHEET_ID_HERE";  // the long ID in the sheet's URL between /d/ and /edit
+const SHEET_TAB  = "Race 1";                            // exact tab name
+/* ========================================================================= */
+
+const POLL_MS = 15000; // refresh every 15s
+let allTickets = [];
+
+function gvizUrl() {
+  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_TAB)}`;
+}
+
+async function fetchTickets() {
+  const res = await fetch(gvizUrl());
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const text = await res.text();
+  const jsonText = text.substring(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  const data = JSON.parse(jsonText);
+  const rows = data.table.rows;
+
+  // Header is row 3 of the sheet (index 2), data starts row 4 (index 3) -> gviz includes ALL rows from A1
+  // so we slice off the first 3 rows (title row, greenflag row, header row).
+  const dataRows = rows.slice(3);
+
+  const tickets = [];
+  for (const r of dataRows) {
+    const c = r.c;
+    const val = (i) => (c[i] && c[i].v !== null && c[i].v !== undefined) ? c[i].v : "";
+    const ticketId = val(0);
+    if (!ticketId) continue; // skip blank rows
+    tickets.push({
+      id: ticketId,
+      sessionTime: val(1),
+      replayTime: val(2),
+      cars: val(3),
+      investigatedBy: val(4),
+      ruling: val(5),
+      severity: val(6),
+      penalty: val(7),
+      penalisedCar: val(8),
+      description: val(9),
+      resolved: val(10) === true || val(10) === "TRUE",
+      applied: val(11) === true || val(11) === "TRUE",
+      messages: val(12)
+    });
+  }
+  return tickets;
+}
+
+function statusOf(t) {
+  if (!t.ruling) return { key: "investigating", label: "Under investigation" };
+  if (t.ruling === "NFA" || (!t.penalty && t.resolved)) return { key: "nfa", label: "No further action" };
+  if (t.applied) return { key: "applied", label: "Penalty applied" };
+  if (t.resolved && !t.applied) return { key: "pending", label: "Ruling made — pending action" };
+  return { key: "investigating", label: "Under investigation" };
+}
+
+function render() {
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const statusFilter = document.getElementById("statusFilter").value;
+  const list = document.getElementById("list");
+
+  let filtered = allTickets.filter(t => {
+    const st = statusOf(t);
+    if (statusFilter !== "all" && st.key !== statusFilter) return false;
+    if (!q) return true;
+    const hay = `${t.id} ${t.cars} ${t.ruling} ${t.penalisedCar} ${t.description}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="empty">No tickets match.</div>`;
+    return;
+  }
+
+  // most recent tickets first
+  filtered = filtered.slice().reverse();
+
+  list.innerHTML = filtered.map(t => {
+    const st = statusOf(t);
+    return `
+      <div class="ticket">
+        <div>
+          <div class="id">${escapeHtml(t.id)}</div>
+          <div class="times">${escapeHtml(t.sessionTime)}</div>
+        </div>
+        <div>
+          <div class="cars">${escapeHtml(t.cars || "—")}</div>
+          <div class="detail">
+            ${t.ruling ? `<b>Ruling:</b> ${escapeHtml(t.ruling)} &nbsp; ` : ""}
+            ${t.penalty ? `<b>Penalty:</b> ${escapeHtml(t.penalty)} on car ${escapeHtml(t.penalisedCar)} &nbsp; ` : ""}
+            ${t.description ? `<b>Note:</b> ${escapeHtml(t.description)}` : ""}
+          </div>
+          ${t.messages ? `<div class="detail" style="margin-top:4px; color:#6b7280;">${escapeHtml(t.messages)}</div>` : ""}
+        </div>
+        <div style="text-align:right;">
+          <span class="badge ${st.key}">${st.label}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+async function refresh() {
+  try {
+    allTickets = await fetchTickets();
+    document.getElementById("errBox").innerHTML = "";
+    document.getElementById("liveDot").style.background = "#10b981";
+    document.getElementById("liveLabel").textContent = "Live";
+    document.getElementById("lastUpdated").textContent = "Last updated: " + new Date().toLocaleTimeString();
+    render();
+  } catch (e) {
+    document.getElementById("liveDot").style.background = "#ef4444";
+    document.getElementById("liveLabel").textContent = "Connection issue";
+    document.getElementById("errBox").innerHTML =
+      `<div class="err">Couldn't load the sheet. Check that SHEET_ID is set and the sheet is shared as "Anyone with the link — Viewer". (${escapeHtml(e.message)})</div>`;
+  }
+}
+
+document.getElementById("refreshBtn").addEventListener("click", refresh);
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("statusFilter").addEventListener("change", render);
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+
+</body>
+</html>
