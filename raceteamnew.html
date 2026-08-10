@@ -211,6 +211,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <button class="team-tab active" data-team-view="roster" type="button">Roster &amp; Branding</button>
       <button class="team-tab" data-team-view="scouting" type="button">Scouting</button>
       <button class="team-tab" data-team-view="events" type="button">Events &amp; Stints</button>
+      <button class="team-tab" data-team-view="claim" type="button">Claim Your Stints</button>
     </div>
 
     <div class="team-view active" data-team-view="roster">
@@ -233,6 +234,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <section class="panel">
         <div class="panel-head"><div><h3>Events &amp; Stints</h3><small id="eventsSubhead">Set up an event, see availability, allocate stints</small></div></div>
         <div class="panel-body"><div id="eventsBody"><div class="empty">Loading&hellip;</div></div></div>
+      </section>
+    </div>
+
+    <div class="team-view" data-team-view="claim">
+      <section class="panel">
+        <div class="panel-head"><div><h3>Claim Your Stints</h3><small>Mark which stints you're free for, and respond to finalised plans — as yourself, whoever's viewing this page</small></div></div>
+        <div class="panel-body"><div id="claimBody"><div class="empty">Loading&hellip;</div></div></div>
       </section>
     </div>
   </div>
@@ -571,30 +579,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       return `<div class="rt-ack-row ${cls}"><strong>${esc(a.driverName)}</strong><span>${text}</span></div>`;
     }).join('') || '<div class="empty">No stint plan finalised yet.</div>';
 
-    // The captain is very often also a driver in the roster, but this whole
-    // card is otherwise an admin/allocation view with no way to tick their
-    // OWN availability. This mirrors the member-side toggle grid, scoped to
-    // whichever roster name the captain has selected as themselves.
-    const myKey = driverNameKey(myDriverName);
-    const myAvailability = availability[myKey]?.stints || [];
-    const myToggles = myDriverName ? Array.from({length: stintCount}, (_,i) => `
-      <div class="rt-mystint-toggle ${myAvailability[i] ? 'active' : ''}" data-myavail-toggle="${i}">
-        <span>Stint</span><strong>${i+1}</strong>${stintTimes[i] ? `<span>${esc(stintTimes[i])}</span>` : ''}
-      </div>`).join('') : '';
-    const myAvailabilitySection = !event.finalized ? `
-      <div class="rt-event-section">
-        <h5>Your own availability</h5>
-        ${!myDriverName ? `
-          <div class="field-group" style="margin-bottom:0;">
-            <label>Which roster name is you?</label>
-            <select class="rt-my-name-select"><option value="">Select your name...</option>${drivers.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
-          </div>
-        ` : `
-          <div class="rt-mystint-grid">${myToggles}</div>
-          <button type="button" class="btn teal" data-myavail-save="1">Save my availability</button>
-        `}
-      </div>` : '';
-
     return `<div class="rt-event-card" data-rt-event-id="${esc(event.id)}">
       <div class="rt-event-head" style="${esc(rtEventBannerStyle(event))}">
         <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
@@ -602,7 +586,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span>
         <button type="button" data-rt-event-delete="1">Delete event</button>
       </div>
-      ${myAvailabilitySection}
       <div class="rt-event-section"><h5>Driver availability (${stintCount} stints)</h5>
         <div class="table-wrap"><table class="results-table rt-avail-table"><thead><tr><th>Driver</th>${availHeader}</tr></thead>
         <tbody>${availRows || `<tr><td colspan="${stintCount+1}" class="empty">No drivers on this roster yet.</td></tr>`}</tbody></table></div>
@@ -685,25 +668,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             }
             renderEventsBody();
           }catch(e){ alert('Could not populate stints: ' + e.message); }
-        });
-
-        // Captain's own availability toggles (separate from the admin
-        // allocation controls above).
-        card.querySelector('.rt-my-name-select')?.addEventListener('change', (e) => {
-          myDriverName = e.target.value;
-          try{ localStorage.setItem('IFWL_MY_RACE_TEAM_DRIVER_NAME', myDriverName); }catch(_){}
-          renderEventsBody();
-        });
-        card.querySelectorAll('[data-myavail-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
-        card.querySelector('[data-myavail-save]')?.addEventListener('click', async () => {
-          const toggles = [...card.querySelectorAll('[data-myavail-toggle]')].sort((a,b) => Number(a.dataset.myavailToggle) - Number(b.dataset.myavailToggle));
-          const stints = toggles.map(t => t.classList.contains('active'));
-          try{
-            await rtSetAvailability(event.id, myDriverName, stints);
-            const idx = currentEvents.findIndex(e => e.id === event.id);
-            if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
-            renderEventsBody();
-          }catch(e){ alert('Could not save availability: ' + e.message); }
         });
       });
     } else {
@@ -812,6 +776,107 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     try{ currentEvents = await rtFetchEvents(currentTeamId); }
     catch(e){ body.innerHTML = `<div class="empty">Could not load events: ${e.message}</div>`; return; }
     renderEventsBody();
+    renderClaimBody();
+  }
+
+  // ============================================================
+  // Claim Your Stints — a dedicated, driver-facing tab. Independent of
+  // owner/member/staff status: whoever is looking at the page picks which
+  // roster name is them, then ticks availability on open events and
+  // confirms/declines on finalised ones. This is the same interaction the
+  // old Live Timings panel offered every driver directly - it shouldn't be
+  // buried inside the admin allocation view (which only shows on
+  // non-finalised events anyway, and only to whoever can manage the team).
+  // ============================================================
+  function claimEventBlockHtml(event){
+    const key = driverNameKey(myDriverName);
+    const stintCount = Number(event.stintCount || 0);
+    const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
+    const myAvailability = event.availability?.[key]?.stints || [];
+    const myAck = event.acknowledgements?.[key];
+    const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
+    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`).join(', ');
+    const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
+      <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
+      ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
+      <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span></div>`;
+
+    let bodyHtml;
+    if(!event.finalized){
+      const toggles = Array.from({length: stintCount}, (_,i) => `<div class="rt-mystint-toggle ${myAvailability[i]?'active':''}" data-claim-toggle="${i}"><span>Stint</span><strong>${i+1}</strong>${stintTimes[i]?`<span>${esc(stintTimes[i])}</span>`:''}</div>`).join('');
+      bodyHtml = `<div class="rt-event-section"><h5>Mark which stints you're free for</h5><div class="rt-mystint-grid">${toggles}</div><button type="button" class="btn teal" data-claim-save="1">Save my availability</button></div>`;
+    }else if(myAck && myAck.status === 'pending'){
+      const assignedText = myAssignedStints.length ? ` — you're assigned ${myAssignedStintsText}` : ' — you are not assigned a stint this event';
+      bodyHtml = `<div class="rt-event-section"><div class="rt-notify-banner"><strong>${esc(currentTeamName)} stints finalised${esc(assignedText)}.</strong>
+        <div class="rt-notify-actions">
+          <button type="button" class="rt-notify-yes" data-claim-ack="yes">Yes, I'm in</button>
+          <button type="button" class="rt-notify-no" data-claim-ack-no-toggle="1">No, can't make it</button>
+          <input type="text" class="rt-notify-reason hidden" placeholder="Quick reason..." data-claim-reason="1">
+          <button type="button" class="rt-notify-no hidden" data-claim-ack="no">Confirm decline</button>
+        </div></div></div>`;
+    }else if(myAck){
+      const cls = myAck.status === 'yes' ? 'good' : 'bad';
+      const text = myAck.status === 'yes' ? "✅ You confirmed you're in." : `❌ You declined${myAck.reason?' — '+esc(myAck.reason):''}.`;
+      bodyHtml = `<div class="rt-event-section"><div class="rt-ack-row ${cls}"><strong>${esc(myDriverName)}</strong><span>${text}</span></div>
+        ${myAssignedStints.length ? `<p class="field-hint" style="margin-top:8px">You're assigned ${esc(myAssignedStintsText)}.</p>` : ''}</div>`;
+    }else{
+      bodyHtml = '<div class="rt-event-section"><div class="empty">Stints are finalised, but you weren\'t assigned or acknowledged for this event.</div></div>';
+    }
+    return `<div class="rt-event-card" data-claim-event-id="${esc(event.id)}">${header}${bodyHtml}</div>`;
+  }
+
+  function renderClaimBody(){
+    const body = q('claimBody');
+    if(!body) return;
+
+    if(!myDriverName){
+      body.innerHTML = `
+        <div class="field-group"><label>Which roster name is you?</label>
+          <select id="claimNameSelect"><option value="">Select your name...</option>${currentRosterNames.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
+        </div>`;
+      q('claimNameSelect').addEventListener('change', (e) => {
+        myDriverName = e.target.value;
+        try{ localStorage.setItem('IFWL_MY_RACE_TEAM_DRIVER_NAME', myDriverName); }catch(_){}
+        renderClaimBody();
+      });
+      return;
+    }
+
+    body.innerHTML = `
+      <div class="field-hint" style="margin-bottom:14px;">Claiming as <b>${esc(myDriverName)}</b> — <a href="#" id="claimSwitchName">not you? switch</a></div>
+      ${currentEvents.length ? currentEvents.map(claimEventBlockHtml).join('') : '<div class="empty">No events yet.</div>'}
+    `;
+    q('claimSwitchName')?.addEventListener('click', (e) => { e.preventDefault(); myDriverName = ''; renderClaimBody(); });
+
+    currentEvents.forEach(event => {
+      const card = document.querySelector(`[data-claim-event-id="${window.CSS && CSS.escape ? CSS.escape(event.id) : event.id}"]`);
+      if(!card) return;
+      card.querySelectorAll('[data-claim-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
+      card.querySelector('[data-claim-save]')?.addEventListener('click', async () => {
+        const toggles = [...card.querySelectorAll('[data-claim-toggle]')].sort((a,b) => Number(a.dataset.claimToggle) - Number(b.dataset.claimToggle));
+        const stints = toggles.map(t => t.classList.contains('active'));
+        try{
+          await rtSetAvailability(event.id, myDriverName, stints);
+          const idx = currentEvents.findIndex(e => e.id === event.id);
+          if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
+        }catch(e){ alert('Could not save availability: ' + e.message); }
+      });
+      const noToggleBtn = card.querySelector('[data-claim-ack-no-toggle]');
+      const reasonInput = card.querySelector('[data-claim-reason]');
+      const confirmNoBtn = card.querySelector('[data-claim-ack="no"]');
+      noToggleBtn?.addEventListener('click', () => { reasonInput?.classList.remove('hidden'); confirmNoBtn?.classList.remove('hidden'); noToggleBtn.classList.add('hidden'); });
+      card.querySelector('[data-claim-ack="yes"]')?.addEventListener('click', async () => claimAck(event, 'yes', ''));
+      confirmNoBtn?.addEventListener('click', async () => claimAck(event, 'no', reasonInput?.value.trim() || ''));
+    });
+  }
+
+  async function claimAck(event, status, reason){
+    try{
+      await rtAcknowledgeEvent(event.id, myDriverName, status, reason);
+      const idx = currentEvents.findIndex(e => e.id === event.id);
+      if(idx !== -1){ currentEvents[idx].acknowledgements = currentEvents[idx].acknowledgements || {}; currentEvents[idx].acknowledgements[driverNameKey(myDriverName)] = { driverName: myDriverName, status, reason, respondedAtMs: Date.now() }; }
+      renderClaimBody();
+    }catch(e){ alert('Could not record your response: ' + e.message); }
   }
 
   // ============================================================
