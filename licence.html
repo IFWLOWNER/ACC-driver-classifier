@@ -2095,10 +2095,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <select id="csNewItemCategory">
             <option value="supportStaff">Support Staff (boosts sponsorship revenue)</option>
             <option value="teamGear">Team Gear (boosts race income)</option>
+            <option value="costReduction">Cost Reduction (tyre / entry fee)</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Reduces (Cost Reduction only)</label>
+          <select id="csNewItemCostTarget">
+            <option value="tyre">Tyre cost</option>
+            <option value="entryFee">Race entry fee</option>
           </select>
         </div>
         <div class="field-group"><label>Cost (&pound;)</label><input type="number" id="csNewItemCost" min="0" step="1"></div>
-        <div class="field-group"><label>Bonus %</label><input type="number" id="csNewItemBonusPct" min="0" step="0.1" placeholder="e.g. 15"></div>
+        <div class="field-group"><label>Bonus / Reduction %</label><input type="number" id="csNewItemBonusPct" min="0" step="0.1" placeholder="e.g. 15"></div>
       </div>
       <div class="field-group">
         <label>Item image (JPG/PNG, 5MB max)</label>
@@ -4920,6 +4928,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // individually - no auto-decay formula), applied as one combined
     // multiplier alongside the existing Career Perk multipliers below.
     let shopRaceIncomeBonusPct = 0;
+    let shopTyreCostReductionPct = 0;
+    let shopEntryFeeReductionPct = 0;
     try{
       const [catalog, ledger] = await Promise.all([
         window.IFWL_CareerShopAPI.fetchCareerShopCatalog(),
@@ -4928,6 +4938,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const ownedIds = new Set(ledger.ownedItemIds || []);
       shopRaceIncomeBonusPct = catalog
         .filter(c => c.category === 'teamGear' && ownedIds.has(c.id))
+        .reduce((sum, c) => sum + (Number(c.bonusPct) || 0), 0);
+      shopTyreCostReductionPct = catalog
+        .filter(c => c.category === 'costReduction' && c.costTarget === 'tyre' && ownedIds.has(c.id))
+        .reduce((sum, c) => sum + (Number(c.bonusPct) || 0), 0);
+      shopEntryFeeReductionPct = catalog
+        .filter(c => c.category === 'costReduction' && c.costTarget === 'entryFee' && ownedIds.has(c.id))
         .reduce((sum, c) => sum + (Number(c.bonusPct) || 0), 0);
     }catch(e){ console.warn('Could not load IFWL Career Shop for race income bonus', e); }
     const hasPerk = (id) => myPerks.includes(id);
@@ -5022,9 +5038,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // Pit-Crew Training (-6%, applied to Entry Fees since there's no
     // separate pit-service cost tracked anywhere in this economy - closest
     // real cost category to discount).
-    const effectiveTyreCost = hasPerk('tyreManagement') ? costs.tyre.pricePerTyre * (1 - SP_PERK_TYRE_DISCOUNT) : costs.tyre.pricePerTyre;
+    const effectiveTyreCost = costs.tyre.pricePerTyre
+      * (hasPerk('tyreManagement') ? (1 - SP_PERK_TYRE_DISCOUNT) : 1)
+      * (shopTyreCostReductionPct > 0 ? Math.max(0, 1 - shopTyreCostReductionPct / 100) : 1);
     const totalTyreSpend = Math.round(totalTyres * effectiveTyreCost);
-    const effectiveEntryFee = hasPerk('pitCrewTraining') ? costs.entryFeePerRace * (1 - SP_PERK_ENTRY_FEE_DISCOUNT) : costs.entryFeePerRace;
+    const effectiveEntryFee = costs.entryFeePerRace
+      * (hasPerk('pitCrewTraining') ? (1 - SP_PERK_ENTRY_FEE_DISCOUNT) : 1)
+      * (shopEntryFeeReductionPct > 0 ? Math.max(0, 1 - shopEntryFeeReductionPct / 100) : 1);
     const totalEntryFees = Math.round(races.length * effectiveEntryFee);
 
     // ✅ CHANGED: a driver can now hold several simultaneous sponsorships -
@@ -5328,10 +5348,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // just needs a real account, no Gold gate - it's spending money you
   // already earned, not an upsell).
   function csFmtMoney(n){ return (n < 0 ? '-' : '') + '&pound;' + Math.abs(Math.round(n)).toLocaleString(); }
-  const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear' };
+  const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear', costReduction: 'Cost Reduction' };
   const CS_CATEGORY_BLURB = {
     supportStaff: 'Boosts sponsorship revenue for every new deal you win from here on.',
-    teamGear: "Boosts your race income per race, stacking with every other piece you own."
+    teamGear: "Boosts your race income per race, stacking with every other piece you own.",
+    costReduction: "Reduces your tyre cost or race entry fee per race, stacking with every other piece you own."
   };
 
   async function renderCareerShopSection(){
@@ -5357,11 +5378,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           ${items.map(item => {
             const owned = ownedIds.has(item.id);
             const canAfford = balance >= (Number(item.cost) || 0);
+            const effectText = item.category === 'supportStaff'
+              ? `+${item.bonusPct}% sponsorship revenue`
+              : item.category === 'costReduction'
+                ? `-${item.bonusPct}% ${item.costTarget === 'entryFee' ? 'race entry fee' : 'tyre cost'}`
+                : `+${item.bonusPct}% race income per race`;
             return `<div class="shop-item-card aa-slot-card">
               ${owned ? '<div class="shop-item-owned-badge">Owned</div>' : ''}
               ${item.imageUrl ? `<img class="shop-item-thumb" src="${item.imageUrl}" alt="">` : ''}
               <strong>${item.name}</strong>
-              <p class="field-hint" style="margin:4px 0">+${item.bonusPct}% ${catKey === 'supportStaff' ? 'sponsorship revenue' : 'race income per race'}</p>
+              <p class="field-hint" style="margin:4px 0">${effectText}</p>
               <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px">
                 <span class="mono" style="font-weight:800">${csFmtMoney(item.cost)}</span>
                 ${owned
@@ -5392,6 +5418,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </div>
       ${categoryGrid('supportStaff')}
       ${categoryGrid('teamGear')}
+      ${categoryGrid('costReduction')}
       ${!catalog.length ? '<div class="empty">Nothing in the shop yet - check back once staff have added items.</div>' : ''}
       ${ledger.transactions && ledger.transactions.length ? `
         <details class="shop-receipt-list">
@@ -11194,10 +11221,18 @@ Flashing Headlights:
           <select class="cs-item-category">
             <option value="supportStaff" ${item.category === 'supportStaff' ? 'selected' : ''}>Support Staff (sponsorship)</option>
             <option value="teamGear" ${item.category === 'teamGear' ? 'selected' : ''}>Team Gear (race income)</option>
+            <option value="costReduction" ${item.category === 'costReduction' ? 'selected' : ''}>Cost Reduction (tyre/entry fee)</option>
+          </select>
+        </div>
+        <div class="field-group" style="flex:1;min-width:150px">
+          <label>Reduces (Cost Reduction only)</label>
+          <select class="cs-item-cost-target">
+            <option value="tyre" ${item.costTarget !== 'entryFee' ? 'selected' : ''}>Tyre cost</option>
+            <option value="entryFee" ${item.costTarget === 'entryFee' ? 'selected' : ''}>Race entry fee</option>
           </select>
         </div>
         <div class="field-group" style="flex:1;min-width:110px"><label>Cost (&pound;)</label><input type="number" class="cs-item-cost" value="${item.cost ?? ''}" min="0" step="1"></div>
-        <div class="field-group" style="flex:1;min-width:100px"><label>Bonus %</label><input type="number" class="cs-item-bonus" value="${item.bonusPct ?? ''}" min="0" step="0.1"></div>
+        <div class="field-group" style="flex:1;min-width:100px"><label>Bonus / Reduction %</label><input type="number" class="cs-item-bonus" value="${item.bonusPct ?? ''}" min="0" step="0.1"></div>
       </div>
       <input type="hidden" class="cs-item-image-url" value="${(item.imageUrl||'').replace(/"/g,'&quot;')}">
     </div>`;
@@ -11228,6 +11263,7 @@ Flashing Headlights:
       const status = q('csAddItemStatus');
       const name = q('csNewItemName').value.trim();
       const category = q('csNewItemCategory').value;
+      const costTarget = q('csNewItemCostTarget').value;
       const cost = Number(q('csNewItemCost').value);
       const bonusPct = Number(q('csNewItemBonusPct').value);
       if(!name){ status.textContent = 'Item name is required.'; return; }
@@ -11242,7 +11278,7 @@ Flashing Headlights:
         catch(e){ status.textContent = 'Image upload failed: ' + e.message; return; }
       }
 
-      csShopItems.push({ id: 'shopitem_' + Date.now(), name, category, cost, bonusPct, imageUrl });
+      csShopItems.push({ id: 'shopitem_' + Date.now(), name, category, costTarget, cost, bonusPct, imageUrl });
       csRenderCatalogRows();
 
       status.textContent = 'Saving...';
@@ -11264,6 +11300,7 @@ Flashing Headlights:
           id: csShopItems[idx]?.id || ('shopitem_' + Date.now() + '_' + idx),
           name: row.querySelector('.cs-item-name').value.trim(),
           category: row.querySelector('.cs-item-category').value,
+          costTarget: row.querySelector('.cs-item-cost-target').value,
           cost: Number(row.querySelector('.cs-item-cost').value),
           bonusPct: Number(row.querySelector('.cs-item-bonus').value),
           imageUrl: row.querySelector('.cs-item-image-url').value
