@@ -571,6 +571,30 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       return `<div class="rt-ack-row ${cls}"><strong>${esc(a.driverName)}</strong><span>${text}</span></div>`;
     }).join('') || '<div class="empty">No stint plan finalised yet.</div>';
 
+    // The captain is very often also a driver in the roster, but this whole
+    // card is otherwise an admin/allocation view with no way to tick their
+    // OWN availability. This mirrors the member-side toggle grid, scoped to
+    // whichever roster name the captain has selected as themselves.
+    const myKey = driverNameKey(myDriverName);
+    const myAvailability = availability[myKey]?.stints || [];
+    const myToggles = myDriverName ? Array.from({length: stintCount}, (_,i) => `
+      <div class="rt-mystint-toggle ${myAvailability[i] ? 'active' : ''}" data-myavail-toggle="${i}">
+        <span>Stint</span><strong>${i+1}</strong>${stintTimes[i] ? `<span>${esc(stintTimes[i])}</span>` : ''}
+      </div>`).join('') : '';
+    const myAvailabilitySection = !event.finalized ? `
+      <div class="rt-event-section">
+        <h5>Your own availability</h5>
+        ${!myDriverName ? `
+          <div class="field-group" style="margin-bottom:0;">
+            <label>Which roster name is you?</label>
+            <select class="rt-my-name-select"><option value="">Select your name...</option>${drivers.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
+          </div>
+        ` : `
+          <div class="rt-mystint-grid">${myToggles}</div>
+          <button type="button" class="btn teal" data-myavail-save="1">Save my availability</button>
+        `}
+      </div>` : '';
+
     return `<div class="rt-event-card" data-rt-event-id="${esc(event.id)}">
       <div class="rt-event-head" style="${esc(rtEventBannerStyle(event))}">
         <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
@@ -578,6 +602,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span>
         <button type="button" data-rt-event-delete="1">Delete event</button>
       </div>
+      ${myAvailabilitySection}
       <div class="rt-event-section"><h5>Driver availability (${stintCount} stints)</h5>
         <div class="table-wrap"><table class="results-table rt-avail-table"><thead><tr><th>Driver</th>${availHeader}</tr></thead>
         <tbody>${availRows || `<tr><td colspan="${stintCount+1}" class="empty">No drivers on this roster yet.</td></tr>`}</tbody></table></div>
@@ -660,6 +685,25 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             }
             renderEventsBody();
           }catch(e){ alert('Could not populate stints: ' + e.message); }
+        });
+
+        // Captain's own availability toggles (separate from the admin
+        // allocation controls above).
+        card.querySelector('.rt-my-name-select')?.addEventListener('change', (e) => {
+          myDriverName = e.target.value;
+          try{ localStorage.setItem('IFWL_MY_RACE_TEAM_DRIVER_NAME', myDriverName); }catch(_){}
+          renderEventsBody();
+        });
+        card.querySelectorAll('[data-myavail-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
+        card.querySelector('[data-myavail-save]')?.addEventListener('click', async () => {
+          const toggles = [...card.querySelectorAll('[data-myavail-toggle]')].sort((a,b) => Number(a.dataset.myavailToggle) - Number(b.dataset.myavailToggle));
+          const stints = toggles.map(t => t.classList.contains('active'));
+          try{
+            await rtSetAvailability(event.id, myDriverName, stints);
+            const idx = currentEvents.findIndex(e => e.id === event.id);
+            if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
+            renderEventsBody();
+          }catch(e){ alert('Could not save availability: ' + e.message); }
         });
       });
     } else {
@@ -823,11 +867,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     // Scouting tab — iframe into Live Timings' Top Picks, same panel, embedded
     q('scoutFrame').src = 'livetimings.html?embed=1#raceTeamsPanel';
 
-    // Events & Stints tab
-    if(!currentIsOwner){
-      const savedName = localStorage.getItem('IFWL_MY_RACE_TEAM_DRIVER_NAME') || '';
-      if(currentRosterNames.some(n => driverNameKey(n) === driverNameKey(savedName))) myDriverName = savedName;
-    }
+    // Events & Stints tab — restore whichever roster name was previously
+    // picked as "you", for owner and member alike (an owner is very often
+    // also a driver, and needs the same personal availability toggles).
+    const savedName = localStorage.getItem('IFWL_MY_RACE_TEAM_DRIVER_NAME') || '';
+    if(currentRosterNames.some(n => driverNameKey(n) === driverNameKey(savedName))) myDriverName = savedName;
+    else if(currentIsOwner && detail.team.ownerName) myDriverName = detail.team.ownerName; // sensible default: captain is usually themselves
     await initEventsPanel();
   }
 
