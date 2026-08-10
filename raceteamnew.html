@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Race Team — IFWL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<style>
+:root{
+  --ifwl-teal:#1fd6bd; --ifwl-teal-deep:#0e8a78;
+  --ifwl-purple:#c65be8; --ifwl-purple-deep:#8b2fb0;
+  --ifwl-amber:#ffb238; --ifwl-red:#ff5464; --ifwl-green:#33d99b;
+  --ifwl-dark:#05070a; --ifwl-light:#aeb9c0;
+  --ifwl-line:rgba(255,255,255,.10); --ifwl-line-soft:rgba(255,255,255,.06);
+  --card:rgba(255,255,255,.035); --panel-bg:#12161c; --panel-bg-raised:#171d24;
+  --page-bg:#0a0d11; --text-primary:#edf2f3; --text-muted:#93a1a9; --text-dim:#61707a;
+  --shadow:0 24px 60px rgba(0,0,0,.55); --shadow-sm:0 12px 28px rgba(0,0,0,.45);
+  --font-display:'Rajdhani',Arial Narrow,Arial,sans-serif;
+  --font-body:'Inter',Arial,Helvetica,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font-body);background:var(--page-bg);color:var(--text-primary);min-height:100vh;
+  background-image:radial-gradient(circle at 15% -10%,rgba(31,214,189,.14),transparent 40%),radial-gradient(circle at 100% 10%,rgba(198,91,232,.12),transparent 38%),linear-gradient(180deg,rgba(10,13,17,.93),rgba(9,11,14,.95) 60%,rgba(8,9,12,.97)),url('https://ifwlowner.github.io/ACC-driver-classifier/ifwl_bg.webp');
+  background-size:auto,auto,auto,cover;background-position:0 0,0 0,0 0,center top;
+  background-attachment:scroll,scroll,scroll,fixed;background-repeat:no-repeat,no-repeat,no-repeat,no-repeat}
+h1,h2,h3,.panel-head h3,.hero h1{font-family:var(--font-display);letter-spacing:.03em}
+a{color:inherit}
+.hidden{display:none!important}
+
+/* top strip / nav / account bar - identical language to Live Timings + Licence Centre */
+.top-strip{height:34px;background:linear-gradient(180deg,#0d1116,#0a0d11);border-bottom:1px solid var(--ifwl-line);display:flex;align-items:center;gap:18px;padding:0 8%;font-size:12px;font-weight:700;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-transform:uppercase;color:var(--ifwl-amber);letter-spacing:.08em}
+.nav{height:76px;background:linear-gradient(100deg,#0f2622,#0a0d11 70%);border-bottom:1px solid var(--ifwl-line);display:flex;align-items:center;justify-content:space-between;padding:0 8%;box-shadow:0 3px 20px rgba(0,0,0,.5);position:sticky;top:0;z-index:20}
+.logo img{display:block;height:34px;width:auto;max-width:260px;filter:drop-shadow(0 0 10px rgba(31,214,189,.25))}
+.nav-links{display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.nav-links a{color:var(--text-primary);text-decoration:none;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;opacity:.85}
+.nav-links a:hover{opacity:1;color:var(--ifwl-teal)}
+.login{background:linear-gradient(135deg,var(--ifwl-purple-deep),var(--ifwl-purple));border-radius:6px;padding:8px 14px!important;box-shadow:0 6px 18px rgba(198,91,232,.25);border:0;color:#fff;font-size:12px;font-weight:800;text-transform:uppercase;cursor:pointer}
+.account-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:12px 8%;background:#0d1116;border-bottom:1px solid var(--ifwl-line)}
+.account-copy strong{display:block;font-size:13px;text-transform:uppercase;color:var(--text-primary)}
+.account-copy span{display:block;color:var(--text-muted);font-size:12px;margin-top:3px;font-weight:600}
+.account-actions{display:flex;gap:8px;flex-wrap:wrap}
+.account-actions button,.account-actions a{border:0;border-radius:8px;padding:9px 12px;font-size:11px;font-weight:800;text-transform:uppercase;text-decoration:none;cursor:pointer}
+.discord-access-btn{background:#5865f2;color:#fff}.patreon-link-btn{background:#e85b46;color:#fff}.logout-access-btn{background:#2a2f36;color:#fff}
+.access-pill{display:inline-block;border-radius:999px;padding:5px 9px;margin-left:7px;background:rgba(255,255,255,.08);color:var(--text-muted);font-size:10px;font-weight:800;vertical-align:middle}
+.access-pill.granted{background:rgba(51,217,155,.16);color:var(--ifwl-green)}
+.access-pill.locked{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
+
+/* login wall - shares the SAME session keys as Live Timings + Licence Centre */
+html.login-wall-open,body.login-wall-open{overflow:hidden!important}
+body:not(.access-authorised) .top-strip,body:not(.access-authorised) .nav,body:not(.access-authorised) .account-bar,body:not(.access-authorised) .hero,body:not(.access-authorised) main{visibility:hidden!important}
+body.access-authorised .top-strip,body.access-authorised .nav,body.access-authorised .account-bar,body.access-authorised .hero,body.access-authorised main{visibility:visible!important}
+#ifwlLoginWall{position:fixed;inset:0;z-index:200000;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
+#ifwlLoginWall.hidden{display:none!important}
+.login-wall-card{max-width:460px;width:100%;background:var(--panel-bg);border:1px solid var(--ifwl-line);border-radius:20px;padding:32px 28px;margin-top:6vh;box-shadow:var(--shadow);text-align:center}
+.licence-org{color:var(--ifwl-teal);font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+.login-wall-card h1{font-size:28px;margin:0 0 12px}
+.login-wall-card p{color:var(--text-muted);font-size:14px;line-height:1.6;margin:0 0 20px}
+.login-wall-levels{display:flex;flex-direction:column;gap:10px;margin-bottom:20px;text-align:left}
+.login-wall-level{border:1px solid var(--ifwl-line);border-radius:12px;padding:12px 14px;background:#0d1116}
+.login-wall-level strong{display:block;font-size:13px;color:var(--text-primary);margin-bottom:3px}
+.login-wall-level span{font-size:12px;color:var(--text-muted)}
+.login-wall-level.premium{border-color:rgba(198,91,232,.35)}
+.login-wall-actions{display:flex;flex-direction:column;gap:10px}
+.login-wall-discord{background:#5865f2;color:#fff;border:0;border-radius:10px;padding:13px;font-weight:800;text-transform:uppercase;font-size:13px;cursor:pointer}
+.login-wall-patreon{background:#e85b46;color:#fff;border-radius:10px;padding:13px;font-weight:800;text-transform:uppercase;font-size:13px;text-decoration:none}
+.login-wall-logout{background:#242a32;color:#fff;border:0;border-radius:10px;padding:11px;font-weight:800;text-transform:uppercase;font-size:12px;cursor:pointer}
+#loginWallError{color:#ffb3ba;font-weight:700;font-size:13px;margin-top:12px}
+
+.hero{padding:34px 8% 22px}
+.hero h1{font-size:30px;margin:0 0 8px}
+.hero p{color:var(--text-muted);margin:0;max-width:640px;line-height:1.5}
+main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
+
+/* team sub-nav */
+.team-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 4px}
+.team-tab{border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-primary);padding:10px 16px;border-radius:999px;font-weight:800;text-transform:uppercase;font-size:12px;cursor:pointer}
+.team-tab.active{background:linear-gradient(135deg,var(--ifwl-purple-deep),var(--ifwl-purple));border-color:transparent}
+.team-view{display:none}
+.team-view.active{display:block}
+
+/* shared component styles, ported from Licence Centre */
+.panel{background:linear-gradient(165deg,var(--panel-bg-raised),var(--panel-bg));border:1px solid var(--ifwl-line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;margin:22px 0}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 18px;background:linear-gradient(90deg,#0b3b35,#141a21 55%);border-bottom:3px solid transparent;border-image:linear-gradient(90deg,var(--ifwl-teal),var(--ifwl-purple)) 1}
+.panel-head h3{margin:0;font-size:19px}
+.panel-head small{display:block;color:var(--text-muted);font-size:12px;margin-top:2px;font-weight:600}
+.panel-body{padding:18px}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase}
+.badge.purple{background:rgba(198,91,232,.14);color:var(--ifwl-purple);border:1px solid rgba(198,91,232,.32)}
+.field-group{margin-bottom:16px}
+.field-group label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:0 0 6px}
+.field-group input[type="text"],.field-group input[type="url"],.field-group textarea,.field-group select{width:100%;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:9px;padding:10px 12px;font-size:13px;font-family:var(--font-body)}
+.field-group textarea{min-height:80px;resize:vertical}
+.field-hint{font-size:11.5px;color:var(--text-dim);margin-top:5px}
+.btn{appearance:none;border:0;background:#1a2027;color:#fff;border-radius:9px;padding:10px 16px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;cursor:pointer;text-decoration:none;font-size:12px;display:inline-block}
+.btn.teal{background:linear-gradient(135deg,var(--ifwl-teal-deep),var(--ifwl-teal));color:#03211c}
+.btn.purple{background:linear-gradient(135deg,var(--ifwl-purple-deep),var(--ifwl-purple))}
+.btn.ghost{background:#242a32}
+.save-status{font-size:12px;color:var(--text-muted);font-weight:700;margin-left:10px}
+.table-wrap{overflow:auto}
+.empty{padding:26px;text-align:center;color:var(--text-muted);font-weight:600}
+.note-item{border:1px solid var(--ifwl-line);border-radius:12px;padding:12px;margin-bottom:10px;background:#0d1116}
+.notice-card{padding:14px 16px;border-radius:12px;background:rgba(31,214,189,.08);border:1px solid rgba(31,214,189,.3);border-left:4px solid var(--ifwl-teal);font-size:13px;line-height:1.55;color:var(--text-primary);margin-bottom:14px}
+.gold-upsell-box{margin:20px 0 4px;border-radius:18px;padding:2px;background:linear-gradient(135deg,#ffb238,#ff8a3d,#c65be8)}
+.gold-upsell-inner{background:#0b0f13;border-radius:16px;padding:22px 24px}
+.gold-upsell-title{font-size:17px;font-weight:800;color:#ffd88a;margin-bottom:10px}
+.gold-upsell-box p{color:var(--text-muted);font-size:13.5px;line-height:1.6}
+.gold-upsell-btn{display:inline-block;padding:12px 22px;border-radius:10px;background:linear-gradient(135deg,#ffb238,#ff8a3d);color:#1a0d00;font-weight:900;text-decoration:none;font-size:13.5px}
+.results-table{width:100%;border-collapse:collapse;min-width:600px}
+.results-table th{background:#0d1116;color:var(--ifwl-teal);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;padding:10px 12px}
+.results-table td{padding:9px 12px;border-bottom:1px solid var(--ifwl-line-soft);font-size:12.5px;font-family:var(--font-mono)}
+
+/* events & stints, ported verbatim from Live Timings' rt-event-card system */
+.rt-events-section{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;margin-bottom:16px}
+.rt-events-section h4{margin:0 0 6px;font-size:15px;text-transform:uppercase;color:var(--text-primary)}
+.rt-new-event{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px}
+.rt-new-event input,.rt-new-event select{padding:10px 12px;border:1px solid var(--ifwl-line);border-radius:9px;background:#12161c;color:var(--text-primary);font-weight:700}
+.rt-event-card{background:var(--panel-bg);border:1px solid var(--ifwl-line);border-radius:14px;margin-top:14px;overflow:hidden}
+.rt-event-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:16px 14px;min-height:54px;background:linear-gradient(90deg,rgba(198,91,232,.12),transparent);background-repeat:no-repeat;border-radius:14px 14px 0 0}
+.rt-event-head strong{font-size:15px;color:var(--text-primary)}
+.rt-event-head a{color:var(--ifwl-teal);font-size:12px;font-weight:800;text-decoration:none}
+.rt-event-head button{margin-left:auto;border:1px solid rgba(255,84,100,.4);background:rgba(255,84,100,.16);color:#ffb3ba;border-radius:8px;padding:7px 11px;font-size:11px;font-weight:800;text-transform:uppercase;cursor:pointer}
+.rt-event-section{padding:12px 14px;border-top:1px solid var(--ifwl-line-soft)}
+.rt-event-section h5{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.rt-avail-table th,.rt-avail-table td{text-align:center}
+.rt-avail-table .rt-avail-name{text-align:left;font-weight:800;color:var(--text-primary)}
+.rt-avail-cell.yes{color:var(--ifwl-green);font-weight:900}
+.rt-avail-cell.no{color:var(--text-dim)}
+.rt-alloc-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.rt-alloc-row{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.rt-alloc-label{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--text-muted)}
+.rt-alloc-row select{padding:9px 10px;border:1px solid var(--ifwl-line);border-radius:8px;background:#12161c;color:var(--text-primary);font-weight:700;font-size:12px}
+.rt-ack-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--ifwl-line-soft);font-size:13px}
+.rt-ack-row:last-child{border-bottom:0}
+.rt-ack-row strong{color:var(--text-primary);min-width:140px}
+.rt-ack-row.good span{color:var(--ifwl-green);font-weight:700}
+.rt-ack-row.bad span{color:var(--ifwl-red);font-weight:700}
+.rt-ack-row.pending span{color:var(--ifwl-amber);font-weight:700}
+.rt-mystint-grid{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.rt-mystint-toggle{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px;border-radius:12px;border:1px solid var(--ifwl-line);background:#0d1116;min-width:90px;cursor:pointer}
+.rt-mystint-toggle.active{border-color:var(--ifwl-teal);background:rgba(31,214,189,.12)}
+.rt-mystint-toggle span{font-size:11px;text-transform:uppercase;font-weight:800;color:var(--text-muted)}
+.rt-mystint-toggle strong{font-size:16px;color:var(--text-primary)}
+.rt-notify-banner{background:linear-gradient(90deg,rgba(198,91,232,.18),rgba(31,214,189,.1));border:1px solid rgba(198,91,232,.4);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.rt-notify-banner strong{display:block;font-size:15px;color:var(--text-primary);margin-bottom:8px}
+.rt-notify-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.rt-notify-actions button{border:0;border-radius:9px;padding:10px 16px;font-weight:800;text-transform:uppercase;font-size:12px;cursor:pointer}
+.rt-notify-yes{background:linear-gradient(135deg,var(--ifwl-teal-deep),var(--ifwl-teal));color:#03211c}
+.rt-notify-no{background:rgba(255,84,100,.18);color:#ffb3ba;border:1px solid rgba(255,84,100,.4)!important}
+.rt-notify-reason{flex:1 1 220px;padding:9px 11px;border:1px solid var(--ifwl-line);border-radius:8px;background:#12161c;color:var(--text-primary)}
+
+/* scouting iframe */
+.scout-frame-wrap{border:1px solid var(--ifwl-line);border-radius:14px;overflow:hidden;background:#0d1116}
+.scout-frame-wrap iframe{width:100%;height:1400px;border:0;display:block}
+.footer-note{font-size:12px;color:var(--text-dim);text-align:center;margin-top:26px;line-height:1.5}
+@media(max-width:900px){.account-bar{width:calc(100vw - 28px)}}
+</style>
+</head>
+<body class="login-wall-open">
+
+<div id="ifwlLoginWall">
+  <div class="login-wall-card">
+    <div class="licence-org" style="font-size:13px">IFWL.NET</div>
+    <h1>My Race Team</h1>
+    <p id="loginWallMessage">Login with Discord to manage your IFWL race team.</p>
+    <div class="login-wall-levels">
+      <div class="login-wall-level"><strong>Team Managers</strong><span>Apply on this page, or from Licence Centre &gt; Racing &gt; Race Teams. Staff approve applications in the back end.</span></div>
+      <div class="login-wall-level premium"><strong>Approved teams get</strong><span>Roster &amp; branding management, Top Picks scouting, and full event/stint planning.</span></div>
+    </div>
+    <div class="login-wall-actions">
+      <button class="login-wall-discord" id="loginWallDiscordBtn" type="button">Login with Discord</button>
+      <a class="login-wall-patreon" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Join Patreon</a>
+      <button class="login-wall-logout hidden" id="loginWallLogoutBtn" type="button">Logout</button>
+    </div>
+    <div id="loginWallError"></div>
+  </div>
+</div>
+
+<div class="top-strip">IFWL &mdash; <span>MY RACE TEAM</span></div>
+<nav class="nav">
+  <div class="logo"><img src="https://ifwlowner.github.io/ACC-driver-classifier/ifwllogo1.png" alt="IFWL"></div>
+  <div class="nav-links">
+    <a href="licence.html">Licence Centre</a>
+    <a href="livetimings.html">Live Timings</a>
+    <a href="https://ifwlowner.github.io/ACC-driver-classifier/s2rules.html" target="_blank" rel="noopener">League Rules</a>
+    <button class="login" id="discordAccountBtn" type="button">Discord Login</button>
+  </div>
+</nav>
+
+<section class="account-bar" id="ifwlAccountBar">
+  <div class="account-copy"><strong id="ifwlAccountTitle">Public access <span class="access-pill locked" id="ifwlAccessPill">Not logged in</span></strong><span id="ifwlAccountText">Login with Discord to manage your race team.</span></div>
+  <div class="account-actions"><button class="discord-access-btn" id="discordLoginBtn" type="button">Login with Discord</button><a class="patreon-link-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Join Patreon</a><button class="logout-access-btn hidden" id="discordLogoutBtn" type="button">Logout</button></div>
+</section>
+
+<section class="hero"><h1>MY RACE TEAM</h1><p>Roster, branding, scouting and stint planning for your IFWL race team — apply, manage, and plan events all from one place.</p></section>
+
+<main>
+
+  <!-- No team yet: apply / browse / join -->
+  <section class="panel" id="rtApplyPanel">
+    <div class="panel-head"><div><h3>Race Teams</h3><small>Apply to create a team, or request to join one that's already active</small></div></div>
+    <div class="panel-body"><div id="rtStatusBody"><div class="empty">Loading&hellip;</div></div></div>
+  </section>
+
+  <!-- Has a team: tabbed hub -->
+  <div id="teamHub" class="hidden">
+    <div class="team-tabs" id="teamTabs">
+      <button class="team-tab active" data-team-view="roster" type="button">Roster &amp; Branding</button>
+      <button class="team-tab" data-team-view="scouting" type="button">Scouting</button>
+      <button class="team-tab" data-team-view="events" type="button">Events &amp; Stints</button>
+    </div>
+
+    <div class="team-view active" data-team-view="roster">
+      <section class="panel">
+        <div class="panel-head"><div><h3 id="rosterHeading">Roster &amp; Branding</h3><small>Manage your roster, logo and background</small></div></div>
+        <div class="panel-body"><div id="mrtBody"><div class="empty">Loading&hellip;</div></div></div>
+      </section>
+    </div>
+
+    <div class="team-view" data-team-view="scouting">
+      <section class="panel">
+        <div class="panel-head"><div><h3>Scouting — Top Picks</h3><small>Pace, consistency and recent activity across the whole platform</small></div></div>
+        <div class="panel-body">
+          <div class="scout-frame-wrap"><iframe id="scoutFrame" src="" loading="lazy" title="Top Picks scouting"></iframe></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="team-view" data-team-view="events">
+      <section class="panel">
+        <div class="panel-head"><div><h3>Events &amp; Stints</h3><small id="eventsSubhead">Set up an event, see availability, allocate stints</small></div></div>
+        <div class="panel-body"><div id="eventsBody"><div class="empty">Loading&hellip;</div></div></div>
+      </section>
+    </div>
+  </div>
+
+  <p class="footer-note">IFWL My Race Team hub. Team identity, roster and branding are managed through the same approval system as Licence Centre &gt; Racing &gt; Race Teams — applying here or there is the same application.</p>
+</main>
+
+<script>
+/* ============================================================
+   AUTH LAYER — identical contract to Live Timings / Licence
+   Centre's rtGate integration, reusing the SAME localStorage
+   keys so a driver logged in on one page is already logged in
+   here.
+   ============================================================ */
+(() => {
+  const AUTH={FUNCTION:'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate',REDIRECT_URI:location.origin+location.pathname,SESSION_KEY:'IFWL_PATREON_SESSION',META_KEY:'IFWL_PATREON_META'};
+  const q=id=>document.getElementById(id);
+  const title=q('ifwlAccountTitle'),text=q('ifwlAccountText'),login=q('discordLoginBtn'),navLogin=q('discordAccountBtn'),logout=q('discordLogoutBtn');
+  const wall=q('ifwlLoginWall'),wallMsg=q('loginWallMessage'),wallErr=q('loginWallError'),wallLogin=q('loginWallDiscordBtn'),wallLogout=q('loginWallLogoutBtn');
+  let meta=null;
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function safeStore(k,v){try{localStorage.setItem(k,v);return true}catch(_){try{sessionStorage.setItem(k,v);return true}catch(__){return false}}}
+  function readStore(k){try{return localStorage.getItem(k)||sessionStorage.getItem(k)||''}catch(_){return ''}}
+  function removeStore(k){try{localStorage.removeItem(k)}catch(_){} try{sessionStorage.removeItem(k)}catch(_){}}
+  function userName(m){return m?.nick||m?.globalName||m?.global_name||m?.username||'Discord user'}
+  function userId(m){return String(m?.userId||m?.discordId||m?.discord_id||m?.id||'guest')}
+  function anyLogin(m){return !!(m&&(m.sessionToken||m.userId||m.discordId||m.username||m.activeRacer||m.patreonGranted||m.staffBypass))}
+  function hideWall(){wall.classList.add('hidden');document.body.classList.remove('login-wall-open');document.documentElement.classList.remove('login-wall-open');document.body.classList.add('access-authorised')}
+  function showWall(message,error){document.body.classList.remove('access-authorised');document.body.classList.add('login-wall-open');document.documentElement.classList.add('login-wall-open');wall.classList.remove('hidden');wallMsg.textContent=message||'Login with Discord to manage your IFWL race team.';wallErr.textContent=error||'';wallErr.style.display=error?'block':'none';wallLogout.classList.toggle('hidden',!meta)}
+
+  function apply(m){
+    meta=m||null; window.IFWL_META=meta;
+    document.body.classList.toggle('discord-logged-in',anyLogin(meta));
+    if(meta){
+      const t=meta.patreonTier||meta.tier||meta.role||'Discord';
+      title.innerHTML=`Logged in as ${esc(userName(meta))} <span class="access-pill granted">${esc(t)}</span>`;
+      text.textContent='Manage or apply for your IFWL race team below.';
+      login.classList.add('hidden'); logout.classList.remove('hidden'); navLogin.textContent=userName(meta);
+      hideWall();
+      window.dispatchEvent(new CustomEvent('ifwl-team-auth-ready',{detail:{meta}}));
+    } else {
+      title.innerHTML='Public access <span class="access-pill locked">Not logged in</span>';
+      text.textContent='Login with Discord to manage your race team.';
+      login.classList.remove('hidden'); logout.classList.add('hidden'); navLogin.textContent='Discord Login';
+      showWall();
+    }
+  }
+  async function json(url,opts){const r=await fetch(url,{cache:'no-store',...(opts||{})});const t=await r.text();let d;try{d=JSON.parse(t)}catch{throw new Error('Authentication service returned an invalid response.')}if(!r.ok)throw new Error(d?.error||`Request failed (${r.status})`);return d}
+  async function start(){try{const d=await json(AUTH.FUNCTION+`?start=1&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}`);if(!d.url)throw new Error(d.error||'No Discord login URL returned.');location.href=d.url}catch(e){showWall(null,e.message)}}
+  async function callback(){const p=new URLSearchParams(location.search),code=p.get('code'),error=p.get('error');if(error){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,error);return true}if(!code)return false;showWall('Checking your IFWL Discord and Patreon roles...');try{const d=await json(AUTH.FUNCTION+`?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}&issue=1&patreon=1`);history.replaceState({},document.title,AUTH.REDIRECT_URI);if(d.sessionToken)safeStore(AUTH.SESSION_KEY,d.sessionToken);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch(e){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,e.message)}return true}
+  async function verify(){const token=readStore(AUTH.SESSION_KEY);if(!token){apply(null);return}try{const d=await json(AUTH.FUNCTION+`?patreonStatus=1&token=${encodeURIComponent(token)}`);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch{removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}}
+  function signout(){removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}
+  [login,navLogin,wallLogin].forEach(b=>b?.addEventListener('click',start));
+  [logout,wallLogout].forEach(b=>b?.addEventListener('click',signout));
+  window.IFWL_AUTH={sessionToken:()=>readStore(AUTH.SESSION_KEY),userId,userName,FUNCTION:AUTH.FUNCTION,signout};
+  (async()=>{const handled=await callback();if(!handled)await verify()})();
+})();
+</script>
+
+<script>
+/* ============================================================
+   TEAM DATA LAYER — reuses the same rtGate actions the Licence
+   Centre already uses for team identity/roster/branding
+   (myRaceTeamId, raceTeamDetail, applyRaceTeam,
+   requestJoinRaceTeam, leaveRaceTeam, saveRaceTeam,
+   placeRaceTeamMember, removeRaceTeamMember), plus the same
+   Events/Stints actions Live Timings already uses
+   (raceTeamEventList/Save/Availability/Finalize/Acknowledge/
+   Delete). Nothing server-side needs to change for either half.
+   ============================================================ */
+(() => {
+  const q = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  const FN = () => window.IFWL_AUTH?.FUNCTION || '';
+  const UPLOAD_FN = 'https://rtlicenceimageupload-703021152109.europe-west2.run.app';
+
+  async function apiGet(action, extra){
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const url = `${FN()}?${action}=1&token=${encodeURIComponent(token)}${extra||''}`;
+    const r = await fetch(url, {cache:'no-store'});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
+    return d;
+  }
+  async function apiPost(action, body){
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const r = await fetch(`${FN()}?${action}=1&token=${encodeURIComponent(token)}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
+    return d;
+  }
+  async function uploadLicenceImage(file, kind, extraParams){
+    if(file.size > 5*1024*1024) throw new Error('That file is over 5MB. Please choose a smaller image.');
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const form = new FormData();
+    form.append('file', file);
+    form.append('kind', kind);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let r;
+    try{
+      const extra = extraParams ? '&' + new URLSearchParams(extraParams).toString() : '';
+      r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}&kind=${encodeURIComponent(kind)}${extra}`, { method:'POST', body: form, signal: controller.signal });
+    }catch(err){
+      if(err.name === 'AbortError') throw new Error('Upload timed out after 30s.');
+      throw err;
+    }finally{ clearTimeout(timeout); }
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d?.error || 'Upload failed');
+    return { url: d.url, ref: 'url' };
+  }
+
+  // ---- Events/Stints calling convention, ported verbatim from Live Timings ----
+  const RT_AUTH_FUNCTION = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
+  const RT_SESSION_KEY = 'IFWL_PATREON_SESSION';
+  function rtGetSessionToken(){ try{ return localStorage.getItem(RT_SESSION_KEY) || sessionStorage.getItem(RT_SESSION_KEY) || ''; }catch(_){ return ''; } }
+  async function rtApiCall(query, options = {}){
+    const token = rtGetSessionToken();
+    const sep = query.includes('?') ? '&' : '?';
+    const url = `${RT_AUTH_FUNCTION}${query}${sep}token=${encodeURIComponent(token)}`;
+    const res = await fetch(url, options);
+    const data = await res.json().catch(() => null);
+    if(!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+    return data || {};
+  }
+  async function rtFetchEvents(teamId){ const data = await rtApiCall(`?raceTeamEventList=1&teamId=${encodeURIComponent(teamId)}`); return Array.isArray(data.events) ? data.events : []; }
+  async function rtSaveEvent(event){ return rtApiCall('?raceTeamEventSave=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(event) }); }
+  async function rtSetAvailability(eventId, driverName, stints){ return rtApiCall('?raceTeamEventAvailability=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, stints}) }); }
+  async function rtFinalizeEvent(eventId, stints){ return rtApiCall('?raceTeamEventFinalize=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, stints}) }); }
+  async function rtAcknowledgeEvent(eventId, driverName, status, reason){ return rtApiCall('?raceTeamEventAcknowledge=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, status, reason}) }); }
+  async function rtDeleteEvent(eventId){ return rtApiCall(`?raceTeamEventDelete=1&id=${encodeURIComponent(eventId)}`, { method: 'POST' }); }
+  function driverNameKey(name){ return String(name || '').trim().toLowerCase(); }
+  function rtEventBannerStyle(event){ if(!event.simgridImageUrl) return ''; return `background-image:linear-gradient(90deg,rgba(13,17,22,.92),rgba(13,17,22,.55)),url('${event.simgridImageUrl.replace(/'/g,"%27")}');background-size:cover;background-position:center`; }
+
+  // ============================================================
+  // Roster & Branding — ported verbatim from Licence Centre's
+  // shared team-management renderer.
+  // ============================================================
+  async function renderRaceTeamManageUI(teamId, container, opts){
+    opts = opts || {};
+    container.innerHTML = '<div class="empty">Loading team&hellip;</div>';
+    let data;
+    try{ data = await apiGet('raceTeamDetail', `&teamId=${encodeURIComponent(teamId)}`); }
+    catch(e){ container.innerHTML = `<div class="empty">Could not load team: ${e.message}</div>`; return; }
+    const { team, canManage, nameMap } = data;
+
+    if(team.status === 'pending'){
+      container.innerHTML = `<div class="notice-card">Your application for <strong>${esc(team.teamName)}</strong> is still awaiting staff approval — you'll be able to manage it in full once it's approved.</div>`;
+      return;
+    }
+    if(!canManage){
+      container.innerHTML = `
+        <div class="gold-upsell-box"><div class="gold-upsell-inner">
+          <div class="gold-upsell-title">🏆 Upgrade to Gold to Continue Team Management</div>
+          <p>Managing <strong>${esc(team.teamName)}</strong> — roster, logo, background — needs live Gold Patreon, or a one-off donation staff have verified. Your team and its roster are safe either way; this just pauses your ability to edit it until you renew.</p>
+          <a class="gold-upsell-btn" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold on Patreon &rarr;</a>
+        </div></div>
+        ${team.logoUrl ? `<img src="${team.logoUrl}" style="width:60px;height:60px;border-radius:10px;margin-top:14px" alt="">` : ''}
+      `;
+      return;
+    }
+
+    const pendingRows = (team.pendingRequests||[]).map(id => `
+      <div class="note-item">
+        <strong>${esc(nameMap[id] || id)}</strong>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button class="btn teal" data-place="${esc(id)}" data-platform="pc">Place in PC</button>
+          <button class="btn teal" data-place="${esc(id)}" data-platform="console">Place in Console</button>
+          <button class="btn ghost" data-reject="${esc(id)}">Reject</button>
+        </div>
+      </div>
+    `).join('') || '<div class="empty">No pending join requests.</div>';
+
+    const rosterRow = (id) => `<div class="note-item"><strong>${esc(nameMap[id] || id)}</strong><div style="margin-top:8px"><button class="btn ghost" data-remove="${esc(id)}">Remove</button></div></div>`;
+    const pcRows = (team.pcRoster||[]).map(rosterRow).join('') || '<div class="empty">No PC drivers yet.</div>';
+    const consoleRows = (team.consoleRoster||[]).map(rosterRow).join('') || '<div class="empty">No Console drivers yet.</div>';
+
+    container.innerHTML = `
+      <div class="notice-card">Your logo shows with a glowing outline on your licence card and in the Driver Directory for every member of ${esc(team.teamName)} — upload something that reads clearly small.</div>
+      <h4 style="margin:16px 0 10px">Team Details</h4>
+      <div class="field-group"><label>Team name</label><input type="text" id="rtNameInput" value="${esc(team.teamName||'')}"></div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+        <div>
+          <label class="field-hint" style="display:block;margin-bottom:6px">Team logo</label>
+          ${team.logoUrl ? `<img src="${team.logoUrl}" style="width:60px;height:60px;border-radius:10px;box-shadow:0 0 10px 2px rgba(31,214,189,.65)" alt="">` : '<div class="field-hint">None yet</div>'}
+          <input type="file" id="rtLogoUpload" accept="image/png,image/jpeg,image/webp" style="display:block;margin-top:6px">
+        </div>
+        <div>
+          <label class="field-hint" style="display:block;margin-bottom:6px">Team page background</label>
+          ${team.backgroundUrl ? `<img src="${team.backgroundUrl}" style="width:120px;height:60px;object-fit:cover;border-radius:10px" alt="">` : '<div class="field-hint">None yet</div>'}
+          <input type="file" id="rtBgUpload" accept="image/png,image/jpeg,image/webp" style="display:block;margin-top:6px">
+        </div>
+      </div>
+      <button class="btn teal" id="rtSaveDetailsBtn" type="button">Save team details</button>
+      <span class="save-status" id="rtSaveStatus"></span>
+      <hr style="border-color:var(--ifwl-line);margin:20px 0">
+      <h4 style="margin:0 0 10px">Pending Join Requests</h4>
+      <div id="rtPendingList">${pendingRows}</div>
+      <hr style="border-color:var(--ifwl-line);margin:20px 0">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div><h4 style="margin:0 0 10px">PC Roster</h4><div id="rtPcRoster">${pcRows}</div></div>
+        <div><h4 style="margin:0 0 10px">Console Roster</h4><div id="rtConsoleRoster">${consoleRows}</div></div>
+      </div>
+    `;
+
+    container.querySelector('#rtSaveDetailsBtn').addEventListener('click', async () => {
+      const status = container.querySelector('#rtSaveStatus');
+      status.textContent = 'Saving...';
+      try{
+        const logoFile = container.querySelector('#rtLogoUpload').files[0];
+        const bgFile = container.querySelector('#rtBgUpload').files[0];
+        const payload = { teamId, teamName: container.querySelector('#rtNameInput').value.trim() };
+        if(logoFile){ const { url } = await uploadLicenceImage(logoFile, 'raceTeamLogo', { teamId }); payload.logoUrl = url; }
+        if(bgFile){ const { url } = await uploadLicenceImage(bgFile, 'raceTeamBackground', { teamId }); payload.backgroundUrl = url; }
+        await apiPost('saveRaceTeam', payload);
+        status.textContent = 'Saved.';
+        await renderRaceTeamManageUI(teamId, container, opts);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    });
+    container.querySelectorAll('[data-place]').forEach(btn => btn.addEventListener('click', async () => {
+      try{ await apiPost('placeRaceTeamMember', { teamId, driverId: btn.dataset.place, platform: btn.dataset.platform }); await renderRaceTeamManageUI(teamId, container, opts); }
+      catch(e){ alert('Could not place driver: ' + e.message); }
+    }));
+    container.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', async () => {
+      try{ await apiPost('removeRaceTeamMember', { teamId, driverId: btn.dataset.reject }); await renderRaceTeamManageUI(teamId, container, opts); }
+      catch(e){ alert('Could not reject: ' + e.message); }
+    }));
+    container.querySelectorAll('[data-remove]').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('Remove this driver from the team?')) return;
+      try{ await apiPost('removeRaceTeamMember', { teamId, driverId: btn.dataset.remove }); await renderRaceTeamManageUI(teamId, container, opts); }
+      catch(e){ alert('Could not remove: ' + e.message); }
+    }));
+  }
+
+  async function renderMemberRosterView(teamId, container){
+    let data;
+    try{ data = await apiGet('raceTeamDetail', `&teamId=${encodeURIComponent(teamId)}`); }
+    catch(e){ container.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+    container.innerHTML = `
+      <div class="notice-card">You're a member of <strong>${esc(data.team.teamName)}</strong>. Only the team owner (or staff) can edit the roster/logo.</div>
+      ${data.team.logoUrl ? `<img src="${data.team.logoUrl}" style="width:60px;height:60px;border-radius:10px;box-shadow:0 0 10px 2px rgba(31,214,189,.65);margin:10px 0" alt="">` : ''}
+      <div><button class="btn ghost" id="mrtLeaveBtn" type="button">Leave this team</button></div>
+    `;
+    container.querySelector('#mrtLeaveBtn').addEventListener('click', async () => {
+      if(!confirm('Leave this team? You can request to join again later.')) return;
+      try{ await apiPost('leaveRaceTeam', {}); location.reload(); }catch(e){ alert('Could not leave: ' + e.message); }
+    });
+  }
+
+  // ============================================================
+  // Apply / Browse / Join — ported from Licence Centre
+  // ============================================================
+  async function initApplyPanel(mine){
+    const body = q('rtStatusBody');
+    body.innerHTML = '<div class="empty">Loading&hellip;</div>';
+    let teams;
+    try{ teams = await apiGet('raceTeamsList'); }
+    catch(e){ body.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+
+    const topBlock = mine.role === 'pending_owner'
+      ? `<div class="notice-card">Your application is pending staff approval.</div>`
+      : `
+        <div class="notice-card">Applying to create a team needs live Gold Patreon, or a one-off donation of at least £15 that staff verify manually — staff will check before approving your application. Once approved, you'll get a full Team Hub: roster, branding, scouting and event/stint planning.</div>
+        <div class="field-group"><label>Team name</label><input type="text" id="rtApplyNameInput" placeholder="e.g. Midnight Motorsport"></div>
+        <button class="btn purple" id="rtApplyBtn" type="button">Apply to create a race team</button>
+        <span class="save-status" id="rtApplyStatus"></span>
+      `;
+
+    const teamCards = teams.teams.length ? teams.teams.map(t => `
+      <div class="note-item">
+        ${t.logoUrl ? `<img src="${t.logoUrl}" style="width:40px;height:40px;border-radius:8px;float:left;margin-right:10px" alt="">` : ''}
+        <strong>${esc(t.teamName)}</strong>
+        <div class="field-hint">${t.memberCount} member(s)</div>
+        <div style="margin-top:8px;clear:both"><button class="btn teal" data-join="${esc(t.id)}">Request to Join</button></div>
+      </div>
+    `).join('') : '<div class="empty">No active teams yet.</div>';
+
+    body.innerHTML = topBlock + `<h4 style="margin:20px 0 10px">Active Teams</h4>${teamCards}`;
+
+    q('rtApplyBtn')?.addEventListener('click', async () => {
+      const status = q('rtApplyStatus');
+      const teamName = q('rtApplyNameInput').value.trim();
+      if(!teamName){ status.textContent = 'Enter a team name first.'; return; }
+      status.textContent = 'Submitting...';
+      try{ await apiPost('applyRaceTeam', { teamName }); await initApplyPanel(mine); }
+      catch(e){ status.textContent = 'Could not apply: ' + e.message; }
+    });
+    body.querySelectorAll('[data-join]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true; btn.textContent = 'Requesting...';
+      try{ await apiPost('requestJoinRaceTeam', { teamId: btn.dataset.join }); btn.textContent = 'Requested ✓'; }
+      catch(e){ btn.disabled = false; btn.textContent = 'Request to Join'; alert('Could not request: ' + e.message); }
+    }));
+  }
+
+  // ============================================================
+  // Events & Stints
+  // ============================================================
+  let currentTeamId = null;
+  let currentTeamName = '';
+  let currentIsOwner = false;
+  let currentRosterNames = [];
+  let currentEvents = [];
+  let myDriverName = '';
+
+  function eventsCardsHtml(){
+    if(!currentEvents.length) return '<div class="empty">No events yet — create one below.</div>';
+    return currentEvents.map(ev => currentIsOwner ? ownerEventCardHtml(ev) : memberEventCardHtml(ev)).join('');
+  }
+
+  function ownerEventCardHtml(event){
+    const drivers = currentRosterNames;
+    const stintCount = Number(event.stintCount || 0);
+    const availability = event.availability || {};
+    const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
+    const availHeader = Array.from({length: stintCount}, (_,i) => `<th>Stint ${i+1}${stintTimes[i] ? `<br><span style="font-weight:600;text-transform:none">${esc(stintTimes[i])}</span>` : ''}</th>`).join('');
+    const availRows = drivers.map(name => {
+      const entry = availability[driverNameKey(name)];
+      const cells = Array.from({length: stintCount}, (_,i) => { const free = !!entry?.stints?.[i]; return `<td class="rt-avail-cell ${free?'yes':'no'}">${free?'✓':'—'}</td>`; }).join('');
+      return `<tr><td class="rt-avail-name">${esc(name)}</td>${cells}</tr>`;
+    }).join('');
+    const allocationRows = Array.from({length: stintCount}, (_,i) => {
+      const currentAssignment = (event.stints||[]).find(s => Number(s.index) === i)?.driverName || '';
+      const options = drivers.map(name => {
+        const isAvailable = !!availability[driverNameKey(name)]?.stints?.[i];
+        const selected = driverNameKey(currentAssignment) === driverNameKey(name) ? 'selected' : '';
+        return `<option value="${esc(name)}" ${selected}>${esc(name)}${isAvailable?' (Available)':''}</option>`;
+      }).join('');
+      return `<div class="rt-alloc-row"><span class="rt-alloc-label">Stint ${i+1}</span>
+        <select data-rt-alloc-stint="${i}"><option value="">— Unassigned —</option>${options}</select>
+        <input type="text" placeholder="Time (e.g. 20:00 UTC)" value="${esc(stintTimes[i]||'')}" data-rt-stint-time="${i}" style="padding:8px 10px;border:1px solid var(--ifwl-line);border-radius:8px;background:#12161c;color:var(--text-primary);font-size:12px;margin-top:4px"></div>`;
+    }).join('');
+    const ackRows = Object.values(event.acknowledgements||{}).map(a => {
+      const cls = a.status === 'yes' ? 'good' : a.status === 'no' ? 'bad' : 'pending';
+      const text = a.status === 'yes' ? '✅ Confirmed' : a.status === 'no' ? `❌ Declined — ${esc(a.reason||'no reason given')}` : '⏳ Awaiting response';
+      return `<div class="rt-ack-row ${cls}"><strong>${esc(a.driverName)}</strong><span>${text}</span></div>`;
+    }).join('') || '<div class="empty">No stint plan finalised yet.</div>';
+
+    return `<div class="rt-event-card" data-rt-event-id="${esc(event.id)}">
+      <div class="rt-event-head" style="${esc(rtEventBannerStyle(event))}">
+        <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
+        ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
+        <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span>
+        <button type="button" data-rt-event-delete="1">Delete event</button>
+      </div>
+      <div class="rt-event-section"><h5>Driver availability (${stintCount} stints)</h5>
+        <div class="table-wrap"><table class="results-table rt-avail-table"><thead><tr><th>Driver</th>${availHeader}</tr></thead>
+        <tbody>${availRows || `<tr><td colspan="${stintCount+1}" class="empty">No drivers on this roster yet.</td></tr>`}</tbody></table></div>
+      </div>
+      <div class="rt-event-section"><h5>Stint allocation &amp; times</h5>
+        <div class="rt-alloc-grid">${allocationRows}</div>
+        <button type="button" class="btn ghost" data-rt-save-times="1">Save stint times</button>
+        <button type="button" class="btn purple" data-rt-populate="1">Populate stints</button>
+      </div>
+      <div class="rt-event-section"><h5>Acknowledgements</h5>${ackRows}</div>
+    </div>`;
+  }
+
+  function memberEventCardHtml(event){
+    const key = driverNameKey(myDriverName);
+    const stintCount = Number(event.stintCount || 0);
+    const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
+    const myAvailability = event.availability?.[key]?.stints || [];
+    const myAck = event.acknowledgements?.[key];
+    const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
+    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`).join(', ');
+    const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
+      <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
+      ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
+      <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span></div>`;
+    let bodyHtml;
+    if(!event.finalized){
+      const toggles = Array.from({length: stintCount}, (_,i) => `<div class="rt-mystint-toggle ${myAvailability[i]?'active':''}" data-mystint-toggle="${i}"><span>Stint</span><strong>${i+1}</strong>${stintTimes[i]?`<span>${esc(stintTimes[i])}</span>`:''}</div>`).join('');
+      bodyHtml = `<div class="rt-event-section"><h5>Mark which stints you're free for</h5><div class="rt-mystint-grid">${toggles}</div><button type="button" class="btn teal" data-mystint-save="1">Save my availability</button></div>`;
+    }else if(myAck && myAck.status === 'pending'){
+      const assignedText = myAssignedStints.length ? ` — you're assigned ${myAssignedStintsText}` : ' — you are not assigned a stint this event';
+      bodyHtml = `<div class="rt-event-section"><div class="rt-notify-banner"><strong>${esc(currentTeamName)} stints finalised${esc(assignedText)}.</strong>
+        <div class="rt-notify-actions">
+          <button type="button" class="rt-notify-yes" data-mystint-ack="yes">Yes, I'm in</button>
+          <button type="button" class="rt-notify-no" data-mystint-ack-no-toggle="1">No, can't make it</button>
+          <input type="text" class="rt-notify-reason hidden" placeholder="Quick reason..." data-mystint-reason="1">
+          <button type="button" class="rt-notify-no hidden" data-mystint-ack="no">Confirm decline</button>
+        </div></div></div>`;
+    }else if(myAck){
+      const cls = myAck.status === 'yes' ? 'good' : 'bad';
+      const text = myAck.status === 'yes' ? "✅ You confirmed you're in." : `❌ You declined${myAck.reason?' — '+esc(myAck.reason):''}.`;
+      bodyHtml = `<div class="rt-event-section"><div class="rt-ack-row ${cls}"><strong>${esc(myDriverName)}</strong><span>${text}</span></div>
+        ${myAssignedStints.length ? `<p class="field-hint" style="margin-top:8px">You're assigned ${esc(myAssignedStintsText)}.</p>` : ''}</div>`;
+    }else{
+      bodyHtml = '<div class="rt-event-section"><div class="empty">Stints are finalised, but you weren\'t assigned or acknowledged for this event.</div></div>';
+    }
+    return `<div class="rt-event-card" data-mystint-event-id="${esc(event.id)}">${header}${bodyHtml}</div>`;
+  }
+
+  function wireEventCards(){
+    if(currentIsOwner){
+      currentEvents.forEach(event => {
+        const card = document.querySelector(`[data-rt-event-id="${window.CSS && CSS.escape ? CSS.escape(event.id) : event.id}"]`);
+        if(!card) return;
+        card.querySelector('[data-rt-event-delete]')?.addEventListener('click', async () => {
+          if(!confirm('Delete this event? This cannot be undone.')) return;
+          try{ await rtDeleteEvent(event.id); currentEvents = currentEvents.filter(e => e.id !== event.id); renderEventsBody(); }
+          catch(e){ alert('Could not delete event: ' + e.message); }
+        });
+        card.querySelector('[data-rt-save-times]')?.addEventListener('click', async () => {
+          const timeInputs = [...card.querySelectorAll('[data-rt-stint-time]')].sort((a,b) => Number(a.dataset.rtStintTime) - Number(b.dataset.rtStintTime));
+          const stintTimes = timeInputs.map(inp => inp.value.trim());
+          try{
+            const result = await rtSaveEvent({ eventId: event.id, teamId: currentTeamId, teamName: currentTeamName, platform: event.platform, simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car, stintCount: event.stintCount, stintTimes });
+            const idx = currentEvents.findIndex(e => e.id === event.id);
+            if(idx !== -1){ currentEvents[idx].stintTimes = stintTimes; if(result.simgridImageUrl) currentEvents[idx].simgridImageUrl = result.simgridImageUrl; }
+            renderEventsBody();
+          }catch(e){ alert('Could not save stint times: ' + e.message); }
+        });
+        card.querySelector('[data-rt-populate]')?.addEventListener('click', async () => {
+          const selects = [...card.querySelectorAll('[data-rt-alloc-stint]')];
+          const stints = selects.map(sel => ({ index: Number(sel.dataset.rtAllocStint), driverName: sel.value }));
+          try{
+            await rtFinalizeEvent(event.id, stints);
+            const idx = currentEvents.findIndex(e => e.id === event.id);
+            if(idx !== -1){
+              currentEvents[idx].stints = stints; currentEvents[idx].finalized = true;
+              const acks = {}; stints.forEach(s => { if(s.driverName) acks[driverNameKey(s.driverName)] = { driverName: s.driverName, status: 'pending', reason: '', respondedAtMs: 0 }; });
+              currentEvents[idx].acknowledgements = acks;
+            }
+            renderEventsBody();
+          }catch(e){ alert('Could not populate stints: ' + e.message); }
+        });
+      });
+    } else {
+      currentEvents.forEach(event => {
+        const card = document.querySelector(`[data-mystint-event-id="${window.CSS && CSS.escape ? CSS.escape(event.id) : event.id}"]`);
+        if(!card) return;
+        card.querySelectorAll('[data-mystint-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
+        card.querySelector('[data-mystint-save]')?.addEventListener('click', async () => {
+          const toggles = [...card.querySelectorAll('[data-mystint-toggle]')].sort((a,b) => Number(a.dataset.mystintToggle) - Number(b.dataset.mystintToggle));
+          const stints = toggles.map(t => t.classList.contains('active'));
+          try{
+            await rtSetAvailability(event.id, myDriverName, stints);
+            const idx = currentEvents.findIndex(e => e.id === event.id);
+            if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
+          }catch(e){ alert('Could not save availability: ' + e.message); }
+        });
+        const noToggleBtn = card.querySelector('[data-mystint-ack-no-toggle]');
+        const reasonInput = card.querySelector('[data-mystint-reason]');
+        const confirmNoBtn = card.querySelector('[data-mystint-ack="no"]');
+        noToggleBtn?.addEventListener('click', () => { reasonInput?.classList.remove('hidden'); confirmNoBtn?.classList.remove('hidden'); noToggleBtn.classList.add('hidden'); });
+        card.querySelector('[data-mystint-ack="yes"]')?.addEventListener('click', async () => submitAck(event, 'yes', ''));
+        confirmNoBtn?.addEventListener('click', async () => submitAck(event, 'no', reasonInput?.value.trim() || ''));
+      });
+    }
+  }
+
+  async function submitAck(event, status, reason){
+    try{
+      await rtAcknowledgeEvent(event.id, myDriverName, status, reason);
+      const idx = currentEvents.findIndex(e => e.id === event.id);
+      if(idx !== -1){ currentEvents[idx].acknowledgements = currentEvents[idx].acknowledgements || {}; currentEvents[idx].acknowledgements[driverNameKey(myDriverName)] = { driverName: myDriverName, status, reason, respondedAtMs: Date.now() }; }
+      renderEventsBody();
+    }catch(e){ alert('Could not record your response: ' + e.message); }
+  }
+
+  function renderEventsBody(){
+    const body = q('eventsBody');
+    if(!currentIsOwner && !myDriverName){
+      body.innerHTML = `
+        <div class="field-group"><label>Which roster name is you?</label>
+          <select id="myNameSelect"><option value="">Select your name...</option>${currentRosterNames.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
+        </div>`;
+      q('myNameSelect').addEventListener('change', (e) => { myDriverName = e.target.value; try{ localStorage.setItem('IFWL_MY_RACE_TEAM_DRIVER_NAME', myDriverName); }catch(_){} renderEventsBody(); });
+      return;
+    }
+
+    let newEventForm = '';
+    if(currentIsOwner){
+      newEventForm = `
+        <div class="rt-events-section">
+          <h4>Create Event</h4>
+          <div class="rt-new-event">
+            <input type="text" placeholder="Race number" id="newEvRaceNum" maxlength="20" style="max-width:120px">
+            <input type="text" placeholder="Car" id="newEvCar" maxlength="120">
+            <input type="text" placeholder="SimGrid event link (required)" id="newEvSimgrid" maxlength="300" style="flex:2 1 260px">
+            <select id="newEvPlatform"><option value="pc">PC</option><option value="console">Console</option></select>
+            <input type="number" min="1" max="24" value="5" id="newEvStintCount" style="width:90px">
+            <button type="button" class="btn teal" id="newEvBtn">Create event</button>
+          </div>
+          ${eventsCardsHtml()}
+        </div>`;
+    } else {
+      newEventForm = eventsCardsHtml();
+    }
+    body.innerHTML = newEventForm;
+    wireEventCards();
+
+    q('newEvBtn')?.addEventListener('click', async () => {
+      const raceNumber = q('newEvRaceNum').value.trim();
+      const car = q('newEvCar').value.trim();
+      const simgridLink = q('newEvSimgrid').value.trim();
+      const platform = q('newEvPlatform').value;
+      const stintCount = Math.max(1, Math.min(24, Number(q('newEvStintCount').value || 5)));
+      if(!simgridLink){ alert('A SimGrid event link is required to create an event.'); return; }
+      try{
+        const result = await rtSaveEvent({ teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, raceNumber, car, stintCount });
+        currentEvents.unshift({ id: result.id, teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, simgridImageUrl: result.simgridImageUrl || '', raceNumber, car, stintCount, stintTimes: [], stints: [], availability: {}, finalized: false, acknowledgements: {} });
+        renderEventsBody();
+      }catch(e){ alert('Could not create event: ' + e.message); }
+    });
+  }
+
+  async function initEventsPanel(){
+    const body = q('eventsBody');
+    body.innerHTML = '<div class="empty">Loading events&hellip;</div>';
+    try{ currentEvents = await rtFetchEvents(currentTeamId); }
+    catch(e){ body.innerHTML = `<div class="empty">Could not load events: ${e.message}</div>`; return; }
+    renderEventsBody();
+  }
+
+  // ============================================================
+  // Orchestration — team identity decides what the page shows
+  // ============================================================
+  function switchTeamView(view){
+    document.querySelectorAll('.team-tab').forEach(b => b.classList.toggle('active', b.dataset.teamView === view));
+    document.querySelectorAll('.team-view').forEach(v => v.classList.toggle('active', v.dataset.teamView === view));
+  }
+  document.querySelectorAll('.team-tab').forEach(btn => btn.addEventListener('click', () => switchTeamView(btn.dataset.teamView)));
+
+  async function boot(){
+    let mine;
+    try{ mine = await apiGet('myRaceTeamId'); }
+    catch(e){ q('rtStatusBody').innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+
+    if(!mine.teamId){
+      q('rtApplyPanel').classList.remove('hidden');
+      q('teamHub').classList.add('hidden');
+      await initApplyPanel(mine);
+      return;
+    }
+
+    q('rtApplyPanel').classList.add('hidden');
+    q('teamHub').classList.remove('hidden');
+    currentTeamId = mine.teamId;
+    currentIsOwner = mine.role === 'owner';
+    q('rosterHeading').textContent = currentIsOwner ? 'Roster & Branding' : 'My Race Team';
+
+    // Roster & Branding tab
+    const mrtBody = q('mrtBody');
+    if(currentIsOwner) await renderRaceTeamManageUI(currentTeamId, mrtBody, {});
+    else await renderMemberRosterView(currentTeamId, mrtBody);
+
+    // Get team name + roster names (for Events/Stints and Scouting)
+    try{
+      const detail = await apiGet('raceTeamDetail', `&teamId=${encodeURIComponent(currentTeamId)}`);
+      currentTeamName = detail.team.teamName || '';
+      const allIds = [...(detail.team.pcRoster||[]), ...(detail.team.consoleRoster||[])];
+      currentRosterNames = [...new Set(allIds.map(id => detail.nameMap[id] || id))];
+    }catch(e){ console.warn('Could not load roster for events/scouting:', e); }
+
+    // Scouting tab — iframe into Live Timings' Top Picks, same panel, embedded
+    q('scoutFrame').src = 'livetimings.html?embed=1#raceTeamsPanel';
+
+    // Events & Stints tab
+    if(!currentIsOwner){
+      const savedName = localStorage.getItem('IFWL_MY_RACE_TEAM_DRIVER_NAME') || '';
+      if(currentRosterNames.some(n => driverNameKey(n) === driverNameKey(savedName))) myDriverName = savedName;
+    }
+    await initEventsPanel();
+  }
+
+  window.addEventListener('ifwl-team-auth-ready', boot, { once: true });
+})();
+</script>
+
+</body>
+</html>
