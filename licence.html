@@ -1167,6 +1167,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="staff-accordion-items">
           <button data-view="staffSponsorships" class="owner-only-tab" type="button">Manage Sponsorships</button>
           <button data-view="staffSeasonalCosts" class="owner-only-tab" type="button">Seasonal Costs</button>
+          <button data-view="staffSeasonStartPayments" class="owner-only-tab" type="button">Season Start Payments</button>
           <button data-view="staffCareerShop" class="owner-only-tab" type="button">IFWL Shop</button>
         </div>
       </details>
@@ -2027,6 +2028,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
       <h4 style="margin:0 0 10px">Current Sponsorship Deals</h4>
       <div id="spnCurrentList"><div class="empty">Loading&hellip;</div></div>
+      <div id="spnCurrentPager" style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px"></div>
 
       <hr style="border-color:var(--ifwl-line);margin:22px 0">
 
@@ -2075,6 +2077,34 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn teal" id="scSaveBtn" type="button">Save seasonal costs</button>
         <span class="save-status" id="scSaveStatus"></span>
       </div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffSeasonStartPayments" id="staffSeasonStartPaymentsPanel">
+    <div class="panel-head"><div><h3>Staff: Season Start Payments</h3><small>A one-off Day 1 payment issued to every licence holder's IFWL Shop balance, based on their Patreon tier</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">This pays into the same spendable balance the IFWL Shop uses. It's tracked per driver per season, so running it again only pays anyone who hasn't already received this season's payment - safe to re-run for late signups, never double-pays someone.</div>
+
+      <h4 style="margin:20px 0 10px">Payment Amounts by Tier</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px">
+        <div class="field-group"><label>Gold Patreon (&pound;)</label><input type="number" id="sspGold" min="0" step="1"></div>
+        <div class="field-group"><label>Silver Patreon (&pound;)</label><input type="number" id="sspSilver" min="0" step="1"></div>
+        <div class="field-group"><label>Bronze Patreon (&pound;)</label><input type="number" id="sspBronze" min="0" step="1"></div>
+        <div class="field-group"><label>No Patreon (&pound;)</label><input type="number" id="sspNone" min="0" step="1"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="sspEnabled" style="width:auto">Enabled</label>
+
+      <div style="margin-top:16px">
+        <button class="btn teal" id="sspSaveBtn" type="button">Save amounts</button>
+        <span class="save-status" id="sspSaveStatus"></span>
+      </div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Run Payment</h4>
+      <p class="field-hint" style="margin-bottom:10px">Pays every licence holder who hasn't yet received this season's Day 1 payment, using whichever tier is currently on file for them (from their last login).</p>
+      <button class="btn purple" id="sspRunBtn" type="button">Run Season Start Payments Now</button>
+      <div id="sspRunResult" class="field-hint" style="margin-top:10px"></div>
     </div>
   </section>
 
@@ -3241,6 +3271,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return saved;
   }
   window.IFWL_SeasonalCostsAPI = { fetchSeasonalCosts, saveSeasonalCosts };
+
+  // ✅ ADDED: Season Start Payments - a one-off Day 1 balance issued to
+  // every licence holder into the same IFWL Shop ledger, sized by whichever
+  // Patreon tier they're currently on file as (patreonOutlineTier, the same
+  // field the licence directory ring already uses - refreshed on login).
+  const SEASON_START_PAYMENTS_FALLBACK = { gold: 120000, silver: 85000, bronze: 60000, none: 30000, enabled: false };
+  let __seasonStartPaymentsCache = null;
+  async function fetchSeasonStartPayments(){
+    if(__seasonStartPaymentsCache) return __seasonStartPaymentsCache;
+    try{ __seasonStartPaymentsCache = await apiGet('seasonStartPayments'); }
+    catch(e){ console.warn('Could not load season start payments, using fallback defaults', e); __seasonStartPaymentsCache = { ...SEASON_START_PAYMENTS_FALLBACK }; }
+    return __seasonStartPaymentsCache;
+  }
+  async function saveSeasonStartPayments(data){
+    const saved = await apiPost('staffSeasonStartPaymentsSave', data);
+    __seasonStartPaymentsCache = null;
+    return saved;
+  }
+  async function runSeasonStartPayments(){
+    return apiPost('staffRunSeasonStartPayments', {});
+  }
+  window.IFWL_SeasonStartPaymentsAPI = { fetchSeasonStartPayments, saveSeasonStartPayments, runSeasonStartPayments };
 
   // ✅ ADDED: IFWL Career Shop data layer. Mirrors the Seasonal Costs
   // pattern above (catalog fetch/save, cached, invalidated on save) plus a
@@ -10922,24 +10974,61 @@ Flashing Headlights:
     };
   }
 
+  const SPN_PAGE_SIZE = 25;
+  let spnAllSponsorships = [];
+  let spnCurrentPage = 0;
+
+  function renderSponsorshipsPage(){
+    const wrap = q('spnCurrentList');
+    const pager = q('spnCurrentPager');
+    if(!wrap) return;
+
+    if(!spnAllSponsorships.length){
+      wrap.innerHTML = '<div class="empty">No active sponsorship deals right now.</div>';
+      if(pager) pager.innerHTML = '';
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(spnAllSponsorships.length / SPN_PAGE_SIZE));
+    spnCurrentPage = Math.max(0, Math.min(spnCurrentPage, totalPages - 1));
+    const start = spnCurrentPage * SPN_PAGE_SIZE;
+    const pageItems = spnAllSponsorships.slice(start, start + SPN_PAGE_SIZE);
+
+    wrap.innerHTML = pageItems.map(s => `
+      <div class="note-item">
+        <strong>${s.driverName}</strong>
+        <div class="note-meta">${s.companyName} &middot; &pound;${s.amount.toLocaleString()} &middot; ${new Date(s.awardedAtMs).toLocaleDateString()}</div>
+        <div style="margin-top:8px"><button class="btn ghost" data-clear-sponsorship="${s.driverId}" data-clear-deal-id="${s.id||''}">Clear deal</button></div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-clear-sponsorship]').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('Clear this sponsorship deal? This only removes this one deal - any other sponsorships this driver holds are untouched.')) return;
+      try{ await window.IFWL_Api.apiPost('staffClearSponsorship', { driverId: btn.dataset.clearSponsorship, dealId: btn.dataset.clearDealId || undefined }); await renderCurrentSponsorships(); }
+      catch(e){ alert('Could not clear: ' + e.message); }
+    }));
+
+    if(pager){
+      if(totalPages <= 1){ pager.innerHTML = ''; }
+      else{
+        pager.innerHTML = `
+          <button class="btn ghost" id="spnPagerPrev" type="button" ${spnCurrentPage === 0 ? 'disabled' : ''}>&larr; Prev</button>
+          <span class="field-hint">Page ${spnCurrentPage + 1} of ${totalPages} &middot; ${spnAllSponsorships.length} deal(s)</span>
+          <button class="btn ghost" id="spnPagerNext" type="button" ${spnCurrentPage >= totalPages - 1 ? 'disabled' : ''}>Next &rarr;</button>
+        `;
+        q('spnPagerPrev')?.addEventListener('click', () => { spnCurrentPage--; renderSponsorshipsPage(); });
+        q('spnPagerNext')?.addEventListener('click', () => { spnCurrentPage++; renderSponsorshipsPage(); });
+      }
+    }
+  }
+
   async function renderCurrentSponsorships(){
     const wrap = q('spnCurrentList');
     if(!wrap) return;
     try{
       const { sponsorships } = await window.IFWL_Api.apiGet('staffCurrentSponsorships');
-      if(!sponsorships.length){ wrap.innerHTML = '<div class="empty">No active sponsorship deals right now.</div>'; return; }
-      wrap.innerHTML = sponsorships.map(s => `
-        <div class="note-item">
-          <strong>${s.driverName}</strong>
-          <div class="note-meta">${s.companyName} &middot; &pound;${s.amount.toLocaleString()} &middot; ${new Date(s.awardedAtMs).toLocaleDateString()}</div>
-          <div style="margin-top:8px"><button class="btn ghost" data-clear-sponsorship="${s.driverId}" data-clear-deal-id="${s.id||''}">Clear deal</button></div>
-        </div>
-      `).join('');
-      wrap.querySelectorAll('[data-clear-sponsorship]').forEach(btn => btn.addEventListener('click', async () => {
-        if(!confirm('Clear this sponsorship deal? This only removes this one deal - any other sponsorships this driver holds are untouched.')) return;
-        try{ await window.IFWL_Api.apiPost('staffClearSponsorship', { driverId: btn.dataset.clearSponsorship, dealId: btn.dataset.clearDealId || undefined }); await renderCurrentSponsorships(); }
-        catch(e){ alert('Could not clear: ' + e.message); }
-      }));
+      spnAllSponsorships = sponsorships;
+      spnCurrentPage = 0;
+      renderSponsorshipsPage();
     }catch(e){
       wrap.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`;
     }
@@ -11049,6 +11138,51 @@ Flashing Headlights:
         status.textContent = 'Saved - every driver picks this up on their next visit.';
         setTimeout(() => { if(q('scSaveStatus')) q('scSaveStatus').textContent = ''; }, 3000);
       }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+  }
+
+  // ✅ ADDED: Season Start Payments staff panel - set the four tier amounts,
+  // then trigger the actual payout run. Same structural pattern as Seasonal
+  // Costs above (fetch on open, save on click), plus a run button that
+  // reports back exactly how many drivers were paid vs already-paid.
+  async function initSeasonStartPaymentsPanel(){
+    if(!q('staffSeasonStartPaymentsPanel')) return;
+
+    let cfg;
+    try{ cfg = await window.IFWL_SeasonStartPaymentsAPI.fetchSeasonStartPayments(); }
+    catch(e){ q('sspSaveStatus').textContent = 'Could not load: ' + e.message; return; }
+
+    q('sspGold').value = cfg.gold;
+    q('sspSilver').value = cfg.silver;
+    q('sspBronze').value = cfg.bronze;
+    q('sspNone').value = cfg.none;
+    q('sspEnabled').checked = !!cfg.enabled;
+
+    q('sspSaveBtn').onclick = async () => {
+      const status = q('sspSaveStatus');
+      const gold = Number(q('sspGold').value);
+      const silver = Number(q('sspSilver').value);
+      const bronze = Number(q('sspBronze').value);
+      const none = Number(q('sspNone').value);
+      const enabled = q('sspEnabled').checked;
+      if(![gold, silver, bronze, none].every(n => Number.isFinite(n) && n >= 0)){ status.textContent = 'All four amounts must be valid, non-negative numbers.'; return; }
+
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_SeasonStartPaymentsAPI.saveSeasonStartPayments({ gold, silver, bronze, none, enabled });
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('sspSaveStatus')) q('sspSaveStatus').textContent = ''; }, 2500);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+
+    q('sspRunBtn').onclick = async () => {
+      if(!confirm("Run Season Start Payments now? This pays every licence holder who hasn't already received this season's Day 1 payment.")) return;
+      const result = q('sspRunResult');
+      result.textContent = 'Running...';
+      try{
+        const r = await window.IFWL_SeasonStartPaymentsAPI.runSeasonStartPayments();
+        result.textContent = `Paid ${r.paidCount} driver(s), totalling ${csFmtMoney(r.totalPaidAmount).replace('&pound;','£')}. ${r.skippedAlreadyPaid} already had this season's payment.`;
+      }catch(e){ result.textContent = 'Could not run payments: ' + e.message; }
     };
   }
 
@@ -11696,6 +11830,7 @@ Flashing Headlights:
     window.initOpsRaceTeamsPanel?.();
     initSponsorshipsPanel();
     initSeasonalCostsPanel();
+    initSeasonStartPaymentsPanel();
     initClassStructurePanel();
     renderSeasonalEventsPanel();
   }
