@@ -536,7 +536,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   let myDriverName = '';
 
   function eventsCardsHtml(){
-    if(!currentEvents.length) return '<div class="empty">No events yet — create one below.</div>';
+    if(!currentEvents.length) return `<div class="empty">No events yet${currentIsOwner ? ' — create one below.' : ' for this team.'}</div>`;
     return currentEvents.map(ev => currentIsOwner ? ownerEventCardHtml(ev) : memberEventCardHtml(ev)).join('');
   }
 
@@ -771,21 +771,26 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     q('rtApplyPanel').classList.add('hidden');
     q('teamHub').classList.remove('hidden');
     currentTeamId = mine.teamId;
-    currentIsOwner = mine.role === 'owner';
+
+    // Fetch full team detail once. canManage covers the backend's staff
+    // override too (Owner/Ops Manager/Assessor can manage ANY team, not
+    // just one they personally own) — so this, not mine.role, decides
+    // whether you get the management UI or the read-only member view.
+    let detail;
+    try{ detail = await apiGet('raceTeamDetail', `&teamId=${encodeURIComponent(currentTeamId)}`); }
+    catch(e){ q('mrtBody').innerHTML = `<div class="empty">Could not load team: ${e.message}</div>`; return; }
+
+    currentIsOwner = !!detail.canManage;
+    currentTeamName = detail.team.teamName || '';
+    const allIds = [...(detail.team.pcRoster||[]), ...(detail.team.consoleRoster||[])];
+    currentRosterNames = [...new Set(allIds.map(id => (detail.nameMap && detail.nameMap[id]) || id))];
+
     q('rosterHeading').textContent = currentIsOwner ? 'Roster & Branding' : 'My Race Team';
 
     // Roster & Branding tab
     const mrtBody = q('mrtBody');
     if(currentIsOwner) await renderRaceTeamManageUI(currentTeamId, mrtBody, {});
     else await renderMemberRosterView(currentTeamId, mrtBody);
-
-    // Get team name + roster names (for Events/Stints and Scouting)
-    try{
-      const detail = await apiGet('raceTeamDetail', `&teamId=${encodeURIComponent(currentTeamId)}`);
-      currentTeamName = detail.team.teamName || '';
-      const allIds = [...(detail.team.pcRoster||[]), ...(detail.team.consoleRoster||[])];
-      currentRosterNames = [...new Set(allIds.map(id => detail.nameMap[id] || id))];
-    }catch(e){ console.warn('Could not load roster for events/scouting:', e); }
 
     // Scouting tab — iframe into Live Timings' Top Picks, same panel, embedded
     q('scoutFrame').src = 'livetimings.html?embed=1#raceTeamsPanel';
