@@ -2446,6 +2446,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="table-wrap">
       <div id="dirTableBody" class="dir-grid"><div class="empty">Loading directory...</div></div>
     </div>
+    <div id="dirPager" style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:16px"></div>
   </section>
 
   <section class="panel view-panel" data-view="staffLicenceManagement" id="staffPanel">
@@ -3988,6 +3989,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
   }
 
+  const DIR_PAGE_SIZE = 24;
+  let dirCurrentPage = 0;
+
   function renderDirectory(rows){
     const search = (q('dirSearch').value||'').toLowerCase();
     const tierFilter = q('dirTierFilter').value;
@@ -3997,7 +4001,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return matchesSearch && matchesTier;
     });
     const body = q('dirTableBody');
-    if(!filtered.length){ body.innerHTML = '<div class="empty">No drivers match.</div>'; return; }
+    const pager = q('dirPager');
+    if(!filtered.length){ body.innerHTML = '<div class="empty">No drivers match.</div>'; if(pager) pager.innerHTML = ''; return; }
 
     // ✅ ADDED: Gold first, then Silver, then Bronze, then everyone else -
     // same flat grid, just reordered. Ties (e.g. two Gold drivers) keep
@@ -4005,7 +4010,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const PATREON_SORT_RANK = { gold: 0, silver: 1, bronze: 2 };
     filtered.sort((a, b) => (PATREON_SORT_RANK[a.patreonOutlineTier] ?? 3) - (PATREON_SORT_RANK[b.patreonOutlineTier] ?? 3));
 
-    body.innerHTML = filtered.map(r=>{
+    // ✅ ADDED: paginate the grid, 24 cards per page, so a large roster
+    // doesn't render hundreds of cards (with images) all at once. Search
+    // and the tier filter both run against the FULL list above, then this
+    // just slices the already-filtered result - so searching for a driver
+    // finds them regardless of which page they'd otherwise land on.
+    const totalPages = Math.max(1, Math.ceil(filtered.length / DIR_PAGE_SIZE));
+    dirCurrentPage = Math.max(0, Math.min(dirCurrentPage, totalPages - 1));
+    const start = dirCurrentPage * DIR_PAGE_SIZE;
+    const pageRows = filtered.slice(start, start + DIR_PAGE_SIZE);
+
+    body.innerHTML = pageRows.map(r=>{
       const tier = findTier(r.tier || 'No Licence');
       const thumb = r.avatarMode === 'upload' && r.photoUploadUrl ? r.photoUploadUrl
                   : r.avatarMode === 'url' && r.avatarUrl ? r.avatarUrl
@@ -4054,6 +4069,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
       </div>`;
     }).join('');
+
+    if(pager){
+      if(totalPages <= 1){ pager.innerHTML = ''; }
+      else{
+        pager.innerHTML = `
+          <button class="btn ghost" id="dirPagerPrev" type="button" ${dirCurrentPage === 0 ? 'disabled' : ''}>&larr; Prev</button>
+          <span class="field-hint">Page ${dirCurrentPage + 1} of ${totalPages} &middot; ${filtered.length} driver(s)</span>
+          <button class="btn ghost" id="dirPagerNext" type="button" ${dirCurrentPage >= totalPages - 1 ? 'disabled' : ''}>Next &rarr;</button>
+        `;
+        q('dirPagerPrev')?.addEventListener('click', () => { dirCurrentPage--; renderDirectory(rows); });
+        q('dirPagerNext')?.addEventListener('click', () => { dirCurrentPage++; renderDirectory(rows); });
+      }
+    }
   }
 
   /* ============================================================
@@ -6476,8 +6504,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       }catch(e){ q('saveStatus').textContent = 'Could not save: '+e.message; }
     });
 
-    q('dirSearch').addEventListener('input', ()=>renderDirectory(dir));
-    q('dirTierFilter').addEventListener('change', ()=>renderDirectory(dir));
+    q('dirSearch').addEventListener('input', ()=>{ dirCurrentPage = 0; renderDirectory(dir); });
+    q('dirTierFilter').addEventListener('change', ()=>{ dirCurrentPage = 0; renderDirectory(dir); });
   }
 
   let gateHandlersBound = false;
