@@ -6366,20 +6366,31 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     initSubmitTicketPanel();
     renderLapProgressBox();
     checkRacedayNotifications();
-    const [ticketInfo, perfStats] = await Promise.all([fetchTicketInfo(), fetchPerformanceStats(currentProfile)]);
+    // ✅ FIXED: these five fetches (ticket/stats, available races, the full
+    // driver directory, your pending request, and the calling-card catalog)
+    // are all independent of each other, but were previously each awaited
+    // one at a time - meaning every visitor's page load paid for five
+    // sequential network round-trips back-to-back instead of one. Running
+    // them together cuts this part of page load to whichever single call
+    // is slowest, not the sum of all five.
+    const [ticketInfo, perfStats, availableRaces, dir, , callingCards] = await Promise.all([
+      fetchTicketInfo(),
+      fetchPerformanceStats(currentProfile),
+      fetchAvailableRaces(),
+      fetchDirectory(),
+      renderMyRequestPanel(),
+      window.IFWL_CallingCardAPI.fetchCallingCardCatalog()
+    ]);
     renderTicketData(ticketInfo);
     renderCardStats(perfStats);
-    renderAvailableRaces(await fetchAvailableRaces());
+    renderAvailableRaces(availableRaces);
     renderClaimLapsPanel('PC', 'pc-licence');
     renderClaimLapsPanel('Console', 'console-licence');
     renderRaceResultsPanel();
     q('raceResultsSearch')?.addEventListener('input', renderRaceResultsList);
     q('raceResultsPlatformFilter')?.addEventListener('change', renderRaceResultsList);
-    const dir = await fetchDirectory();
     renderDirectory(dir);
-    await renderMyRequestPanel();
 
-    const callingCards = await window.IFWL_CallingCardAPI.fetchCallingCardCatalog();
     const ccSelect = q('callingCardSelect');
     ccSelect.innerHTML = '<option value="">No calling card</option>' + callingCards.map(c => `<option value="${c.url}">${c.title}</option>`).join('');
     ccSelect.value = currentProfile?.callingCardUrl || '';
