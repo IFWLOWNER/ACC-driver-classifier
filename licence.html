@@ -1168,6 +1168,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <button data-view="staffSponsorships" class="owner-only-tab" type="button">Manage Sponsorships</button>
           <button data-view="staffSeasonalCosts" class="owner-only-tab" type="button">Seasonal Costs</button>
           <button data-view="staffSeasonStartPayments" class="owner-only-tab" type="button">Season Start Payments</button>
+          <button data-view="staffWelcomeBonus" class="owner-only-tab" type="button">Welcome Bonus</button>
+          <button data-view="staffRaceEarningsSettlement" class="owner-only-tab" type="button">Race Earnings Settlement</button>
           <button data-view="staffCareerShop" class="owner-only-tab" type="button">IFWL Shop</button>
         </div>
       </details>
@@ -2003,6 +2005,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <hr style="border-color:var(--ifwl-line);margin:22px 0">
 
       <h4 style="margin:0 0 10px">Run the Lottery</h4>
+      <div class="field-group" style="max-width:140px"><label>Number of runs</label><input type="number" id="spnLotteryRuns" min="1" max="50" step="1" value="1"></div>
       <button class="btn purple" id="spnRunLotteryBtn" type="button">🎲 Run Sponsorship Lottery</button>
       <div id="spnLotteryResult" style="margin-top:14px"></div>
 
@@ -2108,6 +2111,35 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffWelcomeBonus" id="staffWelcomeBonusPanel">
+    <div class="panel-head"><div><h3>Staff: Welcome Bonus</h3><small>A one-time payment the instant a driver's Patreon tier is first ever detected - not tied to season resets</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">This fires automatically the moment a driver's Discord roles show Bronze/Silver/Gold for the first time - on their next login, wherever that happens to be on the site. Paid once ever per driver, not once per season - fixes the gap where subscribing mid-season meant waiting until the next Season Start Payments run for anything.</div>
+
+      <h4 style="margin:20px 0 10px">Payment Amounts by Tier</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px">
+        <div class="field-group"><label>Gold Patreon (&pound;)</label><input type="number" id="wbGold" min="0" step="1"></div>
+        <div class="field-group"><label>Silver Patreon (&pound;)</label><input type="number" id="wbSilver" min="0" step="1"></div>
+        <div class="field-group"><label>Bronze Patreon (&pound;)</label><input type="number" id="wbBronze" min="0" step="1"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="wbEnabled" style="width:auto">Enabled</label>
+
+      <div style="margin-top:16px">
+        <button class="btn teal" id="wbSaveBtn" type="button">Save amounts</button>
+        <span class="save-status" id="wbSaveStatus"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffRaceEarningsSettlement" id="staffRaceEarningsSettlementPanel">
+    <div class="panel-head"><div><h3>Staff: Race Earnings Settlement</h3><small>Credits real race results (points, clean bonus, entry fee, tyre spend, every perk/Shop bonus) into each driver's actual Shop balance</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">This runs automatically every 2 hours in the background - use this button for an immediate catch-up (e.g. right after a race night) instead of waiting. Always safe to re-run: each race is only ever credited to a driver once, tracked per race file, so running this again just finds nothing new to pay for races already settled.</div>
+      <button class="btn purple" id="resRunBtn" type="button">Run Race Earnings Settlement Now</button>
+      <div id="resRunResult" style="margin-top:12px"></div>
+    </div>
+  </section>
+
   <!-- ✅ ADDED: Staff: IFWL Shop - catalog editor (image/cost/bonus %),
        manual credit/debit issuer, and refund tool. Same structural pattern
        as BOP TRACKer's Car Catalog editor just above it. -->
@@ -2126,6 +2158,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <option value="supportStaff">Support Staff (boosts sponsorship revenue)</option>
             <option value="teamGear">Team Gear (boosts race income)</option>
             <option value="costReduction">Cost Reduction (tyre / entry fee)</option>
+            <option value="trophy">Trophy (awards a real trophy)</option>
+            <option value="carAddition">Car Addition (cosmetic)</option>
           </select>
         </div>
         <div class="field-group">
@@ -2136,7 +2170,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           </select>
         </div>
         <div class="field-group"><label>Cost (&pound;)</label><input type="number" id="csNewItemCost" min="0" step="1"></div>
-        <div class="field-group"><label>Bonus / Reduction %</label><input type="number" id="csNewItemBonusPct" min="0" step="0.1" placeholder="e.g. 15"></div>
+        <div class="field-group"><label>Bonus / Reduction % <span class="field-hint" style="text-transform:none">(leave 0 for Trophy/Car Addition)</span></label><input type="number" id="csNewItemBonusPct" min="0" step="0.1" placeholder="e.g. 15"></div>
+        <div class="field-group"><label>Trophy colour <span class="field-hint" style="text-transform:none">(Trophy only)</span></label><input type="text" id="csNewItemTrophyColor" placeholder="#ffb238" value="#ffb238"></div>
       </div>
       <div class="field-group">
         <label>Item image (JPG/PNG, 5MB max)</label>
@@ -2249,18 +2284,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
           <p><strong>On SimGrid specifically:</strong> to be clear, IFWL runs its actual championships and events using SimGrid's own scheduling and event tools - SimGrid is very much part of how IFWL races are organised. What this page does <em>not</em> do is use SimGrid's own built-in points-scoring system for this economy - the points, clean bonus and prize table above are entirely IFWL's own separate calculation, run independently of whatever scoring format a given SimGrid championship itself might use. Don't compare the two directly; they're never meant to match.</p>
 
-          <p><strong>Important - this is a display, not a bank account.</strong> Everything above (points, Race Earnings, Net Event Earnings) is calculated fresh every time you load the page, purely from your race results. None of it is actually stored anywhere or added to your spendable balance automatically. Your <strong>real, spendable money</strong> - the one the IFWL Shop and Career Perks care about - is a completely separate pot, covered below.</p>
+          <p><strong>This is now real, spendable money.</strong> Net Event Earnings from every race are automatically credited into the same balance the IFWL Shop and sponsorships use - it's one pot, not two. This happens server-side, per race, within the current Season Window - it checks in the background roughly every couple of hours, so it may take a little while to show up after a race night, not the instant results are posted. Each race is only ever paid out once, however many times the system checks. Tyre spend for this crediting uses a flat assumption of 16 tyres per race weekend (8 for the race itself including one assumed pit stop, +4 for Practice, +4 for Qualifying), same as shown on this page - there's no reliable way to detect a driver's real pit-stop count in the data available, so this deliberately doesn't try to guess at one.</p>
         </div>
       </details>
 
       <details class="help-section">
         <summary>Your Balance, the IFWL Shop, and Career Perks - how the real spendable money works</summary>
         <div class="help-content">
-          <p>Alongside the fictional points/earnings display above, every licence holder has a genuine <strong>spendable balance</strong> - shown as "Spendable Balance" at the top of the IFWL Shop. This is a real running total, stored per driver, that only changes when one of the things below actually happens to it. It is never calculated from your race results.</p>
+          <p>Every licence holder has a genuine <strong>spendable balance</strong> - shown as "Spendable Balance" at the top of the IFWL Shop. This is one pot, not several - your race results, sponsorships, and staff-issued payments all land in the exact same place your Shop purchases spend from.</p>
 
           <p><strong>What can add money to your balance:</strong></p>
           <ul>
+            <li><strong>Race results</strong> - Net Event Earnings from every race, credited automatically, per race, the same figures shown on My Season Progression above.</li>
             <li><strong>Season Start Payments</strong> - a one-off Day 1 payment every licence holder receives once per season, sized by Patreon tier (Gold highest, then Silver, then Bronze, then a smaller amount for no Patreon). Staff trigger this once at the start of each season - it isn't automatic, and you can't request it early.</li>
+            <li><strong>Welcome Bonus</strong> - a separate one-time payment, paid once ever the moment your Patreon tier is first detected as Bronze/Silver/Gold - independent of season resets, so subscribing mid-season doesn't mean waiting for anything.</li>
             <li><strong>Sponsorship deals</strong> - won via the dice-roll sponsorship system. Each deal pays a lump sum straight into your balance the moment it's awarded.</li>
             <li><strong>Manual staff credits</strong> - occasionally issued by Owner/Ops for a specific reason (always logged and shown to you as a receipt, with that reason attached).</li>
           </ul>
@@ -3322,6 +3359,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return apiPost('staffRunSeasonStartPayments', {});
   }
   window.IFWL_SeasonStartPaymentsAPI = { fetchSeasonStartPayments, saveSeasonStartPayments, runSeasonStartPayments };
+
+  // ✅ ADDED: Welcome Bonus - a one-time (ever, not per-season) payment,
+  // fires server-side the instant a driver's Patreon tier is first
+  // detected. No "run" action needed here - it's automatic - just amounts
+  // to configure.
+  const WELCOME_BONUS_FALLBACK = { gold: 60000, silver: 40000, bronze: 25000, enabled: true };
+  let __welcomeBonusCache = null;
+  async function fetchWelcomeBonus(){
+    if(__welcomeBonusCache) return __welcomeBonusCache;
+    try{ __welcomeBonusCache = await apiGet('welcomeBonus'); }
+    catch(e){ console.warn('Could not load welcome bonus, using fallback defaults', e); __welcomeBonusCache = { ...WELCOME_BONUS_FALLBACK }; }
+    return __welcomeBonusCache;
+  }
+  async function saveWelcomeBonus(data){
+    const saved = await apiPost('staffWelcomeBonusSave', data);
+    __welcomeBonusCache = null;
+    return saved;
+  }
+  window.IFWL_WelcomeBonusAPI = { fetchWelcomeBonus, saveWelcomeBonus };
+
+  // ✅ ADDED: manual on-demand trigger for the Race Earnings settlement -
+  // no config here, it just runs against whatever Seasonal Costs/Season
+  // Window are already set to.
+  async function runRaceEarningsSettlement(){
+    return apiPost('staffRunRaceEarningsSettlement', {});
+  }
+  window.IFWL_RaceEarningsSettlementAPI = { runRaceEarningsSettlement };
 
   // ✅ ADDED: IFWL Career Shop data layer. Mirrors the Seasonal Costs
   // pattern above (catalog fetch/save, cached, invalidated on save) plus a
@@ -5141,7 +5205,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     const avgPosition = races.length ? Math.round((races.reduce((s,r)=>s+r.position,0) / races.length) * 10) / 10 : null;
     const avgConsistency = totals.consistencyN ? Math.round((totals.consistencySum / totals.consistencyN) * 10) / 10 : null;
-    const totalTyres = totals.pitCount * 4;
+    // ✅ FIXED: totals.pitCount was actually counting invalid laps
+    // (isValidForBest === false), which is ACC's own track-limit-violation
+    // flag, not a real pit-stop signal - there's no genuine pit-stop count
+    // anywhere in this data pipeline. Replaced with a flat, deterministic
+    // assumption per race weekend: 16 tyres (8 for the race itself,
+    // including one assumed stop, +4 for Practice, +4 for Qualifying).
+    // This now matches exactly what actually gets credited to real balance
+    // server-side - this was a display-only number before, but since race
+    // results now genuinely pay into the Shop, the two must agree.
+    const totalTyres = races.length * 16;
     // Advanced Tyre Management Programme (-5% per tyre) and Precision
     // Pit-Crew Training (-6%, applied to Entry Fees since there's no
     // separate pit-service cost tracked anywhere in this economy - closest
@@ -5456,11 +5529,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // just needs a real account, no Gold gate - it's spending money you
   // already earned, not an upsell).
   function csFmtMoney(n){ return (n < 0 ? '-' : '') + '&pound;' + Math.abs(Math.round(n)).toLocaleString(); }
-  const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear', costReduction: 'Cost Reduction' };
+  const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear', costReduction: 'Cost Reduction', trophy: 'Trophies', carAddition: 'Car Additions' };
   const CS_CATEGORY_BLURB = {
     supportStaff: 'Boosts sponsorship revenue for every new deal you win from here on.',
     teamGear: "Boosts your race income per race, stacking with every other piece you own.",
-    costReduction: "Reduces your tyre cost or race entry fee per race, stacking with every other piece you own."
+    costReduction: "Reduces your tyre cost or race entry fee per race, stacking with every other piece you own.",
+    trophy: "Purely cosmetic - buying one awards it straight to your Trophy Cabinet, same as winning one on track.",
+    carAddition: "Purely cosmetic garage additions - no bonus, just something to own and show off."
   };
 
   async function renderCareerShopSection(){
@@ -5490,7 +5565,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
               ? `+${item.bonusPct}% sponsorship revenue`
               : item.category === 'costReduction'
                 ? `-${item.bonusPct}% ${item.costTarget === 'entryFee' ? 'race entry fee' : 'tyre cost'}`
-                : `+${item.bonusPct}% race income per race`;
+                : item.category === 'trophy'
+                  ? 'Awards a trophy to your cabinet'
+                  : item.category === 'carAddition'
+                    ? 'Cosmetic garage item'
+                    : `+${item.bonusPct}% race income per race`;
             return `<div class="shop-item-card aa-slot-card">
               ${owned ? '<div class="shop-item-owned-badge">Owned</div>' : ''}
               ${item.imageUrl ? `<img class="shop-item-thumb" src="${item.imageUrl}" alt="">` : ''}
@@ -5527,6 +5606,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       ${categoryGrid('supportStaff')}
       ${categoryGrid('teamGear')}
       ${categoryGrid('costReduction')}
+      ${categoryGrid('trophy')}
+      ${categoryGrid('carAddition')}
       ${!catalog.length ? '<div class="empty">Nothing in the shop yet - check back once staff have added items.</div>' : ''}
       ${ledger.transactions && ledger.transactions.length ? `
         <details class="shop-receipt-list">
@@ -5581,10 +5662,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const box = q('spPerksBody');
     if(!box) return;
 
-    // Bronze/Silver see the same 5 perk shapes, permanently locked - this is
-    // deliberately shown regardless of tier (not hidden entirely), since the
-    // locked shape itself is the hook toward upgrading, per request.
-    if(!window.IFWL_GOLD && !window.IFWL_STAFF){
+    // Bronze/no-Patreon see the locked shape as a hook toward upgrading -
+    // Silver and Gold now both get real access below, just at different
+    // pick counts.
+    const perkAllowance = (window.IFWL_GOLD || window.IFWL_STAFF) ? 3 : window.IFWL_SILVER_PLUS ? 1 : 0;
+    if(perkAllowance === 0){
       box.innerHTML = `
         <h4 style="margin:0 0 10px">Career Perks</h4>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
@@ -5592,7 +5674,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <div class="aa-slot-card" style="opacity:.5;position:relative">
               <div style="position:absolute;top:10px;right:12px;font-size:16px">🔒</div>
               <strong>${perk.name}</strong>
-              <p class="field-hint" style="margin:6px 0 0">Gold Patreon only</p>
+              <p class="field-hint" style="margin:6px 0 0">Silver Patreon or above</p>
             </div>
           `).join('')}
         </div>
@@ -5604,7 +5686,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{ perks = (await apiGet('myCareerPerks')).perks || []; }catch(e){ box.innerHTML = `<div class="empty">Could not load Career Perks: ${e.message}</div>`; return; }
 
     if(perks.length){
-      // Locked in - read-only display of the 3 chosen perks and their effects.
+      // Locked in - read-only display of the chosen perk(s) and their effects.
       box.innerHTML = `
         <h4 style="margin:0 0 10px">Career Perks <span class="field-hint" style="text-transform:none;font-weight:400">(locked for this season)</span></h4>
         <div class="fc-summary-grid">
@@ -5618,10 +5700,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return;
     }
 
-    // Not chosen yet - show the picker, exactly 3 required.
+    // Not chosen yet - show the picker, exactly perkAllowance required.
     box.innerHTML = `
       <h4 style="margin:0 0 10px">Career Perks</h4>
-      <div class="notice-card">Choose exactly 3 of the 5 perks below. Once confirmed, they're locked in for the rest of the season - only staff can reset them (beta period).</div>
+      <div class="notice-card">Choose exactly ${perkAllowance} of the 5 perks below${perkAllowance === 1 ? ' (Gold gets 3 - this is the Silver allowance)' : ''}. Once confirmed, they're locked in for the rest of the season - only staff can reset them (beta period).</div>
       <div style="height:4px"></div>
       <div id="spnPerkChecks" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
         ${SP_PERK_CATALOG.map(perk => `
@@ -5637,21 +5719,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           </label>
         `).join('')}
       </div>
-      <button class="btn purple" id="spnConfirmPerksBtn" type="button" style="margin-top:14px">Confirm my 3 perks for this season</button>
+      <button class="btn purple" id="spnConfirmPerksBtn" type="button" style="margin-top:14px">Confirm my ${perkAllowance} perk${perkAllowance===1?'':'s'} for this season</button>
       <span class="save-status" id="spnPerksStatus"></span>
     `;
 
     const checks = () => [...box.querySelectorAll('.sp-perk-check')];
     checks().forEach(c => c.addEventListener('change', () => {
       const checked = checks().filter(x => x.checked);
-      if(checked.length > 3) c.checked = false; // hard stop at 3, no silent over-select
+      if(checked.length > perkAllowance) c.checked = false; // hard stop at the allowance, no silent over-select
     }));
 
     q('spnConfirmPerksBtn').addEventListener('click', async () => {
       const chosen = checks().filter(c => c.checked).map(c => c.value);
       const status = q('spnPerksStatus');
-      if(chosen.length !== 3){ status.textContent = 'Pick exactly 3 perks first.'; return; }
-      if(!confirm('Lock these 3 perks in for the rest of the season? You cannot change them yourself once confirmed.')) return;
+      if(chosen.length !== perkAllowance){ status.textContent = `Pick exactly ${perkAllowance} perk${perkAllowance===1?'':'s'} first.`; return; }
+      if(!confirm(`Lock ${perkAllowance === 1 ? 'this perk' : `these ${perkAllowance} perks`} in for the rest of the season? You cannot change them yourself once confirmed.`)) return;
       status.textContent = 'Saving...';
       try{
         await apiPost('saveMyCareerPerks', { perks: chosen });
@@ -10979,14 +11061,21 @@ Flashing Headlights:
         if(!eligibleIds.length){ resultBox.innerHTML = '<div class="empty">No eligible drivers found - nobody raced yet this season.</div>'; return; }
 
         resultBox.innerHTML = `<div class="empty">Rolling against ${eligibleIds.length} eligible driver(s)&hellip;</div>`;
-        const result = await window.IFWL_Api.apiPost('staffRunSponsorshipLottery', { eligibleDriverIds: eligibleIds });
+        const runs = Math.max(1, Math.min(50, Math.round(Number(q('spnLotteryRuns').value) || 1)));
+        const result = await window.IFWL_Api.apiPost('staffRunSponsorshipLottery', { eligibleDriverIds: eligibleIds, runs });
 
+        const runResults = result.runResults || [{ runNumber: 1, rolledCount: result.rolledCount, winnerCount: result.winnerCount, winners: result.winners }];
         resultBox.innerHTML = `
-          <div class="notice-card">Rolled against <strong>${result.rolledCount}</strong> eligible driver(s) - <strong>${result.winnerCount}</strong> hit a sponsorship.</div>
-          ${result.winners.length ? `<table class="fc-stint-table" style="margin-top:10px">
-            <thead><tr><th>Driver</th><th>Sponsor</th><th>Amount</th></tr></thead>
-            <tbody>${result.winners.map(w => `<tr><td>${w.driverName}</td><td>${w.companyName}</td><td>&pound;${w.amount.toLocaleString()}</td></tr>`).join('')}</tbody>
-          </table>` : ''}
+          <div class="notice-card">Rolled ${runs} time${runs===1?'':'s'} against <strong>${result.rolledCount}</strong> eligible driver(s) per run - <strong>${result.winnerCount}</strong> total hit(s) across all runs.</div>
+          ${runResults.map(r => `
+            <div style="margin-top:14px">
+              <h5 style="margin:0 0 6px">Run ${r.runNumber} <span class="field-hint" style="text-transform:none">(${r.winnerCount} hit${r.winnerCount===1?'':'s'})</span></h5>
+              ${r.winners.length ? `<table class="fc-stint-table">
+                <thead><tr><th>Driver</th><th>Sponsor</th><th>Amount</th></tr></thead>
+                <tbody>${r.winners.map(w => `<tr><td>${w.driverName}</td><td>${w.companyName}</td><td>&pound;${w.amount.toLocaleString()}</td></tr>`).join('')}</tbody>
+              </table>` : '<div class="field-hint">No hits this run.</div>'}
+            </div>
+          `).join('')}
         `;
         renderCurrentSponsorships();
       }catch(e){
@@ -11265,6 +11354,65 @@ Flashing Headlights:
     };
   }
 
+  // ✅ ADDED: Welcome Bonus staff panel - amounts only, no run button since
+  // this fires automatically server-side on a driver's first-ever detected
+  // Patreon tier, not on a staff-triggered schedule.
+  async function initWelcomeBonusPanel(){
+    if(!q('staffWelcomeBonusPanel')) return;
+
+    let cfg;
+    try{ cfg = await window.IFWL_WelcomeBonusAPI.fetchWelcomeBonus(); }
+    catch(e){ q('wbSaveStatus').textContent = 'Could not load: ' + e.message; return; }
+
+    q('wbGold').value = cfg.gold;
+    q('wbSilver').value = cfg.silver;
+    q('wbBronze').value = cfg.bronze;
+    q('wbEnabled').checked = !!cfg.enabled;
+
+    q('wbSaveBtn').onclick = async () => {
+      const status = q('wbSaveStatus');
+      const gold = Number(q('wbGold').value);
+      const silver = Number(q('wbSilver').value);
+      const bronze = Number(q('wbBronze').value);
+      const enabled = q('wbEnabled').checked;
+      if(![gold, silver, bronze].every(n => Number.isFinite(n) && n >= 0)){ status.textContent = 'All three amounts must be valid, non-negative numbers.'; return; }
+
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_WelcomeBonusAPI.saveWelcomeBonus({ gold, silver, bronze, enabled });
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('wbSaveStatus')) q('wbSaveStatus').textContent = ''; }, 2500);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+  }
+
+  // ✅ ADDED: Race Earnings Settlement staff panel - a single "run now"
+  // button, no config to load first.
+  function initRaceEarningsSettlementPanel(){
+    if(!q('staffRaceEarningsSettlementPanel')) return;
+
+    q('resRunBtn').onclick = async () => {
+      if(!confirm("Run the Race Earnings settlement now? This credits every eligible driver's real Shop balance for any race they haven't already been paid for.")) return;
+      const result = q('resRunResult');
+      result.innerHTML = '<div class="field-hint">Running&hellip; this can take a little while if there are many race files to check.</div>';
+      try{
+        const r = await window.IFWL_RaceEarningsSettlementAPI.runRaceEarningsSettlement();
+        if(r.skipped){
+          result.innerHTML = `<div class="notice-card">Nothing to settle - ${r.skipped === 'no_season_window' ? 'no Season Window is set.' : 'no race files found in the current Season Window.'}</div>`;
+        }else{
+          const netStr = (r.totalNetCredited < 0 ? '-' : '') + csFmtMoney(Math.abs(r.totalNetCredited)).replace('&pound;','£');
+          result.innerHTML = `
+            <div class="notice-card" style="border-left-color:var(--ifwl-green);background:rgba(51,217,155,.08)">
+              <strong>✅ Credited ${r.creditedCount} driver${r.creditedCount===1?'':'s'}</strong> across ${r.raceFilesChecked} race file(s) checked.
+              <div class="field-hint" style="margin-top:6px">Net total credited this run: ${netStr}</div>
+            </div>`;
+        }
+      }catch(e){
+        result.innerHTML = `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Could not run settlement</strong><div class="field-hint" style="margin-top:6px">${e.message}</div></div>`;
+      }
+    };
+  }
+
   // ✅ ADDED: BOP TRACKer staff panel - upload/replace the BOP file (with
   // the two lap-time-estimate constants saved alongside it), and manage the
   // car catalog (name/class/image + separate PC/Console car model IDs, for
@@ -11435,6 +11583,8 @@ Flashing Headlights:
             <option value="supportStaff" ${item.category === 'supportStaff' ? 'selected' : ''}>Support Staff (sponsorship)</option>
             <option value="teamGear" ${item.category === 'teamGear' ? 'selected' : ''}>Team Gear (race income)</option>
             <option value="costReduction" ${item.category === 'costReduction' ? 'selected' : ''}>Cost Reduction (tyre/entry fee)</option>
+            <option value="trophy" ${item.category === 'trophy' ? 'selected' : ''}>Trophy (awards a real trophy)</option>
+            <option value="carAddition" ${item.category === 'carAddition' ? 'selected' : ''}>Car Addition (cosmetic)</option>
           </select>
         </div>
         <div class="field-group" style="flex:1;min-width:150px">
@@ -11445,7 +11595,8 @@ Flashing Headlights:
           </select>
         </div>
         <div class="field-group" style="flex:1;min-width:110px"><label>Cost (&pound;)</label><input type="number" class="cs-item-cost" value="${item.cost ?? ''}" min="0" step="1"></div>
-        <div class="field-group" style="flex:1;min-width:100px"><label>Bonus / Reduction %</label><input type="number" class="cs-item-bonus" value="${item.bonusPct ?? ''}" min="0" step="0.1"></div>
+        <div class="field-group" style="flex:1;min-width:100px"><label>Bonus / Reduction % <span class="field-hint" style="text-transform:none">(0 ok for Trophy/Car)</span></label><input type="number" class="cs-item-bonus" value="${item.bonusPct ?? ''}" min="0" step="0.1"></div>
+        <div class="field-group" style="flex:1;min-width:110px"><label>Trophy colour</label><input type="text" class="cs-item-trophy-color" value="${(item.trophyColor||'#ffb238').replace(/"/g,'&quot;')}"></div>
       </div>
       <input type="hidden" class="cs-item-image-url" value="${(item.imageUrl||'').replace(/"/g,'&quot;')}">
     </div>`;
@@ -11477,11 +11628,13 @@ Flashing Headlights:
       const name = q('csNewItemName').value.trim();
       const category = q('csNewItemCategory').value;
       const costTarget = q('csNewItemCostTarget').value;
+      const trophyColor = q('csNewItemTrophyColor').value.trim() || '#ffb238';
       const cost = Number(q('csNewItemCost').value);
-      const bonusPct = Number(q('csNewItemBonusPct').value);
+      const bonusPct = Number(q('csNewItemBonusPct').value) || 0;
+      const isCosmetic = category === 'trophy' || category === 'carAddition';
       if(!name){ status.textContent = 'Item name is required.'; return; }
       if(!Number.isFinite(cost) || cost < 0){ status.textContent = 'A valid cost is required.'; return; }
-      if(!Number.isFinite(bonusPct) || bonusPct <= 0){ status.textContent = 'A bonus % greater than 0 is required.'; return; }
+      if(!isCosmetic && (!Number.isFinite(bonusPct) || bonusPct <= 0)){ status.textContent = 'A bonus % greater than 0 is required (Trophy/Car Addition items can leave this at 0).'; return; }
 
       let imageUrl = '';
       const file = q('csNewItemImageInput').files[0];
@@ -11491,7 +11644,7 @@ Flashing Headlights:
         catch(e){ status.textContent = 'Image upload failed: ' + e.message; return; }
       }
 
-      csShopItems.push({ id: 'shopitem_' + Date.now(), name, category, costTarget, cost, bonusPct, imageUrl });
+      csShopItems.push({ id: 'shopitem_' + Date.now(), name, category, costTarget, trophyColor, cost, bonusPct, imageUrl });
       csRenderCatalogRows();
 
       status.textContent = 'Saving...';
@@ -11514,13 +11667,14 @@ Flashing Headlights:
           name: row.querySelector('.cs-item-name').value.trim(),
           category: row.querySelector('.cs-item-category').value,
           costTarget: row.querySelector('.cs-item-cost-target').value,
+          trophyColor: (row.querySelector('.cs-item-trophy-color')?.value || '#ffb238').trim() || '#ffb238',
           cost: Number(row.querySelector('.cs-item-cost').value),
-          bonusPct: Number(row.querySelector('.cs-item-bonus').value),
+          bonusPct: Number(row.querySelector('.cs-item-bonus').value) || 0,
           imageUrl: row.querySelector('.cs-item-image-url').value
         };
-      }).filter(it => it.name && Number.isFinite(it.cost) && it.cost >= 0 && Number.isFinite(it.bonusPct) && it.bonusPct > 0);
+      }).filter(it => it.name && Number.isFinite(it.cost) && it.cost >= 0 && (it.bonusPct > 0 || it.category === 'trophy' || it.category === 'carAddition'));
 
-      if(!items.length){ status.textContent = 'At least one item with a name, cost and bonus % is required.'; return; }
+      if(!items.length){ status.textContent = 'At least one valid item is required (bonus % required unless it\'s a Trophy or Car Addition).'; return; }
 
       status.textContent = 'Saving...';
       try{
@@ -11910,6 +12064,8 @@ Flashing Headlights:
     initSponsorshipsPanel();
     initSeasonalCostsPanel();
     initSeasonStartPaymentsPanel();
+    initWelcomeBonusPanel();
+    initRaceEarningsSettlementPanel();
     initClassStructurePanel();
     renderSeasonalEventsPanel();
   }
