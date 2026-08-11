@@ -337,6 +337,8 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .shop-receipt-amount.neg{color:var(--ifwl-red)}
 #shopTransactionModal{position:fixed;inset:0;z-index:199997;background:rgba(4,6,9,.82);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
 #shopTransactionModal.hidden{display:none!important}
+#inboxNoticeModal{position:fixed;inset:0;z-index:199996;background:rgba(4,6,9,.82);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
+#inboxNoticeModal.hidden{display:none!important}
 .btn-view-sessions{background:transparent;border:1px solid var(--ifwl-line);color:var(--text-muted);font-size:11px;padding:5px 9px;border-radius:7px;cursor:pointer;margin-top:6px;width:100%}
 .btn-view-sessions:hover{border-color:var(--ifwl-teal);color:var(--ifwl-teal)}
 /* ✅ ADDED: Licence Database */
@@ -1026,6 +1028,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </div>
 </div>
 
+<div id="inboxNoticeModal" class="hidden">
+  <div class="login-wall-card">
+    <div class="licence-org" style="font-size:13px;color:var(--ifwl-teal)">IFWL INBOX</div>
+    <h1 style="background:linear-gradient(100deg,#fff,var(--ifwl-teal));-webkit-background-clip:text;background-clip:text;color:transparent">You've got a message</h1>
+    <p id="inboxNoticeText">Loading&hellip;</p>
+    <div class="login-wall-actions" style="margin-top:14px">
+      <button class="login-wall-discord" id="inboxNoticeOpenBtn" type="button">Open Inbox</button>
+      <button class="login-wall-logout" id="inboxNoticeDismissBtn" type="button">Dismiss</button>
+    </div>
+  </div>
+</div>
+
 
 <div class="top-strip">IFWL &mdash; <span>LICENCE CENTRE</span></div>
 <nav class="nav">
@@ -1095,7 +1109,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </div>
 
   <div class="view-tab-dropdown logged-in-tab-group">
-    <button class="view-tab dropdown-toggle" type="button">Support &#9662;</button>
+    <button class="view-tab dropdown-toggle" type="button">Support &#9662; <span id="supportUnreadBadge" class="inbox-unread-badge hidden">0</span></button>
     <div class="view-tab-menu">
       <button data-view="submitTicket" type="button">Submit a Ticket</button>
       <button data-view="raiseConcern" type="button">Raise a Concern</button>
@@ -5658,6 +5672,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     };
   }
 
+  // ✅ ADDED: pop-up on login when there's an unread Inbox message, same
+  // one-time-per-message fingerprint pattern as the shop transaction notice
+  // above - fires once per newest unread thread, not every login, and
+  // re-fires if a genuinely new message arrives after being dismissed.
+  function inboxNoticeSeenKey(){ return 'IFWL_INBOX_NOTICE_SEEN:' + window.IFWL_AUTH.userId(window.IFWL_META); }
+  async function checkInboxNotice(){
+    let data;
+    try{ data = await window.IFWL_InboxAPI.myInbox(); }
+    catch(e){ return; }
+    const threads = (data.threads || []).filter(t => t.unread > 0);
+    if(!threads.length) return;
+
+    // Fingerprint on the newest unread thread's id + its unread count, so
+    // a fresh reply on an already-seen thread still triggers a re-notify.
+    threads.sort((a,b) => (b.lastMessageAtMs||0) - (a.lastMessageAtMs||0));
+    const top = threads[0];
+    const fingerprint = `${top.id}:${top.unread}`;
+    if(localStorage.getItem(inboxNoticeSeenKey()) === fingerprint) return;
+
+    const totalUnread = threads.reduce((sum, t) => sum + (t.unread || 0), 0);
+    q('inboxNoticeText').textContent = totalUnread === 1
+      ? `You have an unread message from ${top.staffName || 'IFWL staff'}: "${top.subject}".`
+      : `You have ${totalUnread} unread messages, most recently from ${top.staffName || 'IFWL staff'}: "${top.subject}".`;
+    q('inboxNoticeModal').classList.remove('hidden');
+
+    const dismiss = () => { localStorage.setItem(inboxNoticeSeenKey(), fingerprint); q('inboxNoticeModal').classList.add('hidden'); };
+    q('inboxNoticeDismissBtn').onclick = dismiss;
+    q('inboxNoticeOpenBtn').onclick = () => { dismiss(); window.switchView?.('inbox'); };
+  }
+
   async function renderCareerPerksSection(){
     const box = q('spPerksBody');
     if(!box) return;
@@ -6382,6 +6426,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const totalUnread = threads.reduce((sum, t) => sum + (t.unread || 0), 0);
     const badge = q('inboxUnreadBadge');
     if(badge){ badge.textContent = totalUnread; badge.classList.toggle('hidden', !totalUnread); }
+    // ✅ ADDED: the Inbox badge only used to show once the Support dropdown
+    // was already open - invisible otherwise, so an unread message was easy
+    // to miss entirely. Mirrors the same count onto the "Support ▾" toggle
+    // itself, visible without opening anything.
+    const supportBadge = q('supportUnreadBadge');
+    if(supportBadge){ supportBadge.textContent = totalUnread; supportBadge.classList.toggle('hidden', !totalUnread); }
 
     q('inboxThreadView').classList.add('hidden');
     list.classList.remove('hidden');
@@ -6465,6 +6515,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     hideDriverLinkGate();
     checkTicketNotice();
     checkShopTransactionNotice();
+    checkInboxNotice();
 
     if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
     renderQualificationStanding();
