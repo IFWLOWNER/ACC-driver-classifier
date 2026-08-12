@@ -4143,11 +4143,23 @@ This status was changed from the Head Steward web dashboard so the ticket can be
     const lqRefreshBtn = document.getElementById("liveQueueRefreshBtn");
     if (lqRefreshBtn) lqRefreshBtn.onclick = () => lqRefresh();
 
+    // ✅ ADDED: Driver Notes now loads its own roster independently of the
+    // ticket queue - previously it only ever populated as a side effect of
+    // lqRefresh() succeeding, which meant it silently stayed empty if the
+    // Google Sheet failed to load for any reason, even though the actual
+    // driver data (licences/drivers collections) has nothing to do with
+    // the sheet at all.
+    async function dnInit() {
+      if (!lqDriverDirectory.length) await lqLoadDriverDirectory();
+      dnPopulateDriverSelect();
+    }
+
     // Wait for the existing auth gate to confirm this is a signed-in head steward
     // before touching Firestore, then do an initial load + light polling.
     auth.onAuthStateChanged((user) => {
       if (user) {
         lqRefresh();
+        dnInit();
         setInterval(lqRefresh, 30000);
       }
     });
