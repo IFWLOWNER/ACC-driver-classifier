@@ -3743,6 +3743,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
     async function lqLoadDriverDirectory() {
       lqDriverByCar = new Map();
       lqDriverDirectory = [];
+      let loadError = "";
 
       try {
         const licSnap = await db.collection("licences").limit(2000).get();
@@ -3751,9 +3752,16 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           const name = d.name || "";
           const car = lqParseCarFromName(name);
           if (car && !lqDriverByCar.has(car)) lqDriverByCar.set(car, name);
-          if (name) lqDriverDirectory.push({ carNumber: car, name });
+          // ✅ FIXED: this only ever captured the display name, never the
+          // driver's actual document id - which meant there was no way to
+          // write anything back to a specific driver's licence (e.g. a
+          // note), even though the name showed up fine on screen.
+          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name, driverId: doc.id });
         });
-      } catch (e) { console.warn("licences load failed:", e); }
+      } catch (e) {
+        console.warn("licences load failed:", e);
+        loadError = e?.message || String(e);
+      }
 
       try {
         const drvSnap = await db.collection("drivers").limit(2000).get();
@@ -3763,9 +3771,21 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           const car = lqParseCarFromName(name);
           // licences (season 4) takes priority; only fill gaps from legacy drivers
           if (car && !lqDriverByCar.has(car)) lqDriverByCar.set(car, name);
-          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name });
+          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name, driverId: doc.id });
         });
-      } catch (e) { console.warn("drivers load failed:", e); }
+      } catch (e) {
+        console.warn("drivers load failed:", e);
+        if (!loadError) loadError = e?.message || String(e);
+      }
+
+      // ✅ ADDED: surface this instead of silently leaving the dropdown
+      // empty - a Firestore permission error here (this page signs in via
+      // Google/Firebase Auth, a different system than the Discord-session
+      // auth that actually writes the licences collection) would otherwise
+      // look identical to "there just aren't any licensed drivers".
+      if (loadError && !lqDriverDirectory.length) {
+        toast("Could not load licensed driver names: " + loadError);
+      }
     }
 
     async function lqLoadSubmittedIds() {
@@ -3801,7 +3821,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       const sorted = lqDriverDirectory.slice().sort((a, b) => a.name.localeCompare(b.name));
       for (const d of sorted) {
         const sel = d.name === selectedName ? "selected" : "";
-        opts.push(`<option value="${lqEscapeHtml(d.name)}" ${sel}>${lqEscapeHtml(d.name)}</option>`);
+        opts.push(`<option value="${lqEscapeHtml(d.name)}" data-driver-id="${lqEscapeHtml(d.driverId || "")}" ${sel}>${lqEscapeHtml(d.name)}</option>`);
       }
       return opts.join("");
     }
@@ -3842,6 +3862,14 @@ This status was changed from the Head Steward web dashboard so the ticket can be
               <button class="primary lqSubmitBtn">Submit to TLS</button>
             </div>
 
+            <div class="row" style="margin-top:10px; align-items:flex-end;">
+              <div style="flex:1; min-width:220px;">
+                <label class="muted">Add a note to this driver's licence (optional)</label>
+                <input type="text" class="lqNoteInput" placeholder="e.g. Repeat offender for unsafe rejoins this race">
+              </div>
+              <button class="lqAddNoteBtn" style="border:1px solid #e5e7eb;">Add note</button>
+            </div>
+
             <div class="row" style="margin-top:10px; align-items:flex-end; padding-top:10px; border-top:1px solid #f1f1f1;">
               <div style="flex:1; min-width:220px;">
                 <label class="muted">Close instead — no TLS action</label>
@@ -3865,6 +3893,9 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       list.querySelectorAll(".lqSubmitBtn").forEach(btn => {
         btn.onclick = () => lqSubmitTicket(btn);
       });
+      list.querySelectorAll(".lqAddNoteBtn").forEach(btn => {
+        btn.onclick = () => lqAddNoteToLicence(btn);
+      });
       list.querySelectorAll(".lqCloseReasonSelect").forEach(sel => {
         sel.addEventListener("change", () => {
           const wrap = sel.closest("[data-ticket]").querySelector(".lqCloseReasonOtherWrap");
@@ -3874,6 +3905,54 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       list.querySelectorAll(".lqCloseBtn").forEach(btn => {
         btn.onclick = () => lqCloseTicketNoAction(btn);
       });
+    }
+
+    // ✅ ADDED: writes a short staff note straight onto the selected
+    // driver's licence document, from right here in the ticket queue.
+    // Uses the driver's actual Firestore doc id (now captured by
+    // lqLoadDriverDirectory) rather than trying to match by name again -
+    // avoids any risk of a note landing on the wrong driver if two people
+    // share a similar display name.
+    async function lqAddNoteToLicence(btn) {
+      const cardEl = btn.closest("[data-ticket]");
+      const ticketId = cardEl.getAttribute("data-ticket");
+      const t = lqSheetTickets.find(x => x.id === ticketId);
+      if (!t) return;
+
+      const driverSelect = cardEl.querySelector(".lqDriverSelect");
+      const noteInput = cardEl.querySelector(".lqNoteInput");
+      const selectedOption = driverSelect.options[driverSelect.selectedIndex];
+      const driverId = selectedOption ? selectedOption.dataset.driverId : "";
+      const driverName = driverSelect.value;
+      const noteText = noteInput.value.trim();
+
+      if (!driverName) { toast("Select a driver first"); return; }
+      if (!driverId) { toast("This driver has no linked licence id - can't attach a note (likely from the legacy drivers list, not the current licences collection)"); return; }
+      if (!noteText) { toast("Enter a note first"); return; }
+
+      btn.disabled = true;
+      btn.textContent = "Adding…";
+
+      try {
+        await db.collection("licences").doc(driverId).set({
+          staffNotes: firebase.firestore.FieldValue.arrayUnion({
+            text: noteText,
+            addedBy: currentEmail || "Live Stewarding",
+            addedAtMs: Date.now(),
+            source: `Ticket ${ticketId} (${LQ_EVENT_LABEL})`
+          })
+        }, { merge: true });
+
+        toast(`Note added to ${driverName}'s licence ✅`);
+        noteInput.value = "";
+        btn.textContent = "Add note";
+        btn.disabled = false;
+      } catch (e) {
+        console.error(e);
+        toast("Could not add note: " + (e?.message || e));
+        btn.disabled = false;
+        btn.textContent = "Add note";
+      }
     }
 
     async function lqSubmitTicket(btn) {
