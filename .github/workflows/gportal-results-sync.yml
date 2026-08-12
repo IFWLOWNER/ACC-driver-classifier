@@ -72,6 +72,18 @@ jobs:
       CONSOLE_LICENCE_PASSWORD: ${{ secrets.GPORTAL_CONSOLE_LICENCE_PASSWORD }}
       CONSOLE_LICENCE_RESULTS_PATH: ${{ secrets.GPORTAL_CONSOLE_LICENCE_RESULTS_PATH }}
 
+      # ✅ ADDED: Console Race Team - Assetto Hosting. Deliberately kept OUT
+      # of the shared servers{} dict below, so this never lands in
+      # data/manifest.json - the file Live Timings, the Scouting iframe, and
+      # Race Earnings crediting all read from. Gets its own separate
+      # manifest instead (data/raceteam-manifest.json), for the Race Team
+      # page only.
+      CONSOLE_RACETEAM_HOST: ${{ secrets.ASSETTO_CONSOLE_RACETEAM_HOST }}
+      CONSOLE_RACETEAM_PORT: ${{ secrets.ASSETTO_CONSOLE_RACETEAM_PORT }}
+      CONSOLE_RACETEAM_USER: ${{ secrets.ASSETTO_CONSOLE_RACETEAM_USER }}
+      CONSOLE_RACETEAM_PASSWORD: ${{ secrets.ASSETTO_CONSOLE_RACETEAM_PASSWORD }}
+      CONSOLE_RACETEAM_RESULTS_PATH: ${{ secrets.ASSETTO_CONSOLE_RACETEAM_RESULTS_PATH }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -91,6 +103,7 @@ jobs:
           mkdir -p data/results/pc-monday-funday
           mkdir -p data/results/pc-licence
           mkdir -p data/results/console-licence
+          mkdir -p data/results/console-raceteam
 
           echo "Removing old non-race files only. Race files are preserved."
 
@@ -100,6 +113,7 @@ jobs:
           find data/results/pc-proam -type f -name "*.json" ! -name "*_R.json" -delete || true
           find data/results/pc-beginner -type f -name "*.json" ! -name "*_R.json" -delete || true
           find data/results/pc-monday-funday -type f -name "*.json" ! -name "*_R.json" -delete || true
+          find data/results/console-raceteam -type f -name "*.json" ! -name "*_R.json" -delete || true
 
           # ✅ ADDED: pc-licence and console-licence are deliberately excluded from
           # the deletion above. These are the qualification servers - every lap a
@@ -209,6 +223,11 @@ jobs:
           # ✅ ADDED: Console Licence qualification server
           download_server "console-licence" "IFWL | CONSOLE LICENCE" "$CONSOLE_LICENCE_HOST" "$CONSOLE_LICENCE_PORT" "$CONSOLE_LICENCE_USER" "$CONSOLE_LICENCE_PASSWORD" "$CONSOLE_LICENCE_RESULTS_PATH" || true
 
+          # ✅ ADDED: Console Race Team - downloads normally, but is
+          # deliberately excluded from the manifest-building step below, so
+          # it never reaches the shared manifest.json.
+          download_server "console-raceteam" "IFWL | CONSOLE RACE TEAM" "$CONSOLE_RACETEAM_HOST" "$CONSOLE_RACETEAM_PORT" "$CONSOLE_RACETEAM_USER" "$CONSOLE_RACETEAM_PASSWORD" "$CONSOLE_RACETEAM_RESULTS_PATH" || true
+
       - name: Build manifest file
         run: |
           python3 - <<'PY'
@@ -288,6 +307,39 @@ jobs:
 
           for item in results:
               print(f"- {item['serverName']} / {item['name']}")
+
+          # ✅ ADDED: Console Race Team gets its OWN separate manifest -
+          # never merged into servers{} above, so it's invisible to Live
+          # Timings, the Scouting iframe, and Race Earnings crediting.
+          raceteam_results_dir = Path("data/results/console-raceteam")
+          raceteam_files = sorted(
+              raceteam_results_dir.glob("*.json"),
+              key=lambda p: p.name,
+              reverse=True
+          ) if raceteam_results_dir.exists() else []
+
+          raceteam_results = [
+              {
+                  "serverId": "console-raceteam",
+                  "serverName": "IFWL | CONSOLE RACE TEAM",
+                  "file": f"data/results/console-raceteam/{p.name}",
+                  "name": p.name,
+                  "sessionKind": "race" if p.name.endswith("_R.json") else "session"
+              }
+              for p in raceteam_files
+          ]
+
+          raceteam_manifest = {
+              "updatedAt": datetime.now(timezone.utc).isoformat(),
+              "results": raceteam_results
+          }
+
+          Path("data/raceteam-manifest.json").write_text(
+              json.dumps(raceteam_manifest, indent=2),
+              encoding="utf-8"
+          )
+
+          print(f"Race Team manifest created with {len(raceteam_results)} file(s) - separate from data/manifest.json.")
           PY
 
       - name: Commit latest result files
@@ -295,7 +347,7 @@ jobs:
           git config user.name "IFWL Results Bot"
           git config user.email "actions@github.com"
 
-          git add -A data/results data/manifest.json
+          git add -A data/results data/manifest.json data/raceteam-manifest.json
 
           if git diff --cached --quiet; then
             echo "No result file changes to commit."
