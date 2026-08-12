@@ -110,6 +110,11 @@ html.login-wall-open,body.login-wall-open{overflow:hidden!important}
    padding makes the whole overlay scroll instead of clipping. */
 #ifwlLoginWall{position:fixed;inset:0;z-index:200000;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
 #ifwlLoginWall.hidden{display:none!important}
+#rulesGateWall{position:fixed;inset:0;z-index:199998;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
+#rulesGateWall.hidden{display:none!important}
+.rules-gate-option{display:block;width:100%;text-align:left;padding:11px 14px;border-radius:10px;border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-primary);cursor:pointer;font-size:13.5px}
+.rules-gate-option:hover{border-color:var(--ifwl-teal)}
+.rules-gate-option.selected{border-color:var(--ifwl-purple);background:rgba(198,91,232,.14)}
 #ifwlDriverLinkGate{position:fixed;inset:0;z-index:199999;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
 #ticketNoticeModal{position:fixed;inset:0;z-index:199998;background:rgba(4,6,9,.82);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
 #ticketNoticeModal.hidden{display:none!important}
@@ -964,6 +969,34 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </div>
 </div>
 
+<!-- ✅ ADDED: Rules re-agreement gate. Same blocking overlay pattern as the
+     login wall - must tick the box AND answer one random question
+     correctly before Confirm even becomes clickable. -->
+<div id="rulesGateWall" class="hidden">
+  <div class="login-wall-card" style="text-align:left">
+    <div class="licence-org" style="font-size:13px;text-align:center">IFWL.NET</div>
+    <h1 style="text-align:center">Racing Rules</h1>
+    <p style="text-align:center">Every driver has to confirm they've read the current rules at least once every 30 days.</p>
+    <div id="rulesGateText" style="max-height:340px;overflow-y:auto;border:1px solid var(--ifwl-line);border-radius:14px;padding:16px;background:#0d1116;margin:18px 0;font-size:13.5px;line-height:1.65;color:var(--text-muted)"></div>
+
+    <div id="rulesGateQuestion" style="border:1px solid var(--ifwl-line);border-radius:14px;padding:16px;background:rgba(198,91,232,.06);margin-bottom:18px">
+      <div style="font-weight:800;margin-bottom:10px" id="rulesGateQuestionText"></div>
+      <div id="rulesGateOptions" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+    <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:16px">
+      <input type="checkbox" id="rulesGateCheckbox" style="width:auto;margin-top:3px">
+      <span style="font-size:13.5px">I have read and agreed to the IFWL.NET racing rules.</span>
+    </label>
+
+    <div id="rulesGateError" style="color:#ffb3ba;font-size:13px;margin-bottom:12px"></div>
+    <div class="login-wall-actions">
+      <button class="login-wall-discord" id="rulesGateConfirmBtn" type="button" disabled style="opacity:.5">Confirm</button>
+      <button class="login-wall-logout" id="rulesGateLogoutBtn" type="button">Logout instead</button>
+    </div>
+  </div>
+</div>
+
 <div id="ifwlDriverLinkGate" class="hidden">
   <div class="login-wall-card">
     <div class="licence-org" style="font-size:13px">IFWL.NET</div>
@@ -1481,6 +1514,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </select>
       </div>
 
+      <div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)">
+        <strong>⚠️ Evidence format requirement</strong><br>
+        Any proof or video submitted must be at normal playback speed. Footage that has been sped up or slowed down will not be counted as valid evidence, and the ticket will be voided regardless of what it shows.
+      </div>
+
       <div class="field-group">
         <label>Proof URL (if any)</label>
         <input type="url" id="ticketProofUrl" placeholder="any video or image hosting site such as youtube/google drive/imgur">
@@ -1489,7 +1527,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="field-group" id="ticketVideoGoldField">
         <label>Video Evidence <span style="color:var(--ifwl-purple)">(Gold Patreon perk)</span></label>
         <input type="file" id="ticketVideoInput" accept="video/mp4,video/quicktime,video/webm">
-        <div class="field-hint">Up to 100MB, one video per ticket. Uploads directly to this ticket - no external hosting needed.</div>
+        <div class="field-hint">Up to 100MB, one video per ticket. Uploads directly to this ticket - no external hosting needed. Must be at normal speed - see notice above.</div>
         <div class="field-hint" id="ticketVideoStatus"></div>
       </div>
       <div class="field-group hidden" id="ticketVideoLockedField">
@@ -4877,6 +4915,269 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('ifwlDriverLinkGate').classList.add('hidden');
   }
 
+  // ✅ ADDED: Rules re-agreement gate - 30-day forced re-read + a random
+  // single question (2 wrong answers, 1 correct) from a bank covering the
+  // actual rules text, so a driver can't just tick the box without having
+  // actually read it. Full, unedited text of both IFWL rules documents -
+  // one entry per distinct rule/section, each with its own question
+  // testing THAT section specifically, so the question that shows up
+  // rotates and can't just be learned and skipped.
+  const RULES_REAGREEMENT_DAYS = 30;
+  const RULES_QUIZ_BANK = [
+    {
+      id: 'racing-respectful-conduct',
+      text: `Respectful Conduct: Participants must exhibit respect towards fellow drivers, IFWL officials, and League Operation managers at all times.`,
+      question: { prompt: 'Who must you show respect towards, according to this rule?', options: ['Fellow drivers, IFWL officials, and League Operation managers', 'Only whoever wins the race', 'Only Discord moderators'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-decorum',
+      text: `Racing Decorum: Prohibited actions include intentional ramming, brake checking, punting, blocking, bump-passing, light flashing & moving under braking, regardless of contact, & will incur penalties.`,
+      question: { prompt: 'According to Racing Decorum, do these actions need to actually cause contact to be penalised?', options: ['No — they\u2019re prohibited regardless of contact', 'Yes, only if contact occurs', 'Only if a steward personally witnesses it live'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-passing-responsibilities',
+      text: `Passing Responsibilities: Both the overtaking driver and the driver being overtaken are accountable for ensuring a fair passing maneuver. The responsibility lies with the overtaking driver to choose a safe opportunity for the pass.`,
+      question: { prompt: 'Who specifically is responsible for choosing a safe opportunity to pass?', options: ['The overtaking driver', 'The car in front, always', 'Whoever is fastest at that point in the race'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-passing-lines',
+      text: `Passing Lines: The leading driver is entitled to select any line on the track. This entitlement ceases when the overtaking driver aligns their front wheel with the rear wheel of the leading driver. At this stage, both drivers must leave at least enough room for either car to be between them and within the track boundary. It is the leading drivers responsibility to defend their ideal line entering a corner, but is the overtaking drivers responsibility to make sure they do not initiate contact during the overtake.`,
+      question: { prompt: 'At what point does the leading driver\u2019s right to pick any line on track end?', options: ['When the overtaking driver\u2019s front wheel reaches the leading driver\u2019s rear wheel', 'As soon as the overtaking car is within DRS range', 'It never ends \u2014 the leader can always choose the line'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-establishing-overlap',
+      text: `Establishing Overlap: Drivers should avoid dive-bombing without establishing a significant overlap before the turn-in point. If the driver loses control and causes contact or delays another driver, stricter penalties may apply. Drivers need to be aware of tyre delta, track conditions & pace are taken into account when making this move.`,
+      question: { prompt: 'What must be established before attempting a late dive-bomb move, according to this rule?', options: ['A significant overlap before the turn-in point', 'Permission from your team captain', 'A faster sector time than the car ahead'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-line-commitment',
+      text: `Line Commitment: Drivers should commit to their chosen line before entering a braking zone and must not deviate from it when defending against another car. Only exemptions are if another incident has occurred where all drivers need to take action to avoid the incident.`,
+      question: { prompt: 'Once you\u2019ve committed to a line before a braking zone while defending, what\u2019s the only exemption to sticking with it?', options: ['If another incident forces all drivers to take avoiding action', 'If you realise a different line is faster', 'If your teammate asks you to move over'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-accident-predictability',
+      text: `Accident Predictability: Drivers who lose control or spin should hold their brakes to remain predictable. After a spin, keep the brakes engaged to prevent the car from rolling unpredictably. Unsafe re-entry onto the track, causing further incidents, may result in severe penalties, regardless of the initial incident's cause. Drivers who are no longer racing need to exit to lobby and update their team captain or race steward - cars left in a dangerous position on a live track will result in a black flag / DQ.`,
+      question: { prompt: 'What should you do with the brakes immediately after spinning, to stay predictable?', options: ['Hold them engaged', 'Release them and try to keep momentum', 'Pump them repeatedly to signal other drivers'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-rejoining-track',
+      text: `Rejoining the Track: Drivers who go off the track should slow down or wait for traffic to clear before rejoining safely if they can maintain control of their car. Drivers are advised that until they are back up to race pace - to remain clear from racing line where possible, and drivers who are approaching a re-joining car are advised to ensure awareness and anticipation to the player rejoining.`,
+      question: { prompt: 'Until you\u2019re back up to race pace after rejoining, where should you try to stay?', options: ['Clear of the racing line where possible', 'Directly on the racing line to defend position', 'It doesn\u2019t matter as long as you\u2019re moving'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-no-reverse',
+      text: `No Reverse Direction: Drivers must not drive in the opposite direction of the race unless it is necessary to turn around after an incident. This will result in a black flag / DQ.`,
+      question: { prompt: 'What happens if you drive the wrong way on track outside of turning around after an incident?', options: ['Black flag / DQ', 'A warning message only', 'Nothing \u2014 it\u2019s allowed briefly'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-allowing-overtakes',
+      text: `Allowing Overtakes: Drivers who are a lap behind must yield to faster drivers to allow unobstructed overtaking. Lapped cars are allowed to unlap themselves when they are faster than the car that lapped them and there is an overtake opportunity. Normal race rules should apply with exception that a car that unlaps must be able to pull away and shall not engage explicit defensive moves.`,
+      question: { prompt: 'A car unlapping itself must NOT do which of the following?', options: ['Engage explicit defensive moves', 'Use a run-off area to gain speed', 'Radio their team for advice'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-vehicle-modifications',
+      text: `Vehicle Modifications: Car upgrades are strictly regulated according to the current Balance of Performance or setup on ifwl.net for the event they are racing in (BoP).`,
+      question: { prompt: 'What governs whether a car upgrade/setup is allowed for an event?', options: ['The current Balance of Performance (BoP) on ifwl.net for that event', 'Whatever the fastest driver in the lobby is using', 'Personal preference, as long as it\u2019s within the game\u2019s limits'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-event-participation',
+      text: `Event Participation: If you register for an event but cannot attend, you must "Unregister" to free up the spot for other participants.`,
+      question: { prompt: 'If you register for an event but can\u2019t make it, what must you do?', options: ['Unregister, to free the spot for someone else', 'Nothing \u2014 no-shows are fine', 'Message the race winner to swap your slot'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-compliance',
+      text: `Compliance: All participants must adhere to the Forza, AC & ACC Code of Conduct and IFWL race rules. Game specific code of conducts can be found at the respective game developers websites.`,
+      question: { prompt: 'Besides IFWL\u2019s own rules, what else must all participants comply with?', options: ['The relevant game\u2019s own official Code of Conduct (Forza / AC / ACC)', 'Only IFWL\u2019s rules \u2014 nothing else applies', 'Whatever rules their own team sets internally'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-flashing-headlights',
+      text: `Flashing Headlights \u2013 Clarified: Allowed: 1 flash per lap per driver \u2013 only when there's a genuine reason (e.g., approaching slower traffic). Not Allowed: Excessive flashing, flashing with no one ahead, or for intimidation. Penalty: 15-second post-race time penalty per violation. Note: Night race "flashing" due to damage is only seen by the damaged driver and doesn't count.`,
+      question: { prompt: 'How many genuine headlight flashes per lap is a driver allowed?', options: ['1', '3', 'As many as needed, with no limit'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-flashing-headlights-penalty',
+      text: `Flashing Headlights \u2013 Clarified: Allowed: 1 flash per lap per driver \u2013 only when there's a genuine reason (e.g., approaching slower traffic). Not Allowed: Excessive flashing, flashing with no one ahead, or for intimidation. Penalty: 15-second post-race time penalty per violation. Note: Night race "flashing" due to damage is only seen by the damaged driver and doesn't count.`,
+      question: { prompt: 'What\u2019s the penalty for excessive or intimidation-based flashing?', options: ['A 15-second post-race time penalty per violation', 'Immediate disqualification, no exceptions', 'A verbal warning with no time penalty'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-blue-flag-race',
+      text: `Blue Flag & Qualifying Protocol \u2013 Updated Rule #10. Race (Blue Flag): Blue-flagged drivers must yield within 5 corners once a faster car makes their presence clear (e.g., via radar, flashing, proximity). Drivers do not need to dive off track or abandon their line instantly \u2013 but must remain predictable. Erratic moves, brake checks, or sudden line changes = not allowed. If the blue-flagged car is genuinely at pace, they may defend until the 1s proximity window is reached.`,
+      question: { prompt: 'Within how many corners must a blue-flagged driver yield, once a faster car makes its presence known?', options: ['5 corners', '1 corner', 'There is no corner limit \u2014 only a time limit'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-qualifying-protocol',
+      text: `Blue Flag & Qualifying Protocol \u2013 Updated Rule #10. Qualifying: Drivers must not pressure or overtake any car on a valid qualifying lap. Overtakes are only permitted if there is a mutual agreement (via voice chat or by the car ahead signaling with indicators). If no agreement is made, the faster car must find a safe place, create a gap, and restart their lap attempt. Cars waiting for a gap must remain off the racing line and avoid blocking. If a train of cars is waiting off-line and a car approaches that is not on a fast lap, they must either wait in order with the pack or return to the pits.`,
+      question: { prompt: 'During qualifying, when is it actually permitted to overtake a car on a hot lap?', options: ['Only with mutual agreement, via voice or an indicator signal', 'Any time you\u2019re faster than the car ahead', 'Never, under any circumstances at all'], correctIndex: 0 }
+    },
+    {
+      id: 'racing-live-stewarding-final',
+      text: `Live Stewarding \u2013 Final Decision Policy: All live steward decisions are final \u2013 no appeals. Live incidents = closed tickets. If it was handled in-race, it won't be re-opened post-race. You can still submit feedback tickets to help us review and improve consistency (but not reverse outcomes).`,
+      question: { prompt: 'Can a live steward\u2019s in-race decision be appealed and reversed after the race?', options: ['No \u2014 it\u2019s final, and the ticket stays closed', 'Yes, any driver can appeal it within 24 hours', 'Only if a Gold Patreon member requests it'], correctIndex: 0 }
+    },
+    {
+      id: 'league-respect-sportsmanship',
+      text: `Respect and Sportsmanship: Treat all fellow racers, staff, and community members with respect and courtesy at all times. Display good sportsmanship, regardless of the race outcome, and congratulate or acknowledge the performance of other racers.`,
+      question: { prompt: 'According to this rule, does good sportsmanship depend on how the race went for you?', options: ['No \u2014 it applies regardless of the race outcome', 'Yes, only if you win', 'Only during podium ceremonies'], correctIndex: 0 }
+    },
+    {
+      id: 'league-clean-racing',
+      text: `Clean Racing: Maintain fair and clean racing practices, avoiding intentional collisions or aggressive driving that could disrupt other participants' experiences. Give space to other drivers and avoid aggressive blocking or erratic manoeuvres that could compromise the safety of other racers. Drivers who feel they have had an incident they need to report due to other drivers perceived foul play, need to submit a stewards enquiry ticket in the dedicated stewards-enquiry.`,
+      question: { prompt: 'If you feel you\u2019ve had an incident because of another driver\u2019s foul play, what should you actually do?', options: ['Submit a stewards enquiry ticket', 'Argue it out in the race team chat', 'Post about it publicly in general Discord'], correctIndex: 0 }
+    },
+    {
+      id: 'league-etiquette',
+      text: `League Etiquette: Avoid any form of harassment, bullying, or discriminatory behaviour in the IFWL Discord server. Refrain from using offensive language, derogatory remarks, or any content that could make others feel uncomfortable. In the heat of the race \u2013 drivers can be very passionate \u2013 and small errors can lead to heated arguments in the race. IFWL.net have decided that we will be drawing a line on 'in race' abuse of other league members. If any of our admin staff request the conversation to stop or move along, we expect all members agree and continue their race \u2013 if the drivers concerned continue to argue \u2013 this will be dealt with by the admin team post-race and could potentially lead to point deductions / prize removal or a mute. "Shit talking is allowed \u2013 but excessive abuse of other members is not allowed."`,
+      question: { prompt: 'According to League Etiquette, which of these is officially fine, in IFWL\u2019s own words?', options: ['"Shit talking" within reason', 'Excessive abuse of other members', 'Continuing an argument after staff ask you to stop'], correctIndex: 0 }
+    },
+    {
+      id: 'league-participation-attendance',
+      text: `Participation Requirements: All members must actively participate in the IFWL community, contributing positively to discussions and events when possible. Every driver must be registered on ifwl.net with their gamertag and driver number entered. All drivers are now required from season 4 to update their attendance to each race on IFWL.NET \u2013 if your plans change, a quick site update can be made up to 30 minutes before the race starts. If your plans change at short notice \u2013 please make admin or stewards aware in the paddock area (for TTC \u2013 team captains are now in charge of all drivers' attendance to all races).`,
+      question: { prompt: 'From Season 4, how close to race start can you still update your attendance on IFWL.NET?', options: ['Up to 30 minutes before the race starts', 'Up to 5 minutes before the race starts', 'You can\u2019t update it once you\u2019ve registered'], correctIndex: 0 }
+    },
+    {
+      id: 'league-participation-paid-events',
+      text: `Participation Requirements: All paid event races are for ifwl active drivers only \u2013 players must have passed their assessment race to partake in these events. Please note \u2013 some events require a seasonal attendance percentage to qualify for the payouts. (AC & ACC)`,
+      question: { prompt: 'Who is eligible to take part in paid event races?', options: ['Only active IFWL drivers who\u2019ve passed their assessment race', 'Anyone who registers in time', 'Only Gold Patreon members'], correctIndex: 0 }
+    },
+    {
+      id: 'league-fair-play-integrity',
+      text: `Fair Play and Integrity: Maintain fairness and integrity in all aspects of the IFWL, including vehicle modifications and tuning. Adhere to the set regulations and avoid exploiting any glitches or cheats that could provide an unfair advantage. Doing so will be dealt with by our stewarding team and can be progressed to a race or league ban \u2013 on review of head admin and head stewards on the severity of each individual case.`,
+      question: { prompt: 'What can happen if you\u2019re found exploiting a glitch for an unfair advantage?', options: ['It\u2019s reviewed by head admin/head stewards and can escalate to a race or league ban', 'Nothing \u2014 exploits found in-game are considered fair game', 'An automatic permanent ban with no review process'], correctIndex: 0 }
+    },
+    {
+      id: 'league-amendments',
+      text: `IFWL reserves the right to amend any requirements upon the initial discovery of an exploit. These amendments may be enacted during or outside of the season. Such changes will only be implemented following a majority vote by all administrators. In exceptional circumstances, the league owner may take necessary measures without a vote if it is deemed to be in the best interest of the league.`,
+      question: { prompt: 'How are rule changes normally put into effect, outside of exceptional circumstances?', options: ['A majority vote by all administrators', 'A decision made by a single steward', 'A public vote open to all members'], correctIndex: 0 }
+    },
+    {
+      id: 'league-advertisement-external',
+      text: `Advertisement of "external" Content: Sharing any information unrelated to IFWL content is not allowed. This includes, but is not limited to, content from other racing leagues, servers, websites (such as sites offering a paid plan that may go against IFWL's affiliation or partnerships), and other forms of communication. This rule is in place to prevent the promotion of external information on our Discord. Exceptions will be made, but only if prior communication has been made privately with the founding Admin team members.`,
+      question: { prompt: 'Can you get an exception to post external/unrelated content in IFWL\u2019s Discord?', options: ['Only with prior private communication with the founding Admin team', 'Yes, any staff member can approve it on the spot', 'No, there are never any exceptions'], correctIndex: 0 }
+    },
+    {
+      id: 'league-advertisement-other-leagues',
+      text: `Advertisement of other Leagues: Advertising of any other leagues is strictly prohibited, unless it has been approved by admin and voted on in an admin meeting. Any cars found running liveries with advertising other leagues will be subject to immediate consequences. This includes, but is not limited to: words, names, logos, content sharing, or implied endorsements via liveries; words, names, logos, content sharing, or implied endorsements via discord; media of any type that is linked to external league discords or websites. Twitch/Xbox & Youtube content sharing is fine, but promotion of other leagues is not allowed.`,
+      question: { prompt: 'Is Twitch/Xbox/YouTube content sharing itself against the rules?', options: ['No \u2014 that\u2019s fine, it\u2019s promotion of other LEAGUES that\u2019s banned', 'Yes, all external content sharing is banned outright', 'Only YouTube sharing is allowed, the others are banned'], correctIndex: 0 }
+    },
+    {
+      id: 'league-original-ideas',
+      text: `Original Ideas & Innovations: At IFWL.NET, we pride ourselves on our unique ideas, race formats, and events that make the league special. We kindly ask that all members respect the creativity and effort that goes into planning and running the league. While we fully support your passion for racing and encourage participation in other leagues, we request that all concepts, formats, and innovations that originate in IFWL remain exclusive to the league. Members branching out to create or join other leagues are asked to refrain from directly replicating IFWL's unique ideas.`,
+      question: { prompt: 'If you want to bring an idea that originated in IFWL to another league, what does IFWL ask you to do first?', options: ['Reach out to the IFWL leadership team', 'Nothing \u2014 ideas are free to reuse anywhere once public', 'Just credit IFWL in a Discord post'], correctIndex: 0 }
+    },
+    {
+      id: 'league-disrespect-appeals',
+      text: `Disrespectful Conduct During Appeals Process. Rule: Any use of disrespectful language or behaviour (this also includes the use of Emojis as a form of indirect communication) directed at race officials, stewards, or appeals team members will be met with strict penalties, including immediate race suspensions or bans.`,
+      question: { prompt: 'According to this rule, what can count as disrespectful conduct toward stewards, somewhat surprisingly?', options: ['Using emojis as a form of indirect communication', 'Politely asking a clarifying question', 'Submitting a written appeal through the correct channel'], correctIndex: 0 }
+    },
+    {
+      id: 'league-disrespect-penalty-tiers',
+      text: `Penalty Structure: Minor Disrespect \u2013 1-race suspension. This includes any mildly disrespectful comments or behaviours that show a lack of professionalism but stop short of severe abuse. Moderate Disrespect \u2013 2-race suspension. This includes repeated or intensified disrespectful behaviour after warnings or behaviour that disrupts the appeals process. Severe Disrespect \u2013 Season ban from the series. Severe disrespect includes any instances of abusive language, threats, or continued disruptive behaviour towards staff members, reflecting the league's zero-tolerance approach.`,
+      question: { prompt: 'What\u2019s the penalty specifically for "Moderate Disrespect" toward officials?', options: ['A 2-race suspension', 'A season-long ban', 'A private warning with no suspension'], correctIndex: 0 }
+    },
+    {
+      id: 'league-investigation-interference',
+      text: `Investigation Interference and Open Ticket Discussions. Rule: Any attempt to interfere with an active investigation or discussion of an open ticket with the intent to influence the outcome will be considered an infraction. Clarification: All drivers, team members, and other league participants are prohibited from discussing details of any ongoing investigation in public or private forums to avoid undue influence on race stewards and the investigation team.`,
+      question: { prompt: 'Can you discuss the details of an ongoing ticket investigation, publicly or privately?', options: ['No \u2014 it\u2019s prohibited, to avoid influencing the stewards', 'Yes, as long as it\u2019s a private forum only', 'Yes, transparency about open tickets is actively encouraged'], correctIndex: 0 }
+    },
+    {
+      id: 'league-ingame-text-chat',
+      text: `In-Game Text Chat Usage. Rule: The in-game text chat is permitted only during practice sessions. Use of text chat during qualifying or race sessions is strictly forbidden to maintain concentration and fairness for all competitors. Clarification: The race is not considered over until the last car has crossed the finish line. Drivers are expected to remain silent in chat during qualifying and race sessions.`,
+      question: { prompt: 'When is in-game text chat actually permitted?', options: ['Only during practice sessions', 'At any point, including during the race', 'Only once you personally have finished racing'], correctIndex: 0 }
+    },
+    {
+      id: 'league-ingame-text-chat-raceover',
+      text: `In-Game Text Chat Usage. Clarification: The race is not considered over until the last car has crossed the finish line. Communication for essential matters should be handled through official league channels (e.g., Discord or stewarding systems), not in-game chat.`,
+      question: { prompt: 'For chat-rule purposes, when is a race actually considered "over"?', options: ['When the last car crosses the finish line', 'As soon as the race leader finishes', 'The moment you personally finish, regardless of others'], correctIndex: 0 }
+    },
+    {
+      id: 'league-obstruction-of-staff',
+      text: `Obstruction of Staff: To ensure IFWL staff can properly manage league operations, stewarding, moderation, and member support, all members must remain contactable by IFWL staff. Any member found to have blocked, muted, or otherwise prevented communication from any IFWL staff member will be asked to reverse this action. Once requested, the member will have 24 hours to amend the issue and confirm they are contactable again. Failure to do so within 24 hours will result in removal from the IFWL Discord server, a ban from all future IFWL race events, and loss of access to IFWL services where applicable.`,
+      question: { prompt: 'If asked to unblock/unmute an IFWL staff member, how long do you have to sort it out?', options: ['24 hours', '7 days', 'There is no time limit at all'], correctIndex: 0 }
+    },
+    {
+      id: 'league-image-uploads',
+      text: `New IFWL Discord Rule \u2014 Image Uploads: Due to the increased use of spam bots, IFWL has introduced a new anti-spam filter and automated moderation bot. From now on, all image uploads must include the word IFWL in the message or caption accompanying the image. Any image posted without the word IFWL will be automatically removed by the bot immediately.`,
+      question: { prompt: 'What word must appear in the caption of any image you post in IFWL\u2019s Discord?', options: ['"IFWL"', '"Race"', 'No caption is required at all'], correctIndex: 0 }
+    }
+  ];
+
+  function rulesGateEsc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function needsRulesReAgreement(profile){
+    const last = profile?.rulesAgreedAtMs;
+    if(!last) return true;
+    return (Date.now() - last) > (RULES_REAGREEMENT_DAYS * 24 * 60 * 60 * 1000);
+  }
+
+  let rulesGateSelectedIndex = null;
+
+  function showRulesGate(){
+    document.body.classList.add('driver-link-required'); // reuses the same "block everything else" body state
+    q('rulesGateWall').classList.remove('hidden');
+
+    q('rulesGateText').innerHTML = RULES_QUIZ_BANK.map(r => `<p>${rulesGateEsc(r.text)}</p>`).join('');
+
+    // Pick ONE random question, shuffle its 3 options so the correct
+    // answer isn't always in the same position.
+    const pick = RULES_QUIZ_BANK[Math.floor(Math.random() * RULES_QUIZ_BANK.length)];
+    const optionOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
+    rulesGateSelectedIndex = null;
+
+    q('rulesGateQuestionText').textContent = pick.question.prompt;
+    const optsBox = q('rulesGateOptions');
+    optsBox.innerHTML = optionOrder.map(origIdx =>
+      `<button type="button" class="rules-gate-option" data-orig-index="${origIdx}" data-correct="${origIdx === pick.question.correctIndex}">${rulesGateEsc(pick.question.options[origIdx])}</button>`
+    ).join('');
+    optsBox.querySelectorAll('.rules-gate-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        optsBox.querySelectorAll('.rules-gate-option').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        rulesGateSelectedIndex = { correct: btn.dataset.correct === 'true' };
+        q('rulesGateError').textContent = '';
+        updateRulesGateConfirmState();
+      });
+    });
+
+    q('rulesGateCheckbox').checked = false;
+    q('rulesGateError').textContent = '';
+    updateRulesGateConfirmState();
+  }
+
+  function updateRulesGateConfirmState(){
+    const btn = q('rulesGateConfirmBtn');
+    const ready = q('rulesGateCheckbox').checked && rulesGateSelectedIndex !== null;
+    btn.disabled = !ready;
+    btn.style.opacity = ready ? '1' : '.5';
+  }
+
+  function hideRulesGate(){
+    document.body.classList.remove('driver-link-required');
+    q('rulesGateWall').classList.add('hidden');
+  }
+
+  q('rulesGateCheckbox')?.addEventListener('change', updateRulesGateConfirmState);
+  q('rulesGateLogoutBtn')?.addEventListener('click', () => window.IFWL_AUTH?.signout?.());
+  q('rulesGateConfirmBtn')?.addEventListener('click', async () => {
+    const errBox = q('rulesGateError');
+    if(!rulesGateSelectedIndex || !rulesGateSelectedIndex.correct){
+      errBox.textContent = 'That answer isn\'t right - have another read and try again.';
+      return;
+    }
+    const btn = q('rulesGateConfirmBtn');
+    btn.disabled = true;
+    btn.textContent = 'Confirming...';
+    try{
+      const result = await apiPost('agreeToRules', {});
+      if(currentProfile) currentProfile.rulesAgreedAtMs = result.rulesAgreedAtMs;
+      hideRulesGate();
+      location.reload(); // simplest safe way to resume the normal init() flow cleanly
+    }catch(e){
+      errBox.textContent = 'Could not confirm: ' + e.message;
+      btn.disabled = false;
+      btn.textContent = 'Confirm';
+    }
+  });
+
   function showLicenceRefusedGate(){
     document.body.classList.add('driver-link-required'); // reuses the same "block everything else" body state
     q('ifwlLicenceRefusedGate').classList.remove('hidden');
@@ -6513,6 +6814,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return;
     }
     hideDriverLinkGate();
+
+    // ✅ ADDED: Rules re-agreement gate. Blocking, same visual pattern as
+    // the login wall - must tick "I have read and agreed" AND pass a
+    // single random question before the rest of the page becomes usable.
+    // Staff exempt for the same reason they're exempt from the driver-link
+    // gate above - they need to manage the system regardless.
+    if(!window.IFWL_STAFF && needsRulesReAgreement(currentProfile)){
+      showRulesGate();
+      return;
+    }
+
     checkTicketNotice();
     checkShopTransactionNotice();
     checkInboxNotice();
