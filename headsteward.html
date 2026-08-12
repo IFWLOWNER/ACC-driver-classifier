@@ -690,6 +690,24 @@
       <div id="liveQueueList" style="margin-top:10px; display:flex; flex-direction:column; gap:10px;"></div>
     </div>
 
+    <!-- NEW: Driver Notes lookup -->
+    <div class="card" id="driverNotesCard" style="grid-column: 1 / -1;">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div class="title" style="margin:0;">Driver Notes</div>
+          <div class="muted">Look up any driver to see their name, licence number, and every note on file for them.</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px; align-items:flex-end;">
+        <div style="flex:1; min-width:260px;">
+          <label class="muted">Driver</label>
+          <select id="dnDriverSelect"><option value="">— Select driver —</option></select>
+        </div>
+        <button id="dnLoadBtn" class="primary">Load notes</button>
+      </div>
+      <div id="dnResult" style="margin-top:14px;"></div>
+    </div>
+
     <!-- LEFT -->
     <div class="card">
       <div class="row" style="justify-content:space-between;">
@@ -3756,7 +3774,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           // driver's actual document id - which meant there was no way to
           // write anything back to a specific driver's licence (e.g. a
           // note), even though the name showed up fine on screen.
-          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name, driverId: doc.id });
+          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name, driverId: doc.id, licenceNumber: d.licenceNumber || "" });
         });
       } catch (e) {
         console.warn("licences load failed:", e);
@@ -3771,7 +3789,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           const car = lqParseCarFromName(name);
           // licences (season 4) takes priority; only fill gaps from legacy drivers
           if (car && !lqDriverByCar.has(car)) lqDriverByCar.set(car, name);
-          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name, driverId: doc.id });
+          if (name && !lqDriverDirectory.some(x => x.name === name)) lqDriverDirectory.push({ carNumber: car, name, driverId: doc.id, licenceNumber: d.licenceNumber || "" });
         });
       } catch (e) {
         console.warn("drivers load failed:", e);
@@ -3821,7 +3839,8 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       const sorted = lqDriverDirectory.slice().sort((a, b) => a.name.localeCompare(b.name));
       for (const d of sorted) {
         const sel = d.name === selectedName ? "selected" : "";
-        opts.push(`<option value="${lqEscapeHtml(d.name)}" data-driver-id="${lqEscapeHtml(d.driverId || "")}" ${sel}>${lqEscapeHtml(d.name)}</option>`);
+        const label = d.licenceNumber ? `${d.name} — ${d.licenceNumber}` : `${d.name} — no licence #`;
+        opts.push(`<option value="${lqEscapeHtml(d.name)}" data-driver-id="${lqEscapeHtml(d.driverId || "")}" data-licence-number="${lqEscapeHtml(d.licenceNumber || "")}" ${sel}>${lqEscapeHtml(label)}</option>`);
       }
       return opts.join("");
     }
@@ -3955,6 +3974,50 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       }
     }
 
+    // ✅ ADDED: Driver Notes lookup panel - lets a head steward pick any
+    // driver and see their name, licence number, and every staff note on
+    // file for them in one place, rather than only seeing notes at the
+    // moment they're added.
+    function dnPopulateDriverSelect() {
+      const sel = $("dnDriverSelect");
+      if (!sel) return;
+      const sorted = lqDriverDirectory.slice().sort((a, b) => a.name.localeCompare(b.name));
+      sel.innerHTML = '<option value="">— Select driver —</option>' + sorted.map(d =>
+        `<option value="${lqEscapeHtml(d.driverId || "")}">${lqEscapeHtml(d.name)}${d.licenceNumber ? ` — ${lqEscapeHtml(d.licenceNumber)}` : " — no licence #"}</option>`
+      ).join("");
+    }
+
+    async function dnLoadNotes() {
+      const sel = $("dnDriverSelect");
+      const result = $("dnResult");
+      const driverId = sel.value;
+      if (!driverId) { toast("Select a driver first"); return; }
+
+      result.innerHTML = '<div class="muted">Loading…</div>';
+      try {
+        const doc = await db.collection("licences").doc(driverId).get();
+        if (!doc.exists) { result.innerHTML = '<div class="muted">No licence record found for this driver.</div>'; return; }
+        const d = doc.data() || {};
+        const notes = Array.isArray(d.staffNotes) ? d.staffNotes.slice().sort((a, b) => (b.addedAtMs || 0) - (a.addedAtMs || 0)) : [];
+
+        result.innerHTML = `
+          <div style="font-weight:800; font-size:15px;">${lqEscapeHtml(d.name || "Unnamed driver")}</div>
+          <div class="muted" style="margin-bottom:12px;">Licence: ${lqEscapeHtml(d.licenceNumber || "no licence #")} &nbsp;·&nbsp; Tier: ${lqEscapeHtml(d.tier || "No Licence")}</div>
+          ${notes.length ? notes.map(n => `
+            <div class="note-item" style="margin-bottom:8px;">
+              <div>${lqEscapeHtml(n.text || "")}</div>
+              <div class="muted" style="margin-top:4px; font-size:12px;">${lqEscapeHtml(n.addedBy || "Unknown")} &middot; ${n.addedAtMs ? new Date(n.addedAtMs).toLocaleString() : ""}${n.source ? ` &middot; ${lqEscapeHtml(n.source)}` : ""}</div>
+            </div>
+          `).join("") : '<div class="muted">No notes on file for this driver.</div>'}
+        `;
+      } catch (e) {
+        console.error(e);
+        result.innerHTML = `<div class="muted">Could not load: ${lqEscapeHtml(e?.message || String(e))}</div>`;
+      }
+    }
+
+    $("dnLoadBtn")?.addEventListener("click", dnLoadNotes);
+
     async function lqSubmitTicket(btn) {
       const cardEl = btn.closest("[data-ticket]");
       const ticketId = cardEl.getAttribute("data-ticket");
@@ -4070,6 +4133,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
         ]);
         lqSheetTickets = sheetTickets;
         lqRender();
+        dnPopulateDriverSelect();
       } catch (e) {
         console.error(e);
         hint.textContent = "Couldn't load the live sheet — check LQ_SHEET_ID and sharing settings.";
