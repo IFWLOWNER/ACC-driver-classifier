@@ -3948,19 +3948,27 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       if (!driverName) { toast("Select a driver first"); return; }
       if (!driverId) { toast("This driver has no linked licence id - can't attach a note (likely from the legacy drivers list, not the current licences collection)"); return; }
       if (!noteText) { toast("Enter a note first"); return; }
+      if (noteText.length > 800) { toast("Note is too long (800 characters max)"); return; }
 
       btn.disabled = true;
       btn.textContent = "Adding…";
 
       try {
-        await db.collection("licences").doc(driverId).set({
-          staffNotes: firebase.firestore.FieldValue.arrayUnion({
-            text: noteText,
-            addedBy: currentEmail || "Live Stewarding",
-            addedAtMs: Date.now(),
-            source: `Ticket ${ticketId} (${LQ_EVENT_LABEL})`
-          })
-        }, { merge: true });
+        // ✅ FIXED: this used to write staffNotes as an array field directly
+        // on the licence doc, which doesn't match how your Firestore rules
+        // actually gate this (a proper licences/{id}/staffNotes/{noteId}
+        // subcollection, capped at 800 chars). There's an existing helper
+        // for this exact shape elsewhere in this file (addLicenceStaffNote)
+        // but it lives in a different <script> block and isn't reachable
+        // from here - inlined the same write directly instead, rather than
+        // add a fragile cross-block dependency.
+        await db.collection("licences").doc(driverId).collection("staffNotes").add({
+          text: `${noteText} [via Ticket ${ticketId}, ${LQ_EVENT_LABEL}]`,
+          by: currentEmail || "Live Stewarding",
+          byEmail: currentEmail || "",
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdAtMs: Date.now()
+        });
 
         toast(`Note added to ${driverName}'s licence ✅`);
         noteInput.value = "";
@@ -3995,10 +4003,19 @@ This status was changed from the Head Steward web dashboard so the ticket can be
 
       result.innerHTML = '<div class="muted">Loading…</div>';
       try {
-        const doc = await db.collection("licences").doc(driverId).get();
+        // ✅ FIXED: was reading a "staffNotes" array field directly on the
+        // licence doc - notes actually live in a real subcollection
+        // (licences/{id}/staffNotes/{noteId}), matching your Firestore
+        // rules and the existing addLicenceStaffNote() helper elsewhere in
+        // this file. Two separate reads now: the licence doc itself for
+        // name/licence number/tier, and the subcollection for the notes.
+        const [doc, notesSnap] = await Promise.all([
+          db.collection("licences").doc(driverId).get(),
+          db.collection("licences").doc(driverId).collection("staffNotes").orderBy("createdAtMs", "desc").limit(100).get()
+        ]);
         if (!doc.exists) { result.innerHTML = '<div class="muted">No licence record found for this driver.</div>'; return; }
         const d = doc.data() || {};
-        const notes = Array.isArray(d.staffNotes) ? d.staffNotes.slice().sort((a, b) => (b.addedAtMs || 0) - (a.addedAtMs || 0)) : [];
+        const notes = notesSnap.docs.map(nd => nd.data() || {});
 
         result.innerHTML = `
           <div style="font-weight:800; font-size:15px;">${lqEscapeHtml(d.name || "Unnamed driver")}</div>
@@ -4006,7 +4023,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           ${notes.length ? notes.map(n => `
             <div class="note-item" style="margin-bottom:8px;">
               <div>${lqEscapeHtml(n.text || "")}</div>
-              <div class="muted" style="margin-top:4px; font-size:12px;">${lqEscapeHtml(n.addedBy || "Unknown")} &middot; ${n.addedAtMs ? new Date(n.addedAtMs).toLocaleString() : ""}${n.source ? ` &middot; ${lqEscapeHtml(n.source)}` : ""}</div>
+              <div class="muted" style="margin-top:4px; font-size:12px;">${lqEscapeHtml(n.by || n.byEmail || "Unknown")} &middot; ${n.createdAtMs ? new Date(n.createdAtMs).toLocaleString() : ""}</div>
             </div>
           `).join("") : '<div class="muted">No notes on file for this driver.</div>'}
         `;
