@@ -1148,6 +1148,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <button data-view="raiseConcern" type="button">Raise a Concern</button>
       <button data-view="ticketHistory" type="button">Your Ticket History</button>
       <button data-view="help" type="button">Help</button>
+      <button data-view="racingRules" type="button">Racing Rules</button>
       <button data-view="inbox" type="button">Inbox <span id="inboxUnreadBadge" class="inbox-unread-badge hidden">0</span></button>
       <button data-view="termsOfService" type="button">Terms of Service</button>
     </div>
@@ -2291,6 +2292,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
       <h4 style="margin:22px 0 8px;color:var(--text-primary)">Enforcement</h4>
       <p>Action taken depends on severity, intent, and history - ranging from a private warning, to content removal, to a licence points penalty, to a temporary suspension, up to and including a <strong>permanent ban from IFWL</strong> with no right of appeal for the most serious breaches (illegal content, doxxing, and similar). Staff decisions on enforcement are final. If you believe an action taken against you was made in error, you can raise it through <strong>Submit a Ticket</strong> or your <strong>Inbox</strong>.</p>
+    </div>
+  </section>
+
+  <!-- ✅ ADDED: browsable Racing Rules page - same full text as the forced
+       30-day gate, but reachable any time on demand, no quiz attached.
+       Populated client-side from RULES_QUIZ_BANK so there's only one
+       source of truth for the rules text. -->
+  <section class="panel view-panel" data-view="racingRules" id="racingRulesPanel">
+    <div class="panel-head"><div><h3>Racing Rules</h3><small>The current IFWL.NET Racing &amp; League Rules in full</small></div></div>
+    <div class="panel-body">
+      <div id="racingRulesFullText"></div>
+      <div id="racingRulesStaffPreview" class="hidden" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--ifwl-line)">
+        <p class="field-hint" style="margin-bottom:10px">Staff only - you're exempt from the enforced gate, but you can preview exactly what a driver sees:</p>
+        <button class="btn ghost" id="racingRulesPreviewGateBtn" type="button">Preview the re-agreement gate</button>
+      </div>
     </div>
   </section>
 
@@ -5178,6 +5194,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
   });
 
+  // ✅ ADDED: the browsable Racing Rules page - same text as the gate,
+  // reachable any time from the nav, no quiz attached. Deduped by text so
+  // sections that share source text (e.g. the two Flashing Headlights
+  // questions) don't show the same paragraph twice.
+  function initRacingRulesPage(){
+    const box = q('racingRulesFullText');
+    if(!box) return;
+    const seen = new Set();
+    const uniqueTexts = RULES_QUIZ_BANK.filter(r => {
+      if(seen.has(r.text)) return false;
+      seen.add(r.text);
+      return true;
+    });
+    box.innerHTML = uniqueTexts.map(r => `<p style="margin-bottom:14px;line-height:1.65;color:var(--text-muted)">${rulesGateEsc(r.text)}</p>`).join('');
+
+    if(window.IFWL_STAFF){
+      q('racingRulesStaffPreview')?.classList.remove('hidden');
+      q('racingRulesPreviewGateBtn')?.addEventListener('click', () => showRulesGate());
+    }
+  }
+
   function showLicenceRefusedGate(){
     document.body.classList.add('driver-link-required'); // reuses the same "block everything else" body state
     q('ifwlLicenceRefusedGate').classList.remove('hidden');
@@ -6784,6 +6821,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderInboxPanel(); // fire-and-forget - also sets the nav unread badge
     currentTiers = await window.IFWL_TierAPI.fetchTierList();
     renderTierLegend();
+    initRacingRulesPage();
     populateTierSelect(q('dirTierFilter'), { includeBlank: true });
     initTrophyCabinetPublicPage(); // public content - loads regardless of login state
     applySeasonalOverlays();
