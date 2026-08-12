@@ -386,7 +386,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     let data;
     try{ data = await apiGet('raceTeamDetail', `&teamId=${encodeURIComponent(teamId)}`); }
     catch(e){ container.innerHTML = `<div class="empty">Could not load team: ${e.message}</div>`; return; }
-    const { team, canManage, nameMap } = data;
+    const { team, canManage, isOwner, nameMap } = data;
 
     if(team.status === 'pending'){
       container.innerHTML = `<div class="notice-card">Your application for <strong>${esc(team.teamName)}</strong> is still awaiting staff approval — you'll be able to manage it in full once it's approved.</div>`;
@@ -445,6 +445,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <div><h4 style="margin:0 0 10px">PC Roster</h4><div id="rtPcRoster">${pcRows}</div></div>
         <div><h4 style="margin:0 0 10px">Console Roster</h4><div id="rtConsoleRoster">${consoleRows}</div></div>
       </div>
+      ${isOwner ? `
+        <hr style="border-color:var(--ifwl-line);margin:20px 0">
+        <h4 style="margin:0 0 10px">Leave This Team</h4>
+        <p class="field-hint" style="margin-bottom:10px">Steps you down as owner — the team, its roster, logo and event history all stay exactly as they are. Staff can still manage it, and anyone can apply to take over ownership afterwards, same as a fresh application.</p>
+        <button class="btn ghost" id="rtLeaveOwnerBtn" type="button">Leave team (relinquish ownership)</button>
+      ` : ''}
     `;
 
     container.querySelector('#rtSaveDetailsBtn').addEventListener('click', async () => {
@@ -474,6 +480,14 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       try{ await apiPost('removeRaceTeamMember', { teamId, driverId: btn.dataset.remove }); await renderRaceTeamManageUI(teamId, container, opts); }
       catch(e){ alert('Could not remove: ' + e.message); }
     }));
+    container.querySelector('#rtLeaveOwnerBtn')?.addEventListener('click', async () => {
+      if(!confirm(`Leave ${team.teamName} and give up ownership? The team, roster and event history stay intact - you'll just no longer be able to manage it unless you re-apply.`)) return;
+      try{
+        await apiPost('leaveRaceTeamAsOwner', { teamId });
+        alert('You have left the team.');
+        location.reload();
+      }catch(e){ alert('Could not leave: ' + e.message); }
+    });
   }
 
   async function renderMemberRosterView(teamId, container){
@@ -642,7 +656,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         if(!card) return;
         card.querySelector('[data-rt-event-delete]')?.addEventListener('click', async () => {
           if(!confirm('Delete this event? This cannot be undone.')) return;
-          try{ await rtDeleteEvent(event.id); currentEvents = currentEvents.filter(e => e.id !== event.id); renderEventsBody(); }
+          try{ await rtDeleteEvent(event.id); currentEvents = currentEvents.filter(e => e.id !== event.id); renderEventsBody(); renderClaimBody(); }
           catch(e){ alert('Could not delete event: ' + e.message); }
         });
         card.querySelector('[data-rt-save-times]')?.addEventListener('click', async () => {
@@ -653,6 +667,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             const idx = currentEvents.findIndex(e => e.id === event.id);
             if(idx !== -1){ currentEvents[idx].stintTimes = stintTimes; if(result.simgridImageUrl) currentEvents[idx].simgridImageUrl = result.simgridImageUrl; }
             renderEventsBody();
+            renderClaimBody();
           }catch(e){ alert('Could not save stint times: ' + e.message); }
         });
         card.querySelector('[data-rt-populate]')?.addEventListener('click', async () => {
@@ -667,6 +682,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
               currentEvents[idx].acknowledgements = acks;
             }
             renderEventsBody();
+            renderClaimBody();
           }catch(e){ alert('Could not populate stints: ' + e.message); }
         });
       });
@@ -700,6 +716,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       const idx = currentEvents.findIndex(e => e.id === event.id);
       if(idx !== -1){ currentEvents[idx].acknowledgements = currentEvents[idx].acknowledgements || {}; currentEvents[idx].acknowledgements[driverNameKey(myDriverName)] = { driverName: myDriverName, status, reason, respondedAtMs: Date.now() }; }
       renderEventsBody();
+      renderClaimBody();
     }catch(e){ alert('Could not record your response: ' + e.message); }
   }
 
@@ -710,7 +727,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <div class="field-group"><label>Which roster name is you?</label>
           <select id="myNameSelect"><option value="">Select your name...</option>${currentRosterNames.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>
         </div>`;
-      q('myNameSelect').addEventListener('change', (e) => { myDriverName = e.target.value; try{ localStorage.setItem('IFWL_MY_RACE_TEAM_DRIVER_NAME', myDriverName); }catch(_){} renderEventsBody(); });
+      q('myNameSelect').addEventListener('change', (e) => { myDriverName = e.target.value; try{ localStorage.setItem('IFWL_MY_RACE_TEAM_DRIVER_NAME', myDriverName); }catch(_){} renderEventsBody(); renderClaimBody(); });
       return;
     }
 
@@ -766,6 +783,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const result = await rtSaveEvent({ teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, raceNumber, car, stintCount });
         currentEvents.unshift({ id: result.id, teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, simgridImageUrl: result.simgridImageUrl || '', raceNumber, car, stintCount, stintTimes: [], stints: [], availability: {}, finalized: false, acknowledgements: {} });
         renderEventsBody();
+        renderClaimBody();
       }catch(e){ alert('Could not create event: ' + e.message); }
     });
   }
