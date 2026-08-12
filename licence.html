@@ -5126,6 +5126,38 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   let rulesGateSelectedIndex = null;
+  let rulesGateCurrentQuestionId = null;
+
+  // ✅ FIXED: with only 3 options, letting a driver retry the SAME question
+  // after a wrong guess turns it into pure elimination - two wrong guesses
+  // in a row and the third option is obviously correct without reading
+  // anything. Any wrong answer now reveals what the right answer WAS, then
+  // swaps in a completely different random question with fresh odds -
+  // there's no way to "spam through" a question you don't actually know.
+  function renderRandomRulesQuestion(excludeId){
+    const pool = excludeId ? RULES_QUIZ_BANK.filter(r => r.id !== excludeId) : RULES_QUIZ_BANK;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    rulesGateCurrentQuestionId = pick.id;
+
+    const optionOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
+    rulesGateSelectedIndex = null;
+
+    q('rulesGateQuestionText').textContent = pick.question.prompt;
+    const optsBox = q('rulesGateOptions');
+    optsBox.innerHTML = optionOrder.map(origIdx =>
+      `<button type="button" class="rules-gate-option" data-orig-index="${origIdx}" data-correct="${origIdx === pick.question.correctIndex}" data-answer-text="${rulesGateEsc(pick.question.options[origIdx])}">${rulesGateEsc(pick.question.options[origIdx])}</button>`
+    ).join('');
+    optsBox.querySelectorAll('.rules-gate-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        optsBox.querySelectorAll('.rules-gate-option').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        rulesGateSelectedIndex = { correct: btn.dataset.correct === 'true', correctText: pick.question.options[pick.question.correctIndex] };
+        updateRulesGateConfirmState();
+      });
+    });
+
+    updateRulesGateConfirmState();
+  }
 
   function showRulesGate(){
     document.body.classList.add('driver-link-required'); // reuses the same "block everything else" body state
@@ -5133,30 +5165,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     q('rulesGateText').innerHTML = RULES_QUIZ_BANK.map(r => `<p>${rulesGateEsc(r.text)}</p>`).join('');
 
-    // Pick ONE random question, shuffle its 3 options so the correct
-    // answer isn't always in the same position.
-    const pick = RULES_QUIZ_BANK[Math.floor(Math.random() * RULES_QUIZ_BANK.length)];
-    const optionOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
-    rulesGateSelectedIndex = null;
-
-    q('rulesGateQuestionText').textContent = pick.question.prompt;
-    const optsBox = q('rulesGateOptions');
-    optsBox.innerHTML = optionOrder.map(origIdx =>
-      `<button type="button" class="rules-gate-option" data-orig-index="${origIdx}" data-correct="${origIdx === pick.question.correctIndex}">${rulesGateEsc(pick.question.options[origIdx])}</button>`
-    ).join('');
-    optsBox.querySelectorAll('.rules-gate-option').forEach(btn => {
-      btn.addEventListener('click', () => {
-        optsBox.querySelectorAll('.rules-gate-option').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        rulesGateSelectedIndex = { correct: btn.dataset.correct === 'true' };
-        q('rulesGateError').textContent = '';
-        updateRulesGateConfirmState();
-      });
-    });
-
     q('rulesGateCheckbox').checked = false;
     q('rulesGateError').textContent = '';
-    updateRulesGateConfirmState();
+    renderRandomRulesQuestion(null);
   }
 
   function updateRulesGateConfirmState(){
@@ -5176,7 +5187,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   q('rulesGateConfirmBtn')?.addEventListener('click', async () => {
     const errBox = q('rulesGateError');
     if(!rulesGateSelectedIndex || !rulesGateSelectedIndex.correct){
-      errBox.textContent = 'That answer isn\'t right - have another read and try again.';
+      const correctText = rulesGateSelectedIndex ? rulesGateSelectedIndex.correctText : '';
+      errBox.textContent = correctText
+        ? `Not quite — the correct answer to the last question was: "${correctText}". Here's a new question — have a read and try again.`
+        : 'Not quite — have a read and try again.';
+      renderRandomRulesQuestion(rulesGateCurrentQuestionId); // fresh question, never the same one twice in a row
       return;
     }
     const btn = q('rulesGateConfirmBtn');
