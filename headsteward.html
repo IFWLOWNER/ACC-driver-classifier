@@ -3695,6 +3695,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
 
     let lqSheetTickets = [];       // Applied=true tickets from the sheet
     let lqSubmittedIds = new Set(); // liveSheetTicketId values already in Firestore
+    let lqClosedIds = new Set();    // liveSheetTicketId values closed with no TLS action (driver couldn't be linked, left the league, etc.)
     let lqDriverDirectory = [];    // [{ carNumber, name }]
     let lqDriverByCar = new Map(); // carNumber(string) -> name
 
@@ -3778,6 +3779,23 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       } catch (e) { console.warn("submitted-id lookup failed:", e); }
     }
 
+    // ✅ ADDED: tickets closed with NO TLS action - e.g. the driver couldn't
+    // register/link on IFWL, or has since left the league. Tracked in a
+    // completely separate collection from "tickets" on purpose: nothing
+    // written here ever touches TLS, a driver record, or isFinalised()
+    // anywhere - this is purely "stop showing this in the queue", not a
+    // steward decision or a penalty outcome.
+    async function lqLoadClosedIds() {
+      lqClosedIds = new Set();
+      try {
+        const snap = await db.collection("live_ticket_closures").where("liveSheetRace", "==", LQ_EVENT_LABEL).get();
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          if (d.liveSheetTicketId) lqClosedIds.add(String(d.liveSheetTicketId));
+        });
+      } catch (e) { console.warn("closed-id lookup failed:", e); }
+    }
+
     function lqDriverOptionsHtml(selectedName) {
       const opts = ['<option value="">— Select driver —</option>'];
       const sorted = lqDriverDirectory.slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -3792,7 +3810,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       const list = $("liveQueueList");
       const hint = $("liveQueueHint");
 
-      const pending = lqSheetTickets.filter(t => !lqSubmittedIds.has(t.id));
+      const pending = lqSheetTickets.filter(t => !lqSubmittedIds.has(t.id) && !lqClosedIds.has(t.id));
 
       if (pending.length === 0) {
         hint.textContent = "No actioned tickets waiting to be submitted.";
@@ -3823,12 +3841,38 @@ This status was changed from the Head Steward web dashboard so the ticket can be
               </div>
               <button class="primary lqSubmitBtn">Submit to TLS</button>
             </div>
+
+            <div class="row" style="margin-top:10px; align-items:flex-end; padding-top:10px; border-top:1px solid #f1f1f1;">
+              <div style="flex:1; min-width:220px;">
+                <label class="muted">Close instead — no TLS action</label>
+                <select class="lqCloseReasonSelect">
+                  <option value="">Select a reason…</option>
+                  <option value="Driver could not register/link on IFWL">Driver could not register/link on IFWL</option>
+                  <option value="Driver has left the league">Driver has left the league</option>
+                  <option value="__other__">Other (please specify)</option>
+                </select>
+              </div>
+              <div class="lqCloseReasonOtherWrap" style="flex:1; min-width:220px; display:none;">
+                <label class="muted">Reason</label>
+                <input type="text" class="lqCloseReasonOther" placeholder="Reason for closing with no TLS action">
+              </div>
+              <button class="lqCloseBtn" style="border:1px solid #e5e7eb;">Close — no TLS action</button>
+            </div>
           </div>
         `;
       }).join("");
 
       list.querySelectorAll(".lqSubmitBtn").forEach(btn => {
         btn.onclick = () => lqSubmitTicket(btn);
+      });
+      list.querySelectorAll(".lqCloseReasonSelect").forEach(sel => {
+        sel.addEventListener("change", () => {
+          const wrap = sel.closest("[data-ticket]").querySelector(".lqCloseReasonOtherWrap");
+          wrap.style.display = sel.value === "__other__" ? "" : "none";
+        });
+      });
+      list.querySelectorAll(".lqCloseBtn").forEach(btn => {
+        btn.onclick = () => lqCloseTicketNoAction(btn);
       });
     }
 
@@ -3884,6 +3928,57 @@ This status was changed from the Head Steward web dashboard so the ticket can be
       }
     }
 
+    // ✅ ADDED: for tickets that can never be linked to a real TLS driver -
+    // the driver couldn't register/link on IFWL, or has since left the
+    // league entirely. This intentionally does NOT write to "tickets" at
+    // all, so there is zero chance of it ever counting toward a driver's
+    // TLS record - it only removes the ticket from this queue.
+    async function lqCloseTicketNoAction(btn) {
+      const cardEl = btn.closest("[data-ticket]");
+      const ticketId = cardEl.getAttribute("data-ticket");
+      const t = lqSheetTickets.find(x => x.id === ticketId);
+      if (!t) return;
+
+      const select = cardEl.querySelector(".lqCloseReasonSelect");
+      const otherInput = cardEl.querySelector(".lqCloseReasonOther");
+      let reason = select.value;
+      if (!reason) { toast("Select a reason first"); return; }
+      if (reason === "__other__") {
+        reason = otherInput.value.trim();
+        if (!reason) { toast("Enter a reason for \"Other\""); return; }
+      }
+
+      const ok = confirm(`Close ticket ${ticketId} with no TLS action?\n\nReason: ${reason}`);
+      if (!ok) return;
+
+      btn.disabled = true;
+      btn.textContent = "Closing…";
+
+      try {
+        const docId = `LIVE-${LQ_EVENT_LABEL.replace(/\s+/g, "")}-${ticketId}`;
+        await db.collection("live_ticket_closures").doc(docId).set({
+          liveSheetTicketId: t.id,
+          liveSheetRace: LQ_EVENT_LABEL,
+          ruling: t.ruling,
+          penalty: t.penalty || "",
+          cars: t.cars || "",
+          reason,
+          closedBy: currentEmail || "Live Stewarding",
+          closedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          closedAtMs: Date.now()
+        }, { merge: true });
+
+        lqClosedIds.add(t.id);
+        toast(`Ticket ${ticketId} closed — no TLS action taken`);
+        lqRender();
+      } catch (e) {
+        console.error(e);
+        toast("Close failed: " + (e?.message || e));
+        btn.disabled = false;
+        btn.textContent = "Close — no TLS action";
+      }
+    }
+
     async function lqRefresh() {
       const hint = $("liveQueueHint");
       hint.textContent = "Loading…";
@@ -3891,7 +3986,8 @@ This status was changed from the Head Steward web dashboard so the ticket can be
         const [sheetTickets] = await Promise.all([
           lqFetchSheetTickets(),
           lqDriverDirectory.length ? Promise.resolve() : lqLoadDriverDirectory(),
-          lqLoadSubmittedIds()
+          lqLoadSubmittedIds(),
+          lqLoadClosedIds()
         ]);
         lqSheetTickets = sheetTickets;
         lqRender();
