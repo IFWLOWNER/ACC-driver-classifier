@@ -109,6 +109,15 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 .results-table{width:100%;border-collapse:collapse;min-width:600px}
 .results-table th{background:#0d1116;color:var(--ifwl-teal);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;padding:10px 12px}
 .results-table td{padding:9px 12px;border-bottom:1px solid var(--ifwl-line-soft);font-size:12.5px;font-family:var(--font-mono)}
+.results-table th.sortable{cursor:pointer;user-select:none}
+.results-table th.sortable:hover{color:#fff}
+.results-table th.sortable .sort-arrow{opacity:.5;margin-left:4px}
+.results-table th.sortable.active .sort-arrow{opacity:1;color:var(--ifwl-purple)}
+.risk-pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:800}
+.risk-pill.low{background:rgba(51,217,155,.16);color:var(--ifwl-green)}
+.risk-pill.mild{background:rgba(31,214,189,.14);color:var(--ifwl-teal)}
+.risk-pill.medium{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
+.risk-pill.high{background:rgba(255,84,100,.16);color:var(--ifwl-red)}
 
 /* events & stints, ported verbatim from Live Timings' rt-event-card system */
 .rt-events-section{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;margin-bottom:16px}
@@ -226,6 +235,14 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <div class="panel-head"><div><h3>Scouting — Top Picks</h3><small>Pace, consistency and recent activity across the whole platform</small></div></div>
         <div class="panel-body">
           <div class="scout-frame-wrap"><iframe id="scoutFrame" src="" loading="lazy" title="Top Picks scouting"></iframe></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><div><h3>Team Server — Driver Rankings</h3><small>Every driver who's set a lap on your dedicated Console Race Team server, best to worst — for picking who suits longer stints</small></div></div>
+        <div class="panel-body">
+          <div id="teamServerHint" class="field-hint" style="margin-bottom:12px;">Loading…</div>
+          <div class="table-wrap" id="teamServerTableWrap"></div>
         </div>
       </section>
     </div>
@@ -451,6 +468,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <p class="field-hint" style="margin-bottom:10px">Steps you down as owner — the team, its roster, logo and event history all stay exactly as they are. Staff can still manage it, and anyone can apply to take over ownership afterwards, same as a fresh application.</p>
         <button class="btn ghost" id="rtLeaveOwnerBtn" type="button">Leave team (relinquish ownership)</button>
       ` : ''}
+      ${(!isOwner && [...(team.pcRoster||[]), ...(team.consoleRoster||[])].includes(window.IFWL_AUTH?.userId(window.IFWL_META))) ? `
+        <hr style="border-color:var(--ifwl-line);margin:20px 0">
+        <h4 style="margin:0 0 10px">Leave This Team</h4>
+        <p class="field-hint" style="margin-bottom:10px">You're on this team's roster as a driver, separately from managing it as staff. This removes you as a driver only — it doesn't affect your staff access to manage other teams.</p>
+        <button class="btn ghost" id="rtLeaveMemberBtn" type="button">Leave team (remove me from the roster)</button>
+      ` : ''}
     `;
 
     container.querySelector('#rtSaveDetailsBtn').addEventListener('click', async () => {
@@ -485,6 +508,14 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       try{
         await apiPost('leaveRaceTeamAsOwner', { teamId });
         alert('You have left the team.');
+        location.reload();
+      }catch(e){ alert('Could not leave: ' + e.message); }
+    });
+    container.querySelector('#rtLeaveMemberBtn')?.addEventListener('click', async () => {
+      if(!confirm(`Leave ${team.teamName} as a driver? You'll be removed from the roster - your staff access to manage teams is unaffected.`)) return;
+      try{
+        await apiPost('leaveRaceTeam', {});
+        alert('You have left the team roster.');
         location.reload();
       }catch(e){ alert('Could not leave: ' + e.message); }
     });
@@ -942,6 +973,242 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     q('rosterHeading').textContent = currentIsOwner ? 'Roster & Branding' : 'My Race Team';
 
+    // ============================================================
+    // Team Server — Driver Rankings. Reads ONLY data/raceteam-manifest.json
+    // (the console-raceteam server's own isolated manifest, deliberately
+    // separate from data/manifest.json) and computes best-to-worst lap
+    // time, consistency and race risk per driver. Every formula below is
+    // copied verbatim from ifwl-stats-engine.js - same numbers, same
+    // meaning as everywhere else on the site, just scoped to this one
+    // server's own data instead of the shared platform-wide manifest.
+    // ============================================================
+    function tsIsValidLap(ms){ return Number.isFinite(Number(ms)) && ms > 0 && ms < 600000; }
+    function tsMedian(values){
+      const arr = values.filter(v => tsIsValidLap(v)).sort((a,b) => a-b);
+      if(!arr.length) return 0;
+      const mid = Math.floor(arr.length/2);
+      return arr.length % 2 ? arr[mid] : (arr[mid-1] + arr[mid]) / 2;
+    }
+    function tsDriverName(line){
+      const d = line.currentDriver || (line.car && line.car.drivers && line.car.drivers[0]) || {};
+      return `${d.firstName || ''} ${d.lastName || ''}`.replace(/\s+/g,' ').trim() || d.shortName || 'Unknown Driver';
+    }
+    function tsLapKey(carId, driverIndex){ return `${carId}|${driverIndex ?? 0}`; }
+    function tsFileTimestamp(name){
+      const clean = String(name || '').split('/').pop();
+      const match = clean.match(/^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/);
+      if(!match) return 0;
+      const [,yy,mm,dd,hh,mi,ss] = match;
+      return Date.UTC(2000 + Number(yy), Number(mm) - 1, Number(dd), Number(hh), Number(mi), Number(ss));
+    }
+    function tsRtAvg(values){
+      const list = values.filter(Number.isFinite);
+      return list.length ? list.reduce((a,b) => a+b, 0) / list.length : NaN;
+    }
+    function tsRiskLabel(value){
+      if(!Number.isFinite(value)) return '-';
+      if(value <= 15) return 'Low';
+      if(value <= 35) return 'Mild';
+      if(value <= 60) return 'Medium';
+      return 'High';
+    }
+    // Identical to livetimings.html's lapStats / the IFWL Consistency Index.
+    function tsLapStats(values){
+      const ordered = values.filter(v => tsIsValidLap(v));
+      const withoutFirst = ordered.length > 4 ? ordered.slice(1) : ordered;
+      if(withoutFirst.length < 2){
+        const laps = ordered.sort((a,b) => a-b);
+        return { count: laps.length, best: laps[0] || 0, avg: laps[0] || 0, consistency: NaN };
+      }
+      const med = tsMedian(withoutFirst);
+      const deviations = withoutFirst.map(v => Math.abs(v - med));
+      const mad = tsMedian(deviations) || 1;
+      const modifiedZ = v => (0.6745 * (v - med)) / mad;
+      const clean = withoutFirst.filter(v => Math.abs(modifiedZ(v)) <= 3.5);
+      const finalLaps = clean.length >= 2 ? clean : withoutFirst;
+      const sorted = [...finalLaps].sort((a,b) => a-b);
+      const best = sorted[0];
+      const avg = finalLaps.reduce((a,b)=>a+b,0) / finalLaps.length;
+      const variance = finalLaps.reduce((sum,v) => sum + Math.pow(v - avg, 2), 0) / finalLaps.length;
+      const stdDev = Math.sqrt(variance);
+      const cov = avg ? (stdDev / avg) * 100 : 0;
+      const consistency = Math.max(0, Math.min(100, 100 - (cov * 6)));
+      return { count: finalLaps.length, best, avg, consistency };
+    }
+    // Identical to livetimings.html's raceRiskForRow.
+    function tsRaceRisk(row){
+      const lapObjects = row.lapObjects || [];
+      const cleanLaps = lapObjects.filter(l => l.isValidForBest !== false && tsIsValidLap(l.laptime)).map(l => l.laptime);
+      const invalidLapObjects = lapObjects.filter(l => l.isValidForBest === false);
+      const totalRecorded = lapObjects.length;
+      let score = 0;
+      const cleanMedian = cleanLaps.length ? tsMedian(cleanLaps) : 0;
+      const pitLikelyCount = invalidLapObjects.filter(l => cleanMedian && tsIsValidLap(l.laptime) && l.laptime > cleanMedian * 1.15).length;
+      const genuineInvalidCount = invalidLapObjects.length - pitLikelyCount;
+      if(totalRecorded > 0 && genuineInvalidCount > 0){
+        score += Math.min(35, (genuineInvalidCount / totalRecorded) * 70);
+      }
+      if(Number.isFinite(row.consistencyStats?.consistency)){
+        score += Math.min(35, Math.max(0, 100 - row.consistencyStats.consistency) * 0.8);
+      }
+      if(cleanLaps.length >= 3){
+        const med = tsMedian(cleanLaps);
+        const spikes = cleanLaps.filter(v => med && v > med * 1.10).length;
+        if(spikes) score += Math.min(25, spikes * 8);
+      }
+      const risk = Math.max(0, Math.min(100, score));
+      return { risk, label: tsRiskLabel(risk) };
+    }
+    function tsLapMapForSession(data){
+      const map = new Map();
+      const laps = Array.isArray(data.laps) ? data.laps : [];
+      for(const lap of laps){
+        if(!lap) continue;
+        const laptime = Number(lap.laptime);
+        if(!tsIsValidLap(laptime)) continue;
+        const key = tsLapKey(lap.carId, lap.driverIndex);
+        if(!map.has(key)) map.set(key, { validLaps: [], lapObjects: [] });
+        const item = map.get(key);
+        const isValidForBest = lap.isValidForBest !== false;
+        if(isValidForBest) item.validLaps.push(laptime);
+        item.lapObjects.push({ laptime, isValidForBest });
+      }
+      return map;
+    }
+    function tsNormaliseSession(data, source){
+      const lines = (data.sessionResult && data.sessionResult.leaderBoardLines) || [];
+      const sessionLapMap = tsLapMapForSession(data);
+      const rows = lines.filter(l => !l.bIsSpectator).map((l) => {
+        const lm = sessionLapMap.get(tsLapKey(l.car?.carId, l.currentDriverIndex)) || { validLaps: [], lapObjects: [] };
+        return {
+          source, track: data.trackName || data.metaData || 'unknown',
+          driver: tsDriverName(l),
+          bestLap: l.timing?.bestLap || 0,
+          lapObjects: lm.lapObjects,
+          consistencyStats: tsLapStats(lm.validLaps)
+        };
+      });
+      return rows;
+    }
+    function tsFmtLapTime(ms){
+      if(!tsIsValidLap(ms)) return '—';
+      const totalSeconds = ms / 1000;
+      const m = Math.floor(totalSeconds / 60);
+      const s = (totalSeconds - m * 60).toFixed(3).padStart(6, '0');
+      return `${m}:${s}`;
+    }
+
+    let teamServerDrivers = [];
+    let teamServerSortKey = 'consistency';
+    let teamServerSortDir = 'desc';
+
+    async function loadTeamServerRankings(){
+      const hint = q('teamServerHint');
+      const wrap = q('teamServerTableWrap');
+      hint.textContent = 'Loading…';
+      wrap.innerHTML = '';
+
+      let manifest;
+      try{
+        const res = await fetch('data/raceteam-manifest.json?v=' + Date.now(), { cache: 'no-store' });
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        manifest = await res.json();
+      }catch(e){
+        hint.textContent = 'Could not load Team Server data — the sync workflow may not have run yet, or this team is not on the Console Race Team server.';
+        return;
+      }
+
+      const files = Array.isArray(manifest.results) ? manifest.results : [];
+      if(!files.length){
+        hint.textContent = 'No sessions recorded on the Team Server yet.';
+        return;
+      }
+
+      const driverMap = new Map(); // driverNameKey -> { name, rows: [] }
+      for(const item of files){
+        let data;
+        try{
+          const res = await fetch(item.file + '?v=' + Date.now(), { cache: 'no-store' });
+          if(!res.ok) continue;
+          data = await res.json();
+        }catch(e){ continue; }
+
+        const rows = tsNormaliseSession(data, item.file);
+        for(const row of rows){
+          if(!row.driver || row.driver === 'Unknown Driver') continue;
+          const key = row.driver.trim().toLowerCase();
+          if(!driverMap.has(key)) driverMap.set(key, { name: row.driver, rows: [] });
+          driverMap.get(key).rows.push(row);
+        }
+      }
+
+      teamServerDrivers = [...driverMap.values()].map(d => {
+        const bestLap = Math.min(...d.rows.map(r => tsIsValidLap(r.bestLap) ? r.bestLap : Infinity).filter(Number.isFinite));
+        const avgConsistency = tsRtAvg(d.rows.map(r => r.consistencyStats?.consistency));
+        const avgLap = tsRtAvg(d.rows.map(r => r.consistencyStats?.avg).filter(tsIsValidLap));
+        const avgRisk = tsRtAvg(d.rows.map(r => tsRaceRisk(r).risk));
+        return {
+          name: d.name,
+          sessions: d.rows.length,
+          bestLap: Number.isFinite(bestLap) ? bestLap : 0,
+          avgLap: Number.isFinite(avgLap) ? avgLap : 0,
+          consistency: Number.isFinite(avgConsistency) ? avgConsistency : 0,
+          risk: Number.isFinite(avgRisk) ? avgRisk : 0
+        };
+      }).filter(d => d.bestLap > 0);
+
+      hint.textContent = `${teamServerDrivers.length} driver(s) across ${files.length} session file(s) on the Team Server. Sort by clicking a column.`;
+      renderTeamServerTable();
+    }
+
+    function renderTeamServerTable(){
+      const wrap = q('teamServerTableWrap');
+      if(!teamServerDrivers.length){ wrap.innerHTML = '<div class="empty">No lap data yet.</div>'; return; }
+
+      const sorted = teamServerDrivers.slice().sort((a,b) => {
+        const dir = teamServerSortDir === 'asc' ? 1 : -1;
+        return (a[teamServerSortKey] - b[teamServerSortKey]) * dir;
+      });
+
+      const cols = [
+        { key: 'name', label: 'Driver', sortable: false },
+        { key: 'bestLap', label: 'Best Lap', sortable: true },
+        { key: 'avgLap', label: 'Avg Lap', sortable: true },
+        { key: 'consistency', label: 'Consistency', sortable: true },
+        { key: 'risk', label: 'Race Risk', sortable: true },
+        { key: 'sessions', label: 'Sessions', sortable: true }
+      ];
+
+      wrap.innerHTML = `
+        <table class="results-table">
+          <thead><tr>
+            ${cols.map(c => `<th class="${c.sortable ? 'sortable' : ''} ${teamServerSortKey === c.key ? 'active' : ''}" data-sort-key="${c.key}">${c.label}${c.sortable ? `<span class="sort-arrow">${teamServerSortKey === c.key ? (teamServerSortDir === 'asc' ? '↑' : '↓') : '↕'}</span>` : ''}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${sorted.map(d => `
+              <tr>
+                <td style="font-family:var(--font-body);font-weight:700;">${esc(d.name)}</td>
+                <td>${tsFmtLapTime(d.bestLap)}</td>
+                <td>${tsFmtLapTime(d.avgLap)}</td>
+                <td>${d.consistency ? d.consistency.toFixed(1) + '%' : '—'}</td>
+                <td><span class="risk-pill ${tsRiskLabel(d.risk).toLowerCase()}">${tsRiskLabel(d.risk)} (${d.risk.toFixed(0)})</span></td>
+                <td>${d.sessions}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+
+      wrap.querySelectorAll('th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+          const key = th.dataset.sortKey;
+          if(teamServerSortKey === key){ teamServerSortDir = teamServerSortDir === 'asc' ? 'desc' : 'asc'; }
+          else{ teamServerSortKey = key; teamServerSortDir = (key === 'risk') ? 'asc' : 'desc'; } // low risk = good, so default risk sort is ascending
+          renderTeamServerTable();
+        });
+      });
+    }
+
     // Roster & Branding tab
     const mrtBody = q('mrtBody');
     if(currentIsOwner) await renderRaceTeamManageUI(currentTeamId, mrtBody, {});
@@ -949,6 +1216,8 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     // Scouting tab — iframe into Live Timings' Top Picks, same panel, embedded
     q('scoutFrame').src = 'livetimings.html?embed=1#raceTeamsPanel';
+    loadTeamServerRankings();
+
 
     // Events & Stints tab — restore whichever roster name was previously
     // picked as "you", for owner and member alike (an owner is very often
