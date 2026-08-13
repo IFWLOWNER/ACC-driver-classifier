@@ -228,6 +228,28 @@ jobs:
           # it never reaches the shared manifest.json.
           download_server "console-raceteam" "IFWL | CONSOLE RACE TEAM" "$CONSOLE_RACETEAM_HOST" "$CONSOLE_RACETEAM_PORT" "$CONSOLE_RACETEAM_USER" "$CONSOLE_RACETEAM_PASSWORD" "$CONSOLE_RACETEAM_RESULTS_PATH" || true
 
+          # ✅ ADDED: this server (Assetto Hosting) exports its result JSON
+          # in UTF-16LE, unlike every other server here which produces
+          # standard UTF-8. Browsers always assume UTF-8 when parsing JSON
+          # (fetch()/JSON.parse() have no way to auto-detect otherwise), so
+          # without converting these here, every single file from this
+          # server fails client-side with "Expected property name or '}'
+          # at position 1" - a raw UTF-16 NUL byte landing right after the
+          # opening brace. Detected by checking for that exact NUL byte
+          # rather than converting blindly, so this is safe to re-run even
+          # after some files are already fixed, and won't touch a file
+          # that's already valid UTF-8.
+          echo "Checking console-raceteam files for UTF-16 encoding..."
+          for f in data/results/console-raceteam/*.json; do
+            if [ -f "$f" ]; then
+              first_bytes=$(head -c 2 "$f" | xxd -p)
+              if [ "$first_bytes" = "7b00" ]; then
+                echo "Converting UTF-16LE -> UTF-8: $f"
+                iconv -f UTF-16LE -t UTF-8 "$f" -o "$f.converted" && mv "$f.converted" "$f"
+              fi
+            fi
+          done
+
       - name: Build manifest file
         run: |
           python3 - <<'PY'
