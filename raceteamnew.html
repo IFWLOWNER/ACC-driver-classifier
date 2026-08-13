@@ -597,6 +597,17 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     return currentEvents.map(ev => currentIsOwner ? ownerEventCardHtml(ev) : memberEventCardHtml(ev)).join('');
   }
 
+  // ✅ ADDED: shared title line for event cards, now including round name
+  // and date alongside car number/car - used by all three card renderers
+  // so the format stays identical everywhere.
+  function eventTitleLine(event){
+    const bits = [];
+    if(event.roundName) bits.push(esc(event.roundName));
+    if(event.eventDateMs) bits.push(new Date(event.eventDateMs).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }));
+    bits.push(`Car #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}`);
+    return bits.join(' &middot; ');
+  }
+
   function ownerEventCardHtml(event){
     const drivers = currentRosterNames;
     const stintCount = Number(event.stintCount || 0);
@@ -627,7 +638,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     return `<div class="rt-event-card" data-rt-event-id="${esc(event.id)}">
       <div class="rt-event-head" style="${esc(rtEventBannerStyle(event))}">
-        <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
+        <strong>${eventTitleLine(event)}</strong>
         ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
         <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span>
         <button type="button" data-rt-event-delete="1">Delete event</button>
@@ -654,7 +665,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
     const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`).join(', ');
     const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
-      <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
+      <strong>${eventTitleLine(event)}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
       <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span></div>`;
     let bodyHtml;
@@ -695,7 +706,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           const timeInputs = [...card.querySelectorAll('[data-rt-stint-time]')].sort((a,b) => Number(a.dataset.rtStintTime) - Number(b.dataset.rtStintTime));
           const stintTimes = timeInputs.map(inp => inp.value.trim());
           try{
-            const result = await rtSaveEvent({ eventId: event.id, teamId: currentTeamId, teamName: currentTeamName, platform: event.platform, simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car, stintCount: event.stintCount, stintTimes });
+            const result = await rtSaveEvent({ eventId: event.id, teamId: currentTeamId, teamName: currentTeamName, platform: event.platform, simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car, stintCount: event.stintCount, stintTimes, roundName: event.roundName, eventDateMs: event.eventDateMs });
             const idx = currentEvents.findIndex(e => e.id === event.id);
             if(idx !== -1){ currentEvents[idx].stintTimes = stintTimes; if(result.simgridImageUrl) currentEvents[idx].simgridImageUrl = result.simgridImageUrl; }
             renderEventsBody();
@@ -723,14 +734,26 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const card = document.querySelector(`[data-mystint-event-id="${window.CSS && CSS.escape ? CSS.escape(event.id) : event.id}"]`);
         if(!card) return;
         card.querySelectorAll('[data-mystint-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
-        card.querySelector('[data-mystint-save]')?.addEventListener('click', async () => {
+        card.querySelector('[data-mystint-save]')?.addEventListener('click', async (evt) => {
+          const btn = evt.currentTarget;
           const toggles = [...card.querySelectorAll('[data-mystint-toggle]')].sort((a,b) => Number(a.dataset.mystintToggle) - Number(b.dataset.mystintToggle));
           const stints = toggles.map(t => t.classList.contains('active'));
+          const originalLabel = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = 'Saving…';
           try{
             await rtSetAvailability(event.id, myDriverName, stints);
             const idx = currentEvents.findIndex(e => e.id === event.id);
             if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
-          }catch(e){ alert('Could not save availability: ' + e.message); }
+            btn.textContent = '✅ Saved!';
+            btn.style.background = 'var(--ifwl-green)';
+            btn.style.color = '#03211c';
+            setTimeout(() => { btn.textContent = originalLabel; btn.style.background = ''; btn.style.color = ''; btn.disabled = false; }, 2500);
+          }catch(e){
+            alert('Could not save availability: ' + e.message);
+            btn.textContent = originalLabel;
+            btn.disabled = false;
+          }
         });
         const noToggleBtn = card.querySelector('[data-mystint-ack-no-toggle]');
         const reasonInput = card.querySelector('[data-mystint-reason]');
@@ -772,9 +795,17 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             Set up an upcoming race for your team. The <b>SimGrid link</b> is required — it pulls the event banner and is what drivers use to register on SimGrid itself. <b>Stints</b> is how many driver changes this race will have (e.g. 5 stints = 4 driver swaps). Once created, your roster can mark which stints they're free for below, then you allocate drivers to each stint and finalise the plan.
           </p>
           <div class="rt-new-event">
+            <div class="rt-field" style="max-width:130px;">
+              <label for="newEvDate">Event date</label>
+              <input type="date" id="newEvDate">
+            </div>
+            <div class="rt-field" style="flex:1 1 160px;">
+              <label for="newEvRoundName">Round name</label>
+              <input type="text" placeholder="e.g. Round 3 - Spa" id="newEvRoundName" maxlength="80">
+            </div>
             <div class="rt-field" style="max-width:120px;">
-              <label for="newEvRaceNum">Race number</label>
-              <input type="text" placeholder="e.g. 1" id="newEvRaceNum" maxlength="20">
+              <label for="newEvRaceNum">Car number</label>
+              <input type="text" placeholder="e.g. 7" id="newEvRaceNum" maxlength="20">
             </div>
             <div class="rt-field" style="flex:1 1 160px;">
               <label for="newEvCar">Car</label>
@@ -810,14 +841,26 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       const simgridLink = q('newEvSimgrid').value.trim();
       const platform = q('newEvPlatform').value;
       const stintCount = Math.max(1, Math.min(24, Number(q('newEvStintCount').value || 5)));
+      const roundName = q('newEvRoundName').value.trim();
+      const eventDateMs = q('newEvDate').value ? new Date(q('newEvDate').value + 'T00:00:00').getTime() : 0;
       if(!simgridLink){ alert('A SimGrid event link is required to create an event.'); return; }
       try{
-        const result = await rtSaveEvent({ teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, raceNumber, car, stintCount });
-        currentEvents.unshift({ id: result.id, teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, simgridImageUrl: result.simgridImageUrl || '', raceNumber, car, stintCount, stintTimes: [], stints: [], availability: {}, finalized: false, acknowledgements: {} });
+        const result = await rtSaveEvent({ teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, raceNumber, car, stintCount, roundName, eventDateMs });
+        currentEvents.unshift({ id: result.id, teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, simgridImageUrl: result.simgridImageUrl || '', raceNumber, car, stintCount, roundName, eventDateMs, stintTimes: [], stints: [], availability: {}, finalized: false, acknowledgements: {} });
+        currentEvents.sort(sortEventsSoonestFirst);
         renderEventsBody();
         renderClaimBody();
       }catch(e){ alert('Could not create event: ' + e.message); }
     });
+  }
+
+  // ✅ ADDED: sort events by their actual race date, soonest first - events
+  // with no date set (older ones created before this field existed) sort
+  // to the end rather than jumbling in with dated ones.
+  function sortEventsSoonestFirst(a, b){
+    const aMs = a.eventDateMs || Infinity;
+    const bMs = b.eventDateMs || Infinity;
+    return aMs - bMs;
   }
 
   async function initEventsPanel(){
@@ -825,6 +868,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     body.innerHTML = '<div class="empty">Loading events&hellip;</div>';
     try{ currentEvents = await rtFetchEvents(currentTeamId); }
     catch(e){ body.innerHTML = `<div class="empty">Could not load events: ${e.message}</div>`; return; }
+    currentEvents.sort(sortEventsSoonestFirst);
     renderEventsBody();
     renderClaimBody();
   }
@@ -847,7 +891,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
     const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`).join(', ');
     const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
-      <strong>Race #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}</strong>
+      <strong>${eventTitleLine(event)}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
       <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span></div>`;
 
@@ -902,14 +946,30 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       const card = document.querySelector(`[data-claim-event-id="${window.CSS && CSS.escape ? CSS.escape(event.id) : event.id}"]`);
       if(!card) return;
       card.querySelectorAll('[data-claim-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
-      card.querySelector('[data-claim-save]')?.addEventListener('click', async () => {
+      card.querySelector('[data-claim-save]')?.addEventListener('click', async (evt) => {
+        const btn = evt.currentTarget;
         const toggles = [...card.querySelectorAll('[data-claim-toggle]')].sort((a,b) => Number(a.dataset.claimToggle) - Number(b.dataset.claimToggle));
         const stints = toggles.map(t => t.classList.contains('active'));
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
         try{
           await rtSetAvailability(event.id, myDriverName, stints);
           const idx = currentEvents.findIndex(e => e.id === event.id);
           if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
-        }catch(e){ alert('Could not save availability: ' + e.message); }
+          // ✅ FIXED: this used to save silently with zero visual feedback -
+          // drivers were reporting the site looked broken when it had
+          // actually saved fine. A clear, unmissable confirmation now shows
+          // right on the button itself.
+          btn.textContent = '✅ Saved!';
+          btn.style.background = 'var(--ifwl-green)';
+          btn.style.color = '#03211c';
+          setTimeout(() => { btn.textContent = originalLabel; btn.style.background = ''; btn.style.color = ''; btn.disabled = false; }, 2500);
+        }catch(e){
+          alert('Could not save availability: ' + e.message);
+          btn.textContent = originalLabel;
+          btn.disabled = false;
+        }
       });
       const noToggleBtn = card.querySelector('[data-claim-ack-no-toggle]');
       const reasonInput = card.querySelector('[data-claim-reason]');
@@ -1176,16 +1236,29 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         return;
       }
 
+      // ✅ FIXED: every failure in this loop used to be silently swallowed -
+      // "5 files, 0 drivers" gave no clue whether files failed to fetch, or
+      // fetched fine but produced no usable driver rows (e.g. this host's
+      // JSON export shape differing slightly from what this parser was
+      // built against). Now tracked and surfaced so the actual cause is
+      // visible instead of a dead end.
+      let fetchFailures = 0;
+      let filesWithNoDriverRows = 0;
       const driverMap = new Map(); // driverNameKey -> { name, rows: [] }
+
       for(const item of files){
         let data;
         try{
           const res = await fetch(item.file + '?v=' + Date.now(), { cache: 'no-store' });
-          if(!res.ok) continue;
+          if(!res.ok){ fetchFailures++; console.warn('Team Server: fetch failed for', item.file, 'HTTP', res.status); continue; }
           data = await res.json();
-        }catch(e){ continue; }
+        }catch(e){ fetchFailures++; console.warn('Team Server: fetch/parse failed for', item.file, e); continue; }
 
         const rows = tsNormaliseSession(data, item.file);
+        if(!rows.length){
+          filesWithNoDriverRows++;
+          console.warn('Team Server: no leaderboard rows found in', item.file, '- raw session keys:', Object.keys(data || {}));
+        }
         for(const row of rows){
           if(!row.driver || row.driver === 'Unknown Driver') continue;
           const key = row.driver.trim().toLowerCase();
@@ -1209,7 +1282,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         };
       }).filter(d => d.bestLap > 0);
 
-      hint.textContent = `${teamServerDrivers.length} driver(s) across ${files.length} session file(s) on the Team Server. Sort by clicking a column.`;
+      hint.textContent = teamServerDrivers.length
+        ? `${teamServerDrivers.length} driver(s) across ${files.length} session file(s) on the Team Server. Sort by clicking a column.`
+        : `Found ${files.length} session file(s), but no usable driver data came out of them` +
+          (fetchFailures ? ` — ${fetchFailures} file(s) failed to fetch/parse` : '') +
+          (filesWithNoDriverRows ? ` — ${filesWithNoDriverRows} file(s) had no leaderboard rows` : '') +
+          `. Check the browser console (F12) for exactly which files and why.`;
       renderTeamServerTable();
     }
 
