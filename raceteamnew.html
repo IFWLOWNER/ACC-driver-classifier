@@ -221,6 +221,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <button class="team-tab" data-team-view="scouting" type="button">Team Server Stats</button>
       <button class="team-tab" data-team-view="events" type="button">Events &amp; Stints</button>
       <button class="team-tab" data-team-view="claim" type="button">Claim Your Stints</button>
+      <button class="team-tab" data-team-view="auditLog" type="button">Audit Log</button>
     </div>
 
     <div class="team-view active" data-team-view="roster">
@@ -251,6 +252,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <section class="panel">
         <div class="panel-head"><div><h3>Claim Your Stints</h3><small>Mark which stints you're free for, and respond to finalised plans — as yourself, whoever's viewing this page</small></div></div>
         <div class="panel-body"><div id="claimBody"><div class="empty">Loading&hellip;</div></div></div>
+      </section>
+    </div>
+
+    <div class="team-view" data-team-view="auditLog">
+      <section class="panel">
+        <div class="panel-head"><div><h3>Audit Log</h3><small>Every event created, edited, finalised or deleted for this team, and who did it</small></div></div>
+        <div class="panel-body"><div id="auditLogBody"><div class="empty">Loading&hellip;</div></div></div>
       </section>
     </div>
   </div>
@@ -930,6 +938,52 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   }
   document.querySelectorAll('.team-tab').forEach(btn => btn.addEventListener('click', () => switchTeamView(btn.dataset.teamView)));
 
+  // ============================================================
+  // Audit Log — who created/edited/finalised/deleted each event. Owner-only
+  // (staff or the genuine team owner - same canManage gate as everything
+  // else on this hub), read straight from race_team_event_audit, which the
+  // backend writes to alongside every real event action - nothing here can
+  // be faked or edited from the browser.
+  // ============================================================
+  const AUDIT_ACTION_LABELS = {
+    created: { label: 'Created event', icon: '🟢' },
+    updated: { label: 'Edited event', icon: '🟡' },
+    finalized: { label: 'Finalised stints', icon: '🟣' },
+    deleted: { label: 'Deleted event', icon: '🔴' }
+  };
+
+  async function renderAuditLog(){
+    const body = q('auditLogBody');
+    if(!body) return;
+    body.innerHTML = '<div class="empty">Loading&hellip;</div>';
+
+    let entries = [];
+    try{ entries = (await apiGet('raceTeamAuditLog', `&teamId=${encodeURIComponent(currentTeamId)}`)).entries || []; }
+    catch(e){ body.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+
+    if(!entries.length){ body.innerHTML = '<div class="empty">No audit history yet for this team.</div>'; return; }
+
+    body.innerHTML = entries.map(e => {
+      const meta = AUDIT_ACTION_LABELS[e.action] || { label: e.action || 'Unknown action', icon: '⚪' };
+      const d = e.details || {};
+      const detailBits = [];
+      if(d.raceNumber) detailBits.push(`Race #${esc(d.raceNumber)}`);
+      if(d.car) detailBits.push(esc(d.car));
+      if(d.platform) detailBits.push(d.platform === 'console' ? 'Console' : 'PC');
+      if(Number.isFinite(d.assignedCount) && Number.isFinite(d.stintCount)) detailBits.push(`${d.assignedCount}/${d.stintCount} stints assigned`);
+      return `
+        <div class="note-item" style="display:flex;align-items:flex-start;gap:10px;">
+          <span style="font-size:16px;">${meta.icon}</span>
+          <div style="flex:1;">
+            <div><strong>${meta.label}</strong> — <span class="field-hint" style="font-weight:700;color:var(--text-primary);text-transform:none;">${esc(e.actorName)}</span></div>
+            ${detailBits.length ? `<div class="field-hint" style="margin-top:3px;">${detailBits.join(' · ')}</div>` : ''}
+            <div class="field-hint" style="margin-top:3px;">${e.atMs ? new Date(e.atMs).toLocaleString() : ''}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
   async function boot(){
     let mine;
     try{ mine = await apiGet('myRaceTeamId'); }
@@ -955,6 +1009,11 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     catch(e){ q('mrtBody').innerHTML = `<div class="empty">Could not load team: ${e.message}</div>`; return; }
 
     currentIsOwner = !!detail.canManage;
+    // ✅ ADDED: Audit Log tab is owner/team-creator only - members never
+    // even see it, matching the request that this is for "me (owner) and
+    // the team creator" specifically.
+    const auditTabBtn = document.querySelector('[data-team-view="auditLog"]');
+    if(auditTabBtn) auditTabBtn.classList.toggle('hidden', !currentIsOwner);
     currentTeamName = detail.team.teamName || '';
     const allIds = [...(detail.team.pcRoster||[]), ...(detail.team.consoleRoster||[])];
     const rosterNamesRaw = allIds.map(id => (detail.nameMap && detail.nameMap[id]) || id);
@@ -1219,6 +1278,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     if(currentRosterNames.some(n => driverNameKey(n) === driverNameKey(savedName))) myDriverName = savedName;
     else if(currentIsOwner && detail.team.ownerName) myDriverName = detail.team.ownerName; // sensible default: captain is usually themselves
     await initEventsPanel();
+    if(currentIsOwner) renderAuditLog();
   }
 
   window.addEventListener('ifwl-team-auth-ready', boot, { once: true });
