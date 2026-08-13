@@ -272,7 +272,24 @@
 
         setStatus("Submitted ✅ Thank you.", "ok");
       } catch (e) {
-        setStatus(e.message || String(e), "err");
+        // ✅ FIXED: this used to just show Firestore's raw
+        // "Missing or insufficient permissions." message, which told a
+        // driver nothing about what actually went wrong. We already know
+        // the invite itself exists at this point (checked above), and the
+        // create rule for player_statements only ever fails for one other
+        // reason: a statement has already been submitted under this exact
+        // invite - i.e., someone else (or an earlier attempt) already
+        // filled this role's one available slot. Say that plainly instead.
+        const roleLabels = { accused: "Accused", reporter: "Reporter", witness: "Witness" };
+        const roleLabel = roleLabels[String(invite?.role || "").toLowerCase()] || "this";
+        if (e && e.code === "permission-denied") {
+          setStatus(
+            `A submission has already been placed for ${roleLabel}. We're unable to accept additional statements for this role - please link in with the Head Steward directly if this needs correcting.`,
+            "err"
+          );
+        } else {
+          setStatus(e.message || String(e), "err");
+        }
         submitBtn.disabled = false;
       }
     });
