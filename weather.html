@@ -52,6 +52,11 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
 .btn.purple{background:linear-gradient(135deg,var(--ifwl-purple-deep),var(--ifwl-purple));color:#fff}
 .btn.ghost{background:#1a2027;color:var(--text-primary);border:1px solid var(--ifwl-line)}
 
+.unit-toggle{display:inline-flex;border:1px solid var(--ifwl-line);border-radius:8px;overflow:hidden}
+.unit-toggle button{border:0;background:#0d1116;color:var(--text-muted);padding:8px 16px;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.02em}
+.unit-toggle button.active{background:var(--ifwl-teal);color:#03211c}
+.unit-toggle button:not(.active):hover{color:var(--text-primary)}
+
 .session-card{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:12px;padding:14px;margin-bottom:10px}
 .session-row{display:grid;grid-template-columns:100px 1fr 90px auto;gap:10px;align-items:end}
 @media(max-width:640px){.session-row{grid-template-columns:1fr 1fr}}
@@ -64,6 +69,10 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
 .timeline-icon-cell{flex:1;text-align:center;font-size:18px;padding:6px 0;position:relative}
 .timeline-session-marker{position:absolute;top:-4px;bottom:-4px;background:rgba(198,91,232,.16);border:1px solid rgba(198,91,232,.4);border-radius:6px;pointer-events:none}
 
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 12px;margin-bottom:14px;background:#0d1116;border:1px solid var(--ifwl-line);border-radius:10px;font-size:11.5px;color:var(--text-muted)}
+.legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.legend b{color:var(--text-primary);font-weight:700}
+
 .cards-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:16px}
 .weather-card{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:16px;text-align:center}
 .weather-card .wc-emoji{font-size:40px;line-height:1}
@@ -71,6 +80,10 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
 .weather-card .wc-sub{font-size:11px;color:var(--text-muted);margin-top:2px}
 .weather-card .wc-stats{display:flex;justify-content:center;gap:12px;margin-top:10px;font-size:11px;color:var(--text-dim)}
 .weather-card .wc-stats b{color:var(--text-primary);display:block;font-size:14px}
+.weather-card .wc-brief{margin-top:12px;padding-top:10px;border-top:1px solid var(--ifwl-line-soft);text-align:left;font-size:11.5px;color:var(--text-muted);line-height:1.5}
+.weather-card .wc-tyre{color:var(--text-primary);font-weight:700;margin-top:5px}
+
+.forecast-disclaimer{margin-top:14px;padding:10px 12px;border-radius:10px;background:rgba(255,178,56,.08);border:1px solid rgba(255,178,56,.25);color:var(--text-muted);font-size:11px;line-height:1.5}
 
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}
 .stat-mini{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px}
@@ -159,6 +172,13 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
         <span class="slider-val" id="slTrackTempVal">30&deg;C</span>
       </div>
       <div class="slider-row">
+        <label>Temp unit</label>
+        <div class="unit-toggle">
+          <button type="button" id="unitC" class="active">&deg;C</button>
+          <button type="button" id="unitF">&deg;F</button>
+        </div>
+      </div>
+      <div class="slider-row">
         <label for="slRandom">Weather randomness</label>
         <input type="range" id="slRandom" min="0" max="7" step="1" value="3">
         <span class="slider-val" id="slRandomVal">3</span>
@@ -183,11 +203,24 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
   <section class="panel" id="timelinePanel" style="display:none">
     <div class="panel-head"><h2>Weekend Forecast</h2><p>One simulated run across Friday to Sunday, purely for a feel of how things might play out.</p></div>
     <div class="panel-body">
+      <div class="legend">
+        <span>☀️ <b>Clear</b></span>
+        <span>⛅ <b>Partly cloudy</b></span>
+        <span>☁️ <b>Overcast</b></span>
+        <span>🌦️ <b>Mixed / showers</b></span>
+        <span>🌧️ <b>Rain</b></span>
+        <span>⛈️ <b>Storm</b></span>
+        <span>🌡️🥶🥵 <b>Air temp</b></span>
+        <span>🔥 <b>Track temp</b></span>
+        <span>☔ <b>Cloud cover</b></span>
+        <span>💧 <b>Rain chance</b></span>
+      </div>
       <div class="timeline-wrap">
         <div class="timeline-days" id="timelineDays"></div>
         <div class="timeline-icons" id="timelineIcons"></div>
       </div>
       <div class="cards-grid" id="sessionCards"></div>
+      <div class="forecast-disclaimer">⚠️ Planning aid only, not an exact forecast — this is one simulated run from your settings and real server weather can differ. Treat the tyre call below as a starting point and always confirm against the in-game forecast before committing.</div>
     </div>
   </section>
 
@@ -365,13 +398,33 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
   // ============================================================
   // UI wiring
   // ============================================================
-  const sliderIds = [['slRain','slRainVal',v=>v], ['slCloud','slCloudVal',v=>v], ['slAmbientTemp','slAmbientTempVal',v=>v+'\u00b0C'], ['slTrackTemp','slTrackTempVal',v=>v+'\u00b0C'], ['slRandom','slRandomVal',v=>v]];
+  // Display-only unit toggle: the sliders and simulation always work in
+  // Celsius underneath (that's what the server fields expect), this just
+  // changes how temperatures are shown.
+  let tempUnit = 'C'; // 'C' or 'F'
+  function cToF(c){ return c * 9 / 5 + 32; }
+  function fmtTemp(c){ const v = tempUnit === 'F' ? cToF(c) : c; return Math.round(v) + '\u00b0' + tempUnit; }
+
+  const sliderIds = [['slRain','slRainVal',v=>v], ['slCloud','slCloudVal',v=>v], ['slAmbientTemp','slAmbientTempVal',v=>fmtTemp(Number(v))], ['slTrackTemp','slTrackTempVal',v=>fmtTemp(Number(v))], ['slRandom','slRandomVal',v=>v]];
   sliderIds.forEach(([id,valId,fmt]) => {
     const el = q(id), out = q(valId);
     const update = () => out.textContent = fmt(el.value);
     el.addEventListener('input', update);
     update();
   });
+
+  const unitCBtn = q('unitC'), unitFBtn = q('unitF');
+  function setTempUnit(u){
+    if(u === tempUnit) return;
+    tempUnit = u;
+    unitCBtn.classList.toggle('active', u === 'C');
+    unitFBtn.classList.toggle('active', u === 'F');
+    q('slAmbientTemp').dispatchEvent(new Event('input'));
+    q('slTrackTemp').dispatchEvent(new Event('input'));
+    if(lastSim) renderSessionCards(lastSim); // refresh any already-generated forecast cards too
+  }
+  unitCBtn.addEventListener('click', () => setTempUnit('C'));
+  unitFBtn.addEventListener('click', () => setTempUnit('F'));
 
   let sessionRows = [{ id: 1, day: 'Friday', hour: 18, duration: 60, isRace: false }];
   let nextSessionId = 2;
@@ -427,6 +480,45 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
   function dayShortToFull(short){ return { Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' }[short]; }
   function dayFullToShort(full){ return { Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }[full]; }
 
+  // Rule-based (not a live AI call — this tool is static/client-side) tyre
+  // read-out and one-line brief, driven off the same classify() label
+  // already used for the card's headline icon.
+  function tyreAdvice(label){
+    if(label === 'Storm') return { tyres: 'Wet', brief: 'Heavy, sustained rain expected — track will likely stay wet through the whole session.' };
+    if(label === 'Rain') return { tyres: 'Wet', brief: 'Rain expected for a good part of the session — plan to start or switch to wets.' };
+    if(label === 'Mixed') return { tyres: 'See forecast in game to see if tyres are required', brief: 'Showers look possible but aren’t guaranteed — this one could go either way.' };
+    if(label === 'Overcast') return { tyres: 'Dry compound', brief: 'Cloudy but dry — no rain expected.' };
+    if(label === 'Partly cloudy') return { tyres: 'Dry compound', brief: 'Some cloud around, conditions should stay dry.' };
+    return { tyres: 'Dry compound', brief: 'Clear skies — dry track expected.' };
+  }
+
+  let lastSim = null;
+
+  function renderSessionCards(sim){
+    q('sessionCards').innerHTML = sessionRows.map(s => {
+      const summary = summarizeWindow(sim, dayFullToShort(s.day), s.hour, s.duration);
+      const cls = classify(summary);
+      const advice = tyreAdvice(cls.label);
+      return `
+        <div class="weather-card">
+          <div class="wc-emoji">${cls.emoji}</div>
+          <div class="wc-title">${s.day} ${String(s.hour).padStart(2,'0')}:00 ${s.isRace ? '&middot; Race' : ''}</div>
+          <div class="wc-sub">${cls.label} &middot; ${s.duration} min</div>
+          <div class="wc-stats">
+            <div>${tempEmoji(summary.avgAirTemp)}<b>${fmtTemp(summary.avgAirTemp)}</b></div>
+            <div>&#128293;<b>${fmtTemp(summary.avgTrackTemp)}</b></div>
+            <div>&#9748;<b>${Math.round(summary.avgCloud*100)}%</b></div>
+            <div>&#128167;<b>${Math.round(summary.avgRain*100)}%</b></div>
+          </div>
+          <div class="wc-brief">
+            ${esc(advice.brief)}
+            <div class="wc-tyre">Tyres: ${esc(advice.tyres)}</div>
+          </div>
+        </div>
+      `;
+    }).join('') || '<div class="empty">Add a session above first.</div>';
+  }
+
   q('generateBtn').addEventListener('click', () => {
     const rainLevel = Number(q('slRain').value);
     const cloudLevel = Number(q('slCloud').value);
@@ -434,6 +526,7 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
     const ambientTemp = Number(q('slAmbientTemp').value);
     const trackTemp = Number(q('slTrackTemp').value);
     const sim = simulateWeekend(rainLevel, cloudLevel, randomness, ambientTemp, trackTemp);
+    lastSim = sim;
 
     // Timeline strip
     q('timelineDays').innerHTML = DAYS.map(d => `<span>${d === 'Fri' ? 'FRIDAY' : d === 'Sat' ? 'SATURDAY' : 'SUNDAY'}</span>`).join('');
@@ -447,24 +540,7 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
     }
     q('timelineIcons').innerHTML = iconsHtml;
 
-    // Session cards
-    q('sessionCards').innerHTML = sessionRows.map(s => {
-      const summary = summarizeWindow(sim, dayFullToShort(s.day), s.hour, s.duration);
-      const cls = classify(summary);
-      return `
-        <div class="weather-card">
-          <div class="wc-emoji">${cls.emoji}</div>
-          <div class="wc-title">${s.day} ${String(s.hour).padStart(2,'0')}:00 ${s.isRace ? '&middot; Race' : ''}</div>
-          <div class="wc-sub">${cls.label} &middot; ${s.duration} min</div>
-          <div class="wc-stats">
-            <div>${tempEmoji(summary.avgAirTemp)}<b>${Math.round(summary.avgAirTemp)}&deg;</b></div>
-            <div>&#128293;<b>${Math.round(summary.avgTrackTemp)}&deg;</b></div>
-            <div>&#9748;<b>${Math.round(summary.avgCloud*100)}%</b></div>
-            <div>&#128167;<b>${Math.round(summary.avgRain*100)}%</b></div>
-          </div>
-        </div>
-      `;
-    }).join('') || '<div class="empty">Add a session above first.</div>';
+    renderSessionCards(sim);
 
     q('timelinePanel').style.display = '';
     q('timelinePanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
