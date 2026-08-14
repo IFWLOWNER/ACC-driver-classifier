@@ -119,6 +119,32 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 .risk-pill.medium{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
 .risk-pill.high{background:rgba(255,84,100,.16);color:var(--ifwl-red)}
 
+.ts-highlight-row{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.ts-highlight-row label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+.ts-highlight-row select{padding:9px 12px;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:8px;font-size:13px;min-width:220px}
+
+.ts-leader-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.ts-leader-card{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;text-align:center}
+.ts-leader-card span{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+.ts-leader-card strong{display:block;font-size:16px;margin-top:6px;color:var(--ifwl-amber)}
+.ts-leader-card small{display:block;margin-top:3px;font-family:var(--font-mono);color:var(--text-primary);font-weight:700}
+.ts-leader-card.highlighted{border-color:var(--ifwl-teal);box-shadow:0 0 0 2px rgba(31,214,189,.3)}
+
+.ts-chart-grid{display:grid;grid-template-columns:repeat(3,minmax(220px,1fr));gap:16px;margin-bottom:20px}
+@media(max-width:900px){.ts-chart-grid{grid-template-columns:1fr}}
+.ts-chart-wrap{border:1px solid var(--ifwl-line);border-radius:16px;background:#0d1116;padding:14px}
+.ts-chart-title{font-size:13px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin:0 0 8px;color:var(--text-primary)}
+.ts-chart-help{font-size:11.5px;color:var(--text-muted);margin:0 0 10px;font-weight:600}
+.ts-svg-chart{width:100%;height:170px;display:block;background:#0b0f13;border:1px solid var(--ifwl-line);border-radius:14px}
+.ts-chart-wide .ts-svg-chart{height:300px}
+.ts-rank-list{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.ts-rank-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:5px 8px;border-radius:8px;background:var(--panel-bg)}
+.ts-rank-row.highlighted{background:rgba(31,214,189,.14);box-shadow:inset 0 0 0 1px var(--ifwl-teal)}
+.ts-rank-row .ts-rank-name{font-weight:700;color:var(--text-primary)}
+.ts-rank-row .ts-rank-time{font-family:var(--font-mono);color:var(--ifwl-teal)}
+
+.ts-disclaimer{margin-top:6px;padding:10px 12px;border-radius:10px;background:rgba(255,178,56,.08);border:1px solid rgba(255,178,56,.25);color:var(--text-muted);font-size:11px;line-height:1.5}
+
 /* events & stints, ported verbatim from Live Timings' rt-event-card system */
 .rt-events-section{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;margin-bottom:16px}
 .rt-events-section h4{margin:0 0 6px;font-size:15px;text-transform:uppercase;color:var(--text-primary)}
@@ -237,6 +263,20 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <div class="panel-body">
           <div id="teamServerHint" class="field-hint" style="margin-bottom:12px;">Loading…</div>
           <div class="table-wrap" id="teamServerTableWrap"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="teamServerChartsPanel" style="display:none">
+        <div class="panel-head"><div><h3>Driver Comparison Graphs</h3><small>Sector times and lap-time trace across every driver — see who's strongest, and where, before deciding who to place.</small></div></div>
+        <div class="panel-body">
+          <div class="ts-highlight-row">
+            <label for="tsHighlightSelect">Highlight a driver</label>
+            <select id="tsHighlightSelect"><option value="">None</option></select>
+          </div>
+          <div id="tsLeaders"></div>
+          <div class="ts-chart-grid" id="tsSectorCharts"></div>
+          <div id="tsLapTrace"></div>
+          <div class="ts-disclaimer">⚠️ These graphs combine sectors and laps across every recorded session on the Team Server — different tracks and conditions included — so treat them as a general form/pace comparison rather than a single like-for-like race result.</div>
         </div>
       </section>
     </div>
@@ -1179,11 +1219,22 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const laptime = Number(lap.laptime);
         if(!tsIsValidLap(laptime)) continue;
         const key = tsLapKey(lap.carId, lap.driverIndex);
-        if(!map.has(key)) map.set(key, { validLaps: [], lapObjects: [] });
+        // bestSplits tracks this driver's best S1/S2/S3 (ms) *within this one
+        // session file* — used to build the cross-driver sector comparison
+        // graphs and "who's best at what sector" call-outs on the Team
+        // Server Stats tab. Only counts laps flagged valid-for-best, same
+        // rule ACC itself uses for a driver's official best sector.
+        if(!map.has(key)) map.set(key, { validLaps: [], lapObjects: [], bestSplits: [null, null, null] });
         const item = map.get(key);
         const isValidForBest = lap.isValidForBest !== false;
         if(isValidForBest) item.validLaps.push(laptime);
-        item.lapObjects.push({ laptime, isValidForBest });
+        const splits = Array.isArray(lap.splits) ? lap.splits.map(Number) : [];
+        item.lapObjects.push({ laptime, isValidForBest, splits });
+        if(isValidForBest){
+          splits.forEach((v, idx) => {
+            if(idx < 3 && tsIsValidLap(v) && (!item.bestSplits[idx] || v < item.bestSplits[idx])) item.bestSplits[idx] = v;
+          });
+        }
       }
       return map;
     }
@@ -1191,12 +1242,14 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       const lines = (data.sessionResult && data.sessionResult.leaderBoardLines) || [];
       const sessionLapMap = tsLapMapForSession(data);
       const rows = lines.filter(l => !l.bIsSpectator).map((l) => {
-        const lm = sessionLapMap.get(tsLapKey(l.car?.carId, l.currentDriverIndex)) || { validLaps: [], lapObjects: [] };
+        const lm = sessionLapMap.get(tsLapKey(l.car?.carId, l.currentDriverIndex)) || { validLaps: [], lapObjects: [], bestSplits: [null, null, null] };
         return {
           source, track: data.trackName || data.metaData || 'unknown',
           driver: tsDriverName(l),
           bestLap: l.timing?.bestLap || 0,
           lapObjects: lm.lapObjects,
+          allLapTimes: lm.lapObjects.map(o => o.laptime),
+          bestRaceSplits: lm.bestSplits,
           consistencyStats: tsLapStats(lm.validLaps)
         };
       });
@@ -1272,13 +1325,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const avgConsistency = tsRtAvg(d.rows.map(r => r.consistencyStats?.consistency));
         const avgLap = tsRtAvg(d.rows.map(r => r.consistencyStats?.avg).filter(tsIsValidLap));
         const avgRisk = tsRtAvg(d.rows.map(r => tsRaceRisk(r).risk));
+        // bestSplits = this driver's best S1/S2/S3 across every session file
+        // on the server (element-wise min), and allLapTimes = every valid
+        // lap they've set anywhere on the server, concatenated. Both feed
+        // the sector/lap-trace comparison graphs below the rankings table.
+        const bestSplits = tsCombineBestSplits(d.rows);
+        const allLapTimes = d.rows.flatMap(r => (r.allLapTimes || []).filter(tsIsValidLap));
         return {
           name: d.name,
           sessions: d.rows.length,
           bestLap: Number.isFinite(bestLap) ? bestLap : 0,
           avgLap: Number.isFinite(avgLap) ? avgLap : 0,
           consistency: Number.isFinite(avgConsistency) ? avgConsistency : 0,
-          risk: Number.isFinite(avgRisk) ? avgRisk : 0
+          risk: Number.isFinite(avgRisk) ? avgRisk : 0,
+          bestSplits,
+          allLapTimes
         };
       }).filter(d => d.bestLap > 0);
 
@@ -1289,6 +1350,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           (filesWithNoDriverRows ? ` — ${filesWithNoDriverRows} file(s) had no leaderboard rows` : '') +
           `. Check the browser console (F12) for exactly which files and why.`;
       renderTeamServerTable();
+
+      const chartsPanel = q('teamServerChartsPanel');
+      if(chartsPanel) chartsPanel.style.display = teamServerDrivers.length ? '' : 'none';
+      if(teamServerDrivers.length){ populateTsHighlightSelect(); renderTeamServerChartsBody(); }
     }
 
     function renderTeamServerTable(){
@@ -1337,6 +1402,188 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           renderTeamServerTable();
         });
       });
+    }
+
+    // ------------------------------------------------------------
+    // Driver Comparison Graphs — sector times + lap-time trace across
+    // every Team Server driver, ported from the "detailed" per-driver
+    // charts on the Live Timings page (same hand-built inline-SVG
+    // approach, no charting library) but reworked to plot every driver
+    // side by side instead of one driver vs. the field. This is what
+    // answers "who's best to place on the team, and at what" straight
+    // from the same server stats the rankings table already loads.
+    // ------------------------------------------------------------
+    const TS_PALETTE = ['#1fd6bd','#c65be8','#ffb238','#5aa9ff','#ff5464','#9be564','#ff9f4a','#7d8ff0','#33d99b','#e884d0','#ffd166','#8ecae6'];
+    let tsHighlightName = '';
+
+    function tsSvgText(x, y, text, size, weight, anchor){
+      return `<text x="${x}" y="${y}" font-size="${size||11}" font-weight="${weight||700}" text-anchor="${anchor||'start'}" fill="#dfe8ea">${esc(text)}</text>`;
+    }
+    function tsShortName(name){
+      const parts = String(name || '').trim().split(/\s+/);
+      if(parts.length <= 1) return name || '';
+      return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
+    }
+    function tsIsHighlighted(name){
+      return !!(tsHighlightName && name && name.toLowerCase() === tsHighlightName.toLowerCase());
+    }
+    function tsCombineBestSplits(rows){
+      const out = [null, null, null];
+      rows.forEach(r => {
+        (r.bestRaceSplits || []).forEach((v, i) => {
+          if(i < 3 && tsIsValidLap(v) && (!out[i] || v < out[i])) out[i] = v;
+        });
+      });
+      return out;
+    }
+
+    function renderTeamSectorLeaders(drivers){
+      const withSplits = drivers.filter(d => Array.isArray(d.bestSplits) && d.bestSplits.some(tsIsValidLap));
+      const leaderFor = idx => withSplits.reduce((best, d) => {
+        const v = d.bestSplits[idx];
+        return tsIsValidLap(v) && (!best || v < best.v) ? { name: d.name, v } : best;
+      }, null);
+      const bestLapDriver = drivers.reduce((best, d) => tsIsValidLap(d.bestLap) && (!best || d.bestLap < best.bestLap) ? d : best, null);
+
+      const cards = [
+        { label: 'Best Sector 1', d: leaderFor(0) },
+        { label: 'Best Sector 2', d: leaderFor(1) },
+        { label: 'Best Sector 3', d: leaderFor(2) },
+        { label: 'Best Outright Lap', d: bestLapDriver ? { name: bestLapDriver.name, v: bestLapDriver.bestLap } : null }
+      ];
+
+      return `<div class="ts-leader-grid">${cards.map(c => `
+        <div class="ts-leader-card${c.d && tsIsHighlighted(c.d.name) ? ' highlighted' : ''}">
+          <span>${esc(c.label)}</span>
+          <strong>${c.d ? esc(c.d.name) : '—'}</strong>
+          <small>${c.d ? tsFmtLapTime(c.d.v) : 'No data yet'}</small>
+        </div>`).join('')}</div>`;
+    }
+
+    function renderTeamSectorChart(drivers, sectorIndex, label){
+      const rows = drivers
+        .filter(d => Array.isArray(d.bestSplits) && tsIsValidLap(d.bestSplits[sectorIndex]))
+        .sort((a, b) => a.bestSplits[sectorIndex] - b.bestSplits[sectorIndex])
+        .slice(0, 20);
+
+      if(!rows.length){
+        return `<div class="ts-chart-wrap"><p class="ts-chart-title">${esc(label)}</p><p class="ts-chart-help">No sector data recorded for this server yet — the session files may not export sector splits.</p></div>`;
+      }
+
+      const best = rows[0].bestSplits[sectorIndex];
+      const worst = rows[rows.length - 1].bestSplits[sectorIndex];
+      const range = Math.max(1, worst - best);
+      const w = 340, h = 190, left = 8, right = 8, top = 12, bottom = 12;
+      const plotW = w - left - right, plotH = h - top - bottom;
+      const barGap = 3;
+      const barW = Math.max(6, plotW / rows.length - barGap);
+
+      const bars = rows.map((d, idx) => {
+        const v = d.bestSplits[sectorIndex];
+        const norm = 1 - Math.min(1, Math.max(0, (v - best) / range));
+        const bh = Math.max(4, 10 + norm * (plotH - 10));
+        const x = left + idx * (plotW / rows.length);
+        const y = top + plotH - bh;
+        const isHighlighted = tsIsHighlighted(d.name);
+        const fill = isHighlighted ? '#ffffff' : (idx === 0 ? '#ffb238' : TS_PALETTE[idx % TS_PALETTE.length]);
+        const stroke = isHighlighted ? ' stroke="#ffb238" stroke-width="2"' : '';
+        return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fill}"${stroke}><title>${esc(d.name)} — ${tsFmtLapTime(v)}</title></rect>`;
+      }).join('');
+
+      const top5 = rows.slice(0, 5).map((d, idx) => `
+        <div class="ts-rank-row${tsIsHighlighted(d.name) ? ' highlighted' : ''}">
+          <span class="ts-rank-name">${idx+1}. ${esc(d.name)}</span>
+          <span class="ts-rank-time">${tsFmtLapTime(d.bestSplits[sectorIndex])}</span>
+        </div>`).join('');
+
+      return `<div class="ts-chart-wrap">
+        <p class="ts-chart-title">${esc(label)} — best times</p>
+        <p class="ts-chart-help">${rows.length} driver(s) with recorded ${esc(label)} data, fastest on the left. Hover a bar for the exact time.</p>
+        <svg class="ts-svg-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${esc(label)} comparison">${bars}</svg>
+        <div class="ts-rank-list">${top5}</div>
+      </div>`;
+    }
+
+    function renderTeamLapTraceChart(drivers){
+      const ranked = drivers
+        .filter(d => Array.isArray(d.allLapTimes) && d.allLapTimes.length >= 2)
+        .sort((a, b) => (tsIsValidLap(a.bestLap) ? a.bestLap : Infinity) - (tsIsValidLap(b.bestLap) ? b.bestLap : Infinity))
+        .slice(0, 12);
+
+      const highlighted = drivers.find(d => tsIsHighlighted(d.name) && Array.isArray(d.allLapTimes) && d.allLapTimes.length >= 2);
+      let plotRows = ranked;
+      if(highlighted && !plotRows.includes(highlighted)) plotRows = plotRows.slice(0, 11).concat(highlighted);
+
+      if(!plotRows.length){
+        return `<div class="ts-chart-wrap ts-chart-wide"><p class="ts-chart-title">Lap-time trace</p><p class="ts-chart-help">No lap-by-lap data available yet.</p></div>`;
+      }
+
+      const allTimes = plotRows.flatMap(d => d.allLapTimes.filter(tsIsValidLap));
+      const minTime = Math.min(...allTimes);
+      const maxTime = Math.max(...allTimes);
+      const maxLaps = Math.max(...plotRows.map(d => d.allLapTimes.length));
+      const w = 1000, h = 320, left = 70, right = 25, top = 28, bottom = 42;
+      const plotW = w - left - right, plotH = h - top - bottom;
+      const range = Math.max(1, maxTime - minTime);
+      const yFor = v => top + plotH - ((v - minTime) / range) * plotH;
+      const xFor = lap => left + ((lap - 1) / Math.max(1, maxLaps - 1)) * plotW;
+
+      const grid = [0, .25, .5, .75, 1].map(p => {
+        const y = top + p * plotH;
+        const val = maxTime - p * range;
+        return `<line x1="${left}" y1="${y}" x2="${w-right}" y2="${y}" stroke="rgba(255,255,255,.12)" stroke-width="1"/>${tsSvgText(8, y+4, tsFmtLapTime(val), 10, 700)}`;
+      }).join('');
+
+      const orderedRows = highlighted ? [...plotRows.filter(d => d !== highlighted), highlighted] : plotRows;
+      const lines = orderedRows.map(d => {
+        const originalIdx = plotRows.indexOf(d);
+        const isHighlighted = d === highlighted;
+        const pts = d.allLapTimes.map((v, i) => tsIsValidLap(v) ? `${xFor(i+1).toFixed(1)},${yFor(v).toFixed(1)}` : null).filter(Boolean).join(' ');
+        const colour = isHighlighted ? '#ffffff' : TS_PALETTE[originalIdx % TS_PALETTE.length];
+        const width = isHighlighted ? 5 : 2.5;
+        const opacity = highlighted ? (isHighlighted ? 1 : .25) : .85;
+        return `<polyline points="${pts}" fill="none" stroke="${colour}" stroke-width="${width}" opacity="${opacity}"><title>${esc(d.name)}</title></polyline>`;
+      }).join('');
+
+      const legendRows = highlighted ? [highlighted, ...plotRows.filter(d => d !== highlighted)].slice(0, 8) : plotRows.slice(0, 8);
+      const labels = legendRows.map((d, idx) => {
+        const y = 18 + idx * 17;
+        const isHighlighted = d === highlighted;
+        const paletteIdx = plotRows.indexOf(d);
+        return `<circle cx="${left + 8 + idx*115}" cy="${y-4}" r="5" fill="${isHighlighted ? '#ffffff' : TS_PALETTE[paletteIdx % TS_PALETTE.length]}"/>${tsSvgText(left + 18 + idx*115, y, tsShortName(d.name) + (isHighlighted ? ' (selected)' : ''), 10, 900)}`;
+      }).join('');
+
+      const axis = `<line x1="${left}" y1="${top}" x2="${left}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
+        <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}" stroke="rgba(255,255,255,.32)" stroke-width="2"/>
+        ${tsSvgText(left, h-12, 'Lap 1', 11, 900)}
+        ${tsSvgText(w-right, h-12, 'Lap '+maxLaps, 11, 900, 'end')}`;
+
+      return `<div class="ts-chart-wrap ts-chart-wide">
+        <p class="ts-chart-title">Lap-time trace</p>
+        <p class="ts-chart-help">Every recorded lap for the ${plotRows.length} drivers with the best outright pace here (top 12), laid end-to-end across all their sessions on this server.${highlighted ? ` ${esc(highlighted.name)} is highlighted in white.` : ''} This isn't one single race — it's a pace and consistency comparison across everything they've driven on this server.</p>
+        <svg class="ts-svg-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Team lap time trace">
+          ${grid}${axis}${lines}${labels}
+        </svg>
+      </div>`;
+    }
+
+    function populateTsHighlightSelect(){
+      const select = q('tsHighlightSelect');
+      if(!select) return;
+      const current = select.value;
+      select.innerHTML = '<option value="">None</option>' + teamServerDrivers
+        .slice().sort((a, b) => a.name.localeCompare(b.name))
+        .map(d => `<option value="${esc(d.name)}">${esc(d.name)}</option>`).join('');
+      select.value = teamServerDrivers.some(d => d.name === current) ? current : '';
+      tsHighlightName = select.value;
+      select.onchange = () => { tsHighlightName = select.value; renderTeamServerChartsBody(); };
+    }
+
+    function renderTeamServerChartsBody(){
+      const leaders = q('tsLeaders'), sectors = q('tsSectorCharts'), trace = q('tsLapTrace');
+      if(leaders) leaders.innerHTML = renderTeamSectorLeaders(teamServerDrivers);
+      if(sectors) sectors.innerHTML = [0, 1, 2].map(i => renderTeamSectorChart(teamServerDrivers, i, `Sector ${i+1}`)).join('');
+      if(trace) trace.innerHTML = renderTeamLapTraceChart(teamServerDrivers);
     }
 
     // Roster & Branding tab
