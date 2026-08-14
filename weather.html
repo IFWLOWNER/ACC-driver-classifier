@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IFWL Weather Planner</title>
+<style>
+:root{
+  --ifwl-teal:#1fd6bd; --ifwl-teal-deep:#0e8a78;
+  --ifwl-purple:#c65be8; --ifwl-purple-deep:#8b2fb0;
+  --ifwl-amber:#ffb238; --ifwl-red:#ff5464; --ifwl-green:#33d99b; --ifwl-blue:#378add;
+  --ifwl-line:rgba(255,255,255,.10); --ifwl-line-soft:rgba(255,255,255,.06);
+  --panel-bg:#12161c; --panel-bg-raised:#171d24;
+  --page-bg:#0a0d11; --text-primary:#edf2f3; --text-muted:#93a1a9; --text-dim:#61707a;
+  --shadow:0 24px 60px rgba(0,0,0,.55);
+  --font-display:'Rajdhani',Arial Narrow,Arial,sans-serif;
+  --font-body:'Inter',Arial,Helvetica,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font-body);background:var(--page-bg);color:var(--text-primary);min-height:100vh;
+  background-image:radial-gradient(circle at 15% -10%,rgba(31,214,189,.14),transparent 40%),radial-gradient(circle at 100% 10%,rgba(198,91,232,.12),transparent 38%),linear-gradient(180deg,rgba(10,13,17,.93),rgba(9,11,14,.95) 60%,rgba(8,9,12,.97)),url('https://ifwlowner.github.io/ACC-driver-classifier/ifwl_bg.webp');
+  background-size:auto,auto,auto,cover;background-position:0 0,0 0,0 0,center top;
+  background-attachment:scroll,scroll,scroll,fixed;background-repeat:no-repeat,no-repeat,no-repeat,no-repeat}
+h1,h2,h3{font-family:var(--font-display);letter-spacing:.02em}
+a{color:inherit}
+.hidden{display:none!important}
+
+.hero{padding:40px 6% 20px;text-align:center}
+.hero img{height:70px;filter:drop-shadow(0 0 20px rgba(31,214,189,.3));margin-bottom:14px}
+.hero h1{font-size:28px;margin:0 0 8px;text-transform:uppercase}
+.hero p{color:var(--text-muted);margin:0;max-width:560px;margin:0 auto}
+.gold-pill{display:inline-block;margin-top:14px;padding:5px 12px;border-radius:999px;background:rgba(255,178,56,.14);color:var(--ifwl-amber);border:1px solid rgba(255,178,56,.32);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+
+main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
+.panel{background:linear-gradient(165deg,var(--panel-bg-raised),var(--panel-bg));border:1px solid var(--ifwl-line);border-radius:16px;box-shadow:var(--shadow);margin-bottom:20px;overflow:hidden}
+.panel-head{padding:16px 18px;background:linear-gradient(90deg,rgba(31,214,189,.10),transparent 60%);border-bottom:3px solid transparent;border-image:linear-gradient(90deg,var(--ifwl-teal),var(--ifwl-purple)) 1}
+.panel-head h2{margin:0;font-size:18px}
+.panel-head p{margin:4px 0 0;color:var(--text-muted);font-size:12.5px}
+.panel-body{padding:18px}
+
+.slider-row{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.slider-row label{width:120px;flex-shrink:0;font-size:13px;font-weight:700;color:var(--text-primary)}
+.slider-row input[type=range]{flex:1;accent-color:var(--ifwl-teal)}
+.slider-row .slider-val{width:60px;text-align:right;font-family:ui-monospace,monospace;font-size:13px;color:var(--ifwl-teal);font-weight:700}
+
+.field-group{margin-bottom:12px}
+.field-group label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin-bottom:5px}
+.field-group input,.field-group select{width:100%;padding:9px 11px;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:8px;font-size:13px}
+
+.btn{border:0;border-radius:9px;padding:11px 18px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;cursor:pointer;font-size:12.5px}
+.btn.teal{background:linear-gradient(135deg,var(--ifwl-teal-deep),var(--ifwl-teal));color:#03211c}
+.btn.purple{background:linear-gradient(135deg,var(--ifwl-purple-deep),var(--ifwl-purple));color:#fff}
+.btn.ghost{background:#1a2027;color:var(--text-primary);border:1px solid var(--ifwl-line)}
+
+.session-card{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:12px;padding:14px;margin-bottom:10px}
+.session-row{display:grid;grid-template-columns:100px 1fr 90px auto;gap:10px;align-items:end}
+@media(max-width:640px){.session-row{grid-template-columns:1fr 1fr}}
+
+.timeline-wrap{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:12px;padding:16px 12px;overflow-x:auto}
+.timeline-days{display:flex;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--text-muted);letter-spacing:.06em;margin-bottom:8px;min-width:720px}
+.timeline-days span{flex:1;text-align:center;border-left:1px solid var(--ifwl-line-soft);padding:0 4px}
+.timeline-days span:first-child{border-left:0}
+.timeline-icons{display:flex;min-width:720px;position:relative}
+.timeline-icon-cell{flex:1;text-align:center;font-size:18px;padding:6px 0;position:relative}
+.timeline-session-marker{position:absolute;top:-4px;bottom:-4px;background:rgba(198,91,232,.16);border:1px solid rgba(198,91,232,.4);border-radius:6px;pointer-events:none}
+
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:16px}
+.weather-card{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:14px;padding:16px;text-align:center}
+.weather-card .wc-emoji{font-size:40px;line-height:1}
+.weather-card .wc-title{font-weight:800;font-size:13px;margin-top:8px;color:var(--text-primary)}
+.weather-card .wc-sub{font-size:11px;color:var(--text-muted);margin-top:2px}
+.weather-card .wc-stats{display:flex;justify-content:center;gap:12px;margin-top:10px;font-size:11px;color:var(--text-dim)}
+.weather-card .wc-stats b{color:var(--text-primary);display:block;font-size:14px}
+
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}
+.stat-mini{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px}
+.stat-mini .sm-title{font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:8px}
+.stat-mini .sm-bar-row{display:flex;align-items:center;gap:8px;font-size:11px;margin-bottom:4px}
+.stat-mini .sm-bar-row span:first-child{width:44px;color:var(--text-muted)}
+.stat-mini .sm-bar-track{flex:1;height:8px;border-radius:4px;background:#1a2027;overflow:hidden}
+.stat-mini .sm-bar-fill{height:100%;border-radius:4px}
+.stat-mini .sm-bar-row span:last-child{width:36px;text-align:right;color:var(--text-primary);font-weight:700}
+
+.empty{padding:30px;text-align:center;color:var(--text-dim);font-weight:600}
+.field-hint{font-size:11.5px;color:var(--text-dim);margin-top:4px}
+
+#ifwlLoginWall{position:fixed;inset:0;z-index:200000;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
+#ifwlLoginWall.hidden{display:none!important}
+.login-wall-card{width:min(560px,96vw);background:linear-gradient(165deg,#151b22,#0e1218);border:1px solid var(--ifwl-line);border-radius:24px;padding:30px;box-shadow:0 40px 110px rgba(0,0,0,.7);text-align:center}
+.login-wall-card h1{font-size:26px;margin:8px 0}
+.login-wall-card p{color:var(--text-muted);font-size:13.5px;line-height:1.6}
+.login-wall-actions{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+.login-wall-discord{background:#5865f2;color:#fff;border:0;border-radius:10px;padding:13px;font-weight:800;text-transform:uppercase;font-size:13px;cursor:pointer}
+.login-wall-patreon{background:#e85b46;color:#fff;border-radius:10px;padding:13px;font-weight:800;text-transform:uppercase;font-size:13px;text-decoration:none}
+.login-wall-logout{background:#242a32;color:#fff;border:0;border-radius:10px;padding:11px;font-weight:800;text-transform:uppercase;font-size:12px;cursor:pointer}
+#loginWallError{color:#ffb3ba;font-weight:700;font-size:13px;margin-top:12px}
+</style>
+</head>
+<body class="login-wall-open">
+
+<div id="ifwlLoginWall">
+  <div class="login-wall-card">
+    <div style="color:var(--ifwl-teal);font-weight:800;font-size:13px;text-transform:uppercase">IFWL.NET</div>
+    <h1>Weather Planner</h1>
+    <p id="loginWallMessage">A Gold Patreon perk — login with Discord to check your access.</p>
+    <div class="login-wall-actions">
+      <button class="login-wall-discord" id="loginWallDiscordBtn" type="button">Login with Discord</button>
+      <a class="login-wall-patreon" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Join Patreon</a>
+      <button class="login-wall-logout hidden" id="loginWallLogoutBtn" type="button">Logout</button>
+    </div>
+    <div id="loginWallError"></div>
+  </div>
+</div>
+
+<div id="notGoldWall" class="hidden">
+  <div style="position:fixed;inset:0;z-index:199999;background:linear-gradient(rgba(4,6,9,.88),rgba(4,6,9,.96));display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto">
+    <div class="login-wall-card">
+      <div style="color:var(--ifwl-amber);font-weight:800;font-size:13px;text-transform:uppercase">GOLD PATREON PERK</div>
+      <h1>Weather Planner</h1>
+      <p>The Weather Planner is a Gold Patreon perk — upgrade to plan out your race weekend forecasts.</p>
+      <div class="login-wall-actions">
+        <a class="login-wall-patreon" href="https://www.patreon.com/c/IFWL" target="_blank" rel="noopener">Upgrade to Gold on Patreon</a>
+        <button class="login-wall-logout" id="notGoldLogoutBtn" type="button">Logout</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="hero">
+  <img src="https://ifwlowner.github.io/ACC-driver-classifier/ifwllogo1.png" alt="IFWL">
+  <h1>Weather Planner</h1>
+  <p>Configure a set of sessions across your race weekend and see roughly what the weather might do — built for planning stint calls and tyre strategy, not a forecast of any specific real race.</p>
+  <span class="gold-pill">Gold Patreon perk</span>
+</div>
+
+<main>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Weekend Settings</h2><p>Adjust the base conditions, then add the sessions you're planning around.</p></div>
+    <div class="panel-body">
+      <div class="slider-row">
+        <label for="slRain">Rain level</label>
+        <input type="range" id="slRain" min="0" max="1" step="0.05" value="0.2">
+        <span class="slider-val" id="slRainVal">0.2</span>
+      </div>
+      <div class="slider-row">
+        <label for="slCloud">Cloud level</label>
+        <input type="range" id="slCloud" min="0" max="1" step="0.05" value="0.2">
+        <span class="slider-val" id="slCloudVal">0.2</span>
+      </div>
+      <div class="slider-row">
+        <label for="slRandom">Randomness</label>
+        <input type="range" id="slRandom" min="1" max="10" step="1" value="3">
+        <span class="slider-val" id="slRandomVal">3</span>
+      </div>
+      <div class="slider-row">
+        <label for="slTemp">Temperature</label>
+        <input type="range" id="slTemp" min="5" max="35" step="1" value="25">
+        <span class="slider-val" id="slTempVal">25&deg;C</span>
+      </div>
+      <div class="field-hint">Rain/Cloud level set the baseline the weather drifts around. Randomness controls how volatile it gets. Temperature is the weekend's average.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Your Sessions</h2><p>Add every session you want a forecast for — Practice, Qualifying, Race, whatever your weekend looks like.</p></div>
+    <div class="panel-body">
+      <div id="sessionsList"></div>
+      <button class="btn ghost" id="addSessionBtn" type="button" style="margin-top:6px;">+ Add session</button>
+    </div>
+  </section>
+
+  <div style="text-align:center;margin:20px 0;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+    <button class="btn teal" id="generateBtn" type="button">Generate weekend forecast</button>
+    <button class="btn purple" id="statsBtn" type="button">Run weekend statistics (300 sims)</button>
+  </div>
+
+  <section class="panel" id="timelinePanel" style="display:none">
+    <div class="panel-head"><h2>Weekend Forecast</h2><p>One simulated run across Friday to Sunday, purely for a feel of how things might play out.</p></div>
+    <div class="panel-body">
+      <div class="timeline-wrap">
+        <div class="timeline-days" id="timelineDays"></div>
+        <div class="timeline-icons" id="timelineIcons"></div>
+      </div>
+      <div class="cards-grid" id="sessionCards"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="statsPanel" style="display:none">
+    <div class="panel-head"><h2>Weekend Statistics</h2><p>Same settings, run 300 times — how often each of your sessions actually ends up dry, mixed or wet.</p></div>
+    <div class="panel-body">
+      <div class="stats-grid" id="statsGrid"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(() => {
+  const AUTH={FUNCTION:'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate',REDIRECT_URI:location.origin+location.pathname,SESSION_KEY:'IFWL_PATREON_SESSION',META_KEY:'IFWL_PATREON_META'};
+  const q=id=>document.getElementById(id);
+  const wall=q('ifwlLoginWall'),wallMsg=q('loginWallMessage'),wallErr=q('loginWallError'),wallLogin=q('loginWallDiscordBtn'),wallLogout=q('loginWallLogoutBtn');
+  const notGoldWall=q('notGoldWall');
+  let meta=null;
+  function safeStore(k,v){try{localStorage.setItem(k,v);return true}catch(_){try{sessionStorage.setItem(k,v);return true}catch(__){return false}}}
+  function readStore(k){try{return localStorage.getItem(k)||sessionStorage.getItem(k)||''}catch(_){return ''}}
+  function removeStore(k){try{localStorage.removeItem(k)}catch(_){} try{sessionStorage.removeItem(k)}catch(_){}}
+  function anyLogin(m){return !!(m&&(m.sessionToken||m.userId||m.discordId||m.username||m.activeRacer||m.patreonGranted||m.staffBypass))}
+  function isGold(m){return !!(m&&(m.staffBypass||m.patreonTier==='Gold'))}
+  function hideWall(){wall.classList.add('hidden');document.body.classList.remove('login-wall-open');document.documentElement.classList.remove('login-wall-open')}
+  function showWall(message,error){document.body.classList.add('login-wall-open');document.documentElement.classList.add('login-wall-open');wall.classList.remove('hidden');wallMsg.textContent=message||'A Gold Patreon perk — login with Discord to check your access.';wallErr.textContent=error||'';wallErr.style.display=error?'block':'none';wallLogout.classList.toggle('hidden',!meta)}
+
+  function apply(m){
+    meta=m||null; window.IFWL_META=meta;
+    if(meta){
+      hideWall();
+      if(isGold(meta)){ notGoldWall.classList.add('hidden'); }
+      else{ notGoldWall.classList.remove('hidden'); }
+    } else {
+      showWall();
+    }
+  }
+  async function json(url,opts){const r=await fetch(url,{cache:'no-store',...(opts||{})});const t=await r.text();let d;try{d=JSON.parse(t)}catch{throw new Error('Authentication service returned an invalid response.')}if(!r.ok)throw new Error(d?.error||`Request failed (${r.status})`);return d}
+  async function start(){try{const d=await json(AUTH.FUNCTION+`?start=1&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}`);if(!d.url)throw new Error(d.error||'No Discord login URL returned.');location.href=d.url}catch(e){showWall(null,e.message)}}
+  async function callback(){const p=new URLSearchParams(location.search),code=p.get('code'),error=p.get('error');if(error){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,error);return true}if(!code)return false;showWall('Checking your IFWL Discord and Patreon roles...');try{const d=await json(AUTH.FUNCTION+`?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}&issue=1&patreon=1`);history.replaceState({},document.title,AUTH.REDIRECT_URI);if(d.sessionToken)safeStore(AUTH.SESSION_KEY,d.sessionToken);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch(e){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,e.message)}return true}
+  async function verify(){const token=readStore(AUTH.SESSION_KEY);if(!token){apply(null);return}try{const d=await json(AUTH.FUNCTION+`?patreonStatus=1&token=${encodeURIComponent(token)}`);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch{removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}}
+  function signout(){removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}
+  [wallLogin].forEach(b=>b?.addEventListener('click',start));
+  [wallLogout,q('notGoldLogoutBtn')].forEach(b=>b?.addEventListener('click',signout));
+  (async()=>{const handled=await callback();if(!handled)await verify()})();
+
+  // ============================================================
+  // Weather simulation - our own implementation, not a copy of any
+  // external tool. Random-walk based: cloud level drifts around a
+  // baseline, rain triggers probabilistically once cloud builds up high
+  // enough, temperature follows a day/night cycle with light drift.
+  // ============================================================
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const DAYS = ['Fri','Sat','Sun'];
+  const STEP_MINUTES = 15;
+  const STEPS_PER_DAY = (24*60) / STEP_MINUTES;
+  const TOTAL_STEPS = STEPS_PER_DAY * 3;
+
+  function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+
+  function simulateWeekend(rainLevel, cloudLevel, randomness, baseTemp){
+    const volatility = randomness / 40; // how far cloud can drift per 15-min step
+    const cloud = new Array(TOTAL_STEPS);
+    const rain = new Array(TOTAL_STEPS);
+    const temp = new Array(TOTAL_STEPS);
+
+    let currentCloud = cloudLevel;
+    let rainRemainingSteps = 0;
+    let rainPeak = 0;
+    let rainElapsed = 0;
+
+    for(let i = 0; i < TOTAL_STEPS; i++){
+      // Cloud: mean-reverting random walk toward the baseline slider value.
+      const pull = (cloudLevel - currentCloud) * 0.05;
+      const noise = (Math.random() - 0.5) * volatility;
+      currentCloud = clamp01(currentCloud + pull + noise);
+      cloud[i] = currentCloud;
+
+      // Rain: probability scales directly with rainLevel each step, boosted
+      // (not hard-gated) by current cloud - a hard cloud threshold made
+      // rain almost never trigger at typical/low settings, which didn't
+      // match how ACC weather actually feels even on a modest rain slider.
+      if(rainRemainingSteps <= 0){
+        const triggerChance = rainLevel * 0.018 * (0.35 + currentCloud);
+        if(Math.random() < triggerChance){
+          rainRemainingSteps = 6 + Math.floor(Math.random() * 10 * (0.3 + rainLevel));
+          rainPeak = Math.min(1, rainLevel * (0.6 + Math.random() * 0.6));
+          rainElapsed = 0;
+        }
+      }
+      if(rainRemainingSteps > 0){
+        const total = rainElapsed + rainRemainingSteps;
+        const progress = rainElapsed / total;
+        const humpShape = Math.sin(progress * Math.PI); // 0 -> 1 -> 0
+        rain[i] = rainPeak * humpShape;
+        rainElapsed++;
+        rainRemainingSteps--;
+      } else {
+        rain[i] = 0;
+      }
+
+      // Temperature: day/night sine wave (peak mid-afternoon, low overnight)
+      // plus small session-to-session drift scaled by randomness.
+      const dayIdx = Math.floor(i / STEPS_PER_DAY);
+      const hourOfDay = (i % STEPS_PER_DAY) * (STEP_MINUTES / 60);
+      const diurnal = Math.sin(((hourOfDay - 6) / 24) * Math.PI * 2 - Math.PI/2) * 5;
+      const drift = (Math.random() - 0.5) * (randomness / 8);
+      temp[i] = baseTemp + diurnal + drift - (currentCloud * 2); // overcast trims a couple degrees
+    }
+
+    return { cloud, rain, temp };
+  }
+
+  function stepIndexFor(day, hour){
+    const dayIdx = DAYS.indexOf(day);
+    return (dayIdx * STEPS_PER_DAY) + Math.round((hour * 60) / STEP_MINUTES);
+  }
+
+  function summarizeWindow(sim, day, hour, durationMinutes){
+    const startIdx = Math.max(0, stepIndexFor(day, hour));
+    const endIdx = Math.min(TOTAL_STEPS - 1, startIdx + Math.round(durationMinutes / STEP_MINUTES));
+    let cloudSum = 0, rainSum = 0, tempSum = 0, rainMax = 0, count = 0;
+    for(let i = startIdx; i <= endIdx; i++){
+      cloudSum += sim.cloud[i]; rainSum += sim.rain[i]; tempSum += sim.temp[i];
+      rainMax = Math.max(rainMax, sim.rain[i]);
+      count++;
+    }
+    if(!count) count = 1;
+    return { avgCloud: cloudSum/count, avgRain: rainSum/count, avgTemp: tempSum/count, maxRain: rainMax };
+  }
+
+  function classify(summary){
+    if(summary.avgRain > 0.45) return { label: 'Storm', emoji: '⛈️' };
+    if(summary.avgRain > 0.15) return { label: 'Rain', emoji: '🌧️' };
+    if(summary.maxRain > 0.15) return { label: 'Mixed', emoji: '🌦️' };
+    if(summary.avgCloud > 0.6) return { label: 'Overcast', emoji: '☁️' };
+    if(summary.avgCloud > 0.3) return { label: 'Partly cloudy', emoji: '⛅' };
+    return { label: 'Clear', emoji: '☀️' };
+  }
+  function tempEmoji(t){
+    if(t < 12) return '🥶';
+    if(t > 30) return '🥵';
+    return '🌡️';
+  }
+  function timelineEmoji(cloud, rain){
+    if(rain > 0.4) return '⛈️';
+    if(rain > 0.1) return '🌧️';
+    if(cloud > 0.6) return '☁️';
+    if(cloud > 0.3) return '⛅';
+    return '☀️';
+  }
+
+  // ============================================================
+  // UI wiring
+  // ============================================================
+  const sliderIds = [['slRain','slRainVal',v=>v], ['slCloud','slCloudVal',v=>v], ['slRandom','slRandomVal',v=>v], ['slTemp','slTempVal',v=>v+'\u00b0C']];
+  sliderIds.forEach(([id,valId,fmt]) => {
+    const el = q(id), out = q(valId);
+    const update = () => out.textContent = fmt(el.value);
+    el.addEventListener('input', update);
+    update();
+  });
+
+  let sessionRows = [{ id: 1, day: 'Friday', hour: 18, duration: 60, isRace: false }];
+  let nextSessionId = 2;
+
+  function renderSessions(){
+    q('sessionsList').innerHTML = sessionRows.map(s => `
+      <div class="session-card" data-session-id="${s.id}">
+        <div class="session-row">
+          <div class="field-group" style="margin-bottom:0;">
+            <label>Day</label>
+            <select class="sess-day">
+              <option value="Friday" ${s.day==='Friday'?'selected':''}>Friday</option>
+              <option value="Saturday" ${s.day==='Saturday'?'selected':''}>Saturday</option>
+              <option value="Sunday" ${s.day==='Sunday'?'selected':''}>Sunday</option>
+            </select>
+          </div>
+          <div class="field-group" style="margin-bottom:0;">
+            <label>Hour of day (24h)</label>
+            <input type="number" class="sess-hour" min="0" max="23" value="${s.hour}">
+          </div>
+          <div class="field-group" style="margin-bottom:0;">
+            <label>Duration (min)</label>
+            <input type="number" class="sess-duration" min="5" max="600" value="${s.duration}">
+          </div>
+          <button class="btn ghost sess-delete" type="button">Delete</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--text-muted);cursor:pointer">
+          <input type="checkbox" class="sess-israce" style="width:auto" ${s.isRace?'checked':''}> This is a race session
+        </label>
+      </div>
+    `).join('');
+
+    document.querySelectorAll('[data-session-id]').forEach(card => {
+      const id = Number(card.dataset.sessionId);
+      const row = sessionRows.find(s => s.id === id);
+      card.querySelector('.sess-day').addEventListener('change', e => row.day = e.target.value);
+      card.querySelector('.sess-hour').addEventListener('input', e => row.hour = Number(e.target.value) || 0);
+      card.querySelector('.sess-duration').addEventListener('input', e => row.duration = Math.max(5, Number(e.target.value) || 60));
+      card.querySelector('.sess-israce').addEventListener('change', e => row.isRace = e.target.checked);
+      card.querySelector('.sess-delete').addEventListener('click', () => {
+        sessionRows = sessionRows.filter(s => s.id !== id);
+        renderSessions();
+      });
+    });
+  }
+  renderSessions();
+
+  q('addSessionBtn').addEventListener('click', () => {
+    sessionRows.push({ id: nextSessionId++, day: 'Saturday', hour: 14, duration: 60, isRace: false });
+    renderSessions();
+  });
+
+  function dayShortToFull(short){ return { Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' }[short]; }
+  function dayFullToShort(full){ return { Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }[full]; }
+
+  q('generateBtn').addEventListener('click', () => {
+    const rainLevel = Number(q('slRain').value);
+    const cloudLevel = Number(q('slCloud').value);
+    const randomness = Number(q('slRandom').value);
+    const baseTemp = Number(q('slTemp').value);
+    const sim = simulateWeekend(rainLevel, cloudLevel, randomness, baseTemp);
+
+    // Timeline strip
+    q('timelineDays').innerHTML = DAYS.map(d => `<span>${d === 'Fri' ? 'FRIDAY' : d === 'Sat' ? 'SATURDAY' : 'SUNDAY'}</span>`).join('');
+    const cellsPerDay = 12; // one icon per 2 hours
+    const totalCells = cellsPerDay * 3;
+    let iconsHtml = '';
+    for(let c = 0; c < totalCells; c++){
+      const stepIdx = Math.round((c / totalCells) * TOTAL_STEPS);
+      const emoji = timelineEmoji(sim.cloud[stepIdx], sim.rain[stepIdx]);
+      iconsHtml += `<div class="timeline-icon-cell">${emoji}</div>`;
+    }
+    q('timelineIcons').innerHTML = iconsHtml;
+
+    // Session cards
+    q('sessionCards').innerHTML = sessionRows.map(s => {
+      const summary = summarizeWindow(sim, dayFullToShort(s.day), s.hour, s.duration);
+      const cls = classify(summary);
+      return `
+        <div class="weather-card">
+          <div class="wc-emoji">${cls.emoji}</div>
+          <div class="wc-title">${s.day} ${String(s.hour).padStart(2,'0')}:00 ${s.isRace ? '&middot; Race' : ''}</div>
+          <div class="wc-sub">${cls.label} &middot; ${s.duration} min</div>
+          <div class="wc-stats">
+            <div>${tempEmoji(summary.avgTemp)}<b>${Math.round(summary.avgTemp)}&deg;</b></div>
+            <div>&#9748;<b>${Math.round(summary.avgCloud*100)}%</b></div>
+            <div>&#128167;<b>${Math.round(summary.avgRain*100)}%</b></div>
+          </div>
+        </div>
+      `;
+    }).join('') || '<div class="empty">Add a session above first.</div>';
+
+    q('timelinePanel').style.display = '';
+    q('timelinePanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  q('statsBtn').addEventListener('click', () => {
+    if(!sessionRows.length){ alert('Add at least one session first.'); return; }
+    const rainLevel = Number(q('slRain').value);
+    const cloudLevel = Number(q('slCloud').value);
+    const randomness = Number(q('slRandom').value);
+    const baseTemp = Number(q('slTemp').value);
+    const N = 300;
+
+    const outcomeCounts = sessionRows.map(() => ({ dry: 0, mixed: 0, wet: 0 }));
+
+    for(let run = 0; run < N; run++){
+      const sim = simulateWeekend(rainLevel, cloudLevel, randomness, baseTemp);
+      sessionRows.forEach((s, idx) => {
+        const summary = summarizeWindow(sim, dayFullToShort(s.day), s.hour, s.duration);
+        if(summary.avgRain < 0.05 && summary.maxRain < 0.1) outcomeCounts[idx].dry++;
+        else if(summary.avgRain > 0.4) outcomeCounts[idx].wet++;
+        else outcomeCounts[idx].mixed++;
+      });
+    }
+
+    q('statsGrid').innerHTML = sessionRows.map((s, idx) => {
+      const c = outcomeCounts[idx];
+      const dryPct = Math.round((c.dry/N)*100), mixedPct = Math.round((c.mixed/N)*100), wetPct = Math.round((c.wet/N)*100);
+      return `
+        <div class="stat-mini">
+          <div class="sm-title">${s.day} ${String(s.hour).padStart(2,'0')}:00 ${s.isRace ? '&middot; Race' : ''}</div>
+          <div class="sm-bar-row"><span>&#9728;&#65039; Dry</span><div class="sm-bar-track"><div class="sm-bar-fill" style="width:${dryPct}%;background:var(--ifwl-green)"></div></div><span>${dryPct}%</span></div>
+          <div class="sm-bar-row"><span>&#127780;&#65039; Mixed</span><div class="sm-bar-track"><div class="sm-bar-fill" style="width:${mixedPct}%;background:var(--ifwl-amber)"></div></div><span>${mixedPct}%</span></div>
+          <div class="sm-bar-row"><span>&#127783;&#65039; Wet</span><div class="sm-bar-track"><div class="sm-bar-fill" style="width:${wetPct}%;background:var(--ifwl-blue)"></div></div><span>${wetPct}%</span></div>
+        </div>
+      `;
+    }).join('');
+
+    q('statsPanel').style.display = '';
+    q('statsPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+})();
+</script>
+
+</body>
+</html>
