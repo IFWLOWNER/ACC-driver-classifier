@@ -251,7 +251,7 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
 
   function clamp01(v){ return Math.max(0, Math.min(1, v)); }
 
-  function buildNoiseGenerator(randomness, cloudLevel){
+  function buildNoiseGenerator(randomness, cloudLevel, rainLevel){
     // randomness: 0-7, matching the real server field's own scale
     // (0 = static, 1-4 = realistic, 5-7 = extreme). Calibrated against a
     // real reference implementation's published statistics (rain=0.3,
@@ -262,18 +262,24 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
     // gets. Some simulated weekends now genuinely trend wetter or drier
     // throughout, same as a real front settling in, rather than every
     // weekend oscillating back to baseline. The center point shifts down
-    // as cloudLevel rises, so higher cloud settings genuinely bias more
-    // weekends wetter, not fewer - caught and fixed a sign inversion here
-    // that made maximum settings produce LESS rain than expected.
+    // as cloudLevel AND rainLevel rise, so higher settings genuinely bias
+    // more weekends wetter, not fewer - caught and fixed a sign inversion
+    // here that made maximum settings produce LESS rain than expected.
+    // Also fixed: the old rain-intensity formula topped out around 0.3
+    // even at 100% cloud, so "fully wet" sessions (avg rain > 0.4) were
+    // mathematically unreachable at moderate rain settings and the stats
+    // panel always showed 0% wet - re-tuned rain steepness/offset plus
+    // the within-session oscillation so wet/mixed/dry actually land near
+    // the reference proportions above.
     const factor = randomness / 7;
-    const center = 0.5 - cloudLevel * 0.35;
+    const center = 0.5 - cloudLevel * 0.35 - rainLevel * 0.42;
     const bias = (Math.random() - center) * 2 * 3.0 * factor;
     const slowPeriod = TOTAL_SECONDS * (0.4 + Math.random() * 0.35);
     const texPeriod = TOTAL_SECONDS * (0.004 + Math.random() * 0.004);
     const slowPhase = Math.random() * Math.PI * 2;
     const texPhase = Math.random() * Math.PI * 2;
-    const slowAmp = 0.3 * factor;
-    const texAmp = 0.45 * factor;
+    const slowAmp = 1.8 * factor;
+    const texAmp = 1.05 * factor;
     return function(t){
       const slow = Math.sin((t / slowPeriod) * Math.PI * 2 + slowPhase) * slowAmp;
       const tex = Math.sin((t / texPeriod) * Math.PI * 2 + texPhase) * texAmp;
@@ -282,7 +288,7 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
   }
 
   function makeWeatherSim(rainLevel, cloudLevel, randomness, ambientTemp, trackTempBase){
-    const noiseFn = buildNoiseGenerator(randomness, cloudLevel);
+    const noiseFn = buildNoiseGenerator(randomness, cloudLevel, rainLevel);
     const baseTempDrift = (Math.random() - 0.5) * (randomness / 7) * 3;
     // Matches a real, factual ACC engine constant: if rain is configured to
     // zero AND randomness is low, rain never forms at all regardless of any
@@ -294,7 +300,7 @@ main{max-width:1000px;margin:0 auto;padding:20px 6% 70px}
       const cloud = clamp01(cloudLevel + noise);
       let rain = 0;
       if(rainPossible && cloud >= 0.6){
-        const raw = (cloud - 0.6) * 0.65 + rainLevel * 0.15;
+        const raw = (cloud - 0.6) * 0.8 + rainLevel * 0.3;
         rain = clamp01(raw);
       }
       const brightness = -0.2 - Math.cos(((t - 7200) / 86400) * Math.PI * 2);
