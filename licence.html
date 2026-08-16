@@ -1038,8 +1038,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <div class="login-wall-card">
     <div class="licence-org" style="font-size:13px;color:var(--ifwl-red)">IFWL.NET</div>
     <h1>Licence Refused</h1>
-    <p>Your IFWL profile isn't complete yet, so a licence can't be issued. Your Discord nickname needs to be in the proper <strong>[car number] - Name</strong> format (e.g. <strong>[81] - IFWL XSL4Y3RX</strong>) before this page can do anything for you - that only happens once you've completed profile setup on the server.</p>
-    <p>Once your nickname updates, refresh this page and your licence will be issued automatically.</p>
+    <p id="licenceRefusedMessage">Your IFWL profile isn't complete yet, so a licence can't be issued. Please head to www.ifwl.net and complete driver sign up - once that's done, refresh this page and your licence will be issued automatically.</p>
     <div class="login-wall-actions" style="margin-top:14px">
       <button class="login-wall-discord" id="refusedRefreshBtn" type="button">I've fixed it - Refresh</button>
       <button class="login-wall-logout" id="refusedLogoutBtn" type="button">Logout</button>
@@ -1229,6 +1228,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <button data-view="staffSeasonalCosts" class="owner-only-tab" type="button">Seasonal Costs</button>
           <button data-view="staffSeasonStartPayments" class="owner-only-tab" type="button">Season Start Payments</button>
           <button data-view="staffWelcomeBonus" class="owner-only-tab" type="button">Welcome Bonus</button>
+          <button data-view="staffMessageTemplates" class="owner-only-tab" type="button">Message Templates</button>
           <button data-view="staffRaceEarningsSettlement" class="owner-only-tab" type="button">Race Earnings Settlement</button>
           <button data-view="staffCareerShop" class="owner-only-tab" type="button">IFWL Shop</button>
         </div>
@@ -2235,6 +2235,31 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div style="margin-top:16px">
         <button class="btn teal" id="wbSaveBtn" type="button">Save amounts</button>
         <span class="save-status" id="wbSaveStatus"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ✅ ADDED: staff-editable message templates - starting with the two
+       pieces of copy tied to a licence refusal. Other hardcoded popups/
+       notices across the site (ticket notice, shop transaction notice,
+       inbox notice) could be added here the same way later - deliberately
+       not attempted all at once. -->
+  <section class="panel view-panel" data-view="staffMessageTemplates" id="staffMessageTemplatesPanel">
+    <div class="panel-head"><div><h3>Staff: Message Templates</h3><small>Edit the copy behind key notices - starting with the licence refusal Discord post and on-page message</small></div></div>
+    <div class="panel-body">
+      <div class="notice-card">More popups/notices exist across the site than are listed here (ticket notices, shop transaction receipts, inbox alerts) - these two were the ones directly requested. Ask if you'd like others added the same way.</div>
+
+      <h4 style="margin:20px 0 10px">Licence Refused - Discord Message</h4>
+      <p class="field-hint" style="margin-bottom:8px">Posted to Discord when someone's nickname isn't in the required format. Use <b>{mention}</b> anywhere you want a real @ping of the driver - a plain "@username" typed manually will NOT actually notify them, only this placeholder does.</p>
+      <textarea id="mtDiscordMessageInput" rows="4" style="width:100%;padding:10px 12px;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:8px;font-size:13px;font-family:var(--font-mono)"></textarea>
+
+      <h4 style="margin:20px 0 10px">Licence Refused - On-Page Message</h4>
+      <p class="field-hint" style="margin-bottom:8px">Shown directly on the site to a refused driver, blocking the rest of the page until it's resolved.</p>
+      <textarea id="mtPageMessageInput" rows="4" style="width:100%;padding:10px 12px;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:8px;font-size:13px;font-family:var(--font-mono)"></textarea>
+
+      <div style="margin-top:16px">
+        <button class="btn teal" id="mtSaveBtn" type="button">Save templates</button>
+        <span class="save-status" id="mtSaveStatus"></span>
       </div>
     </div>
   </section>
@@ -5347,6 +5372,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function showLicenceRefusedGate(){
     document.body.classList.add('driver-link-required'); // reuses the same "block everything else" body state
     q('ifwlLicenceRefusedGate').classList.remove('hidden');
+    // ✅ ADDED: pulls the current staff-editable message instead of a
+    // hardcoded paragraph, so this can be changed from the Staff panel
+    // without a code deploy.
+    apiGet('messageTemplates').then(t => {
+      if(t?.licenceRefusedPageMessage) q('licenceRefusedMessage').textContent = t.licenceRefusedPageMessage;
+    }).catch(() => {}); // falls back to the static default already in the HTML
   }
   function hideLicenceRefusedGate(){
     document.body.classList.remove('driver-link-required');
@@ -11973,6 +12004,33 @@ Flashing Headlights:
     };
   }
 
+  // ✅ ADDED: Message Templates staff panel - starting with the two
+  // pieces of copy tied to a licence refusal.
+  async function initMessageTemplatesPanel(){
+    if(!q('staffMessageTemplatesPanel')) return;
+
+    let templates;
+    try{ templates = await apiGet('messageTemplates'); }
+    catch(e){ q('mtSaveStatus').textContent = 'Could not load: ' + e.message; return; }
+
+    q('mtDiscordMessageInput').value = templates.licenceRefusedDiscordMessage || '';
+    q('mtPageMessageInput').value = templates.licenceRefusedPageMessage || '';
+
+    q('mtSaveBtn').onclick = async () => {
+      const status = q('mtSaveStatus');
+      const licenceRefusedDiscordMessage = q('mtDiscordMessageInput').value.trim();
+      const licenceRefusedPageMessage = q('mtPageMessageInput').value.trim();
+      if(!licenceRefusedDiscordMessage || !licenceRefusedPageMessage){ status.textContent = 'Neither message can be left empty.'; return; }
+
+      status.textContent = 'Saving...';
+      try{
+        await apiPost('staffMessageTemplatesSave', { licenceRefusedDiscordMessage, licenceRefusedPageMessage });
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('mtSaveStatus')) q('mtSaveStatus').textContent = ''; }, 2500);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+  }
+
   // ✅ ADDED: Race Earnings Settlement staff panel - a single "run now"
   // button, no config to load first.
   function initRaceEarningsSettlementPanel(){
@@ -12652,6 +12710,7 @@ Flashing Headlights:
     initSeasonalCostsPanel();
     initSeasonStartPaymentsPanel();
     initWelcomeBonusPanel();
+    initMessageTemplatesPanel();
     initRaceEarningsSettlementPanel();
     initClassStructurePanel();
     renderSeasonalEventsPanel();
