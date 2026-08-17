@@ -1062,9 +1062,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           <div id="spBody"><div class="empty">Loading your season&hellip;</div></div>
         </div>
         <div class="team-view" data-career-view="marketplace">
-          <div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08)">
-            <strong>Tyre Marketplace &mdash; coming soon.</strong> Own a Tyre Factory? Soon you'll be able to produce tyres and list them for sale here, priced however you like, for other drivers to buy instead of paying standard tyre cost. This tab is a placeholder until that design is approved and built - see the design doc for the full plan.
-          </div>
+          <div id="spMarketplaceBody"><div class="empty">Loading the Marketplace&hellip;</div></div>
         </div>
       </div>
 
@@ -1342,6 +1340,29 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   }
   window.IFWL_CareerShopAPI = { fetchCareerShopCatalog, saveCareerShopCatalog, fetchMyCareerShopLedger, purchaseCareerShopItem, fetchDriverCareerShopLedger, issueCareerShopTransaction, refundCareerShopPurchase };
   window.invalidateCareerShopCatalogCache = () => { __careerShopCatalogCache = null; };
+
+  // ✅ ADDED: Parts Marketplace data layer. Backend actions:
+  //   ?myPartsInventory=1&token=...          (GET,  tyreInventoryCount + partsInventory)
+  //   ?marketplaceListings=1&token=...&partType=  (GET,  active listings, optionally filtered)
+  //   ?myMarketplaceListings=1&token=...     (GET,  your own listings, this season)
+  //   ?listPartsForSale=1&token=...          (POST, {partType, quantity|partIds, pricePerUnit})
+  //   ?cancelMarketplaceListing=1&token=...  (POST, {listingId})
+  //   ?purchaseMarketplaceListing=1&token=...(POST, {listingId, quantity})
+  //   ?staffMarketplaceOverview=1&token=...  (GET,  Owner-only)
+  //   ?staffVoidMarketplaceTransaction=1&token=... (POST, Owner-only, {transactionId, reason})
+  //   ?ifwlTreasury=1&token=...              (GET,  staff-only, {balance})
+  async function fetchMyPartsInventory(){ return apiGet('myPartsInventory'); }
+  async function fetchMarketplaceListings(partType){ return apiGet('marketplaceListings', partType ? `&partType=${encodeURIComponent(partType)}` : ''); }
+  async function fetchMyMarketplaceListings(){ return apiGet('myMarketplaceListings'); }
+  async function listPartsForSale(partType, qtyOrIds, pricePerUnit){
+    const body = { partType, pricePerUnit };
+    if(partType === 'tyre') body.quantity = qtyOrIds; else body.partIds = qtyOrIds;
+    return apiPost('listPartsForSale', body);
+  }
+  async function cancelMarketplaceListing(listingId){ return apiPost('cancelMarketplaceListing', { listingId }); }
+  async function purchaseMarketplaceListing(listingId, quantity){ return apiPost('purchaseMarketplaceListing', { listingId, quantity }); }
+  async function fetchIfwlTreasury(){ return apiGet('ifwlTreasury'); }
+  window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury };
   window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   let currentProfile = null;
@@ -1790,7 +1811,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     };
   }
 
-  function renderSeasonProgressionLeaderboard(data){
+  async function renderSeasonProgressionLeaderboard(data){
     const body = q('spBody');
     const backBtn = `<button class="btn ghost" id="spBackToMineBtn" type="button" style="margin-bottom:14px">&larr; Back to my own progression</button>`;
     if(data.noSeasonWindow){
@@ -1803,6 +1824,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       wireSpBackButton();
       return;
     }
+    // ✅ ADDED: IFWL Treasury balance - real server-side figure (the sum of
+    // every 7% Marketplace league cut so far), fetched separately since
+    // everything else on this leaderboard is a client-side estimate
+    // recomputed from race files, not the authoritative ledger.
+    let treasuryBalance = null;
+    try{ treasuryBalance = (await window.IFWL_MarketplaceAPI.fetchIfwlTreasury()).balance; }catch(e){ console.warn('Could not load IFWL Treasury', e); }
+
     body.innerHTML = backBtn + `
       <div class="notice-card">${data.seasonLabel ? `<strong>${data.seasonLabel}</strong> - ` : ''}League-wide totals across every driver and every race this season - not a per-driver breakdown.</div>
       <div class="fc-summary-grid" style="margin-top:16px">
@@ -1816,6 +1844,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <div class="fc-summary-box"><span>Total Tyre Spend</span><strong>&pound;${data.totalTyreSpend.toLocaleString()}</strong></div>
         <div class="fc-summary-box"><span>Total Race Earnings</span><strong>&pound;${data.totalRaceEarnings.toLocaleString()}</strong></div>
         <div class="fc-summary-box" style="border-color:${data.netEventEarnings >= 0 ? 'var(--ifwl-teal,#1fd6bd)' : 'var(--ifwl-red)'}"><span>Net Event Earnings</span><strong style="color:${data.netEventEarnings >= 0 ? 'var(--ifwl-teal,#1fd6bd)' : 'var(--ifwl-red)'}">${data.netEventEarnings < 0 ? '-' : ''}&pound;${Math.abs(data.netEventEarnings).toLocaleString()}</strong></div>
+        <div class="fc-summary-box" style="border-color:#ffb238"><span>IFWL Treasury (Marketplace cut)</span><strong style="color:#ffb238">${treasuryBalance == null ? 'N/A' : '&pound;' + treasuryBalance.toLocaleString()}</strong></div>
       </div>
     `;
     wireSpBackButton();
@@ -1833,13 +1862,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   // just needs a real account, no Gold gate - it's spending money you
   // already earned, not an upsell).
   function csFmtMoney(n){ return (n < 0 ? '-' : '') + '&pound;' + Math.abs(Math.round(n)).toLocaleString(); }
-  const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear', costReduction: 'Cost Reduction', trophy: 'Trophies', carAddition: 'Car Additions' };
+  const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear', costReduction: 'Cost Reduction', trophy: 'Trophies', carAddition: 'Car Additions', tyreFactory: 'Tyre Factory', engineShop: 'Engine Shop', tuningShop: 'Tuning Shop', aeroShop: 'Aero Tuning Company' };
   const CS_CATEGORY_BLURB = {
     supportStaff: 'Boosts sponsorship revenue for every new deal you win from here on.',
     teamGear: "Boosts your race income per race, stacking with every other piece you own.",
     costReduction: "Reduces your tyre cost or race entry fee per race, stacking with every other piece you own.",
     trophy: "Purely cosmetic - buying one awards it straight to your Trophy Cabinet, same as winning one on track.",
-    carAddition: "Purely cosmetic garage additions - no bonus, just something to own and show off."
+    carAddition: "Purely cosmetic garage additions - no bonus, just something to own and show off.",
+    // ✅ ADDED: Parts Marketplace production shops - Gold Patreon only to
+    // own (buying FROM the marketplace stays open to everyone). Each
+    // produces stock into your inventory every race weekend you're
+    // credited for a race - see the Marketplace tab.
+    tyreFactory: "Gold only. Produces tyres every race weekend you compete, on top of keeping any personal tyre-cost discount this item carries. Sell surplus stock on the Marketplace.",
+    engineShop: "Gold only. Produces a spare engine part every race weekend you compete - use it to skip a maintenance charge, or sell it on the Marketplace.",
+    tuningShop: "Gold only. Produces a spare suspension part AND a spare damper part every race weekend you compete - use them to skip maintenance charges, or sell on the Marketplace.",
+    aeroShop: "Gold only. Produces a spare aero part (splitter/spoiler) every race weekend you compete - use it to skip a maintenance charge, or sell on the Marketplace."
   };
 
   async function renderCareerShopSection(){
@@ -1865,6 +1902,8 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           ${items.map(item => {
             const owned = ownedIds.has(item.id);
             const canAfford = balance >= (Number(item.cost) || 0);
+            const isShopCategory = ['tyreFactory','engineShop','tuningShop','aeroShop'].includes(item.category);
+            const goldLocked = isShopCategory && !window.IFWL_GOLD && !window.IFWL_STAFF;
             const effectText = item.category === 'supportStaff'
               ? `+${item.bonusPct}% sponsorship revenue`
               : item.category === 'costReduction'
@@ -1873,7 +1912,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
                   ? 'Awards a trophy to your cabinet'
                   : item.category === 'carAddition'
                     ? 'Cosmetic garage item'
-                    : `+${item.bonusPct}% race income per race`;
+                    : isShopCategory
+                      ? (item.bonusPct > 0 ? `Produces stock + keeps -${item.bonusPct}% tyre cost` : 'Produces stock for your inventory + Marketplace')
+                      : `+${item.bonusPct}% race income per race`;
+            const buyLabel = goldLocked ? 'Requires Gold' : 'Purchase';
             return `<div class="shop-item-card aa-slot-card">
               ${owned ? '<div class="shop-item-owned-badge">Owned</div>' : ''}
               ${item.imageUrl ? `<img class="shop-item-thumb" src="${item.imageUrl}" alt="">` : ''}
@@ -1883,7 +1925,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
                 <span class="mono" style="font-weight:800">${csFmtMoney(item.cost)}</span>
                 ${owned
                   ? ''
-                  : `<button class="btn ${canAfford ? 'teal' : 'ghost'}" data-buy-item="${item.id}" ${canAfford ? '' : 'disabled title="Not enough balance yet"'}>Purchase</button>`}
+                  : `<button class="btn ${(canAfford && !goldLocked) ? 'teal' : 'ghost'}" data-buy-item="${item.id}" ${(canAfford && !goldLocked) ? '' : `disabled title="${goldLocked ? 'This Shop/Factory is Gold Patreon only' : 'Not enough balance yet'}"`}>${buyLabel}</button>`}
               </div>
             </div>`;
           }).join('')}
@@ -1910,6 +1952,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       ${categoryGrid('supportStaff')}
       ${categoryGrid('teamGear')}
       ${categoryGrid('costReduction')}
+      ${categoryGrid('tyreFactory')}
+      ${categoryGrid('engineShop')}
+      ${categoryGrid('tuningShop')}
+      ${categoryGrid('aeroShop')}
       ${categoryGrid('trophy')}
       ${categoryGrid('carAddition')}
       ${!catalog.length ? '<div class="empty">Nothing in the shop yet - check back once staff have added items.</div>' : ''}
@@ -1935,6 +1981,160 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           alert('Could not purchase: ' + e.message);
           btn.disabled = false; btn.textContent = 'Purchase';
         }
+      });
+    });
+  }
+
+  // ✅ ADDED: Parts Marketplace tab - My Inventory, My Shops (list for
+  // sale), Browse Marketplace (buy), My Listings (cancel). Buying is open
+  // to everyone; only sellers need to own the matching shop (server
+  // enforces this too - these client checks are convenience only).
+  const MKT_PART_LABEL = { tyre: 'Tyres', engine: 'Engine parts', suspension: 'Suspension parts', damper: 'Damper parts', aero: 'Aero parts' };
+  const MKT_SHOP_FOR_PART = { tyre: 'tyreFactory', engine: 'engineShop', suspension: 'tuningShop', damper: 'tuningShop', aero: 'aeroShop' };
+
+  async function renderMarketplaceSection(){
+    const box = q('spMarketplaceBody');
+    if(!box) return;
+    box.innerHTML = '<div class="empty">Loading the Marketplace&hellip;</div>';
+
+    let inventory, myListings, listings, catalog, ledger;
+    try{
+      [inventory, myListings, listings, catalog, ledger] = await Promise.all([
+        window.IFWL_MarketplaceAPI.fetchMyPartsInventory(),
+        window.IFWL_MarketplaceAPI.fetchMyMarketplaceListings(),
+        window.IFWL_MarketplaceAPI.fetchMarketplaceListings(),
+        window.IFWL_CareerShopAPI.fetchCareerShopCatalog(),
+        window.IFWL_CareerShopAPI.fetchMyCareerShopLedger()
+      ]);
+    }catch(e){ box.innerHTML = `<div class="empty">Could not load the Marketplace: ${e.message}</div>`; return; }
+
+    const ownedIds = new Set(ledger.ownedItemIds || []);
+    const ownsShopCategory = (cat) => catalog.some(it => it.category === cat && ownedIds.has(it.id));
+    const myShops = ['tyreFactory','engineShop','tuningShop','aeroShop'].filter(ownsShopCategory);
+
+    const partsByType = {};
+    (inventory.partsInventory || []).forEach(p => { (partsByType[p.partType] = partsByType[p.partType] || []).push(p); });
+
+    // --- My Inventory ---
+    const inventoryHtml = `
+      <h4 style="margin:0 0 10px">My Inventory</h4>
+      <div class="shop-item-grid">
+        <div class="shop-item-card aa-slot-card"><strong>Tyres</strong><p class="field-hint" style="margin:4px 0">In stock, ready to use or sell</p><span class="mono" style="font-weight:800;font-size:18px">${inventory.tyreInventoryCount || 0}</span></div>
+        ${['engine','suspension','damper','aero'].map(pt => {
+          const parts = (partsByType[pt] || []).slice().sort((a,b) => b.conditionPct - a.conditionPct);
+          return `<div class="shop-item-card aa-slot-card"><strong>${MKT_PART_LABEL[pt]}</strong><p class="field-hint" style="margin:4px 0">${parts.length} owned</p>
+            ${parts.length ? `<div style="font-size:12px;color:var(--text-dim)">${parts.map(p => p.conditionPct + '%').join(', ')}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+
+    // --- My Shops (list for sale) ---
+    const sellFormHtml = myShops.length ? `
+      <h4 style="margin:16px 0 10px">Sell From My Shops</h4>
+      <div class="shop-item-grid">
+        ${myShops.map(cat => {
+          const partTypes = cat === 'tyreFactory' ? ['tyre'] : cat === 'tuningShop' ? ['suspension','damper'] : cat === 'engineShop' ? ['engine'] : ['aero'];
+          return partTypes.map(pt => {
+            const available = pt === 'tyre' ? (inventory.tyreInventoryCount || 0) : (partsByType[pt] || []).length;
+            return `<div class="shop-item-card aa-slot-card">
+              <strong>${MKT_PART_LABEL[pt]}</strong>
+              <p class="field-hint" style="margin:4px 0">${available} available to list</p>
+              <div class="row" style="gap:6px;margin-top:6px">
+                <input type="number" min="1" max="${available}" placeholder="Qty" data-sell-qty="${pt}" style="width:70px" ${available ? '' : 'disabled'}>
+                <input type="number" min="1" placeholder="£ each" data-sell-price="${pt}" style="width:90px" ${available ? '' : 'disabled'}>
+                <button class="btn teal" data-sell-part="${pt}" ${available ? '' : 'disabled'}>List</button>
+              </div>
+            </div>`;
+          }).join('');
+        }).join('')}
+      </div>
+    ` : `<p class="field-hint" style="margin:16px 0">Own a Tyre Factory, Engine Shop, Tuning Shop or Aero Tuning Company (Gold Patreon, from the Career Shop tab) to produce stock and sell here.</p>`;
+
+    // --- My Listings ---
+    const myListingsHtml = myListings.length ? `
+      <h4 style="margin:16px 0 10px">My Listings</h4>
+      <div class="shop-receipt-list">
+        ${myListings.map(l => {
+          const remaining = l.partType === 'tyre' ? l.quantityRemaining : (l.partIdsRemaining || []).length;
+          return `<div class="shop-receipt-row">
+            <div><div>${remaining} x ${MKT_PART_LABEL[l.partType]} @ ${csFmtMoney(l.pricePerUnit)} each</div>
+            <div class="shop-receipt-meta">Status: ${l.status}</div></div>
+            ${l.status === 'active' ? `<button class="btn ghost" data-cancel-listing="${l.id}">Cancel</button>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+    ` : '';
+
+    // --- Browse Marketplace ---
+    const browseHtml = `
+      <h4 style="margin:16px 0 10px">Browse Marketplace</h4>
+      ${listings.length ? `
+        <div class="shop-receipt-list">
+          ${listings.map(l => {
+            const remaining = l.partType === 'tyre' ? l.quantityRemaining : (l.partIdsRemaining || []).length;
+            return `<div class="shop-receipt-row">
+              <div><div>${remaining} x ${MKT_PART_LABEL[l.partType]} @ ${csFmtMoney(l.pricePerUnit)} each</div>
+              <div class="shop-receipt-meta">Seller: ${l.sellerId === (window.IFWL_META?.userId) ? 'You' : l.sellerId}</div></div>
+              <div class="row" style="gap:6px;align-items:center">
+                <input type="number" min="1" max="${remaining}" value="1" data-buy-qty="${l.id}" style="width:60px">
+                <button class="btn teal" data-buy-listing="${l.id}">Buy</button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      ` : '<div class="empty">No active listings yet - check back once a Shop/Factory owner lists some stock.</div>'}
+    `;
+
+    box.innerHTML = `
+      <div class="notice-card" style="border-left-color:#1fd6bd;background:rgba(31,214,189,.08)">
+        A 7% league cut is taken from every sale (goes to the IFWL Treasury, never to a person) - you always pay the listed price, sellers receive 93% of it.
+      </div>
+      ${inventoryHtml}
+      ${sellFormHtml}
+      ${myListingsHtml}
+      ${browseHtml}
+    `;
+
+    box.querySelectorAll('[data-sell-part]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pt = btn.dataset.sellPart;
+        const qtyEl = box.querySelector(`[data-sell-qty="${pt}"]`);
+        const priceEl = box.querySelector(`[data-sell-price="${pt}"]`);
+        const qty = Math.max(1, Math.round(Number(qtyEl.value) || 0));
+        const price = Math.max(1, Math.round(Number(priceEl.value) || 0));
+        if(!price){ alert('Enter a price per unit.'); return; }
+        btn.disabled = true;
+        try{
+          if(pt === 'tyre'){
+            await window.IFWL_MarketplaceAPI.listPartsForSale('tyre', qty, price);
+          } else {
+            const ids = (partsByType[pt] || []).slice().sort((a,b) => b.conditionPct - a.conditionPct).slice(0, qty).map(p => p.id);
+            await window.IFWL_MarketplaceAPI.listPartsForSale(pt, ids, price);
+          }
+          await renderMarketplaceSection();
+        }catch(e){ alert('Could not list for sale: ' + e.message); btn.disabled = false; }
+      });
+    });
+    box.querySelectorAll('[data-cancel-listing]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try{ await window.IFWL_MarketplaceAPI.cancelMarketplaceListing(btn.dataset.cancelListing); await renderMarketplaceSection(); }
+        catch(e){ alert('Could not cancel: ' + e.message); btn.disabled = false; }
+      });
+    });
+    box.querySelectorAll('[data-buy-listing]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const listingId = btn.dataset.buyListing;
+        const qtyEl = box.querySelector(`[data-buy-qty="${listingId}"]`);
+        const qty = Math.max(1, Math.round(Number(qtyEl.value) || 1));
+        if(!confirm(`Buy ${qty} unit(s) from this listing?`)) return;
+        btn.disabled = true;
+        try{
+          await window.IFWL_MarketplaceAPI.purchaseMarketplaceListing(listingId, qty);
+          await renderMarketplaceSection();
+          await renderCareerShopSection(); // balance changed
+        }catch(e){ alert('Could not buy: ' + e.message); btn.disabled = false; }
       });
     });
   }
@@ -2084,6 +2284,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     // rather than being shown nothing at all.
     renderCareerShopSection();
     renderCareerPerksSection();
+    renderMarketplaceSection();
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
