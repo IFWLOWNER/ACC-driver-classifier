@@ -1352,6 +1352,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   //   ?staffVoidMarketplaceTransaction=1&token=... (POST, Owner-only, {transactionId, reason})
   //   ?ifwlTreasury=1&token=...              (GET,  staff-only, {balance})
   //   ?craftPart=1&token=...                 (POST, {partType, quantity} - pay cash to craft on demand)
+  //   ?partsMarketplaceImages=1&token=...    (GET,  {images: {tyre,engine,suspension,damper,aero}})
   async function fetchMyPartsInventory(){ return apiGet('myPartsInventory'); }
   async function fetchMarketplaceListings(partType){ return (await apiGet('marketplaceListings', partType ? `&partType=${encodeURIComponent(partType)}` : '')).listings || []; }
   async function fetchMyMarketplaceListings(){ return (await apiGet('myMarketplaceListings')).listings || []; }
@@ -1366,7 +1367,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   // ✅ ADDED: manual crafting - pay cash from your balance to make stock on
   // demand, any time, alongside the free race-gated auto-production.
   async function craftPart(partType, quantity){ return apiPost('craftPart', { partType, quantity }); }
-  window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury, craftPart };
+  // ✅ ADDED: shared per-part-type artwork (staff-set, see licence.html) -
+  // read-only here, driver-facing display only.
+  async function fetchPartsMarketplaceImages(){ return (await apiGet('partsMarketplaceImages')).images || {}; }
+  window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury, craftPart, fetchPartsMarketplaceImages };
   window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   let currentProfile = null;
@@ -2001,17 +2005,27 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     if(!box) return;
     box.innerHTML = '<div class="empty">Loading the Marketplace&hellip;</div>';
 
-    let inventory, myListings, listings, catalog, ledger, seasonalCosts;
+    let inventory, myListings, listings, catalog, ledger, seasonalCosts, partImages;
     try{
-      [inventory, myListings, listings, catalog, ledger, seasonalCosts] = await Promise.all([
+      [inventory, myListings, listings, catalog, ledger, seasonalCosts, partImages] = await Promise.all([
         window.IFWL_MarketplaceAPI.fetchMyPartsInventory(),
         window.IFWL_MarketplaceAPI.fetchMyMarketplaceListings(),
         window.IFWL_MarketplaceAPI.fetchMarketplaceListings(),
         window.IFWL_CareerShopAPI.fetchCareerShopCatalog(),
         window.IFWL_CareerShopAPI.fetchMyCareerShopLedger(),
-        window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts()
+        window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts(),
+        window.IFWL_MarketplaceAPI.fetchPartsMarketplaceImages()
       ]);
     }catch(e){ box.innerHTML = `<div class="empty">Could not load the Marketplace: ${e.message}</div>`; return; }
+
+    // ✅ ADDED: shared per-part-type artwork - a plain placeholder tile
+    // (part name, no image) when staff hasn't set one yet for that type.
+    const mktPartImg = (pt, size) => {
+      const url = partImages && partImages[pt];
+      return url
+        ? `<img src="${url}" alt="${MKT_PART_LABEL[pt]}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;background:#0d1116;flex-shrink:0">`
+        : `<div style="width:${size}px;height:${size}px;border-radius:8px;background:#0d1116;border:1px solid var(--ifwl-line);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-dim);font-size:10px;text-align:center;padding:2px;line-height:1.2">${MKT_PART_LABEL[pt]}</div>`;
+    };
 
     const ownedIds = new Set(ledger.ownedItemIds || []);
     const ownsShopCategory = (cat) => catalog.some(it => it.category === cat && ownedIds.has(it.id));
@@ -2044,10 +2058,15 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const inventoryHtml = `
       <h4 style="margin:0 0 10px">My Inventory</h4>
       <div class="shop-item-grid">
-        <div class="shop-item-card aa-slot-card"><strong>Tyres</strong><p class="field-hint" style="margin:4px 0">In stock, ready to use or sell</p><span class="mono" style="font-weight:800;font-size:18px">${inventory.tyreInventoryCount || 0}</span></div>
+        <div class="shop-item-card aa-slot-card">
+          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg('tyre', 44)}<strong>Tyres</strong></div>
+          <p class="field-hint" style="margin:4px 0">In stock, ready to use or sell</p><span class="mono" style="font-weight:800;font-size:18px">${inventory.tyreInventoryCount || 0}</span>
+        </div>
         ${['engine','suspension','damper','aero'].map(pt => {
           const parts = (partsByType[pt] || []).slice().sort((a,b) => b.conditionPct - a.conditionPct);
-          return `<div class="shop-item-card aa-slot-card"><strong>${MKT_PART_LABEL[pt]}</strong><p class="field-hint" style="margin:4px 0">${parts.length} owned</p>
+          return `<div class="shop-item-card aa-slot-card">
+            <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 44)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
+            <p class="field-hint" style="margin:4px 0">${parts.length} owned</p>
             ${parts.length ? `<div style="font-size:12px;color:var(--text-dim)">${parts.map(p => p.conditionPct + '%').join(', ')}</div>` : ''}
           </div>`;
         }).join('')}
@@ -2065,7 +2084,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             const unitCost = Math.round(craftUnitCost[pt]);
             const discountPct = craftDiscountPct(pt);
             return `<div class="shop-item-card aa-slot-card">
-              <strong>${MKT_PART_LABEL[pt]}</strong>
+              <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 44)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
               <p class="field-hint" style="margin:4px 0">${csFmtMoney(unitCost)} each${discountPct > 0 ? ` <span style="color:#1fd6bd">(-${discountPct}% shop discount)</span>` : ''}</p>
               <div class="row" style="gap:6px;margin-top:6px">
                 <input type="number" min="1" max="500" placeholder="Qty" value="1" data-craft-qty="${pt}" style="width:70px">
@@ -2086,7 +2105,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           return partTypes.map(pt => {
             const available = pt === 'tyre' ? (inventory.tyreInventoryCount || 0) : (partsByType[pt] || []).length;
             return `<div class="shop-item-card aa-slot-card">
-              <strong>${MKT_PART_LABEL[pt]}</strong>
+              <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 44)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
               <p class="field-hint" style="margin:4px 0">${available} available to list</p>
               <div class="row" style="gap:6px;margin-top:6px">
                 <input type="number" min="1" max="${available}" placeholder="Qty" data-sell-qty="${pt}" style="width:70px" ${available ? '' : 'disabled'}>
@@ -2105,9 +2124,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <div class="shop-receipt-list">
         ${myListings.map(l => {
           const remaining = l.partType === 'tyre' ? l.quantityRemaining : (l.partIdsRemaining || []).length;
-          return `<div class="shop-receipt-row">
-            <div><div>${remaining} x ${MKT_PART_LABEL[l.partType]} @ ${csFmtMoney(l.pricePerUnit)} each</div>
-            <div class="shop-receipt-meta">Status: ${l.status}</div></div>
+          return `<div class="shop-receipt-row" style="align-items:center;gap:12px">
+            ${mktPartImg(l.partType, 48)}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700">${MKT_PART_LABEL[l.partType]}</div>
+              <div class="shop-receipt-meta">In stock: ${remaining} &middot; Price: ${csFmtMoney(l.pricePerUnit)} each</div>
+              <div class="shop-receipt-meta">Status: ${l.status}</div>
+            </div>
             ${l.status === 'active' ? `<button class="btn ghost" data-cancel-listing="${l.id}">Cancel</button>` : ''}
           </div>`;
         }).join('')}
@@ -2115,26 +2138,72 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     ` : '';
 
     // --- Browse Marketplace ---
+    // ✅ ADDED: sort + "starred sellers only" filter, applied client-side
+    // over the already-fetched listings (no extra round trip) so switching
+    // either control is instant.
+    const renderBrowseRows = () => {
+      const rowsBox = q('mktBrowseRows');
+      if(!rowsBox) return;
+      const sortMode = q('mktSortSelect')?.value || 'priceAsc';
+      const starredOnly = !!q('mktStarredOnly')?.checked;
+      let shown = listings.slice();
+      if(starredOnly) shown = shown.filter(l => l.sellerTrusted);
+      shown.sort((a, b) => sortMode === 'priceDesc'
+        ? (Number(b.pricePerUnit) || 0) - (Number(a.pricePerUnit) || 0)
+        : (Number(a.pricePerUnit) || 0) - (Number(b.pricePerUnit) || 0));
+
+      rowsBox.innerHTML = shown.length ? shown.map(l => {
+        const remaining = l.partType === 'tyre' ? l.quantityRemaining : (l.partIdsRemaining || []).length;
+        const isMe = l.sellerId === (window.IFWL_META?.userId);
+        const sellerLabel = isMe ? 'You' : (l.sellerName || 'Unnamed driver');
+        const star = l.sellerTrusted ? ` <span title="Trusted seller - ${l.sellerSoldCount}+ items sold" style="color:#ffb238">&#9733;</span>` : '';
+        return `<div class="shop-receipt-row" style="align-items:center;gap:12px">
+          ${mktPartImg(l.partType, 56)}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700">${MKT_PART_LABEL[l.partType]}</div>
+            <div class="shop-receipt-meta">Seller: ${sellerLabel}${star}</div>
+            <div class="shop-receipt-meta">In stock: ${remaining} &middot; Price: ${csFmtMoney(l.pricePerUnit)} each</div>
+          </div>
+          <div class="row" style="gap:6px;align-items:center">
+            <input type="number" min="1" max="${remaining}" value="1" data-buy-qty="${l.id}" style="width:60px">
+            <button class="btn teal" data-buy-listing="${l.id}">Buy</button>
+          </div>
+        </div>`;
+      }).join('') : `<div class="empty">${starredOnly ? 'No starred-seller listings right now.' : 'No active listings yet - check back once a Shop/Factory owner lists some stock.'}</div>`;
+
+      rowsBox.querySelectorAll('[data-buy-listing]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const listingId = btn.dataset.buyListing;
+          const qtyEl = rowsBox.querySelector(`[data-buy-qty="${listingId}"]`);
+          const qty = Math.max(1, Math.round(Number(qtyEl.value) || 1));
+          if(!confirm(`Buy ${qty} unit(s) from this listing?`)) return;
+          btn.disabled = true;
+          try{
+            await window.IFWL_MarketplaceAPI.purchaseMarketplaceListing(listingId, qty);
+            await renderMarketplaceSection();
+            await renderCareerShopSection(); // balance changed
+          }catch(e){ alert('Could not buy: ' + e.message); btn.disabled = false; }
+        });
+      });
+    };
+
     const browseHtml = `
       <h4 style="margin:16px 0 10px">Browse Marketplace</h4>
-      ${listings.length ? `
-        <div class="shop-receipt-list">
-          ${listings.map(l => {
-            const remaining = l.partType === 'tyre' ? l.quantityRemaining : (l.partIdsRemaining || []).length;
-            const isMe = l.sellerId === (window.IFWL_META?.userId);
-            const sellerLabel = isMe ? 'You' : (l.sellerName || 'Unnamed driver');
-            const star = l.sellerTrusted ? ` <span title="Trusted seller - ${l.sellerSoldCount}+ items sold" style="color:#ffb238">&#9733;</span>` : '';
-            return `<div class="shop-receipt-row">
-              <div><div>${remaining} left &middot; ${MKT_PART_LABEL[l.partType]} @ ${csFmtMoney(l.pricePerUnit)} each</div>
-              <div class="shop-receipt-meta">Seller: ${sellerLabel}${star}</div></div>
-              <div class="row" style="gap:6px;align-items:center">
-                <input type="number" min="1" max="${remaining}" value="1" data-buy-qty="${l.id}" style="width:60px">
-                <button class="btn teal" data-buy-listing="${l.id}">Buy</button>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-      ` : '<div class="empty">No active listings yet - check back once a Shop/Factory owner lists some stock.</div>'}
+      <div class="notice-card" style="border-left-color:#ffb238;background:rgba(255,178,56,.08);margin-bottom:12px">
+        This is a dynamic, driver-run marketplace - it mirrors real life: any driver can buy competition parts and relist them at their own price, so stock and prices move as drivers trade with each other, not just with the factories.
+      </div>
+      <div class="row" style="gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px">Sort:
+          <select id="mktSortSelect">
+            <option value="priceAsc">Price: Low to High</option>
+            <option value="priceDesc">Price: High to Low</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+          <input type="checkbox" id="mktStarredOnly"> Starred sellers only
+        </label>
+      </div>
+      <div class="shop-receipt-list" id="mktBrowseRows"></div>
     `;
 
     box.innerHTML = `
@@ -2147,6 +2216,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       ${myListingsHtml}
       ${browseHtml}
     `;
+
+    renderBrowseRows();
+    q('mktSortSelect').addEventListener('change', renderBrowseRows);
+    q('mktStarredOnly').addEventListener('change', renderBrowseRows);
 
     box.querySelectorAll('[data-craft-part]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -2190,20 +2263,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         btn.disabled = true;
         try{ await window.IFWL_MarketplaceAPI.cancelMarketplaceListing(btn.dataset.cancelListing); await renderMarketplaceSection(); }
         catch(e){ alert('Could not cancel: ' + e.message); btn.disabled = false; }
-      });
-    });
-    box.querySelectorAll('[data-buy-listing]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const listingId = btn.dataset.buyListing;
-        const qtyEl = box.querySelector(`[data-buy-qty="${listingId}"]`);
-        const qty = Math.max(1, Math.round(Number(qtyEl.value) || 1));
-        if(!confirm(`Buy ${qty} unit(s) from this listing?`)) return;
-        btn.disabled = true;
-        try{
-          await window.IFWL_MarketplaceAPI.purchaseMarketplaceListing(listingId, qty);
-          await renderMarketplaceSection();
-          await renderCareerShopSection(); // balance changed
-        }catch(e){ alert('Could not buy: ' + e.message); btn.disabled = false; }
       });
     });
   }
