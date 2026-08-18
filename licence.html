@@ -3014,6 +3014,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="field-group"><label>End date</label><input type="date" id="seasonEndInput"></div>
       <button class="btn teal" id="seasonSaveBtn" type="button">Save season window</button>
       <span class="save-status" id="seasonSaveStatus"></span>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <!-- ✅ ADDED: Career Unlock - beta-period switch that opens Career
+           Shop Gold/Factory ownership + the Season Progression full-detail
+           view to every IFWL Active Racer, not just Gold Patreon. Career
+           Perks are deliberately untouched by this - always Patreon-gated,
+           regardless of this switch. -->
+      <h4 style="margin:0 0 8px">Career Unlock <span class="badge" style="background:rgba(31,214,189,.15);color:#1fd6bd;font-size:11px;vertical-align:middle">Beta</span></h4>
+      <div class="notice-card">While beta testing, this opens the Career Shop's Gold-only Shop/Factory ownership (Tyre Factory, Engine Shop, Tuning Shop, Aero Tuning Company) and the full-detail Season Progression view to every <strong>IFWL Active Racer</strong> - not just Gold Patreon. <strong>Career Perks stay Patreon-gated regardless of this switch</strong> - Silver/Gold only, exactly as today.</div>
+      <div class="field-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="careerUnlockEnabledCheck" style="width:auto"> Enabled - unlock the Career for every Active Racer</label></div>
+      <button class="btn teal" id="careerUnlockSaveBtn" type="button">Save Career Unlock</button>
+      <span class="save-status" id="careerUnlockSaveStatus"></span>
     </div>
   </section>
 
@@ -3380,7 +3393,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(USE_DEMO_FALLBACK){ demoSet('seasonWindow', data); return data; }
     return apiPost('staffSeasonWindowSave', data);
   }
-  window.IFWL_SeasonAPI = { fetchSeasonWindow, saveSeasonWindow };
+  // ✅ ADDED: Career Unlock - beta-period switch, see seasonWindowPanel.
+  // Server contract: ?careerUnlockStatus=1 -> {enabled}
+  //                  ?staffSaveCareerUnlock=1 {enabled} (Owner only)
+  async function fetchCareerUnlock(){
+    if(USE_DEMO_FALLBACK) return demoGet('careerUnlock', { enabled: false });
+    return apiGet('careerUnlockStatus');
+  }
+  async function saveCareerUnlock(enabled){
+    if(USE_DEMO_FALLBACK){ demoSet('careerUnlock', { enabled }); return { enabled }; }
+    return apiPost('staffSaveCareerUnlock', { enabled });
+  }
+  window.IFWL_SeasonAPI = { fetchSeasonWindow, saveSeasonWindow, fetchCareerUnlock, saveCareerUnlock };
 
   async function fetchQualificationWindow(){
     if(USE_DEMO_FALLBACK) return demoGet('qualificationWindow', { label:'', startDate:'', endDate:'' });
@@ -9029,6 +9053,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('seasonLabelInput').value = season.label || '';
     q('seasonStartInput').value = season.startDate || '';
     q('seasonEndInput').value = season.endDate || '';
+
+    try{
+      const cu = await window.IFWL_SeasonAPI.fetchCareerUnlock();
+      q('careerUnlockEnabledCheck').checked = !!cu.enabled;
+    }catch(e){ q('careerUnlockSaveStatus').textContent = 'Could not load current state: ' + e.message; }
   }
   q('seasonSaveBtn')?.addEventListener('click', async () => {
     const label = q('seasonLabelInput').value.trim();
@@ -9040,6 +9069,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       await window.IFWL_SeasonAPI.saveSeasonWindow({ label, startDate, endDate });
       q('seasonSaveStatus').textContent = 'Saved. Race Results will use this next time it loads.';
     }catch(e){ q('seasonSaveStatus').textContent = 'Could not save: ' + e.message; }
+  });
+  q('careerUnlockSaveBtn')?.addEventListener('click', async () => {
+    const enabled = q('careerUnlockEnabledCheck').checked;
+    q('careerUnlockSaveStatus').textContent = 'Saving...';
+    try{
+      await window.IFWL_SeasonAPI.saveCareerUnlock(enabled);
+      q('careerUnlockSaveStatus').textContent = enabled
+        ? 'Saved - Career is now unlocked for every Active Racer.'
+        : 'Saved - Career is now back to Gold Patreon only.';
+    }catch(e){ q('careerUnlockSaveStatus').textContent = 'Could not save: ' + e.message; }
   });
 
   async function initQualificationWindowPanel(){
