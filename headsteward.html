@@ -50,6 +50,19 @@
     .title { font-weight:700; font-size:16px; margin:0 0 10px; }
     .muted { color:#6b7280; font-size:12px; }
 
+    /* ✅ ADDED: Owner's Emergency Standards Clause banner styling */
+    .redBox{
+      border:1px solid #fca5a5;
+      background:#fef2f2;
+      color:#991b1b;
+      border-radius:12px;
+      padding:10px 12px;
+      margin-top:10px;
+      font-size:13px;
+      line-height:1.35;
+      font-weight:700;
+    }
+
     .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     button { padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer; }
     button.primary { background:#111827; color:#fff; border-color:#111827; }
@@ -677,6 +690,32 @@
   </header>
 
   <div class="wrap">
+    <!-- ✅ ADDED: Owner's Emergency Standards Clause. Owner-only controls;
+         the red banner itself (top of this card) is visible to every Head
+         Steward, since they need to see it and act on it even though only
+         Owner can turn it on/off. See initOwnerClauseUI / refreshOwnerClauseCard
+         in the script below, and league_meta/ownerClause in Firestore -
+         the same doc rtgate.js reads from for the driver-facing side on
+         career.html/licence.html. -->
+    <div class="card" id="ownerClauseCard" style="grid-column: 1 / -1; display:none;">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div class="title" style="margin:0;">Owner's Emergency Standards Clause</div>
+          <div class="muted">Owner-only to enable/disable. Invoking this puts the whole league under a temporary heightened-standards period - stewards, drivers, everyone.</div>
+        </div>
+      </div>
+      <div id="ownerClauseBanner" style="margin-top:10px;"></div>
+      <div id="ownerClauseControls" style="margin-top:12px; display:none;">
+        <label class="muted">Reason (shown to stewards and drivers)</label>
+        <textarea id="ownerClauseReason" rows="3">One or more season events have dropped below IFWL's expected standard.</textarea>
+        <div class="row" style="margin-top:10px;">
+          <button class="primary" id="ownerClauseEnableBtn">Enable Clause (3 weeks)</button>
+          <button id="ownerClauseDisableBtn">Disable Clause Now</button>
+        </div>
+        <div class="muted" id="ownerClauseStatus" style="margin-top:8px;">Loading…</div>
+      </div>
+    </div>
+
     <!-- NEW: Live Ticket Queue (Race 1 sheet -> TLS) -->
     <div class="card" id="liveQueueCard" style="grid-column: 1 / -1;">
       <div class="row" style="justify-content:space-between;">
@@ -1267,6 +1306,115 @@
 
     function escapeHtml(s) {
       return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
+
+    // ✅ ADDED: Owner's Emergency Standards Clause. league_meta/ownerClause
+    // is the single source of truth, shared with steward.html (read-only
+    // there) and with rtgate.js's ownerClauseStatus endpoint (which is how
+    // career.html/licence.html surface it to drivers). Only Owner
+    // (data.owner === true on the admins doc, not just any Head Steward)
+    // gets the enable/disable controls - every Head Steward still sees the
+    // banner and the penalty-doubling/TLS guidance below it once it's on.
+    const OWNER_CLAUSE_DURATION_MS = 21 * 24 * 60 * 60 * 1000; // 3 weeks, fixed - not configurable
+
+    async function refreshOwnerClauseCard() {
+      const card = $("ownerClauseCard");
+      const banner = $("ownerClauseBanner");
+      const statusEl = $("ownerClauseStatus");
+      let d = null;
+      try {
+        const snap = await db.collection("league_meta").doc("ownerClause").get();
+        d = snap.exists ? snap.data() : null;
+      } catch (e) {
+        console.error("refreshOwnerClauseCard failed:", e);
+      }
+
+      const nowMs = Date.now();
+      const active = !!(d && d.enabled === true && Number(d.expiresAtMs) > nowMs);
+      const name = escapeHtml((d && d.name) || "Emergency Standards Clause");
+
+      if (banner) {
+        if (active) {
+          const daysLeft = Math.max(1, Math.ceil((Number(d.expiresAtMs) - nowMs) / 86400000));
+          const reason = escapeHtml((d && d.reasonText) || "one or more season events have dropped below IFWL's expected standard");
+          banner.innerHTML = `
+            <div class="redBox">
+              <strong>${name} IN EFFECT</strong> — invoked by the League Owner. Reason: ${reason}.
+              Active for approximately ${daysLeft} more day${daysLeft === 1 ? "" : "s"} (expires ${new Date(Number(d.expiresAtMs)).toLocaleString()}).
+              <div style="margin-top:8px;">
+                While in effect: all penalties are to be <strong>doubled at the Head Steward's discretion</strong> (not automatic), and the <strong>Stewards TLS System</strong> will pick up enforcement. This is enforced by staff and cannot be ignored.
+              </div>
+            </div>
+          `;
+        } else {
+          banner.innerHTML = "";
+        }
+      }
+
+      if (isOwner && statusEl) {
+        if (active) {
+          statusEl.textContent = `Active — enabled ${new Date(Number(d.enabledAtMs)).toLocaleString()} by ${d.updatedBy || "Owner"}. Auto-expires ${new Date(Number(d.expiresAtMs)).toLocaleString()}.`;
+        } else if (d && d.enabled === true) {
+          statusEl.textContent = `Not currently active - last run expired ${new Date(Number(d.expiresAtMs)).toLocaleString()}.`;
+        } else {
+          statusEl.textContent = "Not currently active.";
+        }
+      }
+
+      if (card) card.style.display = (isOwner || active) ? "block" : "none";
+      return { active, d };
+    }
+
+    function initOwnerClauseUI() {
+      const controls = $("ownerClauseControls");
+      if (isOwner && controls) controls.style.display = "block";
+
+      const enableBtn = $("ownerClauseEnableBtn");
+      if (enableBtn) enableBtn.onclick = async () => {
+        const reasonText = ($("ownerClauseReason")?.value || "").trim()
+          || "One or more season events have dropped below IFWL's expected standard.";
+        if (!confirm("Enable the Emergency Standards Clause for the next 3 weeks? This shows a red notice to every steward and driver immediately, and cannot be undone except by manually disabling it early.")) return;
+        enableBtn.disabled = true;
+        try {
+          const nowMs = Date.now();
+          await db.collection("league_meta").doc("ownerClause").set({
+            enabled: true,
+            name: "Emergency Standards Clause",
+            reasonText,
+            enabledAtMs: nowMs,
+            expiresAtMs: nowMs + OWNER_CLAUSE_DURATION_MS,
+            updatedBy: currentEmail,
+            updatedAtMs: nowMs
+          }, { merge: true });
+          toast("Emergency Standards Clause enabled.");
+          await refreshOwnerClauseCard();
+        } catch (e) {
+          toast("Could not enable: " + (e?.message || e));
+        } finally {
+          enableBtn.disabled = false;
+        }
+      };
+
+      const disableBtn = $("ownerClauseDisableBtn");
+      if (disableBtn) disableBtn.onclick = async () => {
+        if (!confirm("Disable the Emergency Standards Clause now?")) return;
+        disableBtn.disabled = true;
+        try {
+          await db.collection("league_meta").doc("ownerClause").set({
+            enabled: false,
+            updatedBy: currentEmail,
+            updatedAtMs: Date.now()
+          }, { merge: true });
+          toast("Emergency Standards Clause disabled.");
+          await refreshOwnerClauseCard();
+        } catch (e) {
+          toast("Could not disable: " + (e?.message || e));
+        } finally {
+          disableBtn.disabled = false;
+        }
+      };
+
+      return refreshOwnerClauseCard();
     }
 
     function isFinalised(status) {
@@ -1909,6 +2057,7 @@ This will not change Firestore status.`);
     let currentUser = null;
     let currentEmail = "";
     let isHead = false;
+    let isOwner = false;
     let selectedTicketId = "";
     let selectedTicketSnap = null;
 
@@ -3643,6 +3792,9 @@ This status was changed from the Head Steward web dashboard so the ticket can be
             ? data.role.join(" ").toLowerCase()
             : String(data.role || "").toLowerCase();
           isHead = roleRaw.includes("head") || data.headsteward === true || data.owner === true;
+          // ✅ ADDED: distinct from isHead - only a true Owner (not every
+          // Head Steward) gets the Emergency Standards Clause controls.
+          isOwner = data.owner === true;
 
           if (!isHead) { window.location.href = "steward.html"; return; }
 
@@ -3651,6 +3803,8 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           welcomeLineEl.textContent = `Welcome, ${niceName}. You oversee all live tickets — publish statements and guide steward outcomes.`;
 
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
+
+          initOwnerClauseUI();
 
           // Load penalty codes for the discussion / finalisation dropdowns
           await loadPenaltyCodes();
