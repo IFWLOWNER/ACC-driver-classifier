@@ -2354,6 +2354,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="fc-summary-box" style="border-color:#ffb238"><span>IFWL Treasury</span><strong style="color:#ffb238" id="mktTreasuryValue">&pound;0</strong></div>
       </div>
 
+      <!-- ✅ ADDED: Part Type Images - one shared image per part type
+           (Tyres/Engine/Suspension/Damper/Aero), shown on every driver's
+           Marketplace listing, Craft Parts card, and inventory tile on
+           career.html. Not per shop-item artwork (that's the IFWL Shop
+           panel's own image field, unchanged) - this is the generic
+           commodity image for the part itself. -->
+      <h4 style="margin:20px 0 10px">Part Type Images</h4>
+      <p class="field-hint" style="margin:-4px 0 10px">Set one image per part type - shown wherever that part appears on the Marketplace (listings, Craft Parts, inventory). JPEG or PNG, up to 5MB.</p>
+      <div class="shop-item-grid" id="mktPartImagesGrid"><div class="empty">Loading&hellip;</div></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
       <h4 style="margin:20px 0 10px">Active &amp; Recent Listings</h4>
       <div id="mktListingsRows"><div class="empty">Loading&hellip;</div></div>
 
@@ -3623,13 +3635,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   //   ?staffMarketplaceOverview=1&token=...        (GET, Owner-only)
   //   ?staffVoidMarketplaceTransaction=1&token=... (POST, Owner-only, {transactionId, reason})
   //   ?ifwlTreasury=1&token=...                    (GET, staff-only, {balance})
+  //   ?partsMarketplaceImages=1&token=...          (GET, any driver, {images})
+  //   ?staffSavePartsMarketplaceImage=1&token=...  (POST, Owner-only, {partType, imageUrl})
   async function fetchStaffMarketplaceOverview(){ return apiGet('staffMarketplaceOverview'); }
   async function voidMarketplaceTransaction(transactionId, reason){
     if(!reason || !reason.trim()) throw new Error('A reason is required.');
     return apiPost('staffVoidMarketplaceTransaction', { transactionId, reason: reason.trim() });
   }
   async function fetchIfwlTreasury(){ return apiGet('ifwlTreasury'); }
-  window.IFWL_MarketplaceAPI = { fetchStaffMarketplaceOverview, voidMarketplaceTransaction, fetchIfwlTreasury };
+  async function fetchPartsMarketplaceImages(){ return (await apiGet('partsMarketplaceImages')).images || {}; }
+  async function savePartsMarketplaceImage(partType, imageUrl){ return apiPost('staffSavePartsMarketplaceImage', { partType, imageUrl }); }
+  window.IFWL_MarketplaceAPI = { fetchStaffMarketplaceOverview, voidMarketplaceTransaction, fetchIfwlTreasury, fetchPartsMarketplaceImages, savePartsMarketplaceImage };
   window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   // ✅ ADDED: Seasonal Licence Overlays
@@ -11747,9 +11763,59 @@ Flashing Headlights:
     });
   }
 
+  // ✅ ADDED: Part Type Images - one shared image per part type, uploaded
+  // via the same rtLicenceImageUpload pipeline every other IFWL image uses
+  // (kind: 'partsMarketplaceImage', Owner-only server-side), then saved to
+  // league_meta/partsMarketplaceImages via staffSavePartsMarketplaceImage.
+  // Each part type uploads+saves independently - no combined "Save all".
+  async function renderPartImagesPanel(){
+    const grid = q('mktPartImagesGrid');
+    if(!grid) return;
+    grid.innerHTML = '<div class="empty">Loading&hellip;</div>';
+
+    let images;
+    try{ images = await window.IFWL_MarketplaceAPI.fetchPartsMarketplaceImages(); }
+    catch(e){ grid.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+
+    grid.innerHTML = ['tyre','engine','suspension','damper','aero'].map(pt => `
+      <div class="shop-item-card aa-slot-card">
+        <strong>${MKT_PART_LABEL[pt]}</strong>
+        <div style="margin:8px 0">
+          ${images[pt]
+            ? `<img src="${images[pt]}" alt="${MKT_PART_LABEL[pt]}" style="width:100%;max-width:180px;height:100px;object-fit:cover;border-radius:8px;display:block;background:#0d1116">`
+            : `<div style="width:100%;max-width:180px;height:100px;border-radius:8px;background:#0d1116;border:1px dashed var(--ifwl-line);display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:12px">No image set</div>`}
+        </div>
+        <input type="file" accept="image/png,image/jpeg" data-part-image-input="${pt}" style="margin-bottom:6px">
+        <button class="btn teal" type="button" data-part-image-upload="${pt}">Upload</button>
+        <span class="field-hint" data-part-image-status="${pt}" style="display:block;margin-top:4px"></span>
+      </div>
+    `).join('');
+
+    grid.querySelectorAll('[data-part-image-upload]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pt = btn.dataset.partImageUpload;
+        const fileInput = grid.querySelector(`[data-part-image-input="${pt}"]`);
+        const status = grid.querySelector(`[data-part-image-status="${pt}"]`);
+        const file = fileInput.files[0];
+        if(!file){ status.textContent = 'Choose a file first.'; return; }
+        btn.disabled = true;
+        status.textContent = 'Uploading...';
+        try{
+          const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'partsMarketplaceImage');
+          await window.IFWL_MarketplaceAPI.savePartsMarketplaceImage(pt, url);
+          await renderPartImagesPanel();
+        }catch(e){
+          status.textContent = 'Failed: ' + e.message;
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
   function initMarketplacePanel(){
     if(!q('staffMarketplacePanel')) return;
     renderMarketplaceOverview();
+    renderPartImagesPanel();
     q('mktRefreshBtn').onclick = renderMarketplaceOverview;
   }
 
