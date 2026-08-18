@@ -1608,6 +1608,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
   function spCurrentTier(){
     if(window.IFWL_GOLD) return 'gold';
+    // ✅ ADDED: beta-period Career Unlock - see initSeasonProgressionPanel.
+    // Does NOT affect Career Perks (renderCareerPerksSection has its own,
+    // untouched perkAllowance check further down).
+    if(window.IFWL_CAREER_UNLOCK) return 'gold';
     if(window.IFWL_SILVER_PLUS) return 'silver';
     return 'bronze';
   }
@@ -1911,7 +1915,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             const owned = ownedIds.has(item.id);
             const canAfford = balance >= (Number(item.cost) || 0);
             const isShopCategory = ['tyreFactory','engineShop','tuningShop','aeroShop'].includes(item.category);
-            const goldLocked = isShopCategory && !window.IFWL_GOLD && !window.IFWL_STAFF;
+            const goldLocked = isShopCategory && !window.IFWL_GOLD && !window.IFWL_STAFF && !window.IFWL_CAREER_UNLOCK;
             const effectText = item.category === 'supportStaff'
               ? `+${item.bonusPct}% sponsorship revenue`
               : item.category === 'costReduction'
@@ -2379,6 +2383,20 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
   async function initSeasonProgressionPanel(){
     if(!q('seasonProgressionPanel')) return;
+
+    // ✅ ADDED: "Career Unlock" - beta-period staff switch (Staff > Season
+    // Window > Career Unlock) that opens Gold-locked Career features to
+    // every Active Racer, not just Gold Patreon. Fetched fresh on every
+    // load (not baked into the login session) so flipping the staff switch
+    // takes effect the next time a driver's page loads, not up to 7 days
+    // later. Deliberately narrow: only affects the Season Progression
+    // stat-tier reveal (spCurrentTier) and the Shop/Factory Gold-lock below
+    // - Career Perks are untouched, always real-Patreon-tier gated.
+    try{
+      const unlockStatus = await apiGet('careerUnlockStatus');
+      window.IFWL_CAREER_UNLOCK_ENABLED = !!unlockStatus.enabled;
+    }catch(e){ window.IFWL_CAREER_UNLOCK_ENABLED = false; }
+    window.IFWL_CAREER_UNLOCK = window.IFWL_CAREER_UNLOCK_ENABLED && !!(window.IFWL_META && window.IFWL_META.activeRacer);
 
     // Background image and the owner upload control both apply regardless
     // of Gold status - everyone should see the nice background behind the
