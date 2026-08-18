@@ -2159,6 +2159,15 @@
     </div>
   </header>
 
+  <!-- ✅ ADDED: Owner's Emergency Standards Clause - read-only notice for
+       regular stewards. Enabled/disabled by Owner on headsteward.html only;
+       this just reads league_meta/ownerClause and shows a red box while
+       it's active and not past its 3-week auto-expiry. See loadOwnerClause
+       in the script below. -->
+  <div style="padding:14px; padding-bottom:0;" id="ownerClauseWrap">
+    <div id="ownerClauseBanner"></div>
+  </div>
+
   <!-- Accountability (Top) -->
   <div style="padding:14px; padding-bottom:0;">
     <div class="card" id="acctCard">
@@ -2854,6 +2863,38 @@
       return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
     }
 
+    // ✅ ADDED: Owner's Emergency Standards Clause - read-only for regular
+    // stewards. Owner enables/disables this from headsteward.html only
+    // (see the matching function there); this reads the same
+    // league_meta/ownerClause doc and shows a red box while it's active and
+    // not past its 3-week auto-expiry. No enforcement detail (penalty
+    // doubling / TLS handoff) here - that's Head Steward-specific guidance,
+    // shown only on headsteward.html.
+    async function loadOwnerClause() {
+      const box = document.getElementById("ownerClauseBanner");
+      if (!box) return;
+      try {
+        const snap = await db.collection("league_meta").doc("ownerClause").get();
+        const d = snap.exists ? (snap.data() || {}) : {};
+        const nowMs = Date.now();
+        const active = d.enabled === true && Number(d.expiresAtMs) > nowMs;
+        if (!active) { box.innerHTML = ""; return; }
+
+        const daysLeft = Math.max(1, Math.ceil((Number(d.expiresAtMs) - nowMs) / 86400000));
+        const name = escapeHtml(d.name || "Emergency Standards Clause");
+        const reason = escapeHtml(d.reasonText || "one or more season events have dropped below IFWL's expected standard");
+        box.innerHTML = `
+          <div class="redBox">
+            <strong>${name} IN EFFECT</strong> — invoked by the League Owner. Reason: ${reason}.
+            Active for approximately ${daysLeft} more day${daysLeft === 1 ? "" : "s"} (expires ${new Date(Number(d.expiresAtMs)).toLocaleString()}).
+            This is enforced by staff and cannot be ignored.
+          </div>
+        `;
+      } catch (e) {
+        console.error("loadOwnerClause failed:", e);
+      }
+    }
+
     function clampScore(v) {
       const n = parseInt(v || 1, 10);
       return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
@@ -3394,6 +3435,7 @@
 
         $("who").textContent = `Signed in as: ${maskEmail(currentEmail)} | role: ${data.role || "steward"}`;
 
+        loadOwnerClause();
         await loadPenaltyCodes();
 
         // NEW: wire discussion dropdown preview
