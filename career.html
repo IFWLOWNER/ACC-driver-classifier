@@ -2107,9 +2107,39 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const partsByType = {};
     (inventory.partsInventory || []).forEach(p => { (partsByType[p.partType] = partsByType[p.partType] || []).push(p); });
 
+    // ✅ ADDED: Base RRP + wear-per-race-weekend reference, so a driver can
+    // tell whether a Marketplace listing is actually a good deal against
+    // the official factory price, and how many race weekends a purchase
+    // will realistically cover. RRP is the same undiscounted figure crafting
+    // is priced from (craftBaseCost, straight from Seasonal Costs) - not
+    // any driver's own discounted cost. Wear ratios are the exact same
+    // figures race settlement actually consumes server-side (tyres: fully
+    // consumed, IFWL_RACE_EARNINGS_TYRES_PER_RACE=16 per weekend; durable
+    // parts: IFWL_PARTS_WEAR_PCT condition lost per weekend), not an
+    // approximation.
+    const MKT_WEAR_PCT_PER_WEEKEND = { engine: 25, suspension: 25, damper: 50, aero: 50 };
+    const mktWearText = (pt) => pt === 'tyre'
+      ? '16 tyres consumed per race weekend (fully used up)'
+      : `-${MKT_WEAR_PCT_PER_WEEKEND[pt]}% condition per race weekend (lasts ~${Math.round(100 / MKT_WEAR_PCT_PER_WEEKEND[pt])} weekends from full)`;
+    const rrpReferenceHtml = `
+      <h4 style="margin:0 0 10px">Base RRP &amp; Wear Reference</h4>
+      <p class="field-hint" style="margin:-4px 0 8px">The official factory price and how fast each part wears out - use this to judge whether a Marketplace listing is actually a good deal.</p>
+      <div class="shop-item-grid">
+        ${['tyre','engine','suspension','damper','aero'].map(pt => `<div class="shop-item-card aa-slot-card">
+          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 40)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
+          <p class="field-hint" style="margin:4px 0">RRP: <span class="mono" style="font-weight:800;color:var(--text)">${csFmtMoney(Math.round(craftBaseCost[pt]))}</span> each</p>
+          <p class="field-hint" style="margin:4px 0">${mktWearText(pt)}</p>
+        </div>`).join('')}
+      </div>
+    `;
+
     // --- My Inventory ---
+    // ✅ CHANGED: collapsed by default (native <details>, no "open" attr) -
+    // Browse Marketplace / My Listings are the only sections left open, this
+    // and Craft Parts / Sell From My Shops below all now need a tap to expand.
     const inventoryHtml = `
-      <h4 style="margin:0 0 10px">My Inventory</h4>
+      <details class="mkt-collapsible">
+      <summary style="cursor:pointer;font-size:16px;font-weight:700;margin:0 0 10px">My Inventory</summary>
       <div class="shop-item-grid">
         <div class="shop-item-card aa-slot-card">
           <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg('tyre', 44)}<strong>Tyres</strong></div>
@@ -2124,11 +2154,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           </div>`;
         }).join('')}
       </div>
+      </details>
     `;
 
     // --- Craft Parts (pay cash to make stock on demand) ---
     const craftFormHtml = myShops.length ? `
-      <h4 style="margin:16px 0 10px">Craft Parts</h4>
+      <details class="mkt-collapsible">
+      <summary style="cursor:pointer;font-size:16px;font-weight:700;margin:16px 0 10px">Craft Parts</summary>
       <p class="field-hint" style="margin:-4px 0 8px">Pay from your balance to make stock instantly, any time - on top of the free stock you get automatically for race weekends you compete. Balance: ${csFmtMoney(ledger.balance)}</p>
       <div class="shop-item-grid">
         ${myShops.map(cat => {
@@ -2147,11 +2179,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           }).join('');
         }).join('')}
       </div>
+      </details>
     ` : '';
 
     // --- My Shops (list for sale) ---
     const sellFormHtml = myShops.length ? `
-      <h4 style="margin:16px 0 10px">Sell From My Shops</h4>
+      <details class="mkt-collapsible">
+      <summary style="cursor:pointer;font-size:16px;font-weight:700;margin:16px 0 10px">Sell From My Shops</summary>
       <div class="shop-item-grid">
         ${myShops.map(cat => {
           const partTypes = cat === 'tyreFactory' ? ['tyre'] : cat === 'tuningShop' ? ['suspension','damper'] : cat === 'engineShop' ? ['engine'] : ['aero'];
@@ -2169,6 +2203,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           }).join('');
         }).join('')}
       </div>
+      </details>
     ` : `<p class="field-hint" style="margin:16px 0">Own a Tyre Factory, Engine Shop, Tuning Shop or Aero Tuning Company (Gold Patreon, from the Career Shop tab) to produce stock and sell here.</p>`;
 
     // --- My Listings ---
@@ -2263,6 +2298,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <div class="notice-card" style="border-left-color:#1fd6bd;background:rgba(31,214,189,.08)">
         A 7% league cut is taken from every sale (goes to the IFWL Treasury, never to a person) - you always pay the listed price, sellers receive 93% of it.
       </div>
+      ${rrpReferenceHtml}
       ${inventoryHtml}
       ${craftFormHtml}
       ${sellFormHtml}
