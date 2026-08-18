@@ -1322,11 +1322,24 @@
       const banner = $("ownerClauseBanner");
       const statusEl = $("ownerClauseStatus");
       let d = null;
+      let loadError = null;
       try {
         const snap = await db.collection("league_meta").doc("ownerClause").get();
         d = snap.exists ? snap.data() : null;
       } catch (e) {
         console.error("refreshOwnerClauseCard failed:", e);
+        loadError = e?.message || String(e);
+      }
+
+      // ✅ FIXED: a failed read (e.g. missing/insufficient permissions from
+      // a Firestore rules gap) used to be swallowed silently and rendered
+      // as if the clause simply wasn't active - misleading for Owner, who
+      // has no other way to tell "off" apart from "broken". Surface it.
+      if (loadError) {
+        if (card) card.style.display = "block";
+        if (banner) banner.innerHTML = `<div class="redBox">Could not load the Emergency Standards Clause status: ${escapeHtml(loadError)}. This usually means a Firestore rules/permissions issue - the clause itself has NOT been changed.</div>`;
+        if (isOwner && statusEl) statusEl.textContent = "Load failed - see message above.";
+        return { active: false, d: null, loadError };
       }
 
       const nowMs = Date.now();
