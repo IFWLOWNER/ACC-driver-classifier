@@ -1321,6 +1321,14 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   async function purchaseCareerShopItem(itemId){
     return apiPost('careerShopPurchase', { itemId });
   }
+  // ✅ ADDED: League Liveries - a driver's PERMANENTLY-owned liveries (never
+  // reset by season, unlike everything else in this ledger), each with its
+  // actual download link. This is the only endpoint that ever returns a
+  // livery's fileUrl to a driver - careerShopCatalog above deliberately
+  // strips it for everyone but Owner-tier staff.
+  async function fetchMyOwnedLiveries(){
+    return (await apiGet('myOwnedLiveries')).liveries || [];
+  }
   // ✅ ADDED: staff-only - any driver's ledger, for the Refund tool to show
   // what they currently own.
   async function fetchDriverCareerShopLedger(driverId){
@@ -1338,7 +1346,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     if(!reason || !reason.trim()) throw new Error('A reason is required.');
     return apiPost('staffCareerShopRefund', { driverId, purchaseId, reclaimItem: !!reclaimItem, reason: reason.trim() });
   }
-  window.IFWL_CareerShopAPI = { fetchCareerShopCatalog, saveCareerShopCatalog, fetchMyCareerShopLedger, purchaseCareerShopItem, fetchDriverCareerShopLedger, issueCareerShopTransaction, refundCareerShopPurchase };
+  window.IFWL_CareerShopAPI = { fetchCareerShopCatalog, saveCareerShopCatalog, fetchMyCareerShopLedger, purchaseCareerShopItem, fetchDriverCareerShopLedger, issueCareerShopTransaction, refundCareerShopPurchase, fetchMyOwnedLiveries };
   window.invalidateCareerShopCatalogCache = () => { __careerShopCatalogCache = null; };
 
   // ✅ ADDED: Parts Marketplace data layer. Backend actions:
@@ -1895,14 +1903,53 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const box = q('spShopBody');
     if(!box) return;
 
-    let catalog = [], ledger;
+    let catalog = [], ledger, ownedLiveries = [];
     try{
       catalog = await window.IFWL_CareerShopAPI.fetchCareerShopCatalog();
       ledger = await window.IFWL_CareerShopAPI.fetchMyCareerShopLedger();
+      // ✅ ADDED: only fetch this if there's actually a livery to own -
+      // avoids a pointless extra round-trip for leagues that haven't set
+      // any up yet.
+      if(catalog.some(c => c.category === 'livery')) ownedLiveries = await window.IFWL_CareerShopAPI.fetchMyOwnedLiveries();
     }catch(e){ box.innerHTML = `<div class="empty">Could not load the IFWL Career Shop: ${e.message}</div>`; return; }
 
     const ownedIds = new Set(ledger.ownedItemIds || []);
+    // ✅ ADDED: liveries are owned PERMANENTLY (see ownedLiveryIds server-
+    // side), tracked separately from the season-scoped ownedItemIds above.
+    const ownedLiveryIds = new Set((ledger.ownedLiveryIds || []).length ? ledger.ownedLiveryIds : ownedLiveries.map(l => l.id));
     const balance = Number(ledger.balance) || 0;
+
+    // ✅ ADDED: League Liveries - a paid zip download, not a functional
+    // bonus. Owned ones show a Download button (using the real fileUrl,
+    // only ever available here via fetchMyOwnedLiveries) instead of the
+    // generic "Owned" badge every other category gets.
+    const liveryGrid = () => {
+      const items = catalog.filter(c => c.category === 'livery');
+      if(!items.length) return '';
+      return `
+        <div class="shop-category-title">League Liveries</div>
+        <p class="field-hint" style="margin:-4px 0 8px">Custom league livery packs for your car - a one-off purchase, yours to redownload any time, never lost on a season reset.</p>
+        <div class="shop-item-grid">
+          ${items.map(item => {
+            const owned = ownedLiveryIds.has(item.id);
+            const canAfford = balance >= (Number(item.cost) || 0);
+            const ownedFile = ownedLiveries.find(l => l.id === item.id);
+            return `<div class="shop-item-card aa-slot-card">
+              ${owned ? '<div class="shop-item-owned-badge">Owned</div>' : ''}
+              ${item.imageUrl ? `<img class="shop-item-thumb" src="${item.imageUrl}" alt="">` : ''}
+              <strong>${item.name}</strong>
+              <p class="field-hint" style="margin:4px 0">Livery pack download (.zip)</p>
+              <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px">
+                <span class="mono" style="font-weight:800">${csFmtMoney(item.cost)}</span>
+                ${owned
+                  ? (ownedFile?.fileUrl ? `<a class="btn teal" href="${ownedFile.fileUrl}" target="_blank" rel="noopener">Download</a>` : '<span class="field-hint">Download unavailable - contact staff</span>')
+                  : `<button class="btn ${canAfford ? 'teal' : 'ghost'}" data-buy-item="${item.id}" ${canAfford ? '' : 'disabled title="Not enough balance yet"'}>Purchase</button>`}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      `;
+    };
 
     const categoryGrid = (catKey) => {
       const items = catalog.filter(c => c.category === catKey);
@@ -1970,6 +2017,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       ${categoryGrid('aeroShop')}
       ${categoryGrid('trophy')}
       ${categoryGrid('carAddition')}
+      ${liveryGrid()}
       ${!catalog.length ? '<div class="empty">Nothing in the shop yet - check back once staff have added items.</div>' : ''}
       ${ledger.transactions && ledger.transactions.length ? `
         <details class="shop-receipt-list">
@@ -1983,7 +2031,8 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       btn.addEventListener('click', async () => {
         const item = catalog.find(c => c.id === btn.dataset.buyItem);
         if(!item) return;
-        if(!confirm(`Purchase "${item.name}" for ${item.cost.toLocaleString()}? This will lock in for the rest of the season.`)) return;
+        const lockInText = item.category === 'livery' ? 'This is a one-off purchase - yours to redownload any time, it never expires or resets.' : 'This will lock in for the rest of the season.';
+        if(!confirm(`Purchase "${item.name}" for ${item.cost.toLocaleString()}? ${lockInText}`)) return;
         btn.disabled = true; btn.textContent = 'Purchasing...';
         try{
           await window.IFWL_CareerShopAPI.purchaseCareerShopItem(item.id);
