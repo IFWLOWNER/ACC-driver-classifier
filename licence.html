@@ -6924,6 +6924,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!r.ok) throw new Error(d?.error || 'Livery upload failed');
     return d.url;
   }
+  // ✅ FIXED: this page's inline <script> blocks each have their own
+  // top-level closure - a plain function declared in one isn't visible in
+  // another. uploadLiveryZip is defined in this block but called from the
+  // IFWL Shop admin panel's script block further down, so - same fix as
+  // uploadLicenceImage above - it needs to be exposed on window to be
+  // reachable there.
+  window.IFWL_UploadAPI = window.IFWL_UploadAPI || {};
+  window.IFWL_UploadAPI.uploadLiveryZip = uploadLiveryZip;
 
   async function initSubmitTicketPanel(){
     if(!q('submitTicketPanel')) return;
@@ -11725,7 +11733,7 @@ Flashing Headlights:
       let fileUrl = '';
       if(isLiveryItem){
         status.textContent = 'Uploading livery zip...';
-        try{ fileUrl = await uploadLiveryZip(liveryZipFile); }
+        try{ fileUrl = await window.IFWL_UploadAPI.uploadLiveryZip(liveryZipFile); }
         catch(e){ status.textContent = 'Livery upload failed: ' + e.message; return; }
       }
 
