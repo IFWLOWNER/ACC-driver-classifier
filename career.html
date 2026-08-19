@@ -332,7 +332,12 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .shop-item-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .shop-item-card{position:relative;overflow:hidden}
 .shop-item-thumb{width:100%;height:110px;object-fit:cover;border-radius:8px;background:#0a0d11;margin-bottom:8px;display:block}
-.shop-item-owned-badge{position:absolute;top:10px;right:10px;background:rgba(51,217,155,.16);color:var(--ifwl-green);border:1px solid rgba(51,217,155,.4);border-radius:999px;padding:3px 9px;font-size:10px;font-weight:800;text-transform:uppercase}
+.shop-item-owned-badge{position:absolute;top:10px;right:10px;background:rgba(51,217,155,.16);color:var(--ifwl-green);border:1px solid rgba(51,217,155,.4);border-radius:999px;padding:2px 9px;font-size:10px;font-weight:800;text-transform:uppercase}
+/* ✅ ADDED: Shop/Factory tier badge (Level 1/2/3 - bronze/silver/gold) and
+   the gold outline for 50+ item "elite" sellers in Browse Marketplace. */
+.shop-tier-badge{border:1px solid;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800;letter-spacing:.03em;white-space:nowrap}
+.mkt-seller-elite{border:1px solid #ffd66b;border-radius:999px;padding:1px 8px;color:#ffd66b;box-shadow:0 0 8px rgba(255,214,107,.35)}
+.mkt-rrp-banner{background:linear-gradient(135deg,rgba(31,214,189,.16),rgba(255,178,56,.06));border:1px solid rgba(31,214,189,.35);border-radius:12px;padding:12px 16px;margin-bottom:12px}
 .shop-receipt-list{margin-top:14px}
 .shop-receipt-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--ifwl-line-soft);font-size:12px}
 .shop-receipt-row .shop-receipt-meta{color:var(--text-muted)}
@@ -1882,6 +1887,19 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   // just needs a real account, no Gold gate - it's spending money you
   // already earned, not an upsell).
   function csFmtMoney(n){ return (n < 0 ? '-' : '') + '&pound;' + Math.abs(Math.round(n)).toLocaleString(); }
+  // ✅ ADDED: shared 3-tier Shop/Factory constants - Engine Shop/Tuning
+  // Shop/Aero Tuning Company only (Tyre Factory excluded, unchanged).
+  // Mirrors rtgate.js's IFWL_SHOP_TIER_CRAFT_COST_PCT / IFWL_SHOP_TIER_LIFE_PCT
+  // exactly, so what's shown here (Career Shop grid, Marketplace RRP
+  // reference, Craft Parts) always matches what's actually charged/produced.
+  const CS_TIERED_CATEGORIES = ['engineShop', 'tuningShop', 'aeroShop'];
+  const CS_TIER_CRAFT_COST_PCT = { 1: 80, 2: 50, 3: 15 };
+  const CS_TIER_LIFE_PCT = { 1: 100, 2: 125, 3: 150 };
+  const CS_TIER_COLOR = { 1: '#c17a3e', 2: '#c7ced6', 3: '#ffb238' }; // bronze / silver / gold
+  const csItemTier = (item) => { const t = Math.round(Number(item.tier) || 1); return (t >= 1 && t <= 3) ? t : 1; };
+  function csHighestTierOwned(catalog, ownedIds, category){
+    return catalog.filter(it => it.category === category && ownedIds.has(it.id)).reduce((max, it) => Math.max(max, csItemTier(it)), 0);
+  }
   const CS_CATEGORY_LABEL = { supportStaff: 'Support Staff', teamGear: 'Team Gear', costReduction: 'Cost Reduction', trophy: 'Trophies', carAddition: 'Car Additions', tyreFactory: 'Tyre Factory', engineShop: 'Engine Shop', tuningShop: 'Tuning Shop', aeroShop: 'Aero Tuning Company' };
   const CS_CATEGORY_BLURB = {
     supportStaff: 'Boosts sponsorship revenue for every new deal you win from here on.',
@@ -1951,9 +1969,16 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       `;
     };
 
+    // Local shorthand over the shared csHighestTierOwned() - this closure
+    // already has `catalog` and `ownedIds` in scope.
+    const csMyHighestTier = (category) => csHighestTierOwned(catalog, ownedIds, category);
+
     const categoryGrid = (catKey) => {
-      const items = catalog.filter(c => c.category === catKey);
+      const items = catalog.filter(c => c.category === catKey).slice()
+        .sort((a, b) => csItemTier(a) - csItemTier(b));
       if(!items.length) return '';
+      const isTiered = CS_TIERED_CATEGORIES.includes(catKey);
+      const myTier = isTiered ? csMyHighestTier(catKey) : 0;
       return `
         <div class="shop-category-title">${CS_CATEGORY_LABEL[catKey]}</div>
         <p class="field-hint" style="margin:-4px 0 8px">${CS_CATEGORY_BLURB[catKey]}</p>
@@ -1963,12 +1988,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             const canAfford = balance >= (Number(item.cost) || 0);
             const isShopCategory = ['tyreFactory','engineShop','tuningShop','aeroShop'].includes(item.category);
             const goldLocked = isShopCategory && !window.IFWL_GOLD && !window.IFWL_STAFF && !window.IFWL_CAREER_UNLOCK;
+            const tier = isTiered ? csItemTier(item) : 0;
+            const superseded = isTiered && !owned && myTier > tier;
             // ✅ FIXED: this used to say "tyre cost" for every Parts Shop
             // category regardless of which part it actually discounts -
             // Engine/Tuning/Aero shops all showed "tyre cost" even though the
-            // server-side discount (see craftDiscountPct in rtgate.js)
-            // correctly applies to that shop's own part type. Purely a
-            // display bug - the actual discount was always correct.
+            // server-side discount correctly applies to that shop's own part
+            // type. Purely a display bug - the actual discount was always correct.
             const SHOP_COST_TARGET_LABEL = { tyreFactory: 'tyre cost', engineShop: 'engine part cost', tuningShop: 'suspension & damper part cost', aeroShop: 'aero part cost' };
             const effectText = item.category === 'supportStaff'
               ? `+${item.bonusPct}% sponsorship revenue`
@@ -1978,15 +2004,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
                   ? 'Awards a trophy to your cabinet'
                   : item.category === 'carAddition'
                     ? 'Cosmetic garage item'
-                    : isShopCategory
-                      ? (item.bonusPct > 0 ? `Produces stock + keeps -${item.bonusPct}% ${SHOP_COST_TARGET_LABEL[item.category] || 'part cost'}` : 'Produces stock for your inventory + Marketplace')
-                      : `+${item.bonusPct}% race income per race`;
-            const buyLabel = goldLocked ? 'Requires Gold' : 'Purchase';
-            return `<div class="shop-item-card aa-slot-card">
+                    : isTiered
+                      ? `Craft ${SHOP_COST_TARGET_LABEL[item.category]} at ${CS_TIER_CRAFT_COST_PCT[tier]}% of RRP &middot; parts last ${CS_TIER_LIFE_PCT[tier]}% life`
+                      : isShopCategory
+                        ? (item.bonusPct > 0 ? `Produces stock + keeps -${item.bonusPct}% ${SHOP_COST_TARGET_LABEL[item.category] || 'part cost'}` : 'Produces stock for your inventory + Marketplace')
+                        : `+${item.bonusPct}% race income per race`;
+            const buyLabel = goldLocked ? 'Requires Gold' : (tier > 1 ? 'Upgrade' : 'Purchase');
+            const tierBadge = isTiered ? `<span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LEVEL ${tier}</span>` : '';
+            return `<div class="shop-item-card aa-slot-card"${isTiered ? ` style="border-top:3px solid ${CS_TIER_COLOR[tier]}"` : ''}>
               ${owned ? '<div class="shop-item-owned-badge">Owned</div>' : ''}
               ${item.imageUrl ? `<img class="shop-item-thumb" src="${item.imageUrl}" alt="">` : ''}
-              <strong>${item.name}</strong>
+              <div class="row" style="justify-content:space-between;align-items:center;gap:6px">
+                <strong>${item.name}</strong>${tierBadge}
+              </div>
               <p class="field-hint" style="margin:4px 0">${effectText}</p>
+              ${superseded ? `<p class="field-hint" style="margin:4px 0;color:#1fd6bd">You already own Level ${myTier} - this one's redundant.</p>` : ''}
               <div class="row" style="justify-content:space-between;align-items:center;margin-top:8px">
                 <span class="mono" style="font-weight:800">${csFmtMoney(item.cost)}</span>
                 ${owned
@@ -2091,17 +2123,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const ownsShopCategory = (cat) => catalog.some(it => it.category === cat && ownedIds.has(it.id));
     const myShops = ['tyreFactory','engineShop','tuningShop','aeroShop'].filter(ownsShopCategory);
 
-    // ✅ FIXED: crafting cost now applies your own shop's discount
-    // (bonusPct) to the raw material cost - same discount that already
-    // reduces what you'd be charged for that part at race time - not the
-    // full retail price. Mirrors the server-side calc in craftPart exactly,
-    // so this display and the confirm dialog match what actually gets
-    // charged. Legacy fallback: an un-recategorised Tyre Factory item still
-    // under "costReduction" also counts for the tyre discount.
+    // ✅ CHANGED: Tyre Factory keeps its original bonusPct/costReduction
+    // discount. Engine/Tuning/Aero shops are now 3-tier - craft cost is
+    // purely the highest owned tier's % of RRP (Level 1 = 80%, Level 2 =
+    // 50%, Level 3 = 15% - CS_TIER_CRAFT_COST_PCT, same constants used in
+    // the Career Shop grid above). Mirrors the server-side calc in
+    // craftPartsForSale exactly, so this display and the confirm dialog
+    // match what actually gets charged.
     const MKT_SHOP_CATEGORY_FOR_PART = { tyre: 'tyreFactory', engine: 'engineShop', suspension: 'tuningShop', damper: 'tuningShop', aero: 'aeroShop' };
-    const craftDiscountPct = (pt) => catalog
-      .filter(it => ownedIds.has(it.id) && (it.category === MKT_SHOP_CATEGORY_FOR_PART[pt] || (pt === 'tyre' && it.category === 'costReduction' && it.costTarget === 'tyre')))
-      .reduce((sum, it) => sum + (Number(it.bonusPct) || 0), 0);
+    const craftMyTier = (pt) => csHighestTierOwned(catalog, ownedIds, MKT_SHOP_CATEGORY_FOR_PART[pt]);
+    const craftDiscountPct = (pt) => pt === 'tyre'
+      ? catalog
+          .filter(it => ownedIds.has(it.id) && (it.category === 'tyreFactory' || (it.category === 'costReduction' && it.costTarget === 'tyre')))
+          .reduce((sum, it) => sum + (Number(it.bonusPct) || 0), 0)
+      : Math.max(0, 100 - (CS_TIER_CRAFT_COST_PCT[craftMyTier(pt)] ?? 100));
+    const craftLifePct = (pt) => pt === 'tyre' ? 100 : (CS_TIER_LIFE_PCT[craftMyTier(pt)] ?? 100);
     const craftBaseCost = {
       tyre: Number(seasonalCosts?.tyre?.pricePerTyre) || 1023,
       engine: Number(seasonalCosts?.partsMaintenance?.engine) || 8000,
@@ -2109,7 +2145,9 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       damper: Number(seasonalCosts?.partsMaintenance?.damper) || 4000,
       aero: Number(seasonalCosts?.partsMaintenance?.aero) || 5000
     };
-    const craftUnitCost = Object.fromEntries(Object.keys(craftBaseCost).map(pt => [pt, craftBaseCost[pt] * Math.max(0, 1 - craftDiscountPct(pt) / 100)]));
+    const craftUnitCost = Object.fromEntries(Object.keys(craftBaseCost).map(pt => [pt,
+      pt === 'tyre' ? craftBaseCost[pt] * Math.max(0, 1 - craftDiscountPct(pt) / 100) : craftBaseCost[pt] * ((CS_TIER_CRAFT_COST_PCT[craftMyTier(pt)] ?? 100) / 100)
+    ]));
 
     const partsByType = {};
     (inventory.partsInventory || []).forEach(p => { (partsByType[p.partType] = partsByType[p.partType] || []).push(p); });
@@ -2128,14 +2166,30 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const mktWearText = (pt) => pt === 'tyre'
       ? '16 tyres consumed per race weekend (fully used up)'
       : `-${MKT_WEAR_PCT_PER_WEEKEND[pt]}% condition per race weekend (lasts ~${Math.round(100 / MKT_WEAR_PCT_PER_WEEKEND[pt])} weekends from full)`;
+    // ✅ ADDED: per-tier craft cost % and part life % for the three
+    // upgradeable Shops, right on the RRP card - same CS_TIER_* constants
+    // used everywhere else, so a driver can see exactly what a Level 2/3
+    // upgrade actually buys them before they spend anything.
+    const mktTierRatioHtml = (pt) => {
+      if (pt === 'tyre') return '';
+      return `<div style="margin:6px 0 0;padding-top:6px;border-top:1px solid var(--ifwl-line-soft)">
+        ${[1,2,3].map(t => `<div class="field-hint" style="margin:2px 0;display:flex;justify-content:space-between;gap:8px">
+          <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[t]};color:${CS_TIER_COLOR[t]}">LVL ${t}</span>
+          <span>craft @ ${CS_TIER_CRAFT_COST_PCT[t]}% RRP &middot; ${CS_TIER_LIFE_PCT[t]}% life</span>
+        </div>`).join('')}
+      </div>`;
+    };
     const rrpReferenceHtml = `
-      <h4 style="margin:0 0 10px">Base RRP &amp; Wear Reference</h4>
-      <p class="field-hint" style="margin:-4px 0 8px">The official factory price and how fast each part wears out - use this to judge whether a Marketplace listing is actually a good deal.</p>
+      <div class="mkt-rrp-banner">
+        <h4 style="margin:0 0 4px">Base RRP &amp; Wear Reference</h4>
+        <p class="field-hint" style="margin:0">The official factory price, how fast each part wears out, and what each Shop's Level 1/2/3 tier actually gets you - use this to judge whether a Marketplace listing is actually a good deal.</p>
+      </div>
       <div class="shop-item-grid">
         ${['tyre','engine','suspension','damper','aero'].map(pt => `<div class="shop-item-card aa-slot-card">
           <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 40)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
           <p class="field-hint" style="margin:4px 0">RRP: <span class="mono" style="font-weight:800;color:var(--text)">${csFmtMoney(Math.round(craftBaseCost[pt]))}</span> each</p>
           <p class="field-hint" style="margin:4px 0">${mktWearText(pt)}</p>
+          ${mktTierRatioHtml(pt)}
         </div>`).join('')}
       </div>
     `;
@@ -2175,9 +2229,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           return partTypes.map(pt => {
             const unitCost = Math.round(craftUnitCost[pt]);
             const discountPct = craftDiscountPct(pt);
+            const lifePct = craftLifePct(pt);
+            const tier = craftMyTier(pt);
+            const tierNote = pt !== 'tyre' && tier > 0 ? ` <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LEVEL ${tier}</span>` : '';
             return `<div class="shop-item-card aa-slot-card">
-              <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 44)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
+              <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 44)}<strong>${MKT_PART_LABEL[pt]}</strong>${tierNote}</div>
               <p class="field-hint" style="margin:4px 0">${csFmtMoney(unitCost)} each${discountPct > 0 ? ` <span style="color:#1fd6bd">(-${discountPct}% shop discount)</span>` : ''}</p>
+              ${pt !== 'tyre' ? `<p class="field-hint" style="margin:4px 0">Crafted parts start at ${lifePct}% life</p>` : ''}
               <div class="row" style="gap:6px;margin-top:6px">
                 <input type="number" min="1" max="500" placeholder="Qty" value="1" data-craft-qty="${pt}" style="width:70px">
                 <button class="btn teal" data-craft-part="${pt}" data-craft-cost="${unitCost}">Craft</button>
@@ -2252,11 +2310,16 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const isMe = l.sellerId === (window.IFWL_META?.userId);
         const sellerLabel = isMe ? 'You' : (l.sellerName || 'Unnamed driver');
         const star = l.sellerTrusted ? ` <span title="Trusted seller - ${l.sellerSoldCount}+ items sold" style="color:#ffb238">&#9733;</span>` : '';
+        // ✅ ADDED: 50+ items sold gets a gold outline around the seller's
+        // name, on top of the existing 10+ trusted-seller star.
+        const sellerNameHtml = l.sellerElite
+          ? `<span class="mkt-seller-elite" title="Elite seller - ${l.sellerSoldCount}+ items sold">${sellerLabel}</span>`
+          : sellerLabel;
         return `<div class="shop-receipt-row" style="align-items:center;gap:12px">
           ${mktPartImg(l.partType, 56)}
           <div style="flex:1;min-width:0">
             <div style="font-weight:700">${MKT_PART_LABEL[l.partType]}</div>
-            <div class="shop-receipt-meta">Seller: ${sellerLabel}${star}</div>
+            <div class="shop-receipt-meta">Seller: ${sellerNameHtml}${star}</div>
             <div class="shop-receipt-meta">In stock: ${remaining} &middot; Price: ${csFmtMoney(l.pricePerUnit)} each</div>
           </div>
           <div class="row" style="gap:6px;align-items:center">
