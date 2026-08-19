@@ -1027,6 +1027,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   </div>
 </div>
 
+<!-- ✅ ADDED: Marketplace Sale celebration popup - a quick "wahoo" moment
+     the next time a driver loads/views the page after one of their
+     listings actually sells, same queued-celebration pattern as the
+     Sponsorship popup above (own dismiss button, own localStorage
+     seen-marker, stacks if several sales happened while they were away). -->
+<div id="marketplaceSaleModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:260;display:flex;align-items:center;justify-content:center;padding:20px">
+  <div class="trophy-award-card">
+    <h2 class="trophy-award-heading">💰 Sold!</h2>
+    <div id="marketplaceSaleModalBody" style="margin:14px 0"></div>
+    <div class="trophy-award-actions">
+      <button type="button" class="btn teal" id="marketplaceSaleModalDismissBtn">Wahoo!</button>
+    </div>
+  </div>
+</div>
+
 <div class="top-strip">IFWL &mdash; <span>MY CAREER &amp; MARKETPLACE</span></div>
 <nav class="nav">
   <div class="logo"><img src="https://ifwlowner.github.io/ACC-driver-classifier/ifwllogo1.png" alt="IFWL"></div>
@@ -2783,6 +2798,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     }catch(e){
       q('spBody').innerHTML = `<div class="empty">Could not load season progression: ${e.message}</div>`;
     }
+    // ✅ ADDED: Marketplace Sale "wahoo" popup - checked on every load
+    // alongside the sponsorship popup above, since the actual sale can
+    // happen at any time while the driver isn't on the page.
+    checkMarketplaceSaleNotice();
   }
 
   // Celebration popup for fresh, unacknowledged sponsorship deal(s) - shown
@@ -2809,6 +2828,61 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       sessionStorage.setItem(dealKey, '1'); // set immediately, don't wait on the network call below
       try{ await apiPost('myAcknowledgeSponsorship', { dealId: sponsorship.id }); }catch(e){ console.warn('Could not acknowledge sponsorship', e); }
       if(rest.length) checkSponsorshipPopup(rest); // next stacked deal, if any
+    };
+  }
+
+  // ✅ ADDED: Marketplace Sale "wahoo" popup - a quick celebration the next
+  // time a driver loads the page after one of their listings actually
+  // sells (the "type":"marketplaceSale" entries purchaseMarketplaceListing
+  // already writes into their own Career Shop ledger, same collection
+  // checkShopTransactionNotice reads for manual staff adjustments - no new
+  // backend endpoint needed). Tracks the newest sale id it's shown via
+  // localStorage (survives across sessions, unlike the sponsorship popup's
+  // sessionStorage guard, since a sale can easily happen days before a
+  // driver's next visit) and queues up every sale since then, oldest
+  // first, so nothing gets missed if several came in while they were away.
+  function marketplaceSaleNoticeKey(){ return 'IFWL_MKT_SALE_SEEN:' + window.IFWL_AUTH.userId(window.IFWL_META); }
+  async function checkMarketplaceSaleNotice(){
+    let ledger;
+    try{ ledger = await window.IFWL_CareerShopAPI.fetchMyCareerShopLedger(); }
+    catch(e){ return; }
+    // Transactions come back newest-first (server unshifts each new one
+    // onto the array), same ordering checkShopTransactionNotice relies on.
+    const sales = (ledger.transactions || []).filter(t => t.type === 'marketplaceSale' && t.id);
+    if(!sales.length) return;
+    const key = marketplaceSaleNoticeKey();
+    const seenId = localStorage.getItem(key);
+    if(!seenId){
+      // First time this feature has run for this driver - baseline to
+      // their current latest sale instead of replaying their whole
+      // history as a flood of popups.
+      localStorage.setItem(key, sales[0].id);
+      return;
+    }
+    const seenIdx = sales.findIndex(t => t.id === seenId);
+    const unseen = seenIdx === -1 ? sales : sales.slice(0, seenIdx);
+    if(!unseen.length) return;
+    checkMarketplaceSaleQueue(unseen.slice().reverse()); // oldest-of-the-unseen first
+  }
+  function checkMarketplaceSaleQueue(queue){
+    if(!queue || !queue.length) return;
+    const modal = q('marketplaceSaleModal');
+    if(!modal) return;
+    const [sale, ...rest] = queue;
+    const amt = Math.round(Number(sale.amount) || 0);
+    const qty = Number(sale.quantity) || 0;
+    const partLabel = MKT_PART_LABEL[sale.partType] || sale.partType || 'item';
+    q('marketplaceSaleModalBody').innerHTML = `
+      <p style="font-size:16px">You sold <strong>${qty ? (qty + (sale.partType === 'fuel' ? 'L ' : ' x ')) : ''}${partLabel}</strong> on the Marketplace!</p>
+      <p style="font-size:22px;font-weight:800;color:#1fd6bd;margin-top:10px">+&pound;${amt.toLocaleString()}</p>
+      <p class="field-hint" style="margin-top:6px">Added to your IFWL Career Shop balance (after the 7% league cut).</p>
+      ${rest.length ? `<p class="field-hint" style="margin-top:8px">${rest.length} more new sale${rest.length===1?'':'s'} to see after this one.</p>` : ''}
+    `;
+    modal.classList.remove('hidden');
+    q('marketplaceSaleModalDismissBtn').onclick = () => {
+      modal.classList.add('hidden');
+      localStorage.setItem(marketplaceSaleNoticeKey(), sale.id);
+      if(rest.length) checkMarketplaceSaleQueue(rest);
     };
   }
 
