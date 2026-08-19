@@ -2197,6 +2197,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
       <hr style="border-color:var(--ifwl-line);margin:22px 0">
 
+      <!-- ✅ ADDED: Fuel Factory - RRP + consumption figures, all editable
+           here per the user's request ("THE DISCOUNT ON FUEL COSTS SET BY
+           ADMIN LIKE EVERYTHING ELSE"). Consumption is a flat per-weekend
+           allowance (Practice+Qualifying litres, Race litres) plus an
+           extra-per-lap charge once a driver's actual race laps (from the
+           real ACC session data) exceed the standard race length. -->
+      <h4 style="margin:0 0 10px">Fuel Factory</h4>
+      <p class="field-hint" style="margin-bottom:10px">Race Fuel RRP and how much each driver burns per race weekend. A driver draws from their own Fuel Depot stock first, then buys any shortfall at the RRP below (minus their personal Fuel Depot discount, if owned).</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+        <div class="field-group"><label>RRP per litre (&pound;)</label><input type="number" id="scFuelPrice" min="0" step="0.01"></div>
+        <div class="field-group"><label>Practice + Qualifying litres</label><input type="number" id="scFuelPQLitres" min="0" step="1"></div>
+        <div class="field-group"><label>Race litres</label><input type="number" id="scFuelRaceLitres" min="0" step="1"></div>
+        <div class="field-group"><label>Standard race laps</label><input type="number" id="scFuelStandardLaps" min="0" step="1"></div>
+        <div class="field-group"><label>Extra litres per lap over standard</label><input type="number" id="scFuelExtraPerLap" min="0" step="0.01"></div>
+      </div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
       <h4 style="margin:0 0 10px">Race Earnings Payout Table (1st-50th)</h4>
       <p class="field-hint" style="margin-bottom:10px">Prize money by finishing position - all 50 positions are required, so a position left blank is treated as an error rather than silently paying &pound;0.</p>
       <div class="table-wrap" style="max-height:340px;overflow-y:auto">
@@ -2321,6 +2339,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <option value="teamGear">Team Gear (boosts race income)</option>
             <option value="costReduction">Cost Reduction (tyre / entry fee)</option>
             <option value="tyreFactory">Tyre Factory (Gold only - produces tyres)</option>
+            <option value="fuelDepot">Fuel Depot (Gold only - produces race fuel)</option>
             <option value="engineShop">Engine Shop (Gold only - 3-tier, produces engine parts)</option>
             <option value="tuningShop">Tuning Shop (Gold only - 3-tier, produces suspension + damper parts)</option>
             <option value="aeroShop">Aero Tuning Company (Gold only - 3-tier, produces aero parts)</option>
@@ -2333,6 +2352,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <label>Reduces (Cost Reduction only)</label>
           <select id="csNewItemCostTarget">
             <option value="tyre">Tyre cost</option>
+            <option value="fuel">Fuel cost</option>
             <option value="entryFee">Race entry fee</option>
           </select>
         </div>
@@ -3577,7 +3597,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       { slug: 'zolder', name: 'Zolder', kmPerLap: 4.011 }
     ],
     // ✅ ADDED: Parts Marketplace maintenance costs.
-    partsMaintenance: { engine: 8000, suspension: 6000, damper: 4000, aero: 5000 }
+    partsMaintenance: { engine: 8000, suspension: 6000, damper: 4000, aero: 5000 },
+    // ✅ ADDED: Fuel Factory - flat RRP + per-weekend/per-lap consumption
+    // figures, all staff-editable here (matches user request: "THE
+    // DISCOUNT ON FUEL COSTS SET BY ADMIN LIKE EVERYTHING ELSE").
+    fuel: { pricePerLitre: 2.3, practiceQualifyingLitres: 120, raceLitres: 120, standardRaceLaps: 20, extraLitresPerLap: 2.75 }
   };
   let __seasonalCostsCache = null;
   async function fetchSeasonalCosts(){
@@ -3590,6 +3614,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         raceEarnings: data.raceEarnings,
         tracks: data.tracks,
         partsMaintenance: data.partsMaintenance || SEASONAL_COSTS_FALLBACK.partsMaintenance,
+        fuel: data.fuel || SEASONAL_COSTS_FALLBACK.fuel,
         trackKmLookup: Object.fromEntries((data.tracks||[]).map(t => [t.slug, t.kmPerLap]))
       };
     }catch(e){
@@ -11289,6 +11314,14 @@ Flashing Headlights:
     q('scDamperMaintenance').value = pm.damper;
     q('scAeroMaintenance').value = pm.aero;
 
+    // ✅ ADDED: Fuel Factory figures.
+    const fuel = costs.fuel || { pricePerLitre: 2.3, practiceQualifyingLitres: 120, raceLitres: 120, standardRaceLaps: 20, extraLitresPerLap: 2.75 };
+    q('scFuelPrice').value = fuel.pricePerLitre;
+    q('scFuelPQLitres').value = fuel.practiceQualifyingLitres;
+    q('scFuelRaceLitres').value = fuel.raceLitres;
+    q('scFuelStandardLaps').value = fuel.standardRaceLaps;
+    q('scFuelExtraPerLap').value = fuel.extraLitresPerLap;
+
     // Race Earnings - 25 rows x (position/payout, position/payout), same
     // half-split layout as the driver-facing payout table.
     const earnings = costs.raceEarnings || {};
@@ -11348,9 +11381,18 @@ Flashing Headlights:
         aero: Math.max(0, Number(q('scAeroMaintenance').value) || 0)
       };
 
+      // ✅ ADDED: Fuel Factory figures.
+      const fuel = {
+        pricePerLitre: Math.max(0, Math.round((Number(q('scFuelPrice').value) || 0) * 100) / 100),
+        practiceQualifyingLitres: Math.max(0, Math.round(Number(q('scFuelPQLitres').value) || 0)),
+        raceLitres: Math.max(0, Math.round(Number(q('scFuelRaceLitres').value) || 0)),
+        standardRaceLaps: Math.max(0, Math.round(Number(q('scFuelStandardLaps').value) || 0)),
+        extraLitresPerLap: Math.max(0, Math.round((Number(q('scFuelExtraPerLap').value) || 0) * 100) / 100)
+      };
+
       status.textContent = 'Saving...';
       try{
-        await window.IFWL_SeasonalCostsAPI.saveSeasonalCosts({ entryFeePerRace, tyre, raceEarnings, tracks, partsMaintenance });
+        await window.IFWL_SeasonalCostsAPI.saveSeasonalCosts({ entryFeePerRace, tyre, raceEarnings, tracks, partsMaintenance, fuel });
         status.textContent = 'Saved - every driver picks this up on their next visit.';
         setTimeout(() => { if(q('scSaveStatus')) q('scSaveStatus').textContent = ''; }, 3000);
       }catch(e){ status.textContent = 'Could not save: ' + e.message; }
@@ -11666,6 +11708,7 @@ Flashing Headlights:
             <option value="teamGear" ${item.category === 'teamGear' ? 'selected' : ''}>Team Gear (race income)</option>
             <option value="costReduction" ${item.category === 'costReduction' ? 'selected' : ''}>Cost Reduction (tyre/entry fee)</option>
             <option value="tyreFactory" ${item.category === 'tyreFactory' ? 'selected' : ''}>Tyre Factory (Gold - produces tyres)</option>
+            <option value="fuelDepot" ${item.category === 'fuelDepot' ? 'selected' : ''}>Fuel Depot (Gold - produces race fuel)</option>
             <option value="engineShop" ${item.category === 'engineShop' ? 'selected' : ''}>Engine Shop (Gold - produces engine parts)</option>
             <option value="tuningShop" ${item.category === 'tuningShop' ? 'selected' : ''}>Tuning Shop (Gold - produces suspension+damper)</option>
             <option value="aeroShop" ${item.category === 'aeroShop' ? 'selected' : ''}>Aero Tuning Company (Gold - produces aero parts)</option>
@@ -11677,7 +11720,8 @@ Flashing Headlights:
         <div class="field-group" style="flex:1;min-width:150px">
           <label>Reduces (Cost Reduction only)</label>
           <select class="cs-item-cost-target">
-            <option value="tyre" ${item.costTarget !== 'entryFee' ? 'selected' : ''}>Tyre cost</option>
+            <option value="tyre" ${item.costTarget !== 'entryFee' && item.costTarget !== 'fuel' ? 'selected' : ''}>Tyre cost</option>
+            <option value="fuel" ${item.costTarget === 'fuel' ? 'selected' : ''}>Fuel cost</option>
             <option value="entryFee" ${item.costTarget === 'entryFee' ? 'selected' : ''}>Race entry fee</option>
           </select>
         </div>
@@ -11733,7 +11777,7 @@ Flashing Headlights:
       // discount) - matches the server-side NO_BONUS_REQUIRED_CATEGORIES
       // exemption in staffCareerShopCatalogSave. Livery is the same - its
       // "benefit" is the download itself, not a stat bonus.
-      const isCosmetic = ['trophy', 'carAddition', 'livery', 'tyreFactory', 'engineShop', 'tuningShop', 'aeroShop'].includes(category);
+      const isCosmetic = ['trophy', 'carAddition', 'livery', 'tyreFactory', 'fuelDepot', 'engineShop', 'tuningShop', 'aeroShop'].includes(category);
       const isLiveryItem = category === 'livery';
       if(!name){ status.textContent = 'Item name is required.'; return; }
       if(!Number.isFinite(cost) || cost < 0){ status.textContent = 'A valid cost is required.'; return; }
@@ -11786,7 +11830,7 @@ Flashing Headlights:
           fileUrl: row.querySelector('.cs-item-file-url').value,
           tier: Number(row.querySelector('.cs-item-tier')?.value) || 1
         };
-      }).filter(it => it.name && Number.isFinite(it.cost) && it.cost >= 0 && (it.bonusPct > 0 || ['trophy', 'carAddition', 'livery', 'tyreFactory', 'engineShop', 'tuningShop', 'aeroShop'].includes(it.category)));
+      }).filter(it => it.name && Number.isFinite(it.cost) && it.cost >= 0 && (it.bonusPct > 0 || ['trophy', 'carAddition', 'livery', 'tyreFactory', 'fuelDepot', 'engineShop', 'tuningShop', 'aeroShop'].includes(it.category)));
 
       if(!items.length){ status.textContent = 'At least one valid item is required (bonus % required unless it\'s a Trophy, Car Addition, Livery, or Shop/Factory).'; return; }
 
@@ -11905,7 +11949,7 @@ Flashing Headlights:
   // transactions, the Treasury balance, and a void tool. Pure read + void,
   // no listing/buying actions here (those are driver-facing, on career.html).
   function mktFmtMoney(n){ return (Number(n) < 0 ? '-' : '') + '&pound;' + Math.abs(Math.round(Number(n) || 0)).toLocaleString(); }
-  const MKT_PART_LABEL = { tyre: 'Tyres', engine: 'Engine parts', suspension: 'Suspension parts', damper: 'Damper parts', aero: 'Aero parts' };
+  const MKT_PART_LABEL = { tyre: 'Tyres', fuel: 'Race Fuel', engine: 'Engine parts', suspension: 'Suspension parts', damper: 'Damper parts', aero: 'Aero parts' };
 
   async function renderMarketplaceOverview(){
     const listingsBox = q('mktListingsRows');
@@ -11924,7 +11968,7 @@ Flashing Headlights:
     listingsBox.innerHTML = listings.length ? `<div class="table-wrap"><table class="fc-stint-table">
       <thead><tr><th>Seller</th><th>Part</th><th>Remaining</th><th>Price/unit</th><th>Status</th></tr></thead>
       <tbody>${listings.map(l => {
-        const remaining = l.partType === 'tyre' ? l.quantityRemaining : (l.partIdsRemaining || []).length;
+        const remaining = (l.partType === 'tyre' || l.partType === 'fuel') ? l.quantityRemaining : (l.partIdsRemaining || []).length;
         return `<tr><td>${l.sellerId}</td><td>${MKT_PART_LABEL[l.partType] || l.partType}</td><td>${remaining}</td><td>${mktFmtMoney(l.pricePerUnit)}</td><td>${l.status}</td></tr>`;
       }).join('')}</tbody>
     </table></div>` : '<div class="empty">No listings yet.</div>';
@@ -11992,7 +12036,7 @@ Flashing Headlights:
         <span class="field-hint" data-part-image-status="${key}" style="display:block;margin-top:4px"></span>
       </div>`;
     };
-    grid.innerHTML = slotCardHtml('tyre', null) + TIERED_PARTS.map(pt => [1, 2, 3].map(tier => slotCardHtml(pt, tier)).join('')).join('');
+    grid.innerHTML = slotCardHtml('tyre', null) + slotCardHtml('fuel', null) + TIERED_PARTS.map(pt => [1, 2, 3].map(tier => slotCardHtml(pt, tier)).join('')).join('');
 
     grid.querySelectorAll('[data-part-image-upload]').forEach(btn => {
       btn.addEventListener('click', async () => {
