@@ -2502,7 +2502,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const pt = btn.dataset.craftPart;
         const unitCost = Number(btn.dataset.craftCost) || 0;
         const qtyEl = box.querySelector(`[data-craft-qty="${pt}"]`);
-        const qty = Math.max(1, Math.min(500, Math.round(Number(qtyEl.value) || 0)));
+        // ✅ FIXED: this was hardcoded to a 500 cap for every part type,
+        // silently overriding whatever a driver actually typed - fuel is
+        // meant to allow up to 5000L per craft (matches the input's own
+        // max="5000" above and the server-side cap in craftPart), so a
+        // typed 5000 (or anything between 501-5000) was being clamped down
+        // to 500 right here before the request was even sent.
+        const qty = Math.max(1, Math.min(pt === 'fuel' ? 5000 : 500, Math.round(Number(qtyEl.value) || 0)));
         const totalCost = unitCost * qty;
         if(totalCost > (ledger.balance || 0)){ alert(`Not enough balance - crafting ${qty} would cost ${csFmtMoney(totalCost).replace(/&pound;/,'£')}.`); return; }
         if(!confirm(`Craft ${qty} x ${MKT_PART_LABEL[pt]} for ${csFmtMoney(totalCost).replace(/&pound;/,'£')}?`)) return;
