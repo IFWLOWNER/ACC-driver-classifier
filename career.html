@@ -347,6 +347,24 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .shop-tier-badge{border:1px solid;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800;letter-spacing:.03em;white-space:nowrap}
 .mkt-seller-elite{border:1px solid #ffd66b;border-radius:999px;padding:1px 8px;color:#ffd66b;box-shadow:0 0 8px rgba(255,214,107,.35)}
 .mkt-rrp-banner{background:linear-gradient(135deg,rgba(31,214,189,.16),rgba(255,178,56,.06));border:1px solid rgba(31,214,189,.35);border-radius:12px;padding:12px 16px;margin-bottom:12px}
+/* ✅ ADDED: Parts Wear Diagram (My Season Progression) - car image with a
+   status box per wear-tracked part, connected by an SVG line drawn at
+   render time (see renderPartsWearDiagram). Label row height is reserved
+   via .wear-diagram's own padding-top so the boxes have somewhere to sit
+   above the car without overlapping it. */
+.wear-diagram-wrap{margin-bottom:18px}
+.wear-diagram{position:relative;max-width:820px;margin:0 auto;padding-top:66px}
+.wear-diagram img{width:100%;display:block;border-radius:12px;background:#0a0d11}
+.wear-diagram svg{position:absolute;left:0;top:0;pointer-events:none}
+.wear-diagram svg line{stroke:var(--ifwl-line);stroke-width:1.5;stroke-dasharray:3 4}
+.wear-label{position:absolute;top:0;transform:translateX(-50%);width:112px;text-align:center;background:var(--panel-bg-raised);border:1px solid var(--ifwl-line);border-radius:10px;padding:7px 6px}
+.wear-label .name{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);font-weight:700}
+.wear-label .val{font-family:var(--font-display);font-size:18px;font-weight:800;margin-top:2px;color:var(--text-primary)}
+.wear-label .sub{font-size:10px;color:var(--text-dim);margin-top:1px}
+.wear-label.ok .val{color:var(--ifwl-green)}
+.wear-label.warn .val{color:var(--ifwl-amber)}
+.wear-label.crit .val{color:var(--ifwl-red)}
+@media (max-width:640px){ .wear-label{width:82px;padding:5px 4px} .wear-label .val{font-size:15px} .wear-label .name{font-size:9px} .wear-diagram{padding-top:56px} }
 .shop-receipt-list{margin-top:14px}
 .shop-receipt-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--ifwl-line-soft);font-size:12px}
 .shop-receipt-row .shop-receipt-meta{color:var(--text-muted)}
@@ -1118,6 +1136,11 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           <div id="spPerksBody"><div class="empty">Loading Career Perks&hellip;</div></div>
         </div>
         <div class="team-view" data-career-view="progression">
+          <!-- ✅ ADDED: car wear diagram - sits above the season stats, shows
+               real current inventory condition per part with a line from
+               each part on the car to its own status box. See
+               renderPartsWearDiagram(). -->
+          <div id="spWearDiagram"></div>
           <div id="spBody"><div class="empty">Loading your season&hellip;</div></div>
         </div>
         <div class="team-view" data-career-view="marketplace">
@@ -3023,6 +3046,134 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     });
   }
 
+  // ✅ ADDED: Parts Wear Diagram - the car (hosted on IFWL's own GitHub
+  // Pages) with a status box for each wear-tracked category, connected by
+  // a line to roughly where that part sits on the car. Pulls real numbers
+  // from the driver's own inventory (fetchMyPartsInventory) + Seasonal
+  // Costs (for the fuel weekend estimate) - nothing here is decorative,
+  // it reflects actual stock.
+  //
+  // Durable parts (engine/suspension/damper/aero) each carry their own
+  // conditionPct in partsInventory - race settlement always drains the
+  // MOST-WORN owned unit of a type first, so the box shows THAT unit's %
+  // (the one closest to running out), plus how many spares are in
+  // reserve. Tyres and Fuel aren't tracked with a % at all (just a raw
+  // stock count / litres, consumed per race weekend) - their boxes show
+  // stock + an estimated number of race weekends of cover instead of a
+  // wear percentage, since there's no real % to show for those two.
+  //
+  // CAR_WEAR_POINTS are approximate first-pass coordinates (% of the
+  // image's own width/height, measured from its top-left corner) - nudge
+  // xPct/yPct per part once this is live and you can see exactly where
+  // they land on the real image.
+  const CAR_WEAR_IMAGE_URL = 'https://ifwlowner.github.io/ACC-driver-classifier/ifwlstandardcar.png';
+  const CAR_WEAR_POINTS = [
+    { key: 'engine',     label: 'Engine',     xPct: 16, yPct: 50 },
+    { key: 'suspension', label: 'Suspension', xPct: 23, yPct: 70 },
+    { key: 'wheels',     label: 'Wheels',     xPct: 23, yPct: 84 },
+    { key: 'damper',     label: 'Dampers',    xPct: 75, yPct: 70 },
+    { key: 'fuel',       label: 'Fuel',       xPct: 60, yPct: 46 },
+    { key: 'aero',       label: 'Aero',       xPct: 90, yPct: 30 }
+  ];
+  const wearStatusClass = (pct) => pct === null ? 'crit' : pct < 30 ? 'crit' : pct < 60 ? 'warn' : 'ok';
+  // ✅ holds whichever render's drawWearLines is CURRENT - the single
+  // window resize listener below always calls through this indirection
+  // rather than closing over one specific render's function directly, so
+  // a re-render (new DOM, new closure) can't leave the resize handler
+  // stuck calling stale code against detached elements.
+  let __wearDiagramDraw = null;
+
+  async function renderPartsWearDiagram(){
+    const wrap = q('spWearDiagram');
+    if(!wrap) return;
+    wrap.innerHTML = '';
+
+    let inventory, seasonalCosts;
+    try{
+      [inventory, seasonalCosts] = await Promise.all([
+        window.IFWL_MarketplaceAPI.fetchMyPartsInventory(),
+        window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts()
+      ]);
+    }catch(e){ return; } // fails silently - a bonus visual, not page-critical
+
+    const partsByType = {};
+    (inventory.partsInventory || []).forEach(p => { (partsByType[p.partType] = partsByType[p.partType] || []).push(p); });
+    const durableInfo = (pt) => {
+      const owned = (partsByType[pt] || []).slice().sort((a, b) => a.conditionPct - b.conditionPct);
+      if(!owned.length) return { val: '&mdash;', sub: 'None in stock', pct: null };
+      const pct = Math.round(owned[0].conditionPct);
+      const reserve = owned.length - 1;
+      return { val: `${pct}%`, sub: reserve > 0 ? `+${reserve} spare${reserve === 1 ? '' : 's'}` : 'No spares', pct };
+    };
+
+    const tyresLeft = inventory.tyreInventoryCount || 0;
+    const tyreWeekends = Math.floor(tyresLeft / 16);
+    const fuelBaseline = (Number(seasonalCosts?.fuel?.practiceQualifyingLitres) || 120) + (Number(seasonalCosts?.fuel?.raceLitres) || 120);
+    const fuelLeft = inventory.fuelInventoryLitres || 0;
+    const fuelWeekends = fuelBaseline > 0 ? Math.floor(fuelLeft / fuelBaseline) : 0;
+
+    const partData = {
+      engine: durableInfo('engine'),
+      suspension: durableInfo('suspension'),
+      damper: durableInfo('damper'),
+      aero: durableInfo('aero'),
+      wheels: { val: `${tyresLeft}`, sub: `~${tyreWeekends} weekend${tyreWeekends === 1 ? '' : 's'}`, cls: tyresLeft <= 0 ? 'crit' : tyreWeekends < 2 ? 'warn' : 'ok' },
+      fuel: { val: `${fuelLeft}L`, sub: `~${fuelWeekends} weekend${fuelWeekends === 1 ? '' : 's'}`, cls: fuelLeft <= 0 ? 'crit' : fuelWeekends < 2 ? 'warn' : 'ok' }
+    };
+
+    wrap.innerHTML = `
+      <div class="wear-diagram-wrap">
+        <p class="field-hint" style="margin:0 0 10px;text-align:center">Your car right now - real stock &amp; condition from your inventory.</p>
+        <div class="wear-diagram" id="wearDiagramInner">
+          ${CAR_WEAR_POINTS.map(p => {
+            const d = partData[p.key] || { val: '&mdash;', sub: '' };
+            const cls = d.cls || wearStatusClass(d.pct);
+            return `<div class="wear-label ${cls}" data-wear-key="${p.key}" style="left:${p.xPct}%">
+              <div class="name">${p.label}</div>
+              <div class="val">${d.val}</div>
+              <div class="sub">${d.sub}</div>
+            </div>`;
+          }).join('')}
+          <img src="${CAR_WEAR_IMAGE_URL}" alt="Your car" id="wearCarImg">
+          <svg id="wearLinesSvg"></svg>
+        </div>
+      </div>
+    `;
+
+    const img = q('wearCarImg');
+    const drawWearLines = () => {
+      const container = q('wearDiagramInner');
+      const svg = q('wearLinesSvg');
+      if(!container || !svg || !img) return;
+      const cRect = container.getBoundingClientRect();
+      const iRect = img.getBoundingClientRect();
+      svg.setAttribute('width', cRect.width);
+      svg.setAttribute('height', cRect.height);
+      svg.innerHTML = CAR_WEAR_POINTS.map(p => {
+        const labelEl = container.querySelector(`[data-wear-key="${p.key}"]`);
+        if(!labelEl) return '';
+        const lRect = labelEl.getBoundingClientRect();
+        const x1 = (lRect.left + lRect.width / 2) - cRect.left;
+        const y1 = lRect.bottom - cRect.top;
+        const x2 = (iRect.left - cRect.left) + (p.xPct / 100) * iRect.width;
+        const y2 = (iRect.top - cRect.top) + (p.yPct / 100) * iRect.height;
+        return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />`;
+      }).join('');
+    };
+
+    // ✅ recomputed on image load (natural size not known until then) and
+    // on window resize (the container is fluid-width) so the lines stay
+    // pinned to the right spots at any screen size. __wearDiagramDraw is
+    // updated to THIS render's function every call, so the one resize
+    // listener (wired only once, ever) always runs against live DOM.
+    __wearDiagramDraw = drawWearLines;
+    if(img.complete) drawWearLines(); else img.addEventListener('load', drawWearLines, { once: true });
+    if(!window.__wearDiagramResizeWired){
+      window.__wearDiagramResizeWired = true;
+      window.addEventListener('resize', () => { __wearDiagramDraw && __wearDiagramDraw(); });
+    }
+  }
+
   async function initSeasonProgressionPanel(){
     if(!q('seasonProgressionPanel')) return;
 
@@ -3074,6 +3225,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     renderCareerPerksSection();
     renderMarketplaceSection();
     renderMyShopSection();
+    renderPartsWearDiagram();
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
