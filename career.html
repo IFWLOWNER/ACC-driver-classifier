@@ -1448,6 +1448,15 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   async function saveSeasonWindow(data){ return apiPost('staffSeasonWindowSave', data); }
   window.IFWL_SeasonAPI = { fetchSeasonWindow, saveSeasonWindow };
 
+  // ✅ ADDED: Parts Wear Diagram car picker - reads the same car list Staff
+  // manage on the BOP TRACKer (league_meta/bopCarCatalog, incl. any image
+  // they've uploaded per car) so a driver can point the diagram at their own
+  // car instead of the generic default. Open to any logged-in driver, not
+  // Gold-gated - the wear diagram itself isn't gated either.
+  async function fetchCareerCarCatalog(){ return apiGet('careerCarCatalog'); }
+  async function saveWearCarSelection(carId){ return apiPost('updateLicenceProfile', { careerWearCarId: carId || '' }); }
+  window.IFWL_CareerCarAPI = { fetchCareerCarCatalog, saveWearCarSelection };
+
   // ✅ ADDED: IFWL Career Shop data layer. Mirrors the Seasonal Costs
   // pattern above (catalog fetch/save, cached, invalidated on save) plus a
   // per-driver ledger (balance derived server-side from this season's race
@@ -3029,7 +3038,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     box.innerHTML = `
       <div class="mkt-rrp-banner" style="border-color:rgba(198,91,232,.35);background:linear-gradient(135deg,rgba(198,91,232,.16),rgba(31,214,189,.06))">
         <h4 style="margin:0 0 4px">🤝 Driver Backing</h4>
-        <p class="field-hint" style="margin:0">Get sponsored by other drivers, or back someone else's season. A backer sends cash upfront; over the races you agree, they take a cut of your race earnings on a good weekend - or help cover you on a bad one. the % agreed will also be taken off any sponsorships you win during the term of 4 races.</p>
+        <p class="field-hint" style="margin:0">Get sponsored by other drivers, or back someone else's season. A backer sends cash upfront; over the races you agree, they take a cut of your race earnings on a good weekend - or help cover you on a bad one.</p>
       </div>
       ${marketStatusHtml}
       <div class="backing-tabs">
@@ -3578,6 +3587,26 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       ]);
     }catch(e){ return; } // fails silently - a bonus visual, not page-critical
 
+    // ✅ ADDED: car picker - fetched separately from the two calls above and
+    // never lets a failure (e.g. server not yet redeployed with this
+    // endpoint) take down the rest of the diagram - just falls back to no
+    // catalog, which renders as the default car same as before this feature.
+    let wearCarCatalog = [];
+    try{
+      const catalogResp = await window.IFWL_CareerCarAPI.fetchCareerCarCatalog();
+      wearCarCatalog = catalogResp.cars || [];
+    }catch(e){ wearCarCatalog = []; }
+    const selectedWearCarId = currentProfile?.careerWearCarId || '';
+    const selectedWearCar = wearCarCatalog.find(c => c.id === selectedWearCarId);
+    // Falls back to the standard image both when nothing's selected AND when
+    // the selected car doesn't have an image uploaded on the BOP TRACKer yet
+    // - there's nothing else to show in that case.
+    const wearCarImageUrl = (selectedWearCar && selectedWearCar.imageUrl) ? selectedWearCar.imageUrl : CAR_WEAR_IMAGE_URL;
+    const wearCarOptionsHtml = `<option value="">Ford Mustang GT3 (default)</option>` +
+      wearCarCatalog.slice().sort((a, b) => String(a.name||'').localeCompare(String(b.name||''))).map(c =>
+        `<option value="${mktEsc(c.id)}" ${c.id === selectedWearCarId ? 'selected' : ''}>${mktEsc(c.name)}${c.carClass ? ` - ${mktEsc(c.carClass)}` : ''}</option>`
+      ).join('');
+
     const partsByType = {};
     (inventory.partsInventory || []).forEach(p => { (partsByType[p.partType] = partsByType[p.partType] || []).push(p); });
     const durableInfo = (pt) => {
@@ -3606,6 +3635,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     wrap.innerHTML = `
       <div class="wear-diagram-wrap">
         <p class="field-hint" style="margin:0 0 10px;text-align:center">Your car right now - real stock &amp; condition from your inventory.</p>
+        <div class="row" style="justify-content:center;margin-bottom:12px">
+          <div class="field-group" style="min-width:220px;max-width:320px">
+            <label>Show this diagram as</label>
+            <select id="wearCarSelect">${wearCarOptionsHtml}</select>
+          </div>
+        </div>
         <div class="wear-diagram" id="wearDiagramInner">
           <div class="wear-label-row">
             ${CAR_WEAR_POINTS.map(p => {
@@ -3618,11 +3653,31 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
               </div>`;
             }).join('')}
           </div>
-          <img src="${CAR_WEAR_IMAGE_URL}" alt="Your car" id="wearCarImg">
+          <img src="${wearCarImageUrl}" alt="Your car" id="wearCarImg">
           <svg id="wearLinesSvg"></svg>
         </div>
       </div>
     `;
+
+    // ✅ ADDED: saving the car picker re-renders the whole diagram (simplest
+    // way to safely swap the image, recompute the fallback, and rebuild the
+    // select with the new value pre-selected) rather than patching the DOM
+    // in place. Note the wear-point dot/line coordinates (CAR_WEAR_POINTS)
+    // are hand-tuned against the default outline image's proportions - a
+    // real car photo from the BOP TRACKer may not have the wear points land
+    // in exactly the right spot on the car, since it's a different image.
+    q('wearCarSelect')?.addEventListener('change', async (ev) => {
+      const carId = ev.target.value;
+      ev.target.disabled = true;
+      try{
+        await window.IFWL_CareerCarAPI.saveWearCarSelection(carId);
+        if(currentProfile) currentProfile.careerWearCarId = carId;
+        await renderPartsWearDiagram();
+      }catch(e){
+        alert('Could not save car selection: ' + e.message);
+        ev.target.disabled = false;
+      }
+    });
 
     const img = q('wearCarImg');
     const drawWearLines = () => {
