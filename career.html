@@ -1048,6 +1048,28 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   </div>
 </div>
 
+<!-- ✅ ADDED: My Shop viewer - opened via any "Visit Shop for Offers" link
+     on the Marketplace (Browse rows, My Listings, or a driver previewing
+     their own shop). Shows the seller's shop name/background as a big
+     banner, their current best offer highlighted in gold if they have one,
+     and everything they've currently got listed - buying from here reuses
+     the exact same purchaseMarketplaceListing flow as Browse Marketplace. -->
+<div id="shopViewerModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:270;display:flex;align-items:flex-start;justify-content:center;padding:24px;overflow-y:auto">
+  <div style="width:min(720px,96vw);background:linear-gradient(165deg,#151b22,#0e1218);border:1px solid var(--ifwl-line);border-radius:20px;overflow:hidden;box-shadow:0 40px 110px rgba(0,0,0,.7)">
+    <div id="shopViewerBanner" style="min-height:140px;background-size:cover;background-position:center;background-color:#0d1116;display:flex;align-items:flex-end;padding:20px;position:relative">
+      <button type="button" id="shopViewerCloseBtn" style="position:absolute;top:12px;right:12px;background:rgba(0,0,0,.55);border:1px solid var(--ifwl-line);color:#fff;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px">&times;</button>
+      <div>
+        <div id="shopViewerName" style="font-size:26px;font-weight:800;font-family:var(--font-display,inherit);color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.8)"></div>
+        <div id="shopViewerOwner" class="field-hint" style="color:#dfe6ea"></div>
+      </div>
+    </div>
+    <div style="padding:20px">
+      <div id="shopViewerBestOffer"></div>
+      <div id="shopViewerListings" class="shop-receipt-list"></div>
+    </div>
+  </div>
+</div>
+
 <div class="top-strip">IFWL &mdash; <span>MY CAREER &amp; MARKETPLACE</span></div>
 <nav class="nav">
   <div class="logo"><img src="https://ifwlowner.github.io/ACC-driver-classifier/ifwllogo1.png" alt="IFWL"></div>
@@ -1421,7 +1443,14 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   // ✅ ADDED: shared per-part-type artwork (staff-set, see licence.html) -
   // read-only here, driver-facing display only.
   async function fetchPartsMarketplaceImages(){ return (await apiGet('partsMarketplaceImages')).images || {}; }
-  window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury, craftPart, fetchPartsMarketplaceImages };
+  // ✅ ADDED: My Shop - name/background (via the generic updateLicenceProfile
+  // endpoint, same one licence.html uses - gated server-side on owning a
+  // Shop/Factory), per-listing special offers, and visiting another
+  // driver's shop.
+  async function saveMyShopProfile(patch){ return apiPost('updateLicenceProfile', patch); }
+  async function saveListingOffers(listingId, offers){ return apiPost('saveListingOffers', { listingId, offers }); }
+  async function fetchCareerShopPublicView(sellerId){ return apiGet('careerShopPublicView', `&sellerId=${encodeURIComponent(sellerId)}`); }
+  window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury, craftPart, fetchPartsMarketplaceImages, saveMyShopProfile, saveListingOffers, fetchCareerShopPublicView };
   window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   let currentProfile = null;
@@ -2173,6 +2202,30 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   const MKT_PART_LABEL = { tyre: 'Tyres', engine: 'Engine parts', suspension: 'Suspension parts', damper: 'Damper parts', aero: 'Aero parts', fuel: 'Race Fuel' };
   const MKT_SHOP_FOR_PART = { tyre: 'tyreFactory', engine: 'engineShop', suspension: 'tuningShop', damper: 'tuningShop', aero: 'aeroShop', fuel: 'fuelDepot' };
 
+  // ✅ ADDED: My Shop special offers - top-level (not nested inside
+  // renderMarketplaceSection) since openShopViewer needs them too. Mirrors
+  // computeBestOfferDiscount in rtgate.js exactly (bogo = effectively 50%
+  // off, bulk = seller-set thresholdQty/discountPct) - this is display only,
+  // the real pricing math happens server-side at purchase time.
+  const mktOfferEffectivePct = (o) => o.type === 'bogo' ? 50 : (Number(o.discountPct) || 0);
+  const mktOfferLabel = (o) => o.type === 'bogo' ? 'Buy 1 Get 1 Free' : `Buy ${o.thresholdQty}+, get ${o.discountPct}% off`;
+  const mktOfferBadgesHtml = (offers) => {
+    const active = (offers || []).filter(o => o && o.active !== false);
+    if(!active.length) return '';
+    return `<div style="margin-top:4px">${active.map(o => `<span class="shop-tier-badge" style="border-color:#ffb238;color:#ffb238;margin-right:4px">🎁 ${mktOfferLabel(o)}</span>`).join('')}</div>`;
+  };
+  // ✅ ADDED: the single best offer across every listing passed in - used to
+  // feature one golden "Best Offer" banner on a shop's public page, rather
+  // than just badging every listing individually.
+  const mktBestOfferAcross = (allListings) => {
+    let best = null;
+    (allListings || []).forEach(l => (l.offers || []).filter(o => o && o.active !== false).forEach(o => {
+      const pct = mktOfferEffectivePct(o);
+      if(!best || pct > best.pct) best = { pct, offer: o, listing: l };
+    }));
+    return best;
+  };
+
   async function renderMarketplaceSection(){
     const box = q('spMarketplaceBody');
     if(!box) return;
@@ -2210,6 +2263,35 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const ownedIds = new Set(ledger.ownedItemIds || []);
     const ownsShopCategory = (cat) => catalog.some(it => it.category === cat && ownedIds.has(it.id));
     const myShops = ['tyreFactory','fuelDepot','engineShop','tuningShop','aeroShop'].filter(ownsShopCategory);
+
+    // --- My Shop identity (name + background image) ---
+    // ✅ ADDED: only shown/editable once a driver owns at least one Shop/
+    // Factory - server enforces this too (updateLicenceProfile), this is
+    // just matching UI convenience.
+    const myShopName = currentProfile?.careerShopName || '';
+    const myShopBg = currentProfile?.careerShopBackgroundUrl || '';
+    const myShopIdentityHtml = `
+      <div class="shop-item-card aa-slot-card" style="margin-bottom:14px${myShopBg ? `;background-image:linear-gradient(rgba(6,9,13,.6),rgba(6,9,13,.6)),url('${myShopBg}');background-size:cover;background-position:center` : ''}">
+        <div class="field-group" style="margin-bottom:10px">
+          <label>Shop Name</label>
+          <div class="row" style="gap:8px">
+            <input type="text" id="myShopNameInput" placeholder="e.g. Ben's Tyre Emporium" maxlength="60" value="${myShopName.replace(/"/g,'&quot;')}" style="flex:1">
+            <button class="btn teal" id="myShopNameSaveBtn" type="button">Save</button>
+          </div>
+          <p class="field-hint" style="margin:4px 0 0">The big title shown when another driver clicks "🏪 Visit Shop" on one of your listings.</p>
+        </div>
+        <div class="field-group">
+          <label>Shop Background Image</label>
+          <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="file" id="myShopBgUpload" accept="image/png,image/jpeg" style="max-width:220px">
+            <span class="field-hint" id="myShopBgStatus"></span>
+          </div>
+        </div>
+        <div class="row" style="gap:8px;margin-top:10px">
+          <button class="btn ghost" type="button" data-visit-shop="${window.IFWL_META?.userId || ''}">👀 Preview My Shop</button>
+        </div>
+      </div>
+    `;
 
     // ✅ CHANGED: Tyre Factory keeps its original bonusPct/costReduction
     // discount. Engine/Tuning/Aero shops are now 3-tier - craft cost is
@@ -2436,24 +2518,68 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const listingPriceHtml = (l) => l.partType === 'fuel' ? (' &middot; Price: &pound;' + (Number(l.pricePerUnit)||0).toFixed(2) + ' per L') : (' &middot; Price: ' + csFmtMoney(l.pricePerUnit) + ' each');
 
     // --- My Listings ---
+    // ✅ CHANGED: each active listing now carries a "🎁 Offers" toggle that
+    // reveals an inline Buy 1 Get 1 Free / bulk-discount editor - offers
+    // are per-listing (a driver picks which specific stock a promo applies
+    // to), saved via saveListingOffers and actually enforced at checkout
+    // server-side (computeBestOfferDiscount in rtgate.js), not just cosmetic.
     const myListingsHtml = myListings.length ? `
       <h4 style="margin:16px 0 10px">My Listings</h4>
       <div class="shop-receipt-list">
         ${myListings.map(l => {
           const remaining = (l.partType === 'tyre' || l.partType === 'fuel') ? l.quantityRemaining : (l.partIdsRemaining || []).length;
           const tier = listingTier(l);
-          return `<div class="shop-receipt-row" style="align-items:center;gap:12px">
+          const bogo = (l.offers || []).find(o => o.type === 'bogo');
+          const bulk = (l.offers || []).find(o => o.type === 'bulk');
+          return `<div class="shop-receipt-row" style="align-items:center;gap:12px;flex-wrap:wrap">
             ${mktPartImg(l.partType, 48, tier)}
             <div style="flex:1;min-width:0">
               <div class="row" style="gap:8px;align-items:center"><div style="font-weight:700">${MKT_PART_LABEL[l.partType]}</div>${tier ? `<span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LVL ${tier}</span>` : ''}</div>
               <div class="shop-receipt-meta">In stock: ${remaining}${l.partType === 'fuel' ? 'L' : ''}${listingPriceHtml(l)}${tier ? ` &middot; ${CS_TIER_LIFE_PCT[tier]}% life` : ''}</div>
               <div class="shop-receipt-meta">Status: ${l.status}</div>
+              ${mktOfferBadgesHtml(l.offers)}
             </div>
-            ${l.status === 'active' ? `<button class="btn ghost" data-cancel-listing="${l.id}">Cancel</button>` : ''}
+            <div class="row" style="gap:6px">
+              ${l.status === 'active' ? `<button class="btn ghost" data-edit-offers="${l.id}" type="button">🎁 Offers</button>` : ''}
+              ${l.status === 'active' ? `<button class="btn ghost" data-cancel-listing="${l.id}">Cancel</button>` : ''}
+            </div>
+            ${l.status === 'active' ? `
+            <div class="hidden" data-offers-panel="${l.id}" style="width:100%;margin-top:10px;padding-top:10px;border-top:1px solid var(--ifwl-line-soft)">
+              <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <input type="checkbox" style="width:auto" data-offer-bogo="${l.id}" ${bogo ? 'checked' : ''}>
+                <span>Buy 1 Get 1 Free</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <input type="checkbox" style="width:auto" data-offer-bulk="${l.id}" ${bulk ? 'checked' : ''}>
+                <span>Buy at least</span>
+                <input type="number" min="2" placeholder="qty" value="${bulk ? bulk.thresholdQty : ''}" data-offer-bulk-qty="${l.id}" style="width:60px">
+                <span>units, get</span>
+                <input type="number" min="1" max="90" placeholder="%" value="${bulk ? bulk.discountPct : ''}" data-offer-bulk-pct="${l.id}" style="width:60px">
+                <span>% off the whole order</span>
+              </label>
+              <button class="btn teal" data-save-offers="${l.id}" type="button">Save offers</button>
+              <span class="field-hint" data-offers-status="${l.id}" style="margin-left:8px"></span>
+            </div>` : ''}
           </div>`;
         }).join('')}
       </div>
     ` : '';
+
+    // --- My Shop wrapper - everything above (identity, Craft Parts, Sell
+    // From My Shops, My Listings) lives inside this once a driver owns at
+    // least one Shop/Factory; otherwise a single locked hint replaces all
+    // of it (craftFormHtml/sellFormHtml are already '' / a plain hint when
+    // !myShops.length, so nesting them here never double-shows that text).
+    const myShopSectionHtml = myShops.length ? `
+      <div class="mkt-rrp-banner" style="margin:16px 0 10px">
+        <h4 style="margin:0 0 4px">🏪 ${myShopName || 'My Shop'}</h4>
+        <p class="field-hint" style="margin:0">Craft parts, list stock for sale, run special offers, and customize how other drivers see your shop when they visit it from the Marketplace.</p>
+      </div>
+      ${myShopIdentityHtml}
+      ${craftFormHtml}
+      ${sellFormHtml}
+      ${myListingsHtml}
+    ` : `<p class="field-hint" style="margin:16px 0">Own a Tyre Factory, Fuel Depot, Engine Shop, Tuning Shop or Aero Tuning Company (Gold Patreon, from the Career Shop tab) to unlock My Shop - craft parts, sell stock, run special offers, and get your own shop page other drivers can visit and buy from.</p>`;
 
     // --- Browse Marketplace ---
     // ✅ ADDED: sort + "starred sellers only" filter, applied client-side
@@ -2486,14 +2612,16 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         // suspension/damper/aero parts a listing actually was.
         const tier = listingTier(l);
         const tierBadgeHtml = tier ? ` <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LVL ${tier}</span>` : '';
-        return `<div class="shop-receipt-row" style="align-items:center;gap:12px">
+        return `<div class="shop-receipt-row" style="align-items:center;gap:12px;flex-wrap:wrap">
           ${mktPartImg(l.partType, 56, tier)}
           <div style="flex:1;min-width:0">
             <div class="row" style="gap:8px;align-items:center"><div style="font-weight:700">${MKT_PART_LABEL[l.partType]}</div>${tierBadgeHtml}</div>
             <div class="shop-receipt-meta">Seller: ${sellerNameHtml}${star}</div>
             <div class="shop-receipt-meta">In stock: ${remaining}${l.partType === 'fuel' ? 'L' : ''}${listingPriceHtml(l)}${tier ? ` &middot; ${CS_TIER_LIFE_PCT[tier]}% life` : ''}</div>
+            ${mktOfferBadgesHtml(l.offers)}
           </div>
-          <div class="row" style="gap:6px;align-items:center">
+          <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">
+            <button class="btn ghost" data-visit-shop="${l.sellerId}" type="button">🏪 Visit Shop</button>
             <input type="number" min="1" max="${remaining}" value="1" data-buy-qty="${l.id}" style="width:60px">
             <button class="btn teal" data-buy-listing="${l.id}">Buy</button>
           </div>
@@ -2560,9 +2688,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       </div>
       ${rrpReferenceHtml}
       ${inventoryHtml}
-      ${craftFormHtml}
-      ${sellFormHtml}
-      ${myListingsHtml}
+      ${myShopSectionHtml}
       ${trendingHtml}
       ${browseHtml}
     `;
@@ -2622,6 +2748,74 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         catch(e){ alert('Could not cancel: ' + e.message); btn.disabled = false; }
       });
     });
+
+    // --- My Shop identity: name + background upload ---
+    if(q('myShopNameSaveBtn')){
+      q('myShopNameSaveBtn').addEventListener('click', async () => {
+        const name = q('myShopNameInput').value.trim();
+        q('myShopNameSaveBtn').disabled = true;
+        try{
+          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopName: name });
+          currentProfile = await fetchMyProfile();
+          await renderMarketplaceSection();
+        }catch(e){ alert('Could not save shop name: ' + e.message); q('myShopNameSaveBtn').disabled = false; }
+      });
+    }
+    if(q('myShopBgUpload')){
+      q('myShopBgUpload').addEventListener('change', async (ev) => {
+        const file = ev.target.files[0]; if(!file) return;
+        const status = q('myShopBgStatus');
+        status.textContent = 'Uploading...';
+        try{
+          const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'careerShopBackground');
+          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopBackgroundUrl: url });
+          currentProfile = await fetchMyProfile();
+          status.textContent = 'Saved.';
+          await renderMarketplaceSection();
+        }catch(e){ status.textContent = 'Failed: ' + e.message; }
+      });
+    }
+
+    // --- My Shop: per-listing special offers editor ---
+    box.querySelectorAll('[data-edit-offers]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const panel = box.querySelector(`[data-offers-panel="${btn.dataset.editOffers}"]`);
+        if(panel) panel.classList.toggle('hidden');
+      });
+    });
+    box.querySelectorAll('[data-save-offers]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const listingId = btn.dataset.saveOffers;
+        const bogoChecked = box.querySelector(`[data-offer-bogo="${listingId}"]`)?.checked;
+        const bulkChecked = box.querySelector(`[data-offer-bulk="${listingId}"]`)?.checked;
+        const bulkQty = Math.round(Number(box.querySelector(`[data-offer-bulk-qty="${listingId}"]`)?.value) || 0);
+        const bulkPct = Math.round(Number(box.querySelector(`[data-offer-bulk-pct="${listingId}"]`)?.value) || 0);
+        const status = box.querySelector(`[data-offers-status="${listingId}"]`);
+        if(bulkChecked && (bulkQty < 2 || bulkPct < 1)){
+          if(status) status.textContent = 'Enter a valid quantity (2+) and % off (1-90) for the bulk offer.';
+          return;
+        }
+        const offers = [];
+        if(bogoChecked) offers.push({ type: 'bogo', active: true });
+        if(bulkChecked) offers.push({ type: 'bulk', active: true, thresholdQty: bulkQty, discountPct: bulkPct });
+        btn.disabled = true;
+        if(status) status.textContent = 'Saving...';
+        try{
+          await window.IFWL_MarketplaceAPI.saveListingOffers(listingId, offers);
+          await renderMarketplaceSection();
+        }catch(e){ if(status) status.textContent = 'Could not save: ' + e.message; btn.disabled = false; }
+      });
+    });
+
+    // --- Visit Shop - event delegation, wired once per box element (box
+    // itself persists across re-renders, only its innerHTML is replaced) ---
+    if(!box.dataset.visitShopWired){
+      box.dataset.visitShopWired = '1';
+      box.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-visit-shop]');
+        if(btn && btn.dataset.visitShop) openShopViewer(btn.dataset.visitShop);
+      });
+    }
   }
 
   // ✅ ADDED: one-shot popup for a new IFWL Career Shop transaction, same
@@ -2982,6 +3176,95 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     if(careerUpdateQueue.length) showNextCareerUpdate();
   }
+
+  // ✅ ADDED: My Shop viewer - opened via any "🏪 Visit Shop" link on the
+  // Marketplace (Browse rows, or a driver's own "Preview My Shop" button).
+  // Fetches that seller's shop identity + active listings from the new
+  // careerShopPublicView endpoint and renders them into the shared
+  // shopViewerModal. Buying reuses the exact same purchaseMarketplaceListing
+  // call Browse Marketplace uses (same real offer-discount pricing), then
+  // just re-fetches the shop view with fresh stock/balance.
+  async function openShopViewer(sellerId){
+    const modal = q('shopViewerModal');
+    if(!modal) return;
+    modal.classList.remove('hidden');
+    q('shopViewerName').textContent = 'Loading…';
+    q('shopViewerOwner').textContent = '';
+    q('shopViewerBestOffer').innerHTML = '';
+    q('shopViewerListings').innerHTML = '<div class="empty">Loading…</div>';
+    q('shopViewerBanner').style.backgroundImage = '';
+
+    let data;
+    try{ data = await window.IFWL_MarketplaceAPI.fetchCareerShopPublicView(sellerId); }
+    catch(e){
+      q('shopViewerName').textContent = 'Could not load shop';
+      q('shopViewerListings').innerHTML = `<div class="empty">${e.message}</div>`;
+      return;
+    }
+
+    q('shopViewerName').textContent = data.shopName || `${data.sellerName}'s Shop`;
+    q('shopViewerOwner').textContent = `Owned by ${data.sellerName}`;
+    if(data.backgroundUrl) q('shopViewerBanner').style.backgroundImage = `linear-gradient(rgba(6,9,13,.35),rgba(6,9,13,.75)),url('${data.backgroundUrl}')`;
+
+    let partImages = {};
+    try{ partImages = await window.IFWL_MarketplaceAPI.fetchPartsMarketplaceImages(); }catch(e){}
+    const shopMktPartImg = (pt, size, tier) => {
+      const url = partImages && ((pt === 'tyre' || pt === 'fuel') ? partImages[pt] : (partImages[pt] && partImages[pt][tier || 1]));
+      return url
+        ? `<img src="${url}" alt="${MKT_PART_LABEL[pt]}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;background:#0d1116;flex-shrink:0">`
+        : `<div style="width:${size}px;height:${size}px;border-radius:8px;background:#0d1116;border:1px solid var(--ifwl-line);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-dim);font-size:10px;text-align:center;padding:2px;line-height:1.2">${MKT_PART_LABEL[pt]}</div>`;
+    };
+    const listingTierV = (l) => (l.partType === 'tyre' || l.partType === 'fuel') ? null : ([1,2,3].includes(Number(l.parts?.[0]?.tier)) ? Number(l.parts[0].tier) : 1);
+    const listingPriceHtmlV = (l) => l.partType === 'fuel' ? (' &middot; Price: &pound;' + (Number(l.pricePerUnit)||0).toFixed(2) + ' per L') : (' &middot; Price: ' + csFmtMoney(l.pricePerUnit) + ' each');
+
+    const best = mktBestOfferAcross(data.listings || []);
+    q('shopViewerBestOffer').innerHTML = best ? `
+      <div style="background:linear-gradient(100deg,#7a5a10,#3a2a08);border:1px solid #ffb238;border-radius:12px;padding:12px 16px;margin-bottom:14px;text-align:center">
+        <div style="color:#ffd479;font-weight:800;letter-spacing:.03em;font-size:13px">🏆 BEST OFFER</div>
+        <div style="color:#fff;font-weight:700;font-size:16px;margin-top:4px">${mktOfferLabel(best.offer)} on ${MKT_PART_LABEL[best.listing.partType]}</div>
+      </div>` : '';
+
+    const rowsBox = q('shopViewerListings');
+    const shown = data.listings || [];
+    rowsBox.innerHTML = shown.length ? shown.map(l => {
+      const remaining = (l.partType === 'tyre' || l.partType === 'fuel') ? l.quantityRemaining : (l.partIdsRemaining || []).length;
+      const tier = listingTierV(l);
+      const tierBadgeHtml = tier ? ` <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LVL ${tier}</span>` : '';
+      return `<div class="shop-receipt-row" style="align-items:center;gap:12px;flex-wrap:wrap">
+        ${shopMktPartImg(l.partType, 56, tier)}
+        <div style="flex:1;min-width:0">
+          <div class="row" style="gap:8px;align-items:center"><div style="font-weight:700">${MKT_PART_LABEL[l.partType]}</div>${tierBadgeHtml}</div>
+          <div class="shop-receipt-meta">In stock: ${remaining}${l.partType === 'fuel' ? 'L' : ''}${listingPriceHtmlV(l)}${tier ? ` &middot; ${CS_TIER_LIFE_PCT[tier]}% life` : ''}</div>
+          ${mktOfferBadgesHtml(l.offers)}
+        </div>
+        <div class="row" style="gap:6px;align-items:center">
+          <input type="number" min="1" max="${remaining}" value="1" data-shopviewer-buy-qty="${l.id}" style="width:60px">
+          <button class="btn teal" data-shopviewer-buy="${l.id}">Buy</button>
+        </div>
+      </div>`;
+    }).join('') : `<div class="empty">This shop has nothing listed right now.</div>`;
+
+    rowsBox.querySelectorAll('[data-shopviewer-buy]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const listingId = btn.dataset.shopviewerBuy;
+        const qtyEl = rowsBox.querySelector(`[data-shopviewer-buy-qty="${listingId}"]`);
+        const qty = Math.max(1, Math.round(Number(qtyEl.value) || 1));
+        if(!confirm(`Buy ${qty} unit(s) from this listing?`)) return;
+        btn.disabled = true;
+        try{
+          await window.IFWL_MarketplaceAPI.purchaseMarketplaceListing(listingId, qty);
+          await renderCareerShopSection(); // balance changed
+          await openShopViewer(sellerId); // refresh this shop's stock
+          if(q('spMarketplaceBody')) renderMarketplaceSection(); // background refresh of Browse Marketplace too
+        }catch(e){ alert('Could not buy: ' + e.message); btn.disabled = false; }
+      });
+    });
+  }
+  function closeShopViewer(){ q('shopViewerModal')?.classList.add('hidden'); }
+  // Static modal, present from page load - wire its close controls once,
+  // not inside any render function.
+  q('shopViewerCloseBtn')?.addEventListener('click', closeShopViewer);
+  q('shopViewerModal')?.addEventListener('click', (e) => { if(e.target.id === 'shopViewerModal') closeShopViewer(); });
 
   async function init(){
     try{
