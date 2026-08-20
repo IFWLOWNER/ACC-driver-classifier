@@ -1106,6 +1106,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <button class="team-tab" data-career-view="perks" type="button">Career Perks</button>
         <button class="team-tab" data-career-view="progression" type="button">My Season Progression</button>
         <button class="team-tab" data-career-view="marketplace" type="button">Marketplace</button>
+        <button class="team-tab" data-career-view="myshop" type="button">🏪 My Shop</button>
       </div>
 
       <div id="seasonProgressionBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px;overflow:hidden">
@@ -1120,6 +1121,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         </div>
         <div class="team-view" data-career-view="marketplace">
           <div id="spMarketplaceBody"><div class="empty">Loading the Marketplace&hellip;</div></div>
+        </div>
+        <!-- ✅ ADDED: My Shop - its own top-level tab, not nested inside
+             Marketplace. Craft Parts / Sell From My Shops / My Listings
+             (with special offers) live here; Browse Marketplace stays on
+             the Marketplace tab for buying from OTHER drivers. -->
+        <div class="team-view" data-career-view="myshop">
+          <div id="spMyShopBody"><div class="empty">Loading My Shop&hellip;</div></div>
         </div>
       </div>
 
@@ -2226,33 +2234,29 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     return best;
   };
 
-  async function renderMarketplaceSection(){
-    const box = q('spMarketplaceBody');
+  // ✅ ADDED: My Shop - its own tab (was previously nested inside the
+  // Marketplace tab; moved out to its own top-level tab per explicit
+  // request). Craft Parts, Sell From My Shops, My Listings (with the
+  // special-offers editor) and the shop identity (name/background) all
+  // live here now. Browse Marketplace / Trending / RRP reference / My
+  // Inventory stay on the Marketplace tab (renderMarketplaceSection below).
+  async function renderMyShopSection(){
+    const box = q('spMyShopBody');
     if(!box) return;
-    box.innerHTML = '<div class="empty">Loading the Marketplace&hellip;</div>';
+    box.innerHTML = '<div class="empty">Loading My Shop&hellip;</div>';
 
-    let inventory, myListings, mktResult, listings, trending, catalog, ledger, seasonalCosts, partImages;
+    let inventory, myListings, catalog, ledger, seasonalCosts, partImages;
     try{
-      [inventory, myListings, mktResult, catalog, ledger, seasonalCosts, partImages] = await Promise.all([
+      [inventory, myListings, catalog, ledger, seasonalCosts, partImages] = await Promise.all([
         window.IFWL_MarketplaceAPI.fetchMyPartsInventory(),
         window.IFWL_MarketplaceAPI.fetchMyMarketplaceListings(),
-        window.IFWL_MarketplaceAPI.fetchMarketplaceListings(),
         window.IFWL_CareerShopAPI.fetchCareerShopCatalog(),
         window.IFWL_CareerShopAPI.fetchMyCareerShopLedger(),
         window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts(),
         window.IFWL_MarketplaceAPI.fetchPartsMarketplaceImages()
       ]);
-      listings = mktResult.listings;
-      trending = mktResult.trending;
-    }catch(e){ box.innerHTML = `<div class="empty">Could not load the Marketplace: ${e.message}</div>`; return; }
+    }catch(e){ box.innerHTML = `<div class="empty">Could not load My Shop: ${e.message}</div>`; return; }
 
-    // ✅ CHANGED: shared per-part-type artwork - a plain placeholder tile
-    // (part name, no image) when staff hasn't set one yet for that type.
-    // Engine/Suspension/Damper/Aero now carry a separate image per Shop
-    // Level (1/2/3, set by staff in Staff > Parts Marketplace) - pass the
-    // relevant tier where it's known (a specific owned part's own .tier,
-    // or the driver's current effective tier for a not-yet-crafted
-    // preview); omitted/undefined defaults to Level 1. Tyres have no tiers.
     const mktPartImg = (pt, size, tier) => {
       const url = partImages && ((pt === 'tyre' || pt === 'fuel') ? partImages[pt] : (partImages[pt] && partImages[pt][tier || 1]));
       return url
@@ -2326,96 +2330,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     const partsByType = {};
     (inventory.partsInventory || []).forEach(p => { (partsByType[p.partType] = partsByType[p.partType] || []).push(p); });
-
-    // ✅ ADDED: Base RRP + wear-per-race-weekend reference, so a driver can
-    // tell whether a Marketplace listing is actually a good deal against
-    // the official factory price, and how many race weekends a purchase
-    // will realistically cover. RRP is the same undiscounted figure crafting
-    // is priced from (craftBaseCost, straight from Seasonal Costs) - not
-    // any driver's own discounted cost. Wear ratios are the exact same
-    // figures race settlement actually consumes server-side (tyres: fully
-    // consumed, IFWL_RACE_EARNINGS_TYRES_PER_RACE=16 per weekend; durable
-    // parts: IFWL_PARTS_WEAR_PCT condition lost per weekend), not an
-    // approximation.
-    const MKT_WEAR_PCT_PER_WEEKEND = { engine: 25, suspension: 25, damper: 50, aero: 50 };
-    // ✅ ADDED: Race Fuel consumption text - flat P&Q + Race litres every
-    // weekend, plus what an extra lap over the "standard" distance costs -
-    // same fields/formula ifwlCreditRaceEarningsCore actually charges from.
-    const fuelBaselineLitres = (Number(seasonalCosts?.fuel?.practiceQualifyingLitres) || 120) + (Number(seasonalCosts?.fuel?.raceLitres) || 120);
-    const mktWearText = (pt) => pt === 'tyre'
-      ? '16 tyres consumed per race weekend (fully used up)'
-      : pt === 'fuel'
-        ? `${fuelBaselineLitres}L consumed per race weekend as standard, +${Number(seasonalCosts?.fuel?.extraLitresPerLap) || 2.75}L per lap over ${Number(seasonalCosts?.fuel?.standardRaceLaps) || 20} laps in the race`
-        : `-${MKT_WEAR_PCT_PER_WEEKEND[pt]}% condition per race weekend (lasts ~${Math.round(100 / MKT_WEAR_PCT_PER_WEEKEND[pt])} weekends from full)`;
-    // ✅ ADDED: per-tier craft cost % and part life % for the three
-    // upgradeable Shops, right on the RRP card - same CS_TIER_* constants
-    // used everywhere else, so a driver can see exactly what a Level 2/3
-    // upgrade actually buys them before they spend anything.
-    const mktTierRatioHtml = (pt) => {
-      if (pt === 'tyre' || pt === 'fuel') return '';
-      return `<div style="margin:6px 0 0;padding-top:6px;border-top:1px solid var(--ifwl-line-soft)">
-        ${[1,2,3].map(t => `<div class="field-hint" style="margin:2px 0;display:flex;justify-content:space-between;gap:8px">
-          <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[t]};color:${CS_TIER_COLOR[t]}">LVL ${t}</span>
-          <span>craft @ ${CS_TIER_CRAFT_COST_PCT[t]}% RRP &middot; ${CS_TIER_LIFE_PCT[t]}% life</span>
-        </div>`).join('')}
-      </div>`;
-    };
-    const rrpReferenceHtml = `
-      <div class="mkt-rrp-banner">
-        <h4 style="margin:0 0 4px">Base RRP &amp; Wear Reference</h4>
-        <p class="field-hint" style="margin:0">The official factory price, how fast each part wears out, and what each Shop's Level 1/2/3 tier actually gets you - use this to judge whether a Marketplace listing is actually a good deal.</p>
-      </div>
-      <div class="shop-item-grid">
-        ${['tyre','fuel','engine','suspension','damper','aero'].map(pt => `<div class="shop-item-card aa-slot-card">
-          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 40)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
-          <p class="field-hint" style="margin:4px 0">RRP: <span class="mono" style="font-weight:800;color:var(--text)">${pt === 'fuel' ? ('&pound;' + craftBaseCost[pt].toFixed(2)) : csFmtMoney(Math.round(craftBaseCost[pt]))}</span> ${pt === 'fuel' ? 'per litre' : 'each'}</p>
-          <p class="field-hint" style="margin:4px 0">${mktWearText(pt)}</p>
-          ${mktTierRatioHtml(pt)}
-        </div>`).join('')}
-      </div>
-    `;
-
-    // --- My Inventory ---
-    // ✅ CHANGED: collapsed by default (native <details>, no "open" attr) -
-    // Browse Marketplace / My Listings are the only sections left open, this
-    // and Craft Parts / Sell From My Shops below all now need a tap to expand.
-    const inventoryHtml = `
-      <details class="mkt-collapsible">
-      <summary style="cursor:pointer;font-size:16px;font-weight:700;margin:0 0 10px">My Inventory</summary>
-      <div class="shop-item-grid">
-        <div class="shop-item-card aa-slot-card">
-          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg('tyre', 44)}<strong>Tyres</strong></div>
-          <p class="field-hint" style="margin:4px 0">In stock, ready to use or sell</p><span class="mono" style="font-weight:800;font-size:18px">${inventory.tyreInventoryCount || 0}</span>
-        </div>
-        <div class="shop-item-card aa-slot-card">
-          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg('fuel', 44)}<strong>Race Fuel</strong></div>
-          <p class="field-hint" style="margin:4px 0">Litres in stock, ready to use or sell</p><span class="mono" style="font-weight:800;font-size:18px">${inventory.fuelInventoryLitres || 0}L</span>
-        </div>
-        ${['engine','suspension','damper','aero'].map(pt => {
-          // ✅ CHANGED: grouped by tier too, not just part type - a Level 3
-          // engine part looks different (and lasts longer) from a Level 1
-          // one, so each tier you actually own gets its own card with its
-          // own staff-set image, rather than one image standing in for all
-          // of them.
-          const parts = (partsByType[pt] || []).slice().sort((a,b) => b.conditionPct - a.conditionPct);
-          if (!parts.length) return '';
-          const byTier = {};
-          parts.forEach(p => { const t = [1,2,3].includes(Number(p.tier)) ? Number(p.tier) : 1; (byTier[t] = byTier[t] || []).push(p); });
-          return Object.keys(byTier).sort().map(tier => {
-            const tierParts = byTier[tier];
-            return `<div class="shop-item-card aa-slot-card">
-              <div class="row" style="justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px">
-                <div class="row" style="gap:10px;align-items:center">${mktPartImg(pt, 44, Number(tier))}<strong>${MKT_PART_LABEL[pt]}</strong></div>
-                <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LVL ${tier}</span>
-              </div>
-              <p class="field-hint" style="margin:4px 0">${tierParts.length} owned</p>
-              <div style="font-size:12px;color:var(--text-dim)">${tierParts.map(p => p.conditionPct + '%').join(', ')}</div>
-            </div>`;
-          }).join('');
-        }).join('')}
-      </div>
-      </details>
-    `;
 
     // --- Craft Parts (pay cash to make stock on demand) ---
     const craftFormHtml = myShops.length ? `
@@ -2581,6 +2495,259 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       ${myListingsHtml}
     ` : `<p class="field-hint" style="margin:16px 0">Own a Tyre Factory, Fuel Depot, Engine Shop, Tuning Shop or Aero Tuning Company (Gold Patreon, from the Career Shop tab) to unlock My Shop - craft parts, sell stock, run special offers, and get your own shop page other drivers can visit and buy from.</p>`;
 
+    box.innerHTML = myShopSectionHtml;
+
+    box.querySelectorAll('[data-craft-part]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pt = btn.dataset.craftPart;
+        const unitCost = Number(btn.dataset.craftCost) || 0;
+        const qtyEl = box.querySelector(`[data-craft-qty="${pt}"]`);
+        const qty = Math.max(1, Math.min(500, Math.round(Number(qtyEl.value) || 0)));
+        const totalCost = unitCost * qty;
+        if(totalCost > (ledger.balance || 0)){ alert(`Not enough balance - crafting ${qty} would cost ${csFmtMoney(totalCost).replace(/&pound;/,'£')}.`); return; }
+        if(!confirm(`Craft ${qty} x ${MKT_PART_LABEL[pt]} for ${csFmtMoney(totalCost).replace(/&pound;/,'£')}?`)) return;
+        btn.disabled = true;
+        try{
+          await window.IFWL_MarketplaceAPI.craftPart(pt, qty);
+          await renderMyShopSection();
+          await renderCareerShopSection(); // balance changed
+        }catch(e){ alert('Could not craft: ' + e.message); btn.disabled = false; }
+      });
+    });
+    box.querySelectorAll('[data-sell-part]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        // key is 'tyre' or '<partType>_<tier>' (e.g. 'engine_2') - the tier
+        // suffix is only there to give each tier's Qty/£ inputs a unique DOM
+        // id, the actual listing call below always uses the plain partType.
+        const key = btn.dataset.sellPart;
+        const pt = btn.dataset.sellPartType || key;
+        const tier = btn.dataset.sellPartTier ? Number(btn.dataset.sellPartTier) : null;
+        const qtyEl = box.querySelector(`[data-sell-qty="${key}"]`);
+        const priceEl = box.querySelector(`[data-sell-price="${key}"]`);
+        const isFuel = pt === 'fuel';
+        const qty = Math.max(1, Math.round(Number(qtyEl.value) || 0));
+        const price = isFuel ? Math.max(0.01, Math.round((Number(priceEl.value) || 0) * 100) / 100) : Math.max(1, Math.round(Number(priceEl.value) || 0));
+        if(!price){ alert('Enter a price per unit.'); return; }
+        btn.disabled = true;
+        try{
+          if(pt === 'tyre' || isFuel){
+            await window.IFWL_MarketplaceAPI.listPartsForSale(pt, qty, price);
+          } else {
+            const pool = tier ? (partsByType[pt] || []).filter(p => ([1,2,3].includes(Number(p.tier)) ? Number(p.tier) : 1) === tier) : (partsByType[pt] || []);
+            const ids = pool.slice().sort((a,b) => b.conditionPct - a.conditionPct).slice(0, qty).map(p => p.id);
+            await window.IFWL_MarketplaceAPI.listPartsForSale(pt, ids, price);
+          }
+          await renderMyShopSection();
+        }catch(e){ alert('Could not list for sale: ' + e.message); btn.disabled = false; }
+      });
+    });
+    box.querySelectorAll('[data-cancel-listing]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try{ await window.IFWL_MarketplaceAPI.cancelMarketplaceListing(btn.dataset.cancelListing); await renderMyShopSection(); }
+        catch(e){ alert('Could not cancel: ' + e.message); btn.disabled = false; }
+      });
+    });
+
+    // --- My Shop identity: name + background upload ---
+    if(q('myShopNameSaveBtn')){
+      q('myShopNameSaveBtn').addEventListener('click', async () => {
+        const name = q('myShopNameInput').value.trim();
+        q('myShopNameSaveBtn').disabled = true;
+        try{
+          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopName: name });
+          currentProfile = await fetchMyProfile();
+          await renderMyShopSection();
+        }catch(e){ alert('Could not save shop name: ' + e.message); q('myShopNameSaveBtn').disabled = false; }
+      });
+    }
+    if(q('myShopBgUpload')){
+      q('myShopBgUpload').addEventListener('change', async (ev) => {
+        const file = ev.target.files[0]; if(!file) return;
+        const status = q('myShopBgStatus');
+        status.textContent = 'Uploading...';
+        try{
+          const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'careerShopBackground');
+          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopBackgroundUrl: url });
+          currentProfile = await fetchMyProfile();
+          status.textContent = 'Saved.';
+          await renderMyShopSection();
+        }catch(e){ status.textContent = 'Failed: ' + e.message; }
+      });
+    }
+
+    // --- My Shop: per-listing special offers editor ---
+    box.querySelectorAll('[data-edit-offers]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const panel = box.querySelector(`[data-offers-panel="${btn.dataset.editOffers}"]`);
+        if(panel) panel.classList.toggle('hidden');
+      });
+    });
+    box.querySelectorAll('[data-save-offers]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const listingId = btn.dataset.saveOffers;
+        const bogoChecked = box.querySelector(`[data-offer-bogo="${listingId}"]`)?.checked;
+        const bulkChecked = box.querySelector(`[data-offer-bulk="${listingId}"]`)?.checked;
+        const bulkQty = Math.round(Number(box.querySelector(`[data-offer-bulk-qty="${listingId}"]`)?.value) || 0);
+        const bulkPct = Math.round(Number(box.querySelector(`[data-offer-bulk-pct="${listingId}"]`)?.value) || 0);
+        const status = box.querySelector(`[data-offers-status="${listingId}"]`);
+        if(bulkChecked && (bulkQty < 2 || bulkPct < 1)){
+          if(status) status.textContent = 'Enter a valid quantity (2+) and % off (1-90) for the bulk offer.';
+          return;
+        }
+        const offers = [];
+        if(bogoChecked) offers.push({ type: 'bogo', active: true });
+        if(bulkChecked) offers.push({ type: 'bulk', active: true, thresholdQty: bulkQty, discountPct: bulkPct });
+        btn.disabled = true;
+        if(status) status.textContent = 'Saving...';
+        try{
+          await window.IFWL_MarketplaceAPI.saveListingOffers(listingId, offers);
+          await renderMyShopSection();
+        }catch(e){ if(status) status.textContent = 'Could not save: ' + e.message; btn.disabled = false; }
+      });
+    });
+
+    // --- Visit Shop - event delegation, wired once per box element (box
+    // itself persists across re-renders, only its innerHTML is replaced) ---
+    if(!box.dataset.visitShopWired){
+      box.dataset.visitShopWired = '1';
+      box.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-visit-shop]');
+        if(btn && btn.dataset.visitShop) openShopViewer(btn.dataset.visitShop);
+      });
+    }
+  }
+
+  // ✅ ADDED: leaner Browse-Marketplace-only render function for the
+  // Marketplace tab (spMarketplaceBody) - split off from the original
+  // combined function so "My Shop" (craft/sell/listings/offers/identity)
+  // could move to its own top-level tab (spMyShopBody, renderMyShopSection
+  // above) per the driver's request that it not live inside Marketplace.
+  // RRP Reference and My Inventory stay here since they're marketplace-wide
+  // reference info, not shop-specific.
+  async function renderMarketplaceSection(){
+    const box = q('spMarketplaceBody');
+    if(!box) return;
+    box.innerHTML = '<div class="empty">Loading the Marketplace&hellip;</div>';
+
+    let inventory, mktResult, listings, trending, seasonalCosts, partImages;
+    try{
+      [inventory, mktResult, seasonalCosts, partImages] = await Promise.all([
+        window.IFWL_MarketplaceAPI.fetchMyPartsInventory(),
+        window.IFWL_MarketplaceAPI.fetchMarketplaceListings(),
+        window.IFWL_SeasonalCostsAPI.fetchSeasonalCosts(),
+        window.IFWL_MarketplaceAPI.fetchPartsMarketplaceImages()
+      ]);
+      listings = mktResult.listings;
+      trending = mktResult.trending;
+    }catch(e){ box.innerHTML = `<div class="empty">Could not load the Marketplace: ${e.message}</div>`; return; }
+
+    const mktPartImg = (pt, size, tier) => {
+      const url = partImages && ((pt === 'tyre' || pt === 'fuel') ? partImages[pt] : (partImages[pt] && partImages[pt][tier || 1]));
+      return url
+        ? `<img src="${url}" alt="${MKT_PART_LABEL[pt]}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;background:#0d1116;flex-shrink:0">`
+        : `<div style="width:${size}px;height:${size}px;border-radius:8px;background:#0d1116;border:1px solid var(--ifwl-line);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-dim);font-size:10px;text-align:center;padding:2px;line-height:1.2">${MKT_PART_LABEL[pt]}</div>`;
+    };
+
+    const partsByType = {};
+    (inventory.partsInventory || []).forEach(p => { (partsByType[p.partType] = partsByType[p.partType] || []).push(p); });
+
+    // ✅ ADDED: Base RRP + wear-per-race-weekend reference, so a driver can
+    // tell whether a Marketplace listing is actually a good deal against
+    // the official factory price, and how many race weekends a purchase
+    // will realistically cover. RRP is the same undiscounted figure crafting
+    // is priced from (craftBaseCost, straight from Seasonal Costs) - not
+    // any driver's own discounted cost. Wear ratios are the exact same
+    // figures race settlement actually consumes server-side (tyres: fully
+    // consumed, IFWL_RACE_EARNINGS_TYRES_PER_RACE=16 per weekend; durable
+    // parts: IFWL_PARTS_WEAR_PCT condition lost per weekend), not an
+    // approximation.
+    const craftBaseCost = {
+      tyre: Number(seasonalCosts?.tyre?.pricePerTyre) || 1023,
+      fuel: Number(seasonalCosts?.fuel?.pricePerLitre) || 2.3,
+      engine: Number(seasonalCosts?.partsMaintenance?.engine) || 8000,
+      suspension: Number(seasonalCosts?.partsMaintenance?.suspension) || 6000,
+      damper: Number(seasonalCosts?.partsMaintenance?.damper) || 4000,
+      aero: Number(seasonalCosts?.partsMaintenance?.aero) || 5000
+    };
+    const MKT_WEAR_PCT_PER_WEEKEND = { engine: 25, suspension: 25, damper: 50, aero: 50 };
+    // ✅ ADDED: Race Fuel consumption text - flat P&Q + Race litres every
+    // weekend, plus what an extra lap over the "standard" distance costs -
+    // same fields/formula ifwlCreditRaceEarningsCore actually charges from.
+    const fuelBaselineLitres = (Number(seasonalCosts?.fuel?.practiceQualifyingLitres) || 120) + (Number(seasonalCosts?.fuel?.raceLitres) || 120);
+    const mktWearText = (pt) => pt === 'tyre'
+      ? '16 tyres consumed per race weekend (fully used up)'
+      : pt === 'fuel'
+        ? `${fuelBaselineLitres}L consumed per race weekend as standard, +${Number(seasonalCosts?.fuel?.extraLitresPerLap) || 2.75}L per lap over ${Number(seasonalCosts?.fuel?.standardRaceLaps) || 20} laps in the race`
+        : `-${MKT_WEAR_PCT_PER_WEEKEND[pt]}% condition per race weekend (lasts ~${Math.round(100 / MKT_WEAR_PCT_PER_WEEKEND[pt])} weekends from full)`;
+    // ✅ ADDED: per-tier craft cost % and part life % for the three
+    // upgradeable Shops, right on the RRP card - same CS_TIER_* constants
+    // used everywhere else, so a driver can see exactly what a Level 2/3
+    // upgrade actually buys them before they spend anything.
+    const mktTierRatioHtml = (pt) => {
+      if (pt === 'tyre' || pt === 'fuel') return '';
+      return `<div style="margin:6px 0 0;padding-top:6px;border-top:1px solid var(--ifwl-line-soft)">
+        ${[1,2,3].map(t => `<div class="field-hint" style="margin:2px 0;display:flex;justify-content:space-between;gap:8px">
+          <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[t]};color:${CS_TIER_COLOR[t]}">LVL ${t}</span>
+          <span>craft @ ${CS_TIER_CRAFT_COST_PCT[t]}% RRP &middot; ${CS_TIER_LIFE_PCT[t]}% life</span>
+        </div>`).join('')}
+      </div>`;
+    };
+    const rrpReferenceHtml = `
+      <div class="mkt-rrp-banner">
+        <h4 style="margin:0 0 4px">Base RRP &amp; Wear Reference</h4>
+        <p class="field-hint" style="margin:0">The official factory price, how fast each part wears out, and what each Shop's Level 1/2/3 tier actually gets you - use this to judge whether a Marketplace listing is actually a good deal.</p>
+      </div>
+      <div class="shop-item-grid">
+        ${['tyre','fuel','engine','suspension','damper','aero'].map(pt => `<div class="shop-item-card aa-slot-card">
+          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg(pt, 40)}<strong>${MKT_PART_LABEL[pt]}</strong></div>
+          <p class="field-hint" style="margin:4px 0">RRP: <span class="mono" style="font-weight:800;color:var(--text)">${pt === 'fuel' ? ('&pound;' + craftBaseCost[pt].toFixed(2)) : csFmtMoney(Math.round(craftBaseCost[pt]))}</span> ${pt === 'fuel' ? 'per litre' : 'each'}</p>
+          <p class="field-hint" style="margin:4px 0">${mktWearText(pt)}</p>
+          ${mktTierRatioHtml(pt)}
+        </div>`).join('')}
+      </div>
+    `;
+
+    // --- My Inventory ---
+    const inventoryHtml = `
+      <details class="mkt-collapsible">
+      <summary style="cursor:pointer;font-size:16px;font-weight:700;margin:0 0 10px">My Inventory</summary>
+      <div class="shop-item-grid">
+        <div class="shop-item-card aa-slot-card">
+          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg('tyre', 44)}<strong>Tyres</strong></div>
+          <p class="field-hint" style="margin:4px 0">In stock, ready to use or sell</p><span class="mono" style="font-weight:800;font-size:18px">${inventory.tyreInventoryCount || 0}</span>
+        </div>
+        <div class="shop-item-card aa-slot-card">
+          <div class="row" style="gap:10px;align-items:center;margin-bottom:6px">${mktPartImg('fuel', 44)}<strong>Race Fuel</strong></div>
+          <p class="field-hint" style="margin:4px 0">Litres in stock, ready to use or sell</p><span class="mono" style="font-weight:800;font-size:18px">${inventory.fuelInventoryLitres || 0}L</span>
+        </div>
+        ${['engine','suspension','damper','aero'].map(pt => {
+          const parts = (partsByType[pt] || []).slice().sort((a,b) => b.conditionPct - a.conditionPct);
+          if (!parts.length) return '';
+          const byTier = {};
+          parts.forEach(p => { const t = [1,2,3].includes(Number(p.tier)) ? Number(p.tier) : 1; (byTier[t] = byTier[t] || []).push(p); });
+          return Object.keys(byTier).sort().map(tier => {
+            const tierParts = byTier[tier];
+            return `<div class="shop-item-card aa-slot-card">
+              <div class="row" style="justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px">
+                <div class="row" style="gap:10px;align-items:center">${mktPartImg(pt, 44, Number(tier))}<strong>${MKT_PART_LABEL[pt]}</strong></div>
+                <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LVL ${tier}</span>
+              </div>
+              <p class="field-hint" style="margin:4px 0">${tierParts.length} owned</p>
+              <div style="font-size:12px;color:var(--text-dim)">${tierParts.map(p => p.conditionPct + '%').join(', ')}</div>
+            </div>`;
+          }).join('');
+        }).join('')}
+      </div>
+      </details>
+    `;
+
+    // ✅ ADDED: a listing's tier - every listing's `parts` array is
+    // single-tier now, so the first part's tier represents the whole
+    // listing; tyre/fuel listings have no tier at all.
+    const listingTier = (l) => (l.partType === 'tyre' || l.partType === 'fuel') ? null : ([1,2,3].includes(Number(l.parts?.[0]?.tier)) ? Number(l.parts[0].tier) : 1);
+    const listingPriceHtml = (l) => l.partType === 'fuel' ? (' &middot; Price: &pound;' + (Number(l.pricePerUnit)||0).toFixed(2) + ' per L') : (' &middot; Price: ' + csFmtMoney(l.pricePerUnit) + ' each');
+
     // --- Browse Marketplace ---
     // ✅ ADDED: sort + "starred sellers only" filter, applied client-side
     // over the already-fetched listings (no extra round trip) so switching
@@ -2606,10 +2773,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const sellerNameHtml = l.sellerElite
           ? `<span class="mkt-seller-elite" title="Elite seller - ${l.sellerSoldCount}+ items sold">${sellerLabel}</span>`
           : sellerLabel;
-        // ✅ ADDED: a Level 1/2/3 badge (and matching tier image) right on
-        // the listing row, plus the tier's life% bonus in the meta line -
-        // previously a buyer had no way to tell which tier of engine/
-        // suspension/damper/aero parts a listing actually was.
         const tier = listingTier(l);
         const tierBadgeHtml = tier ? ` <span class="shop-tier-badge" style="border-color:${CS_TIER_COLOR[tier]};color:${CS_TIER_COLOR[tier]}">LVL ${tier}</span>` : '';
         return `<div class="shop-receipt-row" style="align-items:center;gap:12px;flex-wrap:wrap">
@@ -2645,9 +2808,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     };
 
     // ✅ ADDED: Trending strip - top 5 part types by units sold across the
-    // whole Marketplace in the last 7 days (server-computed in
-    // marketplaceListings, from marketplaceTransactions), shown as a row of
-    // "hot" chips above Browse Marketplace so drivers can see what's moving.
+    // whole Marketplace in the last 7 days.
     const trendingHtml = (trending && trending.length) ? `
       <h4 style="margin:16px 0 10px">Trending This Week</h4>
       <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:16px">
@@ -2688,7 +2849,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       </div>
       ${rrpReferenceHtml}
       ${inventoryHtml}
-      ${myShopSectionHtml}
       ${trendingHtml}
       ${browseHtml}
     `;
@@ -2697,118 +2857,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     q('mktSortSelect').addEventListener('change', renderBrowseRows);
     q('mktStarredOnly').addEventListener('change', renderBrowseRows);
 
-    box.querySelectorAll('[data-craft-part]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const pt = btn.dataset.craftPart;
-        const unitCost = Number(btn.dataset.craftCost) || 0;
-        const qtyEl = box.querySelector(`[data-craft-qty="${pt}"]`);
-        const qty = Math.max(1, Math.min(500, Math.round(Number(qtyEl.value) || 0)));
-        const totalCost = unitCost * qty;
-        if(totalCost > (ledger.balance || 0)){ alert(`Not enough balance - crafting ${qty} would cost ${csFmtMoney(totalCost).replace(/&pound;/,'£')}.`); return; }
-        if(!confirm(`Craft ${qty} x ${MKT_PART_LABEL[pt]} for ${csFmtMoney(totalCost).replace(/&pound;/,'£')}?`)) return;
-        btn.disabled = true;
-        try{
-          await window.IFWL_MarketplaceAPI.craftPart(pt, qty);
-          await renderMarketplaceSection();
-          await renderCareerShopSection(); // balance changed
-        }catch(e){ alert('Could not craft: ' + e.message); btn.disabled = false; }
-      });
-    });
-    box.querySelectorAll('[data-sell-part]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        // key is 'tyre' or '<partType>_<tier>' (e.g. 'engine_2') - the tier
-        // suffix is only there to give each tier's Qty/£ inputs a unique DOM
-        // id, the actual listing call below always uses the plain partType.
-        const key = btn.dataset.sellPart;
-        const pt = btn.dataset.sellPartType || key;
-        const tier = btn.dataset.sellPartTier ? Number(btn.dataset.sellPartTier) : null;
-        const qtyEl = box.querySelector(`[data-sell-qty="${key}"]`);
-        const priceEl = box.querySelector(`[data-sell-price="${key}"]`);
-        const isFuel = pt === 'fuel';
-        const qty = Math.max(1, Math.round(Number(qtyEl.value) || 0));
-        const price = isFuel ? Math.max(0.01, Math.round((Number(priceEl.value) || 0) * 100) / 100) : Math.max(1, Math.round(Number(priceEl.value) || 0));
-        if(!price){ alert('Enter a price per unit.'); return; }
-        btn.disabled = true;
-        try{
-          if(pt === 'tyre' || isFuel){
-            await window.IFWL_MarketplaceAPI.listPartsForSale(pt, qty, price);
-          } else {
-            const pool = tier ? (partsByType[pt] || []).filter(p => ([1,2,3].includes(Number(p.tier)) ? Number(p.tier) : 1) === tier) : (partsByType[pt] || []);
-            const ids = pool.slice().sort((a,b) => b.conditionPct - a.conditionPct).slice(0, qty).map(p => p.id);
-            await window.IFWL_MarketplaceAPI.listPartsForSale(pt, ids, price);
-          }
-          await renderMarketplaceSection();
-        }catch(e){ alert('Could not list for sale: ' + e.message); btn.disabled = false; }
-      });
-    });
-    box.querySelectorAll('[data-cancel-listing]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try{ await window.IFWL_MarketplaceAPI.cancelMarketplaceListing(btn.dataset.cancelListing); await renderMarketplaceSection(); }
-        catch(e){ alert('Could not cancel: ' + e.message); btn.disabled = false; }
-      });
-    });
-
-    // --- My Shop identity: name + background upload ---
-    if(q('myShopNameSaveBtn')){
-      q('myShopNameSaveBtn').addEventListener('click', async () => {
-        const name = q('myShopNameInput').value.trim();
-        q('myShopNameSaveBtn').disabled = true;
-        try{
-          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopName: name });
-          currentProfile = await fetchMyProfile();
-          await renderMarketplaceSection();
-        }catch(e){ alert('Could not save shop name: ' + e.message); q('myShopNameSaveBtn').disabled = false; }
-      });
-    }
-    if(q('myShopBgUpload')){
-      q('myShopBgUpload').addEventListener('change', async (ev) => {
-        const file = ev.target.files[0]; if(!file) return;
-        const status = q('myShopBgStatus');
-        status.textContent = 'Uploading...';
-        try{
-          const { url } = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'careerShopBackground');
-          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopBackgroundUrl: url });
-          currentProfile = await fetchMyProfile();
-          status.textContent = 'Saved.';
-          await renderMarketplaceSection();
-        }catch(e){ status.textContent = 'Failed: ' + e.message; }
-      });
-    }
-
-    // --- My Shop: per-listing special offers editor ---
-    box.querySelectorAll('[data-edit-offers]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const panel = box.querySelector(`[data-offers-panel="${btn.dataset.editOffers}"]`);
-        if(panel) panel.classList.toggle('hidden');
-      });
-    });
-    box.querySelectorAll('[data-save-offers]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const listingId = btn.dataset.saveOffers;
-        const bogoChecked = box.querySelector(`[data-offer-bogo="${listingId}"]`)?.checked;
-        const bulkChecked = box.querySelector(`[data-offer-bulk="${listingId}"]`)?.checked;
-        const bulkQty = Math.round(Number(box.querySelector(`[data-offer-bulk-qty="${listingId}"]`)?.value) || 0);
-        const bulkPct = Math.round(Number(box.querySelector(`[data-offer-bulk-pct="${listingId}"]`)?.value) || 0);
-        const status = box.querySelector(`[data-offers-status="${listingId}"]`);
-        if(bulkChecked && (bulkQty < 2 || bulkPct < 1)){
-          if(status) status.textContent = 'Enter a valid quantity (2+) and % off (1-90) for the bulk offer.';
-          return;
-        }
-        const offers = [];
-        if(bogoChecked) offers.push({ type: 'bogo', active: true });
-        if(bulkChecked) offers.push({ type: 'bulk', active: true, thresholdQty: bulkQty, discountPct: bulkPct });
-        btn.disabled = true;
-        if(status) status.textContent = 'Saving...';
-        try{
-          await window.IFWL_MarketplaceAPI.saveListingOffers(listingId, offers);
-          await renderMarketplaceSection();
-        }catch(e){ if(status) status.textContent = 'Could not save: ' + e.message; btn.disabled = false; }
-      });
-    });
-
-    // --- Visit Shop - event delegation, wired once per box element (box
-    // itself persists across re-renders, only its innerHTML is replaced) ---
+    // --- Visit Shop - event delegation, wired once per box element ---
     if(!box.dataset.visitShopWired){
       box.dataset.visitShopWired = '1';
       box.addEventListener('click', (e) => {
@@ -2978,6 +3027,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     renderCareerShopSection();
     renderCareerPerksSection();
     renderMarketplaceSection();
+    renderMyShopSection();
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
