@@ -373,6 +373,28 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .myshop-settings[open] summary{color:var(--text-primary)}
 .myshop-settings-body{padding:2px 0 16px}
 @media (max-width:640px){ .myshop-stats{grid-template-columns:repeat(2,1fr)} .myshop-title{font-size:23px} }
+/* ✅ ADDED: Driver Backing / Sponsorship Contracts - its own tab strip
+   (mirrors .myshop-tabs structurally, distinct class names since it's a
+   conceptually different section) and card styles for offers/contracts/
+   the open-market driver browse list. Uses the site's purple accent
+   (--ifwl-purple) instead of teal, giving Driver Backing its own visual
+   identity apart from the Shop/Marketplace teal theme. */
+.backing-tabs{display:flex;gap:6px;margin:4px 0 14px;border-bottom:1px solid var(--ifwl-line);flex-wrap:wrap}
+.backing-tab{background:none;border:none;color:var(--text-muted);font-weight:700;font-size:13px;padding:9px 6px;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--font-body)}
+.backing-tab:hover{color:var(--text-primary)}
+.backing-tab.active{color:var(--text-primary);border-bottom-color:var(--ifwl-purple)}
+.backing-panel{display:none}
+.backing-panel.active{display:block}
+.backing-meter{background:#0d1116;border:1px solid var(--ifwl-line);border-radius:8px;height:16px;overflow:hidden}
+.backing-meter-fill{height:100%;background:linear-gradient(90deg,var(--ifwl-purple),var(--ifwl-teal));border-radius:7px;transition:width .2s}
+.backing-card{background:#12161c;border:1px solid var(--ifwl-line);border-radius:12px;padding:14px;margin-bottom:10px}
+.backing-card .amt{font-family:var(--font-display);font-size:19px;font-weight:800;color:var(--text-primary)}
+.backing-status-pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;border:1px solid}
+.backing-status-pill.pending{border-color:#ffb238;color:#ffb238}
+.backing-status-pill.active{border-color:var(--ifwl-teal);color:var(--ifwl-teal)}
+.backing-status-pill.completed{border-color:var(--text-dim);color:var(--text-dim)}
+.backing-status-pill.declined,.backing-status-pill.withdrawn,.backing-status-pill.voided{border-color:var(--ifwl-red);color:var(--ifwl-red)}
+.backing-racelog-row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--ifwl-line-soft);font-size:12px;color:var(--text-muted)}
 /* ✅ ADDED: Parts Wear Diagram (My Season Progression) - car image with a
    status box per wear-tracked part, connected by an SVG line drawn at
    render time (see renderPartsWearDiagram). The image itself carries no
@@ -1157,6 +1179,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <button class="team-tab" data-career-view="progression" type="button">My Season Progression</button>
         <button class="team-tab" data-career-view="marketplace" type="button">Marketplace</button>
         <button class="team-tab" data-career-view="myshop" type="button">🏪 My Shop</button>
+        <button class="team-tab" data-career-view="backing" type="button">🤝 Driver Backing</button>
       </div>
 
       <div id="seasonProgressionBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px;overflow:hidden">
@@ -1183,6 +1206,14 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
              the Marketplace tab for buying from OTHER drivers. -->
         <div class="team-view" data-career-view="myshop">
           <div id="spMyShopBody"><div class="empty">Loading My Shop&hellip;</div></div>
+        </div>
+        <!-- ✅ ADDED: Driver Backing / Sponsorship Contracts - a driver can
+             place themselves on the open market so other drivers can back/
+             sponsor them (cash upfront, in exchange for a % of that
+             driver's race earnings over 1-4 races - or covering a % of a
+             loss). See renderDriverBackingSection(). -->
+        <div class="team-view" data-career-view="backing">
+          <div id="spBackingBody"><div class="empty">Loading Driver Backing&hellip;</div></div>
         </div>
       </div>
 
@@ -1514,6 +1545,22 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   async function saveListingOffers(listingId, offers){ return apiPost('saveListingOffers', { listingId, offers }); }
   async function fetchCareerShopPublicView(sellerId){ return apiGet('careerShopPublicView', `&sellerId=${encodeURIComponent(sellerId)}`); }
   window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury, craftPart, fetchPartsMarketplaceImages, saveMyShopProfile, saveListingOffers, fetchCareerShopPublicView };
+
+  // ✅ ADDED: Driver Backing / Sponsorship Contracts data layer. Backend
+  // actions (see rtgate.js, near ifwlTreasury):
+  //   ?myBackingOverview=1&token=...     (GET, my open-market status, offers, contracts)
+  //   ?openMarketToggle=1&token=...      (POST, {enabled})
+  //   ?openMarketDrivers=1&token=...     (GET, browse other open-market drivers)
+  //   ?sendBackingOffer=1&token=...      (POST, {driverId, amount, races, pctBack})
+  //   ?withdrawBackingOffer=1&token=...  (POST, {offerId})
+  //   ?respondBackingOffer=1&token=...   (POST, {offerId, accept})
+  async function fetchMyBackingOverview(){ return apiGet('myBackingOverview'); }
+  async function toggleOpenMarket(enabled){ return apiPost('openMarketToggle', { enabled }); }
+  async function fetchOpenMarketDrivers(){ return (await apiGet('openMarketDrivers')).drivers || []; }
+  async function sendBackingOffer(driverId, amount, races, pctBack){ return apiPost('sendBackingOffer', { driverId, amount, races, pctBack }); }
+  async function withdrawBackingOffer(offerId){ return apiPost('withdrawBackingOffer', { offerId }); }
+  async function respondBackingOffer(offerId, accept){ return apiPost('respondBackingOffer', { offerId, accept }); }
+  window.IFWL_BackingAPI = { fetchMyBackingOverview, toggleOpenMarket, fetchOpenMarketDrivers, sendBackingOffer, withdrawBackingOffer, respondBackingOffer };
   window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   let currentProfile = null;
@@ -2784,6 +2831,248 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     }
   }
 
+  // ✅ ADDED: Driver Backing / Sponsorship Contracts - its own top-level
+  // tab. A driver opts into the "open market" so other drivers can back/
+  // sponsor them (cash upfront, over 1-4 races, for an agreed % of their
+  // per-race Net Event Earnings - taken by the backer on a winning race,
+  // paid IN by the backer to help cover a losing race). See rtgate.js's
+  // "DRIVER BACKING / SPONSORSHIP CONTRACTS" endpoints block and the
+  // matching block inside ifwlCreditRaceEarningsCore, which actually
+  // applies the per-race cut/cover during race-earnings settlement.
+  async function renderDriverBackingSection(){
+    const box = q('spBackingBody');
+    if(!box) return;
+    box.innerHTML = '<div class="empty">Loading Driver Backing&hellip;</div>';
+
+    let overview, marketDrivers;
+    try{
+      [overview, marketDrivers] = await Promise.all([
+        window.IFWL_BackingAPI.fetchMyBackingOverview(),
+        window.IFWL_BackingAPI.fetchOpenMarketDrivers()
+      ]);
+    }catch(e){ box.innerHTML = `<div class="empty">Could not load Driver Backing: ${e.message}</div>`; return; }
+
+    const openMarketEnabled = !!overview.openMarketEnabled;
+    const committedPct = Number(overview.committedPct) || 0;
+    const incomingOffers = overview.incomingOffers || [];
+    const outgoingOffers = overview.outgoingOffers || [];
+    const contractsAsDriver = overview.contractsAsDriver || [];
+    const contractsAsBacker = overview.contractsAsBacker || [];
+
+    const pillClass = (status) => `backing-status-pill ${status}`;
+    const racesLabel = (n) => `${n} race${n === 1 ? '' : 's'}`;
+    const plain = (n) => csFmtMoney(n).replace(/&pound;/, '£'); // for confirm()/alert() - plain dialogs can't render the &pound; entity
+
+    // --- Open Market status card ---
+    const marketStatusHtml = openMarketEnabled ? `
+      <div class="backing-card">
+        <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <div>
+            <strong style="color:var(--ifwl-teal)">✅ You're on the Open Market</strong>
+            <p class="field-hint" style="margin:2px 0 0">Other drivers can see you on Browse Open Market and send you backing offers.</p>
+          </div>
+          <button class="btn ghost" id="backingLeaveMarketBtn" type="button">Leave Open Market</button>
+        </div>
+        <label style="display:block;font-size:11px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px">Backing committed: ${committedPct}% of 100%</label>
+        <div class="backing-meter"><div class="backing-meter-fill" style="width:${Math.min(100, committedPct)}%"></div></div>
+      </div>
+    ` : `
+      <div class="backing-card">
+        <p style="margin:0 0 12px">You're not on the open market yet. Opting in lets other drivers see you and send you backing offers - cash upfront, in exchange for a cut of your race earnings over up to 4 races (or help covering a loss).</p>
+        <button class="btn teal" id="backingJoinMarketBtn" type="button">Place Myself in Open Market</button>
+      </div>
+    `;
+
+    // --- Incoming offers (I'm the driver being offered backing) ---
+    const incomingHtml = incomingOffers.length ? incomingOffers.map(o => `
+      <div class="backing-card">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+          <div>
+            <div class="amt">${csFmtMoney(o.amount)}</div>
+            <p class="field-hint" style="margin:4px 0 0">from <strong>${mktEsc(o.backerName)}</strong> &middot; ${racesLabel(o.races)} &middot; ${o.pctBack}% back</p>
+          </div>
+          <div class="row" style="gap:6px">
+            <button class="btn teal" data-accept-offer="${o.id}" type="button">Accept</button>
+            <button class="btn ghost" data-decline-offer="${o.id}" type="button">Decline</button>
+          </div>
+        </div>
+      </div>
+    `).join('') : `<p class="field-hint" style="margin:16px 0">No incoming offers right now.</p>`;
+
+    // --- Browse Open Market (other drivers I could back) ---
+    const browseHtml = marketDrivers.length ? marketDrivers.map(d => `
+      <div class="backing-card">
+        <div class="row" style="justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <strong>${mktEsc(d.name)}</strong>
+            <p class="field-hint" style="margin:2px 0 0">${d.committedPct}% already committed &middot; ${d.headroomPct}% headroom left</p>
+          </div>
+          ${d.headroomPct > 0 ? `<button class="btn ghost" data-open-back-form="${d.driverId}" type="button">Back this driver</button>` : `<span class="backing-status-pill completed">Fully backed</span>`}
+        </div>
+        ${d.headroomPct > 0 ? `
+        <div class="hidden" data-back-form="${d.driverId}" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--ifwl-line-soft)">
+          <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <div class="field-group" style="min-width:110px"><label>Amount (£)</label><input type="number" min="1" data-back-amount="${d.driverId}" placeholder="e.g. 5000"></div>
+            <div class="field-group" style="min-width:90px"><label>Races</label>
+              <select data-back-races="${d.driverId}">
+                <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option>
+              </select>
+            </div>
+            <div class="field-group" style="min-width:90px"><label>% back</label><input type="number" min="1" max="${d.headroomPct}" value="${Math.min(20, d.headroomPct)}" data-back-pct="${d.driverId}"></div>
+            <button class="btn teal" data-send-offer="${d.driverId}" type="button">Send Offer</button>
+          </div>
+          <p class="field-hint" style="margin:6px 0 0">Max ${d.headroomPct}% - they already have ${d.committedPct}% committed to other backers.</p>
+        </div>
+        ` : ''}
+      </div>
+    `).join('') : `<p class="field-hint" style="margin:16px 0">No drivers are on the open market right now.</p>`;
+
+    // --- My outgoing offers (I'm the backer) ---
+    const outgoingHtml = outgoingOffers.length ? outgoingOffers.map(o => `
+      <div class="backing-card">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+          <div>
+            <div class="amt">${csFmtMoney(o.amount)}</div>
+            <p class="field-hint" style="margin:4px 0 0">to <strong>${mktEsc(o.driverName)}</strong> &middot; ${racesLabel(o.races)} &middot; ${o.pctBack}% back</p>
+          </div>
+          <div class="row" style="gap:6px;align-items:center">
+            <span class="${pillClass(o.status)}">${o.status}</span>
+            ${o.status === 'pending' ? `<button class="btn ghost" data-withdraw-offer="${o.id}" type="button">Withdraw</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('') : `<p class="field-hint" style="margin:16px 0">You haven't sent any backing offers yet - see Browse Open Market.</p>`;
+
+    // --- My contracts (as driver being backed, and as a backer myself) ---
+    const raceLogHtml = (log) => (log || []).length ? `
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--ifwl-line-soft)">
+        ${log.map(r => `<div class="backing-racelog-row"><span>${mktEsc(r.track) || 'Race'} - P${r.position}</span><span>${csFmtMoney(r.netEventEarnings)} net &middot; ${r.cutAmount >= 0 ? 'paid ' : 'covered '}${csFmtMoney(Math.abs(r.cutAmount))}</span></div>`).join('')}
+      </div>
+    ` : '';
+    const contractCardHtml = (c, asRole) => `
+      <div class="backing-card">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+          <div>
+            <div class="amt">${csFmtMoney(c.amount)}</div>
+            <p class="field-hint" style="margin:4px 0 0">${asRole === 'driver' ? `from <strong>${mktEsc(c.backerName)}</strong>` : `to <strong>${mktEsc(c.driverName)}</strong>`} &middot; ${racesLabel(c.races)} &middot; ${c.pctBack}% back &middot; ${c.racesCompleted}/${c.races} raced</p>
+          </div>
+          <span class="${pillClass(c.status)}">${c.status}</span>
+        </div>
+        ${raceLogHtml(c.raceLog)}
+      </div>
+    `;
+    const contractsAsDriverHtml = contractsAsDriver.length ? contractsAsDriver.map(c => contractCardHtml(c, 'driver')).join('') : `<p class="field-hint" style="margin:16px 0">No one is backing you yet.</p>`;
+    const contractsAsBackerHtml = contractsAsBacker.length ? contractsAsBacker.map(c => contractCardHtml(c, 'backer')).join('') : `<p class="field-hint" style="margin:16px 0">You aren't backing anyone yet.</p>`;
+
+    const pendingOutgoingCount = outgoingOffers.filter(o => o.status === 'pending').length;
+    const activeContractsCount = contractsAsDriver.filter(c => c.status === 'active').length + contractsAsBacker.filter(c => c.status === 'active').length;
+
+    box.innerHTML = `
+      <div class="mkt-rrp-banner" style="border-color:rgba(198,91,232,.35);background:linear-gradient(135deg,rgba(198,91,232,.16),rgba(31,214,189,.06))">
+        <h4 style="margin:0 0 4px">🤝 Driver Backing</h4>
+        <p class="field-hint" style="margin:0">Get sponsored by other drivers, or back someone else's season. A backer sends cash upfront; over the races you agree, they take a cut of your race earnings on a good weekend - or help cover you on a bad one.</p>
+      </div>
+      ${marketStatusHtml}
+      <div class="backing-tabs">
+        <button type="button" class="backing-tab active" data-backing-tab="incoming">Incoming Offers${incomingOffers.length ? ` (${incomingOffers.length})` : ''}</button>
+        <button type="button" class="backing-tab" data-backing-tab="browse">Browse Open Market</button>
+        <button type="button" class="backing-tab" data-backing-tab="outgoing">My Backing Offers${pendingOutgoingCount ? ` (${pendingOutgoingCount})` : ''}</button>
+        <button type="button" class="backing-tab" data-backing-tab="contracts">My Contracts${activeContractsCount ? ` (${activeContractsCount})` : ''}</button>
+      </div>
+      <div class="backing-panel active" data-backing-panel="incoming">${incomingHtml}</div>
+      <div class="backing-panel" data-backing-panel="browse">${browseHtml}</div>
+      <div class="backing-panel" data-backing-panel="outgoing">${outgoingHtml}</div>
+      <div class="backing-panel" data-backing-panel="contracts">
+        <h4 style="margin:16px 0 10px">As Driver - who's backing me</h4>
+        ${contractsAsDriverHtml}
+        <h4 style="margin:20px 0 10px">As Backer - who I'm backing</h4>
+        ${contractsAsBackerHtml}
+      </div>
+    `;
+
+    // --- Join / Leave Open Market ---
+    if(q('backingJoinMarketBtn')){
+      q('backingJoinMarketBtn').addEventListener('click', async () => {
+        if(!confirm("Place yourself in the Open Market?\n\nOther drivers will be able to see you and send you backing offers - cash upfront, in exchange for a % of your race earnings over up to 4 races (or help covering a loss if a race goes badly). You choose whether to accept each offer.")) return;
+        const btn = q('backingJoinMarketBtn'); btn.disabled = true;
+        try{ await window.IFWL_BackingAPI.toggleOpenMarket(true); await renderDriverBackingSection(); }
+        catch(e){ alert('Could not join the open market: ' + e.message); btn.disabled = false; }
+      });
+    }
+    if(q('backingLeaveMarketBtn')){
+      q('backingLeaveMarketBtn').addEventListener('click', async () => {
+        if(!confirm("Leave the Open Market?\n\nYou'll stop appearing on Browse Open Market and won't receive new offers - but any contracts you've already accepted keep running until they finish.")) return;
+        const btn = q('backingLeaveMarketBtn'); btn.disabled = true;
+        try{ await window.IFWL_BackingAPI.toggleOpenMarket(false); await renderDriverBackingSection(); }
+        catch(e){ alert('Could not leave the open market: ' + e.message); btn.disabled = false; }
+      });
+    }
+
+    // --- Incoming offers: Accept / Decline ---
+    box.querySelectorAll('[data-accept-offer]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const offer = incomingOffers.find(o => o.id === btn.dataset.acceptOffer);
+        if(offer && !confirm(`Accept backing from ${offer.backerName}?\n\n${plain(offer.amount)} now, in exchange for ${offer.pctBack}% of your race earnings over the next ${offer.races} race(s) - or they cover that % if a race goes badly. This can't be cancelled once accepted.`)) return;
+        btn.disabled = true;
+        try{ await window.IFWL_BackingAPI.respondBackingOffer(btn.dataset.acceptOffer, true); await renderDriverBackingSection(); }
+        catch(e){ alert('Could not accept offer: ' + e.message); btn.disabled = false; }
+      });
+    });
+    box.querySelectorAll('[data-decline-offer]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try{ await window.IFWL_BackingAPI.respondBackingOffer(btn.dataset.declineOffer, false); await renderDriverBackingSection(); }
+        catch(e){ alert('Could not decline offer: ' + e.message); btn.disabled = false; }
+      });
+    });
+
+    // --- Browse Open Market: reveal per-driver back form, then Send Offer ---
+    box.querySelectorAll('[data-open-back-form]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const form = box.querySelector(`[data-back-form="${btn.dataset.openBackForm}"]`);
+        if(form) form.classList.toggle('hidden');
+      });
+    });
+    box.querySelectorAll('[data-send-offer]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const driverId = btn.dataset.sendOffer;
+        const driverRow = marketDrivers.find(d => d.driverId === driverId);
+        const amount = Math.round(Number(box.querySelector(`[data-back-amount="${driverId}"]`)?.value) || 0);
+        const races = Math.round(Number(box.querySelector(`[data-back-races="${driverId}"]`)?.value) || 0);
+        const pctBack = Math.round(Number(box.querySelector(`[data-back-pct="${driverId}"]`)?.value) || 0);
+        if(amount <= 0){ alert('Enter an amount greater than 0.'); return; }
+        if(races < 1 || races > 4){ alert('Races must be between 1 and 4.'); return; }
+        if(pctBack < 1 || pctBack > (driverRow?.headroomPct || 100)){ alert(`% back must be between 1 and ${driverRow?.headroomPct || 100} (their remaining headroom).`); return; }
+        if(!confirm(`Offer ${plain(amount)} to back ${driverRow?.name || 'this driver'} over ${races} race(s) for ${pctBack}% back?\n\nIf they accept, ${plain(amount)} will be taken from your balance immediately.`)) return;
+        btn.disabled = true;
+        try{ await window.IFWL_BackingAPI.sendBackingOffer(driverId, amount, races, pctBack); await renderDriverBackingSection(); }
+        catch(e){ alert('Could not send offer: ' + e.message); btn.disabled = false; }
+      });
+    });
+
+    // --- My outgoing offers: Withdraw ---
+    box.querySelectorAll('[data-withdraw-offer]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try{ await window.IFWL_BackingAPI.withdrawBackingOffer(btn.dataset.withdrawOffer); await renderDriverBackingSection(); }
+        catch(e){ alert('Could not withdraw offer: ' + e.message); btn.disabled = false; }
+      });
+    });
+
+    // --- Tab strip - event delegation, wired once per box element (box
+    // itself persists across re-renders, only its innerHTML is replaced) ---
+    if(!box.dataset.backingTabsWired){
+      box.dataset.backingTabsWired = '1';
+      box.addEventListener('click', (e) => {
+        const tabBtn = e.target.closest('[data-backing-tab]');
+        if(!tabBtn) return;
+        const key = tabBtn.dataset.backingTab;
+        box.querySelectorAll('[data-backing-tab]').forEach(b => b.classList.toggle('active', b === tabBtn));
+        box.querySelectorAll('[data-backing-panel]').forEach(p => p.classList.toggle('active', p.dataset.backingPanel === key));
+      });
+    }
+  }
+
   // ✅ ADDED: leaner Browse-Marketplace-only render function for the
   // Marketplace tab (spMarketplaceBody) - split off from the original
   // combined function so "My Shop" (craft/sell/listings/offers/identity)
@@ -3325,6 +3614,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     renderMarketplaceSection();
     renderMyShopSection();
     renderPartsWearDiagram();
+    renderDriverBackingSection();
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
