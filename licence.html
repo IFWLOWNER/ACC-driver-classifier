@@ -11521,7 +11521,13 @@ Flashing Headlights:
     if(!q('staffMessageTemplatesPanel')) return;
 
     let templates;
-    try{ templates = await apiGet('messageTemplates'); }
+    // ✅ FIXED: apiGet/apiPost are declared inside a different top-level
+    // <script> block (the one holding fetchMyProfile etc.) than this
+    // function - that block exposes them cross-block via window.IFWL_Api
+    // for exactly this reason (see every other staff panel in this file),
+    // but this panel was calling the bare, out-of-scope names, which threw
+    // "apiGet is not defined" every time - it never actually loaded or saved.
+    try{ templates = await window.IFWL_Api.apiGet('messageTemplates'); }
     catch(e){ q('mtSaveStatus').textContent = 'Could not load: ' + e.message; return; }
 
     q('mtDiscordMessageInput').value = templates.licenceRefusedDiscordMessage || '';
@@ -11540,7 +11546,7 @@ Flashing Headlights:
 
       status.textContent = 'Saving...';
       try{
-        await apiPost('staffMessageTemplatesSave', { licenceRefusedDiscordMessage, licenceRefusedPageMessage, licenceBetaNoticeEnabled, licenceBetaNoticeText });
+        await window.IFWL_Api.apiPost('staffMessageTemplatesSave', { licenceRefusedDiscordMessage, licenceRefusedPageMessage, licenceBetaNoticeEnabled, licenceBetaNoticeText });
         status.textContent = 'Saved.';
         applyLicenceBetaNotice(); // refreshes the banner on this same page immediately, not just for other drivers
         setTimeout(() => { if(q('mtSaveStatus')) q('mtSaveStatus').textContent = ''; }, 2500);
@@ -11558,7 +11564,7 @@ Flashing Headlights:
     const banner = q('licenceBetaNoticeBanner');
     if(!banner) return;
     try{
-      const t = await apiGet('messageTemplates');
+      const t = await window.IFWL_Api.apiGet('messageTemplates');
       if(t?.licenceBetaNoticeEnabled && t?.licenceBetaNoticeText){
         banner.textContent = t.licenceBetaNoticeText;
         banner.classList.remove('hidden');
