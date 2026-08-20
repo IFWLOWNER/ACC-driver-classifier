@@ -1353,6 +1353,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <div class="field-hint">Available from Active Racer access upward.</div>
         </div>
 
+        <!-- ✅ ADDED: staff-toggleable BETA notice, shown right above the ACC
+             driver name field since that's the field tied to the "why
+             haven't I been tiered yet" question this exists to pre-empt.
+             Hidden by default; content and on/off both come from
+             messageTemplates so staff can edit it without a code deploy. -->
+        <div class="notice-card hidden" id="licenceBetaNoticeBanner" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08);color:var(--ifwl-red);font-weight:700"></div>
+
         <div class="field-group">
           <label>Your ACC driver name(s)</label>
           <input type="text" id="accDriverNamesInput" placeholder="e.g. IFWL XSL4Y3RX (comma-separate if you've raced under more than one name)">
@@ -2303,6 +2310,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <h4 style="margin:20px 0 10px">Licence Refused - On-Page Message</h4>
       <p class="field-hint" style="margin-bottom:8px">Shown directly on the site to a refused driver, blocking the rest of the page until it's resolved.</p>
       <textarea id="mtPageMessageInput" rows="4" style="width:100%;padding:10px 12px;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:8px;font-size:13px;font-family:var(--font-mono)"></textarea>
+
+      <!-- ✅ ADDED: BETA notice banner toggle - shows a red line above
+           "Your ACC driver name(s)" on every driver's own My Licence page.
+           Built for the recurring "I did my laps, why no tier yet?" Discord
+           question - flip it on, drivers see the answer before they ask. -->
+      <h4 style="margin:20px 0 10px">My Licence - BETA Notice Banner</h4>
+      <p class="field-hint" style="margin-bottom:8px">A red line shown above "Your ACC driver name(s)" on every driver's own My Licence page when turned on - use this to head off "why haven't I got a tier yet" questions during stress-testing periods.</p>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer">
+        <input type="checkbox" id="mtBetaNoticeEnabled" style="width:auto">
+        <span>Show this notice to drivers</span>
+      </label>
+      <textarea id="mtBetaNoticeTextInput" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:8px;font-size:13px;font-family:var(--font-mono)"></textarea>
 
       <div style="margin-top:16px">
         <button class="btn teal" id="mtSaveBtn" type="button">Save templates</button>
@@ -6443,6 +6462,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     checkOwnerClauseNotice();
 
     if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
+    applyLicenceBetaNotice(); // fire-and-forget - independent of profile state, shown to staff too
     renderQualificationStanding();
     initRaceTeamsPanel();
     renderLmuPanel();
@@ -11506,20 +11526,46 @@ Flashing Headlights:
 
     q('mtDiscordMessageInput').value = templates.licenceRefusedDiscordMessage || '';
     q('mtPageMessageInput').value = templates.licenceRefusedPageMessage || '';
+    q('mtBetaNoticeEnabled').checked = !!templates.licenceBetaNoticeEnabled;
+    q('mtBetaNoticeTextInput').value = templates.licenceBetaNoticeText || '';
 
     q('mtSaveBtn').onclick = async () => {
       const status = q('mtSaveStatus');
       const licenceRefusedDiscordMessage = q('mtDiscordMessageInput').value.trim();
       const licenceRefusedPageMessage = q('mtPageMessageInput').value.trim();
+      const licenceBetaNoticeEnabled = q('mtBetaNoticeEnabled').checked;
+      const licenceBetaNoticeText = q('mtBetaNoticeTextInput').value.trim();
       if(!licenceRefusedDiscordMessage || !licenceRefusedPageMessage){ status.textContent = 'Neither message can be left empty.'; return; }
+      if(licenceBetaNoticeEnabled && !licenceBetaNoticeText){ status.textContent = 'BETA notice text can\'t be empty while the notice is switched on.'; return; }
 
       status.textContent = 'Saving...';
       try{
-        await apiPost('staffMessageTemplatesSave', { licenceRefusedDiscordMessage, licenceRefusedPageMessage });
+        await apiPost('staffMessageTemplatesSave', { licenceRefusedDiscordMessage, licenceRefusedPageMessage, licenceBetaNoticeEnabled, licenceBetaNoticeText });
         status.textContent = 'Saved.';
+        applyLicenceBetaNotice(); // refreshes the banner on this same page immediately, not just for other drivers
         setTimeout(() => { if(q('mtSaveStatus')) q('mtSaveStatus').textContent = ''; }, 2500);
       }catch(e){ status.textContent = 'Could not save: ' + e.message; }
     };
+  }
+
+  // ✅ ADDED: fetches the BETA notice banner state and shows/hides it above
+  // "Your ACC driver name(s)" on My Licence. Called once at page init (and
+  // again right after a staff save, so the change is visible without a
+  // refresh) - deliberately separate from the messageTemplates fetch inside
+  // showLicenceRefusedGate(), since that one only ever runs for a refused
+  // driver and this needs to run for everyone.
+  async function applyLicenceBetaNotice(){
+    const banner = q('licenceBetaNoticeBanner');
+    if(!banner) return;
+    try{
+      const t = await apiGet('messageTemplates');
+      if(t?.licenceBetaNoticeEnabled && t?.licenceBetaNoticeText){
+        banner.textContent = t.licenceBetaNoticeText;
+        banner.classList.remove('hidden');
+      }else{
+        banner.classList.add('hidden');
+      }
+    }catch(e){ /* fails silently - this is an informational banner, not a gate */ }
   }
 
   // ✅ ADDED: Race Earnings Settlement staff panel - a single "run now"
