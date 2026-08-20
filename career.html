@@ -347,6 +347,32 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .shop-tier-badge{border:1px solid;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800;letter-spacing:.03em;white-space:nowrap}
 .mkt-seller-elite{border:1px solid #ffd66b;border-radius:999px;padding:1px 8px;color:#ffd66b;box-shadow:0 0 8px rgba(255,214,107,.35)}
 .mkt-rrp-banner{background:linear-gradient(135deg,rgba(31,214,189,.16),rgba(255,178,56,.06));border:1px solid rgba(31,214,189,.35);border-radius:12px;padding:12px 16px;margin-bottom:12px}
+/* ✅ ADDED: My Shop "Clean Storefront" redesign - the uploaded background
+   photo now spans the ENTIRE shop area (hero, stat tiles, tab panels, the
+   lot) instead of just sitting behind the name/bio card, with a real tab
+   strip (Craft Parts / Sell From My Shops / My Listings) replacing the
+   three stacked <details> blocks it used to be. */
+.myshop-hero{position:relative;border-radius:18px;overflow:hidden;min-height:170px;display:flex;align-items:flex-end;padding:22px;background-size:cover;background-position:center;background-color:#12161c}
+.myshop-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(rgba(6,9,13,0),rgba(6,9,13,.55) 55%,rgba(6,9,13,.85))}
+.myshop-hero-inner{position:relative;z-index:1}
+.myshop-owner-line{margin:0 0 6px;color:var(--ifwl-teal);font-size:12px;font-weight:700;letter-spacing:.03em}
+.myshop-title{margin:0 0 6px;font-family:var(--font-display);font-size:30px;font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.7)}
+.myshop-bio{margin:0;color:var(--text-primary);font-size:13.5px;line-height:1.5;max-width:600px;text-shadow:0 1px 6px rgba(0,0,0,.6);white-space:pre-wrap}
+.myshop-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0 4px}
+.myshop-stat{background:rgba(21,27,34,.78);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--ifwl-line);border-radius:12px;padding:12px 14px;text-align:center}
+.myshop-stat .n{font-family:var(--font-display);font-size:19px;font-weight:800;color:var(--text-primary)}
+.myshop-stat .l{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.myshop-tabs{display:flex;gap:6px;margin:20px 0 14px;border-bottom:1px solid var(--ifwl-line);flex-wrap:wrap}
+.myshop-tab{background:none;border:none;color:var(--text-muted);font-weight:700;font-size:13px;padding:9px 6px;cursor:pointer;border-bottom:2px solid transparent;font-family:var(--font-body)}
+.myshop-tab:hover{color:var(--text-primary)}
+.myshop-tab.active{color:var(--text-primary);border-bottom-color:var(--ifwl-teal)}
+.myshop-panel{display:none}
+.myshop-panel.active{display:block}
+.myshop-settings{margin-top:22px;border:1px solid var(--ifwl-line);border-radius:14px;padding:0 16px;background:#12161c}
+.myshop-settings summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--text-muted);padding:14px 0}
+.myshop-settings[open] summary{color:var(--text-primary)}
+.myshop-settings-body{padding:2px 0 16px}
+@media (max-width:640px){ .myshop-stats{grid-template-columns:repeat(2,1fr)} .myshop-title{font-size:23px} }
 /* ✅ ADDED: Parts Wear Diagram (My Season Progression) - car image with a
    status box per wear-tracked part, connected by an SVG line drawn at
    render time (see renderPartsWearDiagram). The image itself carries no
@@ -2309,41 +2335,65 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const myShopBio = currentProfile?.careerShopBio || '';
     const myShopBg = currentProfile?.careerShopBackgroundUrl || '';
     const myShopUserId = window.IFWL_AUTH.userId(window.IFWL_META) || '';
+    // ✅ ADDED: falls back to the driver's own Discord display name when no
+    // Shop Name has been set yet, so the hero/title and the Discord share
+    // link never show up blank.
+    const myShopDisplayName = window.IFWL_AUTH.userName(window.IFWL_META) || 'My Shop';
+    const myShopTitle = myShopName || myShopDisplayName;
     // ✅ ADDED: shareable direct link to this driver's shop - ?shop=<id> is
     // read on page load (below, near the ?view= deep link) and opens the
     // shop viewer modal straight away, so an owner can post one link on
     // Discord that takes anyone straight to their shop instead of telling
     // people to open Marketplace and hunt for their listings.
     const myShopLink = `${location.origin}${location.pathname}?shop=${encodeURIComponent(myShopUserId)}`;
-    const myShopIdentityHtml = `
-      <div class="shop-item-card aa-slot-card" style="margin-bottom:14px${myShopBg ? `;background-image:linear-gradient(rgba(6,9,13,.6),rgba(6,9,13,.6)),url('${myShopBg}');background-size:cover;background-position:center` : ''}">
-        <div class="field-group" style="margin-bottom:10px">
-          <label>Shop Name</label>
-          <input type="text" id="myShopNameInput" placeholder="e.g. Ben's Tyre Emporium" maxlength="60" value="${myShopName.replace(/"/g,'&quot;')}">
-          <p class="field-hint" style="margin:4px 0 0">The big title shown when another driver visits your shop.</p>
-        </div>
-        <div class="field-group" style="margin-bottom:10px">
-          <label>Shop Bio</label>
-          <textarea id="myShopBioInput" maxlength="300" rows="3" placeholder="Tell visitors what you stock, your best deals, anything you want them to know...">${mktEsc(myShopBio)}</textarea>
-          <p class="field-hint" style="margin:4px 0 0">Shown under your shop name when someone visits - up to 300 characters.</p>
-        </div>
-        <div class="row" style="gap:8px;align-items:center;margin-bottom:10px">
-          <button class="btn teal" id="myShopIdentitySaveBtn" type="button">Save Name &amp; Bio</button>
-          <span class="field-hint" id="myShopIdentityStatus"></span>
-        </div>
-        <div class="field-group">
-          <label>Shop Background Image</label>
-          <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="file" id="myShopBgUpload" accept="image/png,image/jpeg" style="max-width:220px">
-            <span class="field-hint" id="myShopBgStatus"></span>
-          </div>
-        </div>
-        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
-          <button class="btn ghost" type="button" data-visit-shop="${myShopUserId}">👀 Preview My Shop</button>
-          <button class="btn ghost" id="myShopCopyLinkBtn" type="button" data-shop-link="${myShopLink.replace(/"/g,'&quot;')}">🔗 Copy Shop Link (for Discord)</button>
-          <span class="field-hint" id="myShopLinkStatus"></span>
+
+    // --- Redesign: full-bleed hero (background photo spans the whole shop
+    // area below, this is just the name/bio strip sitting on top of it) ---
+    const myShopHeroHtml = `
+      <div class="myshop-hero"${myShopBg ? ` style="background-image:url('${myShopBg}')"` : ''}>
+        <div class="myshop-hero-inner">
+          <p class="myshop-owner-line">Owned by ${mktEsc(myShopDisplayName)}</p>
+          <h2 class="myshop-title">${mktEsc(myShopTitle)}</h2>
+          ${myShopBio ? `<p class="myshop-bio">${mktEsc(myShopBio)}</p>` : ''}
         </div>
       </div>
+    `;
+
+    // --- Redesign: name/bio/background/link now live in a collapsed
+    // "Shop Settings" panel at the bottom instead of a card up top - the
+    // hero above already shows the live result, editing lives out of the way. ---
+    const myShopSettingsHtml = `
+      <details class="myshop-settings">
+        <summary>⚙ Shop Settings — name, bio, background image &amp; share link</summary>
+        <div class="myshop-settings-body">
+          <div class="field-group" style="margin-bottom:10px">
+            <label>Shop Name</label>
+            <input type="text" id="myShopNameInput" placeholder="e.g. Ben's Tyre Emporium" maxlength="60" value="${myShopName.replace(/"/g,'&quot;')}">
+            <p class="field-hint" style="margin:4px 0 0">The big title shown when another driver visits your shop.</p>
+          </div>
+          <div class="field-group" style="margin-bottom:10px">
+            <label>Shop Bio</label>
+            <textarea id="myShopBioInput" maxlength="300" rows="3" placeholder="Tell visitors what you stock, your best deals, anything you want them to know...">${mktEsc(myShopBio)}</textarea>
+            <p class="field-hint" style="margin:4px 0 0">Shown under your shop name when someone visits - up to 300 characters.</p>
+          </div>
+          <div class="row" style="gap:8px;align-items:center;margin-bottom:14px">
+            <button class="btn teal" id="myShopIdentitySaveBtn" type="button">Save Name &amp; Bio</button>
+            <span class="field-hint" id="myShopIdentityStatus"></span>
+          </div>
+          <div class="field-group">
+            <label>Shop Background Image</label>
+            <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="file" id="myShopBgUpload" accept="image/png,image/jpeg" style="max-width:220px">
+              <span class="field-hint" id="myShopBgStatus"></span>
+            </div>
+          </div>
+          <div class="row" style="gap:8px;margin-top:14px;flex-wrap:wrap">
+            <button class="btn ghost" type="button" data-visit-shop="${myShopUserId}">👀 Preview My Shop</button>
+            <button class="btn ghost" id="myShopCopyLinkBtn" type="button" data-shop-link="${myShopLink.replace(/"/g,'&quot;')}" data-shop-title="${myShopTitle.replace(/"/g,'&quot;')}">🔗 Copy Shop Link (for Discord)</button>
+            <span class="field-hint" id="myShopLinkStatus"></span>
+          </div>
+        </div>
+      </details>
     `;
 
     // ✅ CHANGED: Tyre Factory keeps its original bonusPct/costReduction
@@ -2382,9 +2432,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     // --- Craft Parts (pay cash to make stock on demand) ---
     const craftFormHtml = myShops.length ? `
-      <details class="mkt-collapsible">
-      <summary style="cursor:pointer;font-size:16px;font-weight:700;margin:16px 0 10px">Craft Parts</summary>
-      <p class="field-hint" style="margin:-4px 0 8px">Pay from your balance to make stock instantly, any time - on top of the free stock you get automatically for race weekends you compete. Balance: ${csFmtMoney(ledger.balance)}</p>
+      <p class="field-hint" style="margin:0 0 12px">Pay from your balance to make stock instantly, any time - on top of the free stock you get automatically for race weekends you compete. Balance: ${csFmtMoney(ledger.balance)}</p>
       <div class="shop-item-grid">
         ${myShops.map(cat => {
           const partTypes = cat === 'tyreFactory' ? ['tyre'] : cat === 'fuelDepot' ? ['fuel'] : cat === 'tuningShop' ? ['suspension','damper'] : cat === 'engineShop' ? ['engine'] : ['aero'];
@@ -2409,7 +2457,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           }).join('');
         }).join('')}
       </div>
-      </details>
     ` : '';
 
     // --- My Shops (list for sale) ---
@@ -2423,8 +2470,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     // creates is single-tier and can carry an accurate badge in Browse
     // Marketplace below.
     const sellFormHtml = myShops.length ? `
-      <details class="mkt-collapsible">
-      <summary style="cursor:pointer;font-size:16px;font-weight:700;margin:16px 0 10px">Sell From My Shops</summary>
       <div class="shop-item-grid">
         ${myShops.map(cat => {
           const partTypes = cat === 'tyreFactory' ? ['tyre'] : cat === 'fuelDepot' ? ['fuel'] : cat === 'tuningShop' ? ['suspension','damper'] : cat === 'engineShop' ? ['engine'] : ['aero'];
@@ -2470,7 +2515,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           }).join('');
         }).join('')}
       </div>
-      </details>
     ` : `<p class="field-hint" style="margin:16px 0">Own a Tyre Factory, Fuel Depot, Engine Shop, Tuning Shop or Aero Tuning Company (Gold Patreon, from the Career Shop tab) to produce stock and sell here.</p>`;
 
     // ✅ ADDED: a listing's tier - every listing's `parts` array is
@@ -2487,7 +2531,6 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     // to), saved via saveListingOffers and actually enforced at checkout
     // server-side (computeBestOfferDiscount in rtgate.js), not just cosmetic.
     const myListingsHtml = myListings.length ? `
-      <h4 style="margin:16px 0 10px">My Listings</h4>
       <div class="shop-receipt-list">
         ${myListings.map(l => {
           const remaining = (l.partType === 'tyre' || l.partType === 'fuel') ? l.quantityRemaining : (l.partIdsRemaining || []).length;
@@ -2526,22 +2569,48 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           </div>`;
         }).join('')}
       </div>
-    ` : '';
+    ` : `<p class="field-hint" style="margin:0">You haven't listed anything for sale yet - use Sell From My Shops above.</p>`;
 
-    // --- My Shop wrapper - everything above (identity, Craft Parts, Sell
-    // From My Shops, My Listings) lives inside this once a driver owns at
-    // least one Shop/Factory; otherwise a single locked hint replaces all
-    // of it (craftFormHtml/sellFormHtml are already '' / a plain hint when
-    // !myShops.length, so nesting them here never double-shows that text).
-    const myShopSectionHtml = myShops.length ? `
-      <div class="mkt-rrp-banner" style="margin:16px 0 10px">
-        <h4 style="margin:0 0 4px">🏪 ${myShopName || 'My Shop'}</h4>
-        <p class="field-hint" style="margin:0">Craft parts, list stock for sale, run special offers, and customize how other drivers see your shop when they visit it from the Marketplace.</p>
+    // --- My Shop stats row - all four numbers are real, derived from the
+    // same ledger/listings data already fetched above (no invented stats):
+    // balance from the ledger, active listing count and offers-running
+    // count from myListings, items-sold summed from marketplaceSale
+    // transactions in the ledger's (200-entry, rolling) transaction log. ---
+    const myShopActiveListingsCount = myListings.filter(l => l.status === 'active').length;
+    const myShopOffersRunningCount = myListings.filter(l => l.status === 'active' && (l.offers || []).length).length;
+    const myShopItemsSoldCount = (ledger.transactions || []).filter(t => t.type === 'marketplaceSale').reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
+    const myShopStatsHtml = `
+      <div class="myshop-stats">
+        <div class="myshop-stat"><div class="n">${csFmtMoney(ledger.balance)}</div><div class="l">Shop Balance</div></div>
+        <div class="myshop-stat"><div class="n">${myShopActiveListingsCount}</div><div class="l">Active Listings</div></div>
+        <div class="myshop-stat"><div class="n">${myShopItemsSoldCount}</div><div class="l">Items Sold</div></div>
+        <div class="myshop-stat"><div class="n">${myShopOffersRunningCount}</div><div class="l">Offers Running</div></div>
       </div>
-      ${myShopIdentityHtml}
-      ${craftFormHtml}
-      ${sellFormHtml}
-      ${myListingsHtml}
+    `;
+
+    // --- Redesign: a real tab strip (Craft Parts / Sell From My Shops /
+    // My Listings) replacing the old three stacked <details> blocks - see
+    // the box.dataset.myshopTabsWired click-delegation handler below. ---
+    const myShopTabsHtml = `
+      <div class="myshop-tabs">
+        <button type="button" class="myshop-tab active" data-myshop-tab="craft">Craft Parts</button>
+        <button type="button" class="myshop-tab" data-myshop-tab="sell">Sell From My Shops</button>
+        <button type="button" class="myshop-tab" data-myshop-tab="listings">My Listings${myListings.length ? ` (${myListings.length})` : ''}</button>
+      </div>
+    `;
+
+    // --- My Shop wrapper - everything above (hero, stats, tabbed Craft
+    // Parts/Sell From My Shops/My Listings, Shop Settings) lives inside
+    // this once a driver owns at least one Shop/Factory; otherwise a
+    // single locked hint replaces all of it. ---
+    const myShopSectionHtml = myShops.length ? `
+      ${myShopHeroHtml}
+      ${myShopStatsHtml}
+      ${myShopTabsHtml}
+      <div class="myshop-panel active" data-myshop-panel="craft">${craftFormHtml}</div>
+      <div class="myshop-panel" data-myshop-panel="sell">${sellFormHtml}</div>
+      <div class="myshop-panel" data-myshop-panel="listings">${myListingsHtml}</div>
+      ${myShopSettingsHtml}
     ` : `<p class="field-hint" style="margin:16px 0">Own a Tyre Factory, Fuel Depot, Engine Shop, Tuning Shop or Aero Tuning Company (Gold Patreon, from the Career Shop tab) to unlock My Shop - craft parts, sell stock, run special offers, and get your own shop page other drivers can visit and buy from.</p>`;
 
     box.innerHTML = myShopSectionHtml;
@@ -2636,15 +2705,23 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     // ✅ ADDED: copies the shareable ?shop=<id> link to the clipboard so an
     // owner can paste it straight into Discord - navigator.clipboard needs a
     // secure context (https), which this site already runs under.
+    // ✅ CHANGED: copies it as Discord masked-link markdown - `[Shop Name or
+    // Player Name](url)` - instead of the bare URL, so it populates as a
+    // named clickable link when pasted into Discord rather than a raw
+    // career.html URL. Title falls back to the driver's own display name
+    // when no Shop Name has been set (matches the hero above).
     if(q('myShopCopyLinkBtn')){
       q('myShopCopyLinkBtn').addEventListener('click', async () => {
-        const link = q('myShopCopyLinkBtn').dataset.shopLink || '';
+        const btn = q('myShopCopyLinkBtn');
+        const link = btn.dataset.shopLink || '';
+        const title = btn.dataset.shopTitle || 'My Shop';
+        const text = `[${title}](${link})`;
         const status = q('myShopLinkStatus');
         try{
-          await navigator.clipboard.writeText(link);
+          await navigator.clipboard.writeText(text);
           if(status) status.textContent = 'Link copied!';
         }catch(e){
-          if(status) status.textContent = link; // clipboard blocked - show it so it can be selected/copied by hand
+          if(status) status.textContent = text; // clipboard blocked - show it so it can be selected/copied by hand
         }
         setTimeout(() => { if(status && status.textContent === 'Link copied!') status.textContent = ''; }, 3000);
       });
@@ -2688,6 +2765,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       box.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-visit-shop]');
         if(btn && btn.dataset.visitShop) openShopViewer(btn.dataset.visitShop);
+      });
+    }
+
+    // ✅ ADDED: My Shop tab strip (Craft Parts / Sell From My Shops / My
+    // Listings) - event delegation, wired once per box element the same
+    // way Visit Shop is above, so it survives every re-render without
+    // stacking duplicate listeners.
+    if(!box.dataset.myshopTabsWired){
+      box.dataset.myshopTabsWired = '1';
+      box.addEventListener('click', (e) => {
+        const tabBtn = e.target.closest('[data-myshop-tab]');
+        if(!tabBtn) return;
+        const key = tabBtn.dataset.myshopTab;
+        box.querySelectorAll('[data-myshop-tab]').forEach(b => b.classList.toggle('active', b === tabBtn));
+        box.querySelectorAll('[data-myshop-panel]').forEach(p => p.classList.toggle('active', p.dataset.myshopPanel === key));
       });
     }
   }
