@@ -2315,8 +2315,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="panel-head"><div><h3>Staff: Race Earnings Settlement</h3><small>Credits real race results (points, clean bonus, entry fee, tyre spend, every perk/Shop bonus) into each driver's actual Shop balance</small></div><span class="badge purple">Owner only</span></div>
     <div class="panel-body">
       <div class="notice-card">This runs automatically every 2 hours in the background - use this button for an immediate catch-up (e.g. right after a race night) instead of waiting. Always safe to re-run: each race is only ever credited to a driver once, tracked per race file, so running this again just finds nothing new to pay for races already settled.</div>
-      <button class="btn purple" id="resRunBtn" type="button">Run Race Earnings Settlement Now</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn purple" id="resRunBtn" type="button">Run Race Earnings Settlement Now</button>
+        <button class="btn" id="resDiagnoseBtn" type="button">Diagnose "0 credited" Result</button>
+      </div>
       <div id="resRunResult" style="margin-top:12px"></div>
+      <!-- ✅ ADDED: read-only diagnostic result - use when a run reports 0
+           drivers credited despite finding race files, to see whether it's
+           an empty accDriverNames field or a name that doesn't match how
+           ACC recorded it in the race file. -->
+      <div id="resDiagnoseResult" style="margin-top:12px"></div>
     </div>
   </section>
 
@@ -2357,7 +2365,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           </select>
         </div>
         <div class="field-group"><label>Cost (&pound;)</label><input type="number" id="csNewItemCost" min="0" step="1"></div>
-        <div class="field-group"><label>Bonus / Reduction % <span class="field-hint" style="text-transform:none">(leave 0 for Trophy/Car Addition/Livery/Shop-Factory - only Tyre Factory typically sets one, to keep its personal tyre discount)</span></label><input type="number" id="csNewItemBonusPct" min="0" step="0.1" placeholder="e.g. 15"></div>
+        <div class="field-group"><label>Bonus / Reduction % <span class="field-hint" style="text-transform:none">(leave 0 for Trophy/Car Addition/Livery/Engine/Tuning/Aero Shop - but Tyre Factory AND Fuel Depot each need this set to give their owner a personal craft/race-cost discount, e.g. 80)</span></label><input type="number" id="csNewItemBonusPct" min="0" step="0.1" placeholder="e.g. 15"></div>
         <div class="field-group"><label>Trophy colour <span class="field-hint" style="text-transform:none">(Trophy only)</span></label><input type="text" id="csNewItemTrophyColor" placeholder="#ffb238" value="#ffb238"></div>
         <div class="field-group">
           <label>Level <span class="field-hint" style="text-transform:none">(Engine/Tuning/Aero Shop only - each level is its own catalog item, with its own image, name and cost)</span></label>
@@ -3680,7 +3688,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function runRaceEarningsSettlement(){
     return apiPost('staffRunRaceEarningsSettlement', {});
   }
-  window.IFWL_RaceEarningsSettlementAPI = { runRaceEarningsSettlement };
+  // ✅ ADDED: read-only diagnostic - answers "why did a run credit 0
+  // drivers?" without crediting anyone.
+  async function diagnoseRaceEarningsMatching(){
+    return apiPost('staffDiagnoseRaceEarningsMatching', {});
+  }
+  window.IFWL_RaceEarningsSettlementAPI = { runRaceEarningsSettlement, diagnoseRaceEarningsMatching };
 
   // ✅ ADDED: IFWL Career Shop data layer. Mirrors the Seasonal Costs
   // pattern above (catalog fetch/save, cached, invalidated on save) plus a
@@ -11532,6 +11545,49 @@ Flashing Headlights:
         }
       }catch(e){
         result.innerHTML = `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Could not run settlement</strong><div class="field-hint" style="margin-top:6px">${e.message}</div></div>`;
+      }
+    };
+
+    // ✅ ADDED: "why did this credit 0 drivers?" diagnostic - pure read,
+    // never credits anyone. Shows every driver name the race files actually
+    // contain next to every licence's own accDriverNames, so a mismatch or
+    // a missing accDriverNames entry is visible at a glance.
+    q('resDiagnoseBtn').onclick = async () => {
+      const result = q('resDiagnoseResult');
+      result.innerHTML = '<div class="field-hint">Checking&hellip;</div>';
+      try{
+        const r = await window.IFWL_RaceEarningsSettlementAPI.diagnoseRaceEarningsMatching();
+        if(r.skipped){
+          result.innerHTML = `<div class="notice-card">Nothing to check - ${r.skipped === 'no_season_window' ? 'no Season Window is set.' : 'no race files found in the current Season Window.'}</div>`;
+          return;
+        }
+        const secStyle = 'color:var(--text-secondary,#9fb0b6)';
+        const raceNamesHtml = (r.raceDriverNames||[]).map(n => `
+          <tr>
+            <td>${n.name}</td>
+            <td>${n.appearances}</td>
+            <td style="${secStyle}">${(n.tracks||[]).join(', ')}</td>
+          </tr>`).join('') || `<tr><td colspan="3" style="${secStyle}">None found</td></tr>`;
+
+        const licencesHtml = (r.licences||[]).map(l => `
+          <tr>
+            <td>${l.name}</td>
+            <td style="${secStyle}">${(l.accDriverNames||[]).join(', ') || '—'}</td>
+            <td>${l.matched ? '<span style="color:var(--ifwl-green)">✅ matched</span>' : '<span style="color:var(--ifwl-red)">no match</span>'}</td>
+          </tr>`).join('') || `<tr><td colspan="3" style="${secStyle}">No licences have any accDriverNames set</td></tr>`;
+
+        result.innerHTML = `
+          <div class="notice-card">
+            Checked ${r.raceFilesChecked} race file(s). ${r.licencesWithAliases} licence(s) have an ACC driver name set, ${r.licencesWithoutAliases} do not (those can never be matched to a race, however many races they've run).
+          </div>
+          <h5 style="margin:16px 0 8px">Driver names found in this season's race files</h5>
+          <div class="table-wrap"><table class="dir-table"><thead><tr><th>Name (as recorded by ACC)</th><th>Races</th><th>Track(s)</th></tr></thead><tbody>${raceNamesHtml}</tbody></table></div>
+          <h5 style="margin:16px 0 8px">Licences with an ACC driver name set</h5>
+          <div class="table-wrap"><table class="dir-table"><thead><tr><th>Driver</th><th>Their ACC driver name(s)</th><th>Matched a race?</th></tr></thead><tbody>${licencesHtml}</tbody></table></div>
+          <div class="field-hint" style="margin-top:10px">If a driver's row above shows "no match", compare their ACC driver name(s) against the exact spelling ACC recorded for them in the first table - a licence's accDriverNames field is edited from that driver's own Licence Centre profile.</div>
+        `;
+      }catch(e){
+        result.innerHTML = `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Could not run diagnostic</strong><div class="field-hint" style="margin-top:6px">${e.message}</div></div>`;
       }
     };
   }
