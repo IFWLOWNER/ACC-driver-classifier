@@ -2849,11 +2849,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     if(!box) return;
     box.innerHTML = '<div class="empty">Loading Driver Backing&hellip;</div>';
 
-    let overview, marketDrivers;
+    let overview, marketDrivers, myLedger;
     try{
-      [overview, marketDrivers] = await Promise.all([
+      // ✅ ADDED: myLedger - the caller's own real transaction history,
+      // fetched here specifically so each contract card below can show a
+      // live "Net so far" figure. Every Driver Backing transaction (the
+      // upfront stake, every race cut/cover, every sponsorship-deal cut)
+      // carries the same contractId in whichever ledger it lands in, and
+      // the amount is already signed correctly from THIS caller's own
+      // point of view - so filtering by contractId and summing amount
+      // gives an accurate all-in "money made or lost on this contract"
+      // total with no sign-flipping needed for driver vs backer.
+      [overview, marketDrivers, myLedger] = await Promise.all([
         window.IFWL_BackingAPI.fetchMyBackingOverview(),
-        window.IFWL_BackingAPI.fetchOpenMarketDrivers()
+        window.IFWL_BackingAPI.fetchOpenMarketDrivers(),
+        window.IFWL_CareerShopAPI.fetchMyCareerShopLedger()
       ]);
     }catch(e){ box.innerHTML = `<div class="empty">Could not load Driver Backing: ${e.message}</div>`; return; }
 
@@ -2863,11 +2873,18 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const outgoingOffers = overview.outgoingOffers || [];
     const contractsAsDriver = overview.contractsAsDriver || [];
     const contractsAsBacker = overview.contractsAsBacker || [];
+    const myTransactions = myLedger.transactions || [];
 
     const pillClass = (status) => `backing-status-pill ${status}`;
     const racesLabel = (n) => `${n} race${n === 1 ? '' : 's'}`;
     const plain = (n) => csFmtMoney(n).replace(/&pound;/, '£'); // for confirm()/alert() - plain dialogs can't render the &pound; entity
     const myUserId = window.IFWL_AUTH.userId(window.IFWL_META) || '';
+    // ✅ ADDED: sums every Driver Backing transaction tagged with this
+    // contract's id in MY OWN ledger - stake + race cuts + sponsorship
+    // cuts, all already signed correctly for whichever side I'm on.
+    const netSoFarForContract = (contractId) => myTransactions
+      .filter(t => t.contractId === contractId)
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
     // --- Open Market status card ---
     const marketStatusHtml = openMarketEnabled ? `
@@ -2980,18 +2997,29 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         ${log.map(r => `<div class="backing-racelog-row"><span>${mktEsc(r.track) || 'Race'} - P${r.position}</span><span>${csFmtMoney(r.netEventEarnings)} net &middot; ${r.cutAmount >= 0 ? 'paid ' : 'covered '}${csFmtMoney(Math.abs(r.cutAmount))}</span></div>`).join('')}
       </div>
     ` : '';
-    const contractCardHtml = (c, asRole) => `
+    // ✅ ADDED: "Net so far" - the real, live all-in profit/loss on this
+    // contract from MY side (stake included) - see netSoFarForContract
+    // above. Starts negative for a backer the moment they pay the stake
+    // (nothing's come back yet) and climbs as race/sponsorship cuts land;
+    // starts positive for a driver the moment they receive the stake and
+    // falls as they pay cuts out (or rises further if they get covered).
+    const contractCardHtml = (c, asRole) => {
+      const net = netSoFarForContract(c.id);
+      const netColor = net > 0 ? 'var(--ifwl-green)' : net < 0 ? 'var(--ifwl-red)' : 'var(--text-muted)';
+      return `
       <div class="backing-card">
         <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
           <div>
             <div class="amt">${csFmtMoney(c.amount)}</div>
             <p class="field-hint" style="margin:4px 0 0">${asRole === 'driver' ? `from <strong>${mktEsc(c.backerName)}</strong>` : `to <strong>${mktEsc(c.driverName)}</strong>`} &middot; ${racesLabel(c.races)} &middot; ${c.pctBack}% back &middot; ${c.racesCompleted}/${c.races} raced</p>
+            <p style="margin:6px 0 0;font-weight:800;font-family:var(--font-display);font-size:15px;color:${netColor}">Net so far: ${csFmtMoney(net)}</p>
           </div>
           <span class="${pillClass(c.status)}">${c.status}</span>
         </div>
         ${raceLogHtml(c.raceLog)}
       </div>
     `;
+    };
     const contractsAsDriverHtml = contractsAsDriver.length ? contractsAsDriver.map(c => contractCardHtml(c, 'driver')).join('') : `<p class="field-hint" style="margin:16px 0">No one is backing you yet.</p>`;
     const contractsAsBackerHtml = contractsAsBacker.length ? contractsAsBacker.map(c => contractCardHtml(c, 'backer')).join('') : `<p class="field-hint" style="margin:16px 0">You aren't backing anyone yet.</p>`;
 
