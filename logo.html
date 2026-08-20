@@ -387,6 +387,117 @@
       </div>
     </div>
 
+    <!-- ============================================================
+         ✅ ADDED: League Economy — Owner Overview. Every racer's Career
+         Shop balance, the live Parts Marketplace, and a full per-driver
+         cost breakdown of the most recent race. Reads league_meta/*,
+         marketplaceListings and licences directly from Firebase, same
+         client-side pattern as everything else on this page - licences
+         already permits Owner reads; marketplaceListings/
+         marketplaceTransactions/league_meta need the new Owner-only
+         Firestore rule shipped alongside this (see firestore.rules).
+         ============================================================ -->
+    <div class="card" id="economyCard">
+      <div class="rowBetween">
+        <div>
+          <div class="title">League Economy — Owner Overview</div>
+          <div class="muted">Every racer's Career Shop balance, the live Parts Marketplace, and the latest race's full cost breakdown per driver.</div>
+        </div>
+        <div class="row">
+          <span class="pill" id="economyHint">Loading…</span>
+          <button id="refreshEconomyBtn" class="primary">Refresh economy</button>
+        </div>
+      </div>
+
+      <div class="kpiGrid" id="economyKpis" style="grid-template-columns: repeat(6, minmax(0, 1fr));"></div>
+
+      <!-- All racers -->
+      <div class="chartCard" style="margin-top:12px;">
+        <div class="rowBetween">
+          <div>
+            <div class="chartTitle">All Racers — Career Shop Balances</div>
+            <div class="muted" id="racerBalancesHint">—</div>
+          </div>
+          <input id="racerSearch" class="tinyInput" placeholder="Search driver or licence #…" style="min-width:220px;">
+        </div>
+        <div class="tableWrap">
+          <table style="min-width:1180px;">
+            <thead>
+              <tr>
+                <th>Driver</th>
+                <th>Licence #</th>
+                <th>Balance</th>
+                <th>Owned Shops/Factories</th>
+                <th>Items Owned</th>
+                <th>Tyres</th>
+                <th>Fuel (L)</th>
+                <th>Parts</th>
+                <th>Last Race Net</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyRacerBalances"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Marketplace -->
+      <div class="chartCard" style="margin-top:12px;">
+        <div class="rowBetween">
+          <div>
+            <div class="chartTitle">Parts Marketplace — Active Listings</div>
+            <div class="muted" id="marketplaceHint">—</div>
+          </div>
+        </div>
+        <div class="tableWrap">
+          <table style="min-width:940px;">
+            <thead>
+              <tr>
+                <th>Seller</th>
+                <th>Part</th>
+                <th>Level</th>
+                <th>Qty Remaining</th>
+                <th>Price / Unit</th>
+                <th>Listed Value</th>
+                <th>Listed</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyMarketListings"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Latest race breakdown -->
+      <div class="chartCard" style="margin-top:12px;">
+        <div class="rowBetween">
+          <div>
+            <div class="chartTitle">Latest Race — Cost Breakdown Per Driver</div>
+            <div class="muted" id="latestRaceMeta">—</div>
+          </div>
+        </div>
+        <div class="tableWrap">
+          <table style="min-width:1360px;">
+            <thead>
+              <tr>
+                <th>Pos</th>
+                <th>Driver</th>
+                <th>Track</th>
+                <th>Gross Earnings</th>
+                <th>Entry Fee</th>
+                <th>Tyres</th>
+                <th>Fuel</th>
+                <th>Engine</th>
+                <th>Suspension</th>
+                <th>Damper</th>
+                <th>Aero</th>
+                <th>Net</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyLatestRace"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="rowBetween">
         <div>
@@ -2136,6 +2247,239 @@
       return false;
     }
 
+    // ============================================================
+    // ✅ ADDED: League Economy — Owner Overview.
+    // Career Shop / Parts Marketplace / Race Fuel are all owned by
+    // rtgate.js (a Cloud Function using its own Discord-token auth, a
+    // completely different auth system from this page's Firebase Auth).
+    // This section reads the SAME Firestore data those endpoints write
+    // to, directly via the client SDK - exactly the pattern the Live
+    // Issues rules engine above already uses for careerShopBalance/
+    // careerShopTransactions on /licences. The two NEW collections this
+    // needs (marketplaceListings, league_meta) require the Owner-only
+    // Firestore rule shipped alongside this feature - see firestore.rules.
+    // ============================================================
+    const CS_CATEGORY_LABEL = {
+      supportStaff: "Support Staff", teamGear: "Team Gear", costReduction: "Cost Reduction",
+      tyreFactory: "Tyre Factory", fuelDepot: "Fuel Depot", engineShop: "Engine Shop",
+      tuningShop: "Tuning Shop", aeroShop: "Aero Tuning Co.", trophy: "Trophy",
+      carAddition: "Car Addition", livery: "League Livery"
+    };
+    const MKT_PART_LABEL = { tyre: "Tyres", fuel: "Race Fuel", engine: "Engine parts", suspension: "Suspension parts", damper: "Damper parts", aero: "Aero parts" };
+    const CS_TIER_COLOR = { 1: "#c17a3e", 2: "#c7ced6", 3: "#ffb238" }; // bronze / silver / gold
+    const SHOP_CATEGORIES = ["tyreFactory", "fuelDepot", "engineShop", "tuningShop", "aeroShop"];
+
+    function csMoney(n){
+      const v = Math.round(Number(n) || 0);
+      return (v < 0 ? "-£" : "£") + Math.abs(v).toLocaleString();
+    }
+    function driverDisplayName(p){
+      return (p && (p.name || p.discordUsername || (Array.isArray(p.accDriverNames) && p.accDriverNames[0]))) || (p && p.id) || "Unknown";
+    }
+    // Structured fields (track/position/raceEarningsGross/entryFee) were
+    // added to the race tx object alongside this dashboard feature - older
+    // already-settled race transactions only have them baked into the
+    // description string, so these fall back to parsing it rather than
+    // showing nothing for anything settled before that change shipped.
+    function raceTxPosition(tx){
+      if (Number.isFinite(Number(tx.position))) return Number(tx.position);
+      const m = String(tx.description || "").match(/P(\d+)/);
+      return m ? Number(m[1]) : null;
+    }
+    function raceTxTrack(tx){
+      if (tx.track) return tx.track;
+      const m = String(tx.description || "").match(/at (.+?)\s*$/);
+      return m ? m[1].replace(/\s*\(clean\)\s*$/, "").trim() : "";
+    }
+    function raceTxGross(tx){ return Number.isFinite(Number(tx.raceEarningsGross)) ? Number(tx.raceEarningsGross) : null; }
+    function raceTxEntryFee(tx){ return Number.isFinite(Number(tx.entryFee)) ? Number(tx.entryFee) : null; }
+
+    let racerBalancesCache = [];
+    function renderRacerBalancesFromCache(){
+      const term = ($("racerSearch").value || "").toLowerCase().trim();
+      const tbody = $("tbodyRacerBalances");
+      const rows = term
+        ? racerBalancesCache.filter(r => r.name.toLowerCase().includes(term) || String(r.licenceNumber || "").toLowerCase().includes(term))
+        : racerBalancesCache;
+      if (!rows.length){
+        tbody.innerHTML = `<tr><td colspan="9" class="muted">No racers match.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td><b>${escapeHtml(r.name)}</b></td>
+          <td class="mono">${escapeHtml(r.licenceNumber || "—")}</td>
+          <td><b>${csMoney(r.balance)}</b></td>
+          <td>${r.shopChips.length ? r.shopChips.map(c => `<span class="pill" style="margin:2px 4px 2px 0;font-size:11px;">${escapeHtml(c)}</span>`).join("") : "<span class=\"muted\">None</span>"}</td>
+          <td>${r.itemsOwned}</td>
+          <td>${r.tyreInventoryCount}</td>
+          <td>${r.fuelInventoryLitres}</td>
+          <td>${r.partsCount}</td>
+          <td>${r.lastRaceNet == null ? "—" : csMoney(r.lastRaceNet)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderMarketplaceListingsTable(listings, nameById){
+      const tbody = $("tbodyMarketListings");
+      if (!listings.length){
+        tbody.innerHTML = `<tr><td colspan="7" class="muted">No active listings right now.</td></tr>`;
+        return;
+      }
+      const rows = listings.map(l => {
+        const isFlat = l.partType === "tyre" || l.partType === "fuel";
+        const remaining = isFlat ? (Number(l.quantityRemaining) || 0) : (Array.isArray(l.partIdsRemaining) ? l.partIdsRemaining.length : 0);
+        const tier = isFlat ? null : ([1,2,3].includes(Number(l.parts?.[0]?.tier)) ? Number(l.parts[0].tier) : 1);
+        const price = Number(l.pricePerUnit) || 0;
+        return { ...l, remaining, tier, price, sellerName: driverDisplayName(nameById.get(l.sellerId)) };
+      }).sort((a,b) => (b.createdAtMs||0) - (a.createdAtMs||0));
+
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td><b>${escapeHtml(r.sellerName)}</b></td>
+          <td>${escapeHtml(MKT_PART_LABEL[r.partType] || r.partType)}</td>
+          <td>${r.tier ? `<span class="pill" style="border-color:${CS_TIER_COLOR[r.tier]};color:${CS_TIER_COLOR[r.tier]};font-size:11px;">LVL ${r.tier}</span>` : "—"}</td>
+          <td>${r.remaining}${r.partType === "fuel" ? "L" : ""}</td>
+          <td>${r.partType === "fuel" ? ("£" + r.price.toFixed(2)) : csMoney(r.price)}</td>
+          <td><b>${csMoney(r.remaining * r.price)}</b></td>
+          <td>${escapeHtml(fmtDate(r.createdAtMs || 0))}</td>
+        </tr>
+      `).join("");
+      $("marketplaceHint").textContent = `${rows.length} active listing${rows.length===1?"":"s"} • Total listed value: ${csMoney(rows.reduce((s,r)=>s+(r.remaining*r.price),0))}`;
+    }
+
+    function renderLatestRaceBreakdownTable(licenceDocs, nameById){
+      const tbody = $("tbodyLatestRace");
+      const allRaceTx = [];
+      licenceDocs.forEach(p => {
+        (Array.isArray(p.careerShopTransactions) ? p.careerShopTransactions : []).forEach(tx => {
+          if (tx.type === "race") allRaceTx.push({ ...tx, driverId: p.id });
+        });
+      });
+      if (!allRaceTx.length){
+        tbody.innerHTML = `<tr><td colspan="12" class="muted">No settled race transactions found yet.</td></tr>`;
+        $("latestRaceMeta").textContent = "—";
+        return { spendTotal: 0, raceLabel: "—" };
+      }
+      const latestMs = Math.max(...allRaceTx.map(t => Number(t.dateMs) || 0));
+      let rows = allRaceTx.filter(t => Number(t.dateMs) === latestMs);
+      rows.sort((a,b) => (raceTxPosition(a) ?? 999) - (raceTxPosition(b) ?? 999));
+
+      const track = raceTxTrack(rows[0]) || "Unknown track";
+      $("latestRaceMeta").textContent = `${track} • ${fmtDate(latestMs)} • ${rows.length} driver${rows.length===1?"":"s"} credited`;
+
+      let spendTotal = 0;
+      tbody.innerHTML = rows.map(r => {
+        const gross = raceTxGross(r);
+        const entryFee = raceTxEntryFee(r);
+        const spend = (Number(r.tyreSpend)||0) + (Number(r.fuelSpend)||0) + (Number(r.engineSpend)||0) + (Number(r.suspensionSpend)||0) + (Number(r.damperSpend)||0) + (Number(r.aeroSpend)||0) + (entryFee||0);
+        spendTotal += spend;
+        return `
+        <tr>
+          <td><b>${raceTxPosition(r) ?? "—"}</b></td>
+          <td>${escapeHtml(driverDisplayName(nameById.get(r.driverId)))}</td>
+          <td>${escapeHtml(track)}</td>
+          <td>${gross == null ? "—" : csMoney(gross)}</td>
+          <td>${entryFee == null ? "—" : csMoney(entryFee)}</td>
+          <td>${csMoney(r.tyreSpend)}</td>
+          <td>${csMoney(r.fuelSpend)}</td>
+          <td>${csMoney(r.engineSpend)}</td>
+          <td>${csMoney(r.suspensionSpend)}</td>
+          <td>${csMoney(r.damperSpend)}</td>
+          <td>${csMoney(r.aeroSpend)}</td>
+          <td><b style="color:${Number(r.amount) >= 0 ? 'var(--ifwl-green)' : 'var(--ifwl-red)'}">${csMoney(r.amount)}</b></td>
+        </tr>`;
+      }).join("");
+
+      return { spendTotal, raceLabel: `${track} (${fmtDate(latestMs)})` };
+    }
+
+    async function loadLeagueEconomy(){
+      $("economyHint").textContent = "Loading…";
+      try{
+        // Catalog + Treasury (league_meta/*) - Owner-only rule required.
+        let catalogItems = [], treasuryBalance = null;
+        try{
+          const catSnap = await db.doc("league_meta/careerShop").get();
+          catalogItems = catSnap.exists ? (catSnap.data()?.items || []) : [];
+        }catch(e){ console.warn("careerShop catalog read failed (check firestore.rules for league_meta):", e); }
+        try{
+          const treasurySnap = await db.doc("league_meta/treasury").get();
+          treasuryBalance = treasurySnap.exists ? (Number(treasurySnap.data()?.balance) || 0) : null;
+        }catch(e){ console.warn("treasury read failed (check firestore.rules for league_meta):", e); }
+        const catalogById = new Map(catalogItems.map(it => [it.id, it]));
+
+        // All racer licences - same collection/rule the Live Issues engine
+        // above already reads successfully.
+        const licSnap = await db.collection("licences").limit(3000).get();
+        const licenceDocs = licSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })).filter(p => p.name || p.licenceNumber);
+        const nameById = new Map(licenceDocs.map(p => [p.id, p]));
+
+        // Racer balances table
+        racerBalancesCache = licenceDocs.map(p => {
+          const ownedIds = Array.isArray(p.careerShopOwnedItemIds) ? p.careerShopOwnedItemIds : [];
+          const shopChips = ownedIds.map(id => catalogById.get(id)).filter(Boolean).filter(it => SHOP_CATEGORIES.includes(it.category))
+            .map(it => `${CS_CATEGORY_LABEL[it.category] || it.category}${["engineShop","tuningShop","aeroShop"].includes(it.category) && it.tier ? " L" + it.tier : ""}`);
+          const raceTxs = (Array.isArray(p.careerShopTransactions) ? p.careerShopTransactions : []).filter(t => t.type === "race");
+          const lastRaceNet = raceTxs.length ? Number(raceTxs.reduce((a,b) => (Number(a.dateMs)||0) > (Number(b.dateMs)||0) ? a : b).amount) || 0 : null;
+          return {
+            id: p.id, name: driverDisplayName(p), licenceNumber: p.licenceNumber || "",
+            balance: Number(p.careerShopBalance) || 0,
+            shopChips,
+            itemsOwned: ownedIds.length,
+            tyreInventoryCount: Number(p.tyreInventoryCount) || 0,
+            fuelInventoryLitres: Number(p.fuelInventoryLitres) || 0,
+            partsCount: Array.isArray(p.partsInventory) ? p.partsInventory.length : 0,
+            lastRaceNet
+          };
+        }).sort((a,b) => b.balance - a.balance);
+        $("racerBalancesHint").textContent = `${racerBalancesCache.length} racer${racerBalancesCache.length===1?"":"s"} with an issued licence`;
+        renderRacerBalancesFromCache();
+
+        // Marketplace - active listings (Owner-only rule required).
+        let listings = [];
+        try{
+          const mktSnap = await db.collection("marketplaceListings").where("status", "==", "active").limit(2000).get();
+          listings = mktSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
+        }catch(e){
+          console.warn("marketplaceListings read failed (check firestore.rules):", e);
+          $("tbodyMarketListings").innerHTML = `<tr><td colspan="7" class="muted">Could not read Marketplace listings - check firestore.rules for marketplaceListings.</td></tr>`;
+        }
+        if (listings.length || !$("tbodyMarketListings").innerHTML.includes("firestore.rules")) renderMarketplaceListingsTable(listings, nameById);
+
+        // Latest race breakdown
+        const latest = renderLatestRaceBreakdownTable(licenceDocs, nameById);
+
+        // KPIs
+        const totalBalance = racerBalancesCache.reduce((s,r) => s + r.balance, 0);
+        const totalListedValue = listings.reduce((s,l) => {
+          const isFlat = l.partType === "tyre" || l.partType === "fuel";
+          const remaining = isFlat ? (Number(l.quantityRemaining)||0) : (Array.isArray(l.partIdsRemaining) ? l.partIdsRemaining.length : 0);
+          return s + remaining * (Number(l.pricePerUnit)||0);
+        }, 0);
+        $("economyKpis").innerHTML = [
+          { label: "Racers Tracked", value: String(racerBalancesCache.length), sub: "Issued licences" },
+          { label: "Total Balance (League-wide)", value: csMoney(totalBalance), sub: "Sum of every driver's Career Shop balance" },
+          { label: "IFWL Treasury", value: treasuryBalance == null ? "—" : csMoney(treasuryBalance), sub: "7% Marketplace league cut" },
+          { label: "Active Listings", value: String(listings.length), sub: "Parts Marketplace" },
+          { label: "Listed Value", value: csMoney(totalListedValue), sub: "If every active listing sold out" },
+          { label: "Latest Race Spend", value: csMoney(latest.spendTotal), sub: latest.raceLabel }
+        ].map(k => `
+          <div class="kpi">
+            <div class="label">${escapeHtml(k.label)}</div>
+            <div class="value">${escapeHtml(k.value)}</div>
+            <div class="sub">${escapeHtml(k.sub || "")}</div>
+          </div>
+        `).join("");
+
+        $("economyHint").textContent = "Loaded";
+      }catch(e){
+        console.error("League Economy load failed:", e);
+        $("economyHint").textContent = "Failed to load";
+        toast("League Economy failed to load:\n" + (e?.message || e));
+      }
+    }
+
     // ---------------------------
     // buttons
     // ---------------------------
@@ -2149,6 +2493,7 @@
         await loadSystemOverview();
         await loadStewardAudit7d();
         await loadDashboard();
+        await loadLeagueEconomy();
       }catch(e){
         console.error(e);
         toast("Refresh failed:\n" + (e?.message || e));
@@ -2160,6 +2505,9 @@
 
     $("refreshAuditBtn").onclick = () => loadStewardAudit7d();
     $("showOnlyInactive").onchange = () => renderAuditTableFromCache();
+
+    $("refreshEconomyBtn").onclick = () => loadLeagueEconomy();
+    $("racerSearch").addEventListener("input", () => renderRacerBalancesFromCache());
 
     // ---------------------------
     // boot
@@ -2203,6 +2551,7 @@
           await loadSystemOverview();
           await loadStewardAudit7d();
           await loadDashboard();
+          await loadLeagueEconomy();
         }catch(e){
           console.error(e);
           toast("Auth/load error:\n" + (e?.message || e));
