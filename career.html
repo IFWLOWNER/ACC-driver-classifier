@@ -1064,6 +1064,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       </div>
     </div>
     <div style="padding:20px">
+      <div id="shopViewerBio" class="notice-card hidden" style="margin-bottom:14px;white-space:pre-wrap"></div>
       <div id="shopViewerBestOffer"></div>
       <div id="shopViewerListings" class="shop-receipt-list"></div>
     </div>
@@ -2209,6 +2210,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   // enforces this too - these client checks are convenience only).
   const MKT_PART_LABEL = { tyre: 'Tyres', engine: 'Engine parts', suspension: 'Suspension parts', damper: 'Damper parts', aero: 'Aero parts', fuel: 'Race Fuel' };
   const MKT_SHOP_FOR_PART = { tyre: 'tyreFactory', engine: 'engineShop', suspension: 'tuningShop', damper: 'tuningShop', aero: 'aeroShop', fuel: 'fuelDepot' };
+  // ✅ ADDED: local escape helper for text dropped into element CONTENT
+  // (e.g. the Shop Bio textarea below) - this script block is isolated from
+  // the top-of-page esc() used for the account bar, so it needs its own.
+  const mktEsc = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
   // ✅ ADDED: My Shop special offers - top-level (not nested inside
   // renderMarketplaceSection) since openShopViewer needs them too. Mirrors
@@ -2268,21 +2273,35 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const ownsShopCategory = (cat) => catalog.some(it => it.category === cat && ownedIds.has(it.id));
     const myShops = ['tyreFactory','fuelDepot','engineShop','tuningShop','aeroShop'].filter(ownsShopCategory);
 
-    // --- My Shop identity (name + background image) ---
+    // --- My Shop identity (name + bio + background image + share link) ---
     // ✅ ADDED: only shown/editable once a driver owns at least one Shop/
     // Factory - server enforces this too (updateLicenceProfile), this is
     // just matching UI convenience.
     const myShopName = currentProfile?.careerShopName || '';
+    const myShopBio = currentProfile?.careerShopBio || '';
     const myShopBg = currentProfile?.careerShopBackgroundUrl || '';
+    const myShopUserId = window.IFWL_AUTH.userId(window.IFWL_META) || '';
+    // ✅ ADDED: shareable direct link to this driver's shop - ?shop=<id> is
+    // read on page load (below, near the ?view= deep link) and opens the
+    // shop viewer modal straight away, so an owner can post one link on
+    // Discord that takes anyone straight to their shop instead of telling
+    // people to open Marketplace and hunt for their listings.
+    const myShopLink = `${location.origin}${location.pathname}?shop=${encodeURIComponent(myShopUserId)}`;
     const myShopIdentityHtml = `
       <div class="shop-item-card aa-slot-card" style="margin-bottom:14px${myShopBg ? `;background-image:linear-gradient(rgba(6,9,13,.6),rgba(6,9,13,.6)),url('${myShopBg}');background-size:cover;background-position:center` : ''}">
         <div class="field-group" style="margin-bottom:10px">
           <label>Shop Name</label>
-          <div class="row" style="gap:8px">
-            <input type="text" id="myShopNameInput" placeholder="e.g. Ben's Tyre Emporium" maxlength="60" value="${myShopName.replace(/"/g,'&quot;')}" style="flex:1">
-            <button class="btn teal" id="myShopNameSaveBtn" type="button">Save</button>
-          </div>
-          <p class="field-hint" style="margin:4px 0 0">The big title shown when another driver clicks "🏪 Visit Shop" on one of your listings.</p>
+          <input type="text" id="myShopNameInput" placeholder="e.g. Ben's Tyre Emporium" maxlength="60" value="${myShopName.replace(/"/g,'&quot;')}">
+          <p class="field-hint" style="margin:4px 0 0">The big title shown when another driver visits your shop.</p>
+        </div>
+        <div class="field-group" style="margin-bottom:10px">
+          <label>Shop Bio</label>
+          <textarea id="myShopBioInput" maxlength="300" rows="3" placeholder="Tell visitors what you stock, your best deals, anything you want them to know...">${mktEsc(myShopBio)}</textarea>
+          <p class="field-hint" style="margin:4px 0 0">Shown under your shop name when someone visits - up to 300 characters.</p>
+        </div>
+        <div class="row" style="gap:8px;align-items:center;margin-bottom:10px">
+          <button class="btn teal" id="myShopIdentitySaveBtn" type="button">Save Name &amp; Bio</button>
+          <span class="field-hint" id="myShopIdentityStatus"></span>
         </div>
         <div class="field-group">
           <label>Shop Background Image</label>
@@ -2291,8 +2310,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             <span class="field-hint" id="myShopBgStatus"></span>
           </div>
         </div>
-        <div class="row" style="gap:8px;margin-top:10px">
-          <button class="btn ghost" type="button" data-visit-shop="${window.IFWL_AUTH.userId(window.IFWL_META) || ''}">👀 Preview My Shop</button>
+        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn ghost" type="button" data-visit-shop="${myShopUserId}">👀 Preview My Shop</button>
+          <button class="btn ghost" id="myShopCopyLinkBtn" type="button" data-shop-link="${myShopLink.replace(/"/g,'&quot;')}">🔗 Copy Shop Link (for Discord)</button>
+          <span class="field-hint" id="myShopLinkStatus"></span>
         </div>
       </div>
     `;
@@ -2555,16 +2576,19 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       });
     });
 
-    // --- My Shop identity: name + background upload ---
-    if(q('myShopNameSaveBtn')){
-      q('myShopNameSaveBtn').addEventListener('click', async () => {
+    // --- My Shop identity: name + bio + background upload + share link ---
+    if(q('myShopIdentitySaveBtn')){
+      q('myShopIdentitySaveBtn').addEventListener('click', async () => {
         const name = q('myShopNameInput').value.trim();
-        q('myShopNameSaveBtn').disabled = true;
+        const bio = q('myShopBioInput').value.trim();
+        const status = q('myShopIdentityStatus');
+        q('myShopIdentitySaveBtn').disabled = true;
+        if(status) status.textContent = 'Saving...';
         try{
-          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopName: name });
+          await window.IFWL_MarketplaceAPI.saveMyShopProfile({ careerShopName: name, careerShopBio: bio });
           currentProfile = await fetchMyProfile();
           await renderMyShopSection();
-        }catch(e){ alert('Could not save shop name: ' + e.message); q('myShopNameSaveBtn').disabled = false; }
+        }catch(e){ alert('Could not save shop name/bio: ' + e.message); q('myShopIdentitySaveBtn').disabled = false; if(status) status.textContent = 'Could not save: ' + e.message; }
       });
     }
     if(q('myShopBgUpload')){
@@ -2579,6 +2603,22 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           status.textContent = 'Saved.';
           await renderMyShopSection();
         }catch(e){ status.textContent = 'Failed: ' + e.message; }
+      });
+    }
+    // ✅ ADDED: copies the shareable ?shop=<id> link to the clipboard so an
+    // owner can paste it straight into Discord - navigator.clipboard needs a
+    // secure context (https), which this site already runs under.
+    if(q('myShopCopyLinkBtn')){
+      q('myShopCopyLinkBtn').addEventListener('click', async () => {
+        const link = q('myShopCopyLinkBtn').dataset.shopLink || '';
+        const status = q('myShopLinkStatus');
+        try{
+          await navigator.clipboard.writeText(link);
+          if(status) status.textContent = 'Link copied!';
+        }catch(e){
+          if(status) status.textContent = link; // clipboard blocked - show it so it can be selected/copied by hand
+        }
+        setTimeout(() => { if(status && status.textContent === 'Link copied!') status.textContent = ''; }, 3000);
       });
     }
 
@@ -3246,6 +3286,8 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     modal.classList.remove('hidden');
     q('shopViewerName').textContent = 'Loading…';
     q('shopViewerOwner').textContent = '';
+    q('shopViewerBio').textContent = '';
+    q('shopViewerBio').classList.add('hidden');
     q('shopViewerBestOffer').innerHTML = '';
     q('shopViewerListings').innerHTML = '<div class="empty">Loading…</div>';
     q('shopViewerBanner').style.backgroundImage = '';
@@ -3261,6 +3303,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     q('shopViewerName').textContent = data.shopName || `${data.sellerName}'s Shop`;
     q('shopViewerOwner').textContent = `Owned by ${data.sellerName}`;
     if(data.backgroundUrl) q('shopViewerBanner').style.backgroundImage = `linear-gradient(rgba(6,9,13,.35),rgba(6,9,13,.75)),url('${data.backgroundUrl}')`;
+    if(data.bio){ q('shopViewerBio').textContent = data.bio; q('shopViewerBio').classList.remove('hidden'); }
 
     let partImages = {};
     try{ partImages = await window.IFWL_MarketplaceAPI.fetchPartsMarketplaceImages(); }catch(e){}
@@ -3349,6 +3392,24 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       switchCareerView(deepLinkView);
     }
   } catch(e) {}
+
+  // ✅ ADDED: deep-link straight to a specific shop via ?shop=<sellerId> -
+  // the shareable link an owner copies from the "🔗 Copy Shop Link" button
+  // on their My Shop tab. Opens the same shop viewer modal "Visit Shop"
+  // uses anywhere else. fetchCareerShopPublicView requires an active
+  // session, so this waits for the first ifwl-auth-changed carrying real
+  // meta rather than firing at parse time, and only fires once even if
+  // that event fires more than once in a session.
+  let shopDeepLinkOpened = false;
+  window.addEventListener('ifwl-auth-changed', e => {
+    if (shopDeepLinkOpened || !e.detail?.meta) return;
+    let shopId = '';
+    try { shopId = new URLSearchParams(window.location.search).get('shop') || ''; } catch(err) {}
+    if (shopId) {
+      shopDeepLinkOpened = true;
+      openShopViewer(shopId);
+    }
+  });
 })();
 </script>
 
