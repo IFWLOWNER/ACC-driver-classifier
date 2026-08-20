@@ -1560,7 +1560,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   async function sendBackingOffer(driverId, amount, races, pctBack){ return apiPost('sendBackingOffer', { driverId, amount, races, pctBack }); }
   async function withdrawBackingOffer(offerId){ return apiPost('withdrawBackingOffer', { offerId }); }
   async function respondBackingOffer(offerId, accept){ return apiPost('respondBackingOffer', { offerId, accept }); }
-  window.IFWL_BackingAPI = { fetchMyBackingOverview, toggleOpenMarket, fetchOpenMarketDrivers, sendBackingOffer, withdrawBackingOffer, respondBackingOffer };
+  // ✅ ADDED: propose different terms back on a pending offer instead of
+  // just accepting/declining - whichever side does NOT own the current
+  // terms (offer.proposedBy) can call this; the offer stays the same doc,
+  // just with new terms and the turn flipped to the other party.
+  async function counterBackingOffer(offerId, amount, races, pctBack){ return apiPost('counterBackingOffer', { offerId, amount, races, pctBack }); }
+  window.IFWL_BackingAPI = { fetchMyBackingOverview, toggleOpenMarket, fetchOpenMarketDrivers, sendBackingOffer, withdrawBackingOffer, respondBackingOffer, counterBackingOffer };
   window.invalidateSeasonalCostsCache = () => { __seasonalCostsCache = null; };
 
   let currentProfile = null;
@@ -2862,6 +2867,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const pillClass = (status) => `backing-status-pill ${status}`;
     const racesLabel = (n) => `${n} race${n === 1 ? '' : 's'}`;
     const plain = (n) => csFmtMoney(n).replace(/&pound;/, '£'); // for confirm()/alert() - plain dialogs can't render the &pound; entity
+    const myUserId = window.IFWL_AUTH.userId(window.IFWL_META) || '';
 
     // --- Open Market status card ---
     const marketStatusHtml = openMarketEnabled ? `
@@ -2883,21 +2889,59 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       </div>
     `;
 
-    // --- Incoming offers (I'm the driver being offered backing) ---
-    const incomingHtml = incomingOffers.length ? incomingOffers.map(o => `
+    // --- Offer card - shared by Incoming Offers (myRole 'driver') and My
+    // Backing Offers (myRole 'backer'). ✅ ADDED: counter-offers - a pending
+    // offer's terms can be renegotiated by whichever side did NOT propose
+    // the CURRENT terms (offer.proposedBy) - that side sees Accept/Decline/
+    // Counter; the side that just proposed sees "Waiting on X" + Cancel.
+    // Same offer doc throughout a negotiation, so Accept/Decline can now
+    // show up in EITHER list depending on whose turn it is. ---
+    const offerCardHtml = (o, myRole) => {
+      const isMyTurn = o.proposedBy !== myRole;
+      const counterpartName = myRole === 'driver' ? o.backerName : o.driverName;
+      const proposerLabel = o.proposedBy === myRole ? 'You proposed' : `${mktEsc(counterpartName)} proposed`;
+      const historyCount = (o.history || []).length;
+      return `
       <div class="backing-card">
         <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
           <div>
             <div class="amt">${csFmtMoney(o.amount)}</div>
-            <p class="field-hint" style="margin:4px 0 0">from <strong>${mktEsc(o.backerName)}</strong> &middot; ${racesLabel(o.races)} &middot; ${o.pctBack}% back</p>
+            <p class="field-hint" style="margin:4px 0 0">${myRole === 'driver' ? 'from' : 'to'} <strong>${mktEsc(counterpartName)}</strong> &middot; ${racesLabel(o.races)} &middot; ${o.pctBack}% back</p>
+            ${o.status === 'pending' ? `<p class="field-hint" style="margin:2px 0 0">${proposerLabel}${historyCount ? ` &middot; renegotiated ${historyCount}x` : ''}</p>` : ''}
           </div>
-          <div class="row" style="gap:6px">
-            <button class="btn teal" data-accept-offer="${o.id}" type="button">Accept</button>
-            <button class="btn ghost" data-decline-offer="${o.id}" type="button">Decline</button>
+          <div class="row" style="gap:6px;align-items:center">
+            ${o.status !== 'pending' ? `<span class="${pillClass(o.status)}">${o.status}</span>` : ''}
+            ${o.status === 'pending' && isMyTurn ? `
+              <button class="btn teal" data-accept-offer="${o.id}" type="button">Accept</button>
+              <button class="btn ghost" data-decline-offer="${o.id}" type="button">Decline</button>
+              <button class="btn ghost" data-open-counter-form="${o.id}" type="button">Counter</button>
+            ` : ''}
+            ${o.status === 'pending' && !isMyTurn ? `
+              <span class="backing-status-pill pending">Waiting on ${mktEsc(counterpartName)}</span>
+              <button class="btn ghost" data-withdraw-offer="${o.id}" type="button">Cancel</button>
+            ` : ''}
           </div>
         </div>
+        ${o.status === 'pending' && isMyTurn ? `
+        <div class="hidden" data-counter-form="${o.id}" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--ifwl-line-soft)">
+          <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <div class="field-group" style="min-width:110px"><label>Amount (£)</label><input type="number" min="1" value="${o.amount}" data-counter-amount="${o.id}"></div>
+            <div class="field-group" style="min-width:90px"><label>Races</label>
+              <select data-counter-races="${o.id}">
+                ${[1, 2, 3, 4].map(n => `<option value="${n}"${n === o.races ? ' selected' : ''}>${n}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field-group" style="min-width:90px"><label>% back</label><input type="number" min="1" max="100" value="${o.pctBack}" data-counter-pct="${o.id}"></div>
+            <button class="btn teal" data-send-counter="${o.id}" type="button">Send Counter</button>
+          </div>
+        </div>
+        ` : ''}
       </div>
-    `).join('') : `<p class="field-hint" style="margin:16px 0">No incoming offers right now.</p>`;
+    `;
+    };
+
+    // --- Incoming offers (I'm the driver being offered backing) ---
+    const incomingHtml = incomingOffers.length ? incomingOffers.map(o => offerCardHtml(o, 'driver')).join('') : `<p class="field-hint" style="margin:16px 0">No incoming offers right now.</p>`;
 
     // --- Browse Open Market (other drivers I could back) ---
     const browseHtml = marketDrivers.length ? marketDrivers.map(d => `
@@ -2928,20 +2972,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     `).join('') : `<p class="field-hint" style="margin:16px 0">No drivers are on the open market right now.</p>`;
 
     // --- My outgoing offers (I'm the backer) ---
-    const outgoingHtml = outgoingOffers.length ? outgoingOffers.map(o => `
-      <div class="backing-card">
-        <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
-          <div>
-            <div class="amt">${csFmtMoney(o.amount)}</div>
-            <p class="field-hint" style="margin:4px 0 0">to <strong>${mktEsc(o.driverName)}</strong> &middot; ${racesLabel(o.races)} &middot; ${o.pctBack}% back</p>
-          </div>
-          <div class="row" style="gap:6px;align-items:center">
-            <span class="${pillClass(o.status)}">${o.status}</span>
-            ${o.status === 'pending' ? `<button class="btn ghost" data-withdraw-offer="${o.id}" type="button">Withdraw</button>` : ''}
-          </div>
-        </div>
-      </div>
-    `).join('') : `<p class="field-hint" style="margin:16px 0">You haven't sent any backing offers yet - see Browse Open Market.</p>`;
+    const outgoingHtml = outgoingOffers.length ? outgoingOffers.map(o => offerCardHtml(o, 'backer')).join('') : `<p class="field-hint" style="margin:16px 0">You haven't sent any backing offers yet - see Browse Open Market.</p>`;
 
     // --- My contracts (as driver being backed, and as a backer myself) ---
     const raceLogHtml = (log) => (log || []).length ? `
@@ -3008,11 +3039,22 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       });
     }
 
-    // --- Incoming offers: Accept / Decline ---
+    // --- Accept / Decline / Counter - offers now can show up with these
+    // controls in EITHER Incoming Offers or My Backing Offers (whichever
+    // list I'm in), since a counter flips whose turn it is - so look the
+    // offer up across both lists rather than assuming which one it's in. ---
+    const allOffersById = new Map([...incomingOffers, ...outgoingOffers].map(o => [o.id, o]));
     box.querySelectorAll('[data-accept-offer]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const offer = incomingOffers.find(o => o.id === btn.dataset.acceptOffer);
-        if(offer && !confirm(`Accept backing from ${offer.backerName}?\n\n${plain(offer.amount)} now, in exchange for ${offer.pctBack}% of your race earnings over the next ${offer.races} race(s) - or they cover that % if a race goes badly. This can't be cancelled once accepted.`)) return;
+        const offer = allOffersById.get(btn.dataset.acceptOffer);
+        if(offer){
+          const iAmDriver = offer.driverId === myUserId;
+          const counterpart = iAmDriver ? offer.backerName : offer.driverName;
+          const msg = iAmDriver
+            ? `Accept backing from ${counterpart}?\n\n${plain(offer.amount)} now, in exchange for ${offer.pctBack}% of your race earnings over the next ${offer.races} race(s) - or they cover that % if a race goes badly. This can't be cancelled once accepted.`
+            : `Accept ${counterpart}'s terms and back them?\n\n${plain(offer.amount)} will be taken from your balance immediately, for ${offer.pctBack}% of their race earnings over the next ${offer.races} race(s) - or you cover that % if a race goes badly for them. This can't be cancelled once accepted.`;
+          if(!confirm(msg)) return;
+        }
         btn.disabled = true;
         try{ await window.IFWL_BackingAPI.respondBackingOffer(btn.dataset.acceptOffer, true); await renderDriverBackingSection(); }
         catch(e){ alert('Could not accept offer: ' + e.message); btn.disabled = false; }
@@ -3020,9 +3062,35 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     });
     box.querySelectorAll('[data-decline-offer]').forEach(btn => {
       btn.addEventListener('click', async () => {
+        const offer = allOffersById.get(btn.dataset.declineOffer);
+        const counterpart = offer ? (offer.driverId === myUserId ? offer.backerName : offer.driverName) : 'them';
+        if(!confirm(`Decline this offer? ${counterpart} will need to send a new offer if they want to try again.`)) return;
         btn.disabled = true;
         try{ await window.IFWL_BackingAPI.respondBackingOffer(btn.dataset.declineOffer, false); await renderDriverBackingSection(); }
         catch(e){ alert('Could not decline offer: ' + e.message); btn.disabled = false; }
+      });
+    });
+
+    // --- Counter: reveal the inline counter-terms form, then Send Counter ---
+    box.querySelectorAll('[data-open-counter-form]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const form = box.querySelector(`[data-counter-form="${btn.dataset.openCounterForm}"]`);
+        if(form) form.classList.toggle('hidden');
+      });
+    });
+    box.querySelectorAll('[data-send-counter]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const offerId = btn.dataset.sendCounter;
+        const amount = Math.round(Number(box.querySelector(`[data-counter-amount="${offerId}"]`)?.value) || 0);
+        const races = Math.round(Number(box.querySelector(`[data-counter-races="${offerId}"]`)?.value) || 0);
+        const pctBack = Math.round(Number(box.querySelector(`[data-counter-pct="${offerId}"]`)?.value) || 0);
+        if(amount <= 0){ alert('Enter an amount greater than 0.'); return; }
+        if(races < 1 || races > 4){ alert('Races must be between 1 and 4.'); return; }
+        if(pctBack < 1 || pctBack > 100){ alert('% back must be between 1 and 100.'); return; }
+        if(!confirm(`Send a counter-offer: ${plain(amount)}, ${races} race(s), ${pctBack}% back?\n\nThe other side will need to accept, decline, or counter back before this becomes a real contract.`)) return;
+        btn.disabled = true;
+        try{ await window.IFWL_BackingAPI.counterBackingOffer(offerId, amount, races, pctBack); await renderDriverBackingSection(); }
+        catch(e){ alert('Could not send counter-offer: ' + e.message); btn.disabled = false; }
       });
     });
 
