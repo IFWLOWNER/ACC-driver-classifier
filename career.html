@@ -1027,17 +1027,23 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   </div>
 </div>
 
-<!-- ✅ ADDED: Marketplace Sale celebration popup - a quick "wahoo" moment
-     the next time a driver loads/views the page after one of their
-     listings actually sells, same queued-celebration pattern as the
-     Sponsorship popup above (own dismiss button, own localStorage
-     seen-marker, stacks if several sales happened while they were away). -->
-<div id="marketplaceSaleModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:260;display:flex;align-items:center;justify-content:center;padding:20px">
-  <div class="trophy-award-card">
-    <h2 class="trophy-award-heading">💰 Sold!</h2>
-    <div id="marketplaceSaleModalBody" style="margin:14px 0"></div>
-    <div class="trophy-award-actions">
-      <button type="button" class="btn teal" id="marketplaceSaleModalDismissBtn">Wahoo!</button>
+<!-- ✅ ADDED: Career Update popup - a single shared "here's what happened
+     since your last visit" modal, queued across two kinds of unseen
+     events: a Marketplace sale (💰 Sold!) and a Race Recap (🏁 full
+     per-event cost breakdown - which costs were covered by stored
+     tyres/fuel/parts vs actually paid for, and how much). Both kinds
+     read from the same Career Shop ledger transaction log, so they share
+     one fetch and one queue/modal rather than two separate popups that
+     could otherwise stack on top of each other on the same visit. Each
+     kind keeps its own localStorage seen-marker, so dismissing a sale
+     notice never marks a race recap as seen or vice versa. -->
+<div id="careerUpdateModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:260;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="width:min(560px,96vw);background:linear-gradient(165deg,#151b22,#0e1218);border:1px solid var(--ifwl-line);border-radius:20px;padding:26px 26px 22px;box-shadow:0 40px 110px rgba(0,0,0,.7);max-height:90vh;overflow-y:auto">
+    <h2 id="careerUpdateHeading" style="margin:0 0 4px;font-size:20px;font-family:var(--font-display,inherit);background:linear-gradient(100deg,#fff,var(--ifwl-teal));-webkit-background-clip:text;background-clip:text;color:transparent"></h2>
+    <div id="careerUpdateBody" style="margin:14px 0;text-align:left;color:var(--text-primary)"></div>
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:6px">
+      <span class="field-hint" id="careerUpdateQueueNote" style="margin-right:auto"></span>
+      <button type="button" class="btn teal" id="careerUpdateDismissBtn">Got it</button>
     </div>
   </div>
 </div>
@@ -2798,10 +2804,11 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     }catch(e){
       q('spBody').innerHTML = `<div class="empty">Could not load season progression: ${e.message}</div>`;
     }
-    // ✅ ADDED: Marketplace Sale "wahoo" popup - checked on every load
-    // alongside the sponsorship popup above, since the actual sale can
-    // happen at any time while the driver isn't on the page.
-    checkMarketplaceSaleNotice();
+    // ✅ ADDED: Career Update popup (Marketplace sales + Race Recaps) -
+    // checked on every load alongside the sponsorship popup above, since
+    // both a sale and a race credit can happen at any time while the
+    // driver isn't on the page.
+    checkPostVisitCareerUpdates();
   }
 
   // Celebration popup for fresh, unacknowledged sponsorship deal(s) - shown
@@ -2831,59 +2838,149 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     };
   }
 
-  // ✅ ADDED: Marketplace Sale "wahoo" popup - a quick celebration the next
-  // time a driver loads the page after one of their listings actually
-  // sells (the "type":"marketplaceSale" entries purchaseMarketplaceListing
-  // already writes into their own Career Shop ledger, same collection
-  // checkShopTransactionNotice reads for manual staff adjustments - no new
-  // backend endpoint needed). Tracks the newest sale id it's shown via
-  // localStorage (survives across sessions, unlike the sponsorship popup's
-  // sessionStorage guard, since a sale can easily happen days before a
-  // driver's next visit) and queues up every sale since then, oldest
-  // first, so nothing gets missed if several came in while they were away.
-  function marketplaceSaleNoticeKey(){ return 'IFWL_MKT_SALE_SEEN:' + window.IFWL_AUTH.userId(window.IFWL_META); }
-  async function checkMarketplaceSaleNotice(){
+  // ============================================================
+  // ✅ ADDED: Career Update popup - a shared "here's what happened since
+  // your last visit" modal covering two kinds of unseen ledger events:
+  //   - Marketplace sale ("type":"marketplaceSale" - written by
+  //     purchaseMarketplaceListing when someone buys your listing)
+  //   - Race Recap ("type":"race" - written by the server-side race
+  //     settlement pass, ifwlCreditRaceEarningsCore) with a full per-
+  //     category cost breakdown: for each of tyres/fuel/engine/
+  //     suspension/damper/aero, whether it was covered by stock you
+  //     already owned or actually paid for in cash, and how much.
+  // Both read from the same Career Shop ledger transaction log, so they
+  // share one fetch and are merged into one chronological queue behind
+  // one modal - avoids two separate popups stacking on the same visit.
+  // Each kind keeps its OWN localStorage seen-marker, so dismissing a
+  // sale notice never marks a race recap seen (or vice versa), and a
+  // first-ever run for a driver baselines quietly to their current
+  // latest item of each kind rather than replaying their whole history.
+  // ============================================================
+  function careerUpdateSeenKey(kind){ return `IFWL_CAREER_UPDATE_SEEN_${kind}:` + window.IFWL_AUTH.userId(window.IFWL_META); }
+
+  // Structured fields (track/position/raceEarningsGross/entryFee) were
+  // added to the race tx object alongside this feature - a race already
+  // settled before that change only has them baked into the description
+  // string, so these fall back to parsing it rather than showing nothing.
+  function raceTxPosition(tx){
+    if(Number.isFinite(Number(tx.position))) return Number(tx.position);
+    const m = String(tx.description||'').match(/P(\d+)/);
+    return m ? Number(m[1]) : null;
+  }
+  function raceTxTrack(tx){
+    if(tx.track) return tx.track;
+    const m = String(tx.description||'').match(/at (.+?)\s*$/);
+    return m ? m[1].replace(/\s*\(clean\)\s*$/,'').trim() : 'an unknown track';
+  }
+  function raceTxGross(tx){ return Number.isFinite(Number(tx.raceEarningsGross)) ? Number(tx.raceEarningsGross) : null; }
+  function raceTxEntryFee(tx){ return Number.isFinite(Number(tx.entryFee)) ? Number(tx.entryFee) : null; }
+
+  // One cost-category line: green "used stock" when this race drew on
+  // parts/tyres/fuel already owned (spend === 0), amber "bought" with the
+  // actual cash amount otherwise. Only rendered if the field exists on
+  // this tx at all - fuelSpend, for instance, didn't exist on races
+  // settled before the Fuel Factory shipped, so it's omitted entirely
+  // rather than wrongly implying it was free from stock.
+  function cuCostLine(tx, field, label, stockNoun){
+    if(!(field in tx)) return '';
+    const spend = Number(tx[field]) || 0;
+    const right = spend <= 0
+      ? `<span style="color:#1fd6bd;font-weight:700">&#10003; Used ${stockNoun}</span>`
+      : `<span style="color:#ffb238;font-weight:700">Bought &mdash; ${csFmtMoney(spend).replace(/&pound;/,'£')}</span>`;
+    return `<div class="row" style="justify-content:space-between;gap:10px;padding:4px 0"><span>${label}</span>${right}</div>`;
+  }
+
+  function raceRecapBodyHtml(tx){
+    const position = raceTxPosition(tx);
+    const track = raceTxTrack(tx);
+    const gross = raceTxGross(tx);
+    const entryFee = raceTxEntryFee(tx);
+    const net = Number(tx.amount) || 0;
+    const dateStr = tx.dateMs ? new Date(tx.dateMs).toLocaleDateString() : '';
+    const costLines = [
+      cuCostLine(tx, 'tyreSpend', 'Tyres', 'stock tyres'),
+      cuCostLine(tx, 'fuelSpend', 'Fuel', 'stock fuel'),
+      cuCostLine(tx, 'engineSpend', 'Engine', 'a stored engine part'),
+      cuCostLine(tx, 'suspensionSpend', 'Suspension', 'a stored suspension part'),
+      cuCostLine(tx, 'damperSpend', 'Damper', 'a stored damper part'),
+      cuCostLine(tx, 'aeroSpend', 'Aero', 'a stored aero part')
+    ].join('');
+    return `
+      <p style="margin:0 0 10px;font-size:15px">You finished <strong>${position ? 'P'+position : 'this race'}</strong> at <strong>${track}</strong>${dateStr ? ` on ${dateStr}` : ''}${tx.cleanBonus ? ' <span style="color:#1fd6bd">(clean race bonus)</span>' : ''}.</p>
+      <div style="background:#0d1116;border:1px solid var(--ifwl-line);border-radius:12px;padding:10px 14px">
+        <div class="row" style="justify-content:space-between;gap:10px;padding:4px 0"><span>Race Earnings</span><span style="font-weight:700">${gross==null?'—':('+'+csFmtMoney(gross).replace(/&pound;/,'£'))}</span></div>
+        <div class="row" style="justify-content:space-between;gap:10px;padding:4px 0"><span>Entry Fee</span><span style="font-weight:700;color:#ff5464">${entryFee==null?'—':('-'+csFmtMoney(entryFee).replace(/&pound;/,'£'))}</span></div>
+        ${costLines ? `<hr style="border-color:var(--ifwl-line);margin:6px 0">${costLines}` : `<p class="field-hint" style="margin:6px 0 0">Detailed cost breakdown wasn't tracked yet for this race.</p>`}
+        <hr style="border-color:var(--ifwl-line);margin:6px 0">
+        <div class="row" style="justify-content:space-between;gap:10px;padding:4px 0;font-size:16px"><span style="font-weight:800">Net Result</span><span style="font-weight:800;color:${net>=0?'#1fd6bd':'#ff5464'}">${net>=0?'+':''}${csFmtMoney(net).replace(/&pound;/,'£')}</span></div>
+      </div>
+    `;
+  }
+
+  function saleBodyHtml(tx){
+    const amt = Math.round(Number(tx.amount) || 0);
+    const qty = Number(tx.quantity) || 0;
+    const partLabel = MKT_PART_LABEL[tx.partType] || tx.partType || 'item';
+    return `
+      <p style="font-size:15px">You sold <strong>${qty ? (qty + (tx.partType === 'fuel' ? 'L ' : ' x ')) : ''}${partLabel}</strong> on the Marketplace!</p>
+      <p style="font-size:22px;font-weight:800;color:#1fd6bd;margin-top:10px">+&pound;${amt.toLocaleString()}</p>
+      <p class="field-hint" style="margin-top:6px">Added to your IFWL Career Shop balance (after the 7% league cut).</p>
+    `;
+  }
+
+  let careerUpdateQueue = [];
+  function showNextCareerUpdate(){
+    if(!careerUpdateQueue.length) return;
+    const modal = q('careerUpdateModal');
+    if(!modal) return;
+    const item = careerUpdateQueue[0];
+    const tx = item.tx;
+    if(item.kind === 'sale'){
+      q('careerUpdateHeading').textContent = '💰 Sold!';
+      q('careerUpdateBody').innerHTML = saleBodyHtml(tx);
+    } else {
+      const position = raceTxPosition(tx);
+      q('careerUpdateHeading').textContent = `🏁 Race Recap${position ? ' — P'+position : ''}`;
+      q('careerUpdateBody').innerHTML = raceRecapBodyHtml(tx);
+    }
+    const rest = careerUpdateQueue.length - 1;
+    q('careerUpdateQueueNote').textContent = rest ? `${rest} more update${rest===1?'':'s'} to see after this one.` : '';
+    modal.classList.remove('hidden');
+    q('careerUpdateDismissBtn').onclick = () => {
+      modal.classList.add('hidden');
+      localStorage.setItem(careerUpdateSeenKey(item.kind), tx.id);
+      careerUpdateQueue.shift();
+      if(careerUpdateQueue.length) showNextCareerUpdate();
+    };
+  }
+
+  async function checkPostVisitCareerUpdates(){
     let ledger;
     try{ ledger = await window.IFWL_CareerShopAPI.fetchMyCareerShopLedger(); }
     catch(e){ return; }
     // Transactions come back newest-first (server unshifts each new one
-    // onto the array), same ordering checkShopTransactionNotice relies on.
-    const sales = (ledger.transactions || []).filter(t => t.type === 'marketplaceSale' && t.id);
-    if(!sales.length) return;
-    const key = marketplaceSaleNoticeKey();
-    const seenId = localStorage.getItem(key);
-    if(!seenId){
-      // First time this feature has run for this driver - baseline to
-      // their current latest sale instead of replaying their whole
-      // history as a flood of popups.
-      localStorage.setItem(key, sales[0].id);
-      return;
+    // onto the array).
+    const txs = ledger.transactions || [];
+
+    function unseenOfKind(kind, txType){
+      const items = txs.filter(t => t.type === txType && t.id);
+      if(!items.length) return [];
+      const key = careerUpdateSeenKey(kind);
+      const seenId = localStorage.getItem(key);
+      if(!seenId){
+        localStorage.setItem(key, items[0].id);
+        return [];
+      }
+      const seenIdx = items.findIndex(t => t.id === seenId);
+      return (seenIdx === -1 ? items : items.slice(0, seenIdx)).map(tx => ({ kind, tx }));
     }
-    const seenIdx = sales.findIndex(t => t.id === seenId);
-    const unseen = seenIdx === -1 ? sales : sales.slice(0, seenIdx);
-    if(!unseen.length) return;
-    checkMarketplaceSaleQueue(unseen.slice().reverse()); // oldest-of-the-unseen first
-  }
-  function checkMarketplaceSaleQueue(queue){
-    if(!queue || !queue.length) return;
-    const modal = q('marketplaceSaleModal');
-    if(!modal) return;
-    const [sale, ...rest] = queue;
-    const amt = Math.round(Number(sale.amount) || 0);
-    const qty = Number(sale.quantity) || 0;
-    const partLabel = MKT_PART_LABEL[sale.partType] || sale.partType || 'item';
-    q('marketplaceSaleModalBody').innerHTML = `
-      <p style="font-size:16px">You sold <strong>${qty ? (qty + (sale.partType === 'fuel' ? 'L ' : ' x ')) : ''}${partLabel}</strong> on the Marketplace!</p>
-      <p style="font-size:22px;font-weight:800;color:#1fd6bd;margin-top:10px">+&pound;${amt.toLocaleString()}</p>
-      <p class="field-hint" style="margin-top:6px">Added to your IFWL Career Shop balance (after the 7% league cut).</p>
-      ${rest.length ? `<p class="field-hint" style="margin-top:8px">${rest.length} more new sale${rest.length===1?'':'s'} to see after this one.</p>` : ''}
-    `;
-    modal.classList.remove('hidden');
-    q('marketplaceSaleModalDismissBtn').onclick = () => {
-      modal.classList.add('hidden');
-      localStorage.setItem(marketplaceSaleNoticeKey(), sale.id);
-      if(rest.length) checkMarketplaceSaleQueue(rest);
-    };
+
+    careerUpdateQueue = [
+      ...unseenOfKind('sale', 'marketplaceSale'),
+      ...unseenOfKind('race', 'race')
+    ].sort((a,b) => (Number(a.tx.dateMs)||0) - (Number(b.tx.dateMs)||0)); // oldest first, reads as a coherent recap
+
+    if(careerUpdateQueue.length) showNextCareerUpdate();
   }
 
   async function init(){
