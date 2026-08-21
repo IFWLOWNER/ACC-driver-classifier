@@ -333,6 +333,19 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .shop-item-card{position:relative;overflow:hidden}
 .shop-item-thumb{width:100%;height:110px;object-fit:cover;border-radius:8px;background:#0a0d11;margin-bottom:8px;display:block}
 .shop-item-owned-badge{position:absolute;top:10px;right:10px;background:rgba(51,217,155,.16);color:var(--ifwl-green);border:1px solid rgba(51,217,155,.4);border-radius:999px;padding:2px 9px;font-size:10px;font-weight:800;text-transform:uppercase}
+/* ✅ ADDED: Purchase Credit - real-money top-up cards, on the Career Shop
+   tab. Amber/gold accent (distinct from the teal shop-balance-box above and
+   the purple backing-card family) so it visually reads as "this one costs
+   real money", not just another catalog item. */
+.credit-purchase-card{background:linear-gradient(135deg,rgba(255,178,56,.14),rgba(255,178,56,.03));border:1px solid rgba(255,178,56,.3);border-radius:14px;padding:16px 18px;margin-bottom:18px}
+.credit-purchase-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px}
+.credit-purchase-tile{background:rgba(10,13,17,.55);border:1px solid rgba(255,178,56,.3);border-radius:12px;padding:14px;text-align:center;cursor:pointer;transition:border-color .15s,transform .15s}
+.credit-purchase-tile:hover{border-color:var(--ifwl-amber);transform:translateY(-2px)}
+.credit-purchase-tile:disabled,.credit-purchase-tile[disabled]{cursor:not-allowed;opacity:.55;transform:none}
+.credit-purchase-tile .bag{font-size:30px;display:block;margin-bottom:6px}
+.credit-purchase-tile .credit-amt{display:block;font-family:var(--font-display);font-size:19px;font-weight:800;color:var(--ifwl-amber)}
+.credit-purchase-tile .price{display:block;margin-top:2px;font-size:12px;color:var(--text-muted)}
+.credit-purchase-tile .bonus-tag{display:inline-block;margin-top:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--ifwl-green);background:rgba(51,217,155,.14);border-radius:999px;padding:2px 8px}
 /* ✅ ADDED: .row was used everywhere (always paired inline with
    gap/align-items/justify-content) but was never actually defined as a
    flex container - so any row whose first child was a block-level element
@@ -1514,6 +1527,18 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   window.IFWL_CareerShopAPI = { fetchCareerShopCatalog, saveCareerShopCatalog, fetchMyCareerShopLedger, purchaseCareerShopItem, fetchDriverCareerShopLedger, issueCareerShopTransaction, refundCareerShopPurchase, fetchMyOwnedLiveries };
   window.invalidateCareerShopCatalogCache = () => { __careerShopCatalogCache = null; };
 
+  // ✅ ADDED: Purchase Credit - a driver pays real money via PayPal (outside
+  // this system) for a Career Shop credit top-up. This never moves any real
+  // money itself and never auto-credits a balance - it only logs a request
+  // and pings staff on Discord once the driver's picked a package, same
+  // "fire off a request, a human actions it" shape as everything else that
+  // touches real money in this codebase. Tier amounts are fixed server-side
+  // (creditPurchaseTiers) so the prices/credits shown here always match what
+  // the server will actually log and post, even if this file gets out of sync.
+  async function fetchCreditPurchaseTiers(){ return apiGet('creditPurchaseTiers'); }
+  async function submitCreditPurchaseRequest(tier){ return apiPost('submitCreditPurchaseRequest', { tier }); }
+  window.IFWL_CreditPurchaseAPI = { fetchCreditPurchaseTiers, submitCreditPurchaseRequest };
+
   // ✅ ADDED: Parts Marketplace data layer. Backend actions:
   //   ?myPartsInventory=1&token=...          (GET,  tyreInventoryCount + partsInventory)
   //   ?marketplaceListings=1&token=...&partType=  (GET,  active listings, optionally filtered)
@@ -2163,6 +2188,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       if(catalog.some(c => c.category === 'livery')) ownedLiveries = await window.IFWL_CareerShopAPI.fetchMyOwnedLiveries();
     }catch(e){ box.innerHTML = `<div class="empty">Could not load the IFWL Career Shop: ${e.message}</div>`; return; }
 
+    // ✅ ADDED: Purchase Credit - fetched separately, own try/catch, so a
+    // hiccup here (or an older server not yet redeployed with this
+    // endpoint) never takes down the rest of the Career Shop - the card
+    // just doesn't render.
+    let creditTiers = null;
+    try{ creditTiers = await window.IFWL_CreditPurchaseAPI.fetchCreditPurchaseTiers(); }catch(e){ creditTiers = null; }
+
     const ownedIds = new Set(ledger.ownedItemIds || []);
     // ✅ ADDED: liveries are owned PERMANENTLY (see ownedLiveryIds server-
     // side), tracked separately from the season-scoped ownedItemIds above.
@@ -2264,6 +2296,31 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       `;
     };
 
+    // ✅ ADDED: Purchase Credit card - explains the "why" (real money back
+    // into league running costs) and shows the 3 fixed packages as clickable
+    // money-bag tiles. Tier data comes straight from the server so the
+    // prices/credits shown always match what actually gets logged and
+    // posted to Discord when a tile is clicked.
+    const creditPurchaseHtml = creditTiers?.tiers ? `
+      <div class="credit-purchase-card">
+        <h4 style="margin:0 0 4px">💰 Purchase Credit</h4>
+        <p class="field-hint" style="margin:0">A fun, entirely optional way to top up your Career Shop balance with real money - every penny goes straight back into IFWL's running costs (hosting, prizes, the stuff that keeps the league going). Pick a package below, and the IFWL Bot will raise the request on Discord for staff to action.</p>
+        <div class="credit-purchase-grid">
+          ${['small','medium','large'].map(key => {
+            const t = creditTiers.tiers[key];
+            if(!t) return '';
+            return `<button class="credit-purchase-tile" type="button" data-credit-tier="${key}" data-credit-price="${t.priceGBP}" data-credit-amount="${t.creditAmount}">
+              <span class="bag">💰</span>
+              <span class="credit-amt">${Number(t.creditAmount).toLocaleString()}</span>
+              <span class="price">for &pound;${t.priceGBP}</span>
+              <span class="bonus-tag">+${creditTiers.bonusPct}% bonus</span>
+            </button>`;
+          }).join('')}
+        </div>
+        <div id="creditPurchaseResult"></div>
+      </div>
+    ` : '';
+
     const receipts = (ledger.transactions || []).slice(0, 12).map(t => {
       const amt = Number(t.amount) || 0;
       return `<div class="shop-receipt-row">
@@ -2280,6 +2337,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <div class="shop-balance-row">
         <div class="shop-balance-box"><span>Spendable Balance</span><strong>${csFmtMoney(balance)}</strong></div>
       </div>
+      ${creditPurchaseHtml}
       ${categoryGrid('supportStaff')}
       ${categoryGrid('teamGear')}
       ${categoryGrid('costReduction')}
@@ -2315,6 +2373,50 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           alert('Could not purchase: ' + e.message);
           btn.disabled = false; btn.textContent = 'Purchase';
         }
+      });
+    });
+
+    // ✅ ADDED: Purchase Credit - click a package, confirm, submit the
+    // request (this only ever logs it + pings Discord - it never touches
+    // the driver's actual balance), then show exactly what to send and to
+    // whom, with a one-tap copy for the PayPal reference so nobody mistypes
+    // their own licence number.
+    box.querySelectorAll('[data-credit-tier]').forEach(tile => {
+      tile.addEventListener('click', async () => {
+        const tierKey = tile.dataset.creditTier;
+        const priceGBP = tile.dataset.creditPrice;
+        const creditAmount = Number(tile.dataset.creditAmount) || 0;
+        if(!confirm(`Are you sure? The Discord bot will submit a purchase request on Discord for £${priceGBP} → ${creditAmount.toLocaleString()} credit.`)) return;
+
+        const resultBox = q('creditPurchaseResult');
+        box.querySelectorAll('[data-credit-tier]').forEach(b => b.disabled = true);
+        try{
+          const resp = await window.IFWL_CreditPurchaseAPI.submitCreditPurchaseRequest(tierKey);
+          const reference = `£${resp.priceGBP} - Licence #${resp.licenceNumber}`;
+          if(resultBox){
+            resultBox.innerHTML = `
+              <div class="credit-purchase-result">
+                <p style="margin:12px 0 6px;font-weight:800;color:var(--ifwl-green)">✅ Request submitted - staff have been pinged on Discord.</p>
+                <p class="field-hint" style="margin:0 0 8px">Now send &pound;${mktEsc(resp.priceGBP)} to <a href="${mktEsc(resp.paypalLink)}" target="_blank" rel="noopener">${mktEsc(resp.paypalLink)}</a> with this exact reference so staff can match it to you:</p>
+                <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+                  <code style="background:rgba(255,178,56,.12);border:1px solid rgba(255,178,56,.3);border-radius:8px;padding:6px 10px;font-family:var(--font-mono);font-size:13px">${mktEsc(reference)}</code>
+                  <button class="btn ghost" type="button" id="creditRefCopyBtn">Copy reference</button>
+                  <span class="field-hint" id="creditRefCopyStatus"></span>
+                </div>
+              </div>
+            `;
+            q('creditRefCopyBtn')?.addEventListener('click', async () => {
+              try{
+                await navigator.clipboard.writeText(reference);
+                const status = q('creditRefCopyStatus');
+                if(status) status.textContent = 'Copied!';
+              }catch(e){ alert('Could not copy - reference is: ' + reference); }
+            });
+          }
+        }catch(e){
+          alert('Could not submit that request: ' + e.message);
+        }
+        box.querySelectorAll('[data-credit-tier]').forEach(b => b.disabled = false);
       });
     });
   }
