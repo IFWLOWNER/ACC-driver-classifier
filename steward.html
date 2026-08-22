@@ -1088,12 +1088,21 @@
     // name up against the `licences` collection (accDriverNames match,
     // same approach headsteward.html uses) and renders a mini card.
     // =======================================================
+    // Emergency-only fallback, used solely if the live tier list below
+    // can't be reached (Firestore read fails / doc missing). Names match
+    // the real ladder (Staff > Manage Licence Tiers) so a stale colour
+    // is the worst case, never a wrong tier name.
     const DEFAULT_TIERS = [
-      { id:'no_licence',  name:'No Licence',   order:0, color:'#4b5760', foil:false },
-      { id:'provisional', name:'Provisional',  order:1, color:'#ffb238', foil:false },
-      { id:'gt3_beginner',name:'GT3 Beginner', order:2, color:'#1fd6bd', foil:false },
-      { id:'gt3_amateur', name:'GT3 Amateur',  order:3, color:'#c65be8', foil:false },
-      { id:'gt3_pro',     name:'GT3 Pro',      order:4, color:'#eaf3ff', foil:true  }
+      { id:'no_licence',   name:'No Licence',          order:0,  color:'#4b5760', foil:false },
+      { id:'provisional',  name:'IFWL-GT-Provisional', order:1,  color:'#93a1a9', foil:false },
+      { id:'gt_rookie',    name:'IFWL-GT-Rookie',      order:2,  color:'#8fb996', foil:false },
+      { id:'gt_beginner',  name:'IFWL-GT-Beginner',    order:3,  color:'#1fd6bd', foil:false },
+      { id:'gt_amateur',   name:'IFWL-GT-Amateur',     order:4,  color:'#4f9df0', foil:false },
+      { id:'gt_pro',       name:'IFWL-GT-Pro',         order:5,  color:'#c65be8', foil:false },
+      { id:'lmu_lmp2',     name:'IFWL-LMU-LMP2',       order:6,  color:'#ff9d4d', foil:false },
+      { id:'lmu_lmp3',     name:'IFWL-LMU-LMP3',       order:7,  color:'#ffb238', foil:false },
+      { id:'lmu_lmgt3',    name:'IFWL-LMU-LMGT3',      order:8,  color:'#f45b69', foil:false },
+      { id:'lmu_lmgte',    name:'IFWL-LMU-LMGTE',      order:9,  color:'#eaf3ff', foil:true  }
     ];
 
     function hexToRgba(hex, alpha){
@@ -1102,8 +1111,40 @@
       const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
       return `rgba(${r},${g},${b},${alpha})`;
     }
-    function findTier(tierName){
-      return DEFAULT_TIERS.find(t => t.name === tierName) || DEFAULT_TIERS[0];
+    // Live tier colours are staff-editable and arbitrary, so pill text
+    // colour can't hardcode a single "is this the light tier" hex check
+    // any more - work it out from actual luminance instead.
+    function isLightColor(hex){
+      const clean = String(hex || '').replace('#','');
+      const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean.padEnd(6,'0').slice(0,6);
+      const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
+      return (0.299*r + 0.587*g + 0.114*b) > 175;
+    }
+
+    // Live tier ladder, same document the Staff "Manage Licence Tiers"
+    // panel writes to (league_meta/licenceTiers) - read directly here
+    // since steward.html already has Firebase Auth + Firestore access
+    // (existing rule: `match /league_meta/{docId} { allow read: if
+    // isSteward() || isHeadSteward(); }` already covers this doc, no
+    // rules change needed). Falls back to DEFAULT_TIERS only if this
+    // read fails or the document doesn't exist yet.
+    let tierListCacheSteward = null;
+    async function loadTierListSteward(){
+      if (tierListCacheSteward) return tierListCacheSteward;
+      try {
+        const snap = await db.collection("league_meta").doc("licenceTiers").get();
+        const tiers = snap.exists ? (snap.data()?.tiers || []) : [];
+        tierListCacheSteward = tiers.length ? tiers : DEFAULT_TIERS;
+      } catch (e) {
+        console.warn("Could not load live tier list, using fallback:", e);
+        tierListCacheSteward = DEFAULT_TIERS;
+      }
+      return tierListCacheSteward;
+    }
+
+    function findTier(tierName, tiers){
+      const list = (tiers && tiers.length) ? tiers : DEFAULT_TIERS;
+      return list.find(t => t.name === tierName) || list[0];
     }
     function driverCardPointsClass(points){
       const n = Number(points || 0);
@@ -1172,9 +1213,9 @@
         return;
       }
 
-      let profiles;
-      try { profiles = await loadAllLicenceProfilesSteward(); }
-      catch (e) { profiles = []; }
+      let profiles, tiers;
+      try { [profiles, tiers] = await Promise.all([loadAllLicenceProfilesSteward(), loadTierListSteward()]); }
+      catch (e) { profiles = []; tiers = DEFAULT_TIERS; }
 
       const match = findLinkedLicenceSteward(names, profiles);
       if (!match){
@@ -1188,11 +1229,11 @@
       numberEl.textContent = match.licenceNumber || "IFWL-0000-00000";
       photoEl.src = driverCardPhotoUrl(match);
 
-      const tier = findTier(match.tier || "No Licence");
+      const tier = findTier(match.tier || "No Licence", tiers);
       if (tierEl){
         tierEl.textContent = match.tier || tier.name;
         tierEl.style.background = hexToRgba(tier.color, 0.22);
-        tierEl.style.color = tier.color === '#eaf3ff' ? '#0f172a' : tier.color;
+        tierEl.style.color = isLightColor(tier.color) ? '#0f172a' : tier.color;
         tierEl.style.border = `1px solid ${hexToRgba(tier.color, 0.45)}`;
       }
       const points = Number(match.licencePoints || 0);
