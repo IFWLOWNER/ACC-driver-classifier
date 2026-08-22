@@ -1,2138 +1,433 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
   <title>IFWL Steward Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <style>
-    body { font-family: Arial, sans-serif; margin:0; background:#f3f4f6; }
-
-    header {
-      padding:14px 18px;
-      background:#111827;
-      color:#fff;
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:12px;
-    }
-
-    /* Header branding */
-    .brand { display:flex; gap:12px; align-items:flex-start; min-width:0; }
-    .brand img {
-      width:38px; height:38px; object-fit:contain; margin-top:2px; flex:0 0 auto;
-      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
-    }
-    .brandText { min-width:0; }
-    header .small { font-size:12px; opacity:0.85; margin-top:4px; line-height:1.2; word-break:break-word; }
-    .welcomeLine { font-size:12px; opacity:0.95; margin-top:6px; line-height:1.25; }
-
-    .wrap { display:grid; grid-template-columns: 380px 1fr; gap:14px; padding:14px; }
-
-    .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
-    .title { font-weight:700; font-size:16px; margin:0 0 10px; }
-    .muted { color:#6b7280; font-size:12px; }
-
-    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    button { padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer; }
-    button.primary { background:#111827; color:#fff; border-color:#111827; }
-    button:disabled { opacity:0.6; cursor:not-allowed; }
-
-    select, input, textarea {
-      padding:10px; border:1px solid #d1d5db; border-radius:12px;
-      width:100%; box-sizing:border-box; font-size:16px;
-    }
-    textarea { min-height:70px; resize:vertical; }
-
-    /* INFO boxes for CAUSE guidance */
-    .infoBox{
-      padding:10px;
-      border:1px solid #d1d5db;
-      border-radius:12px;
-      width:100%;
-      box-sizing:border-box;
-      font-size:16px;
-      background:#f9fafb;
-      color:#6b7280;
-      line-height:1.35;
-      user-select:none;
-      cursor:default;
-    }
-
-    /* NEW: penalty info preview box */
-    .penPreview{
-      margin-top:10px;
-      padding:10px 12px;
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#f9fafb;
-      color:#111827;
-      font-size:13px;
-      line-height:1.3;
-    }
-    .penPreview .mutedLine { color:#6b7280; font-size:12px; margin-top:6px; }
-    .penPreview .k { font-weight:900; }
-    .penPreview pre{
-      margin:8px 0 0;
-      white-space:pre-wrap;
-      font-family: inherit;
-      background:transparent;
-    }
-
-    .list { display:flex; flex-direction:column; gap:8px; max-height:680px; overflow:auto; -webkit-overflow-scrolling:touch; }
-    .ticket { padding:12px; border:1px solid #e5e7eb; border-radius:12px; cursor:pointer; background:#fff; }
-    .ticket:hover { background:#f9fafb; }
-    .ticket .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; word-break:break-all; }
-    .ticket .status { font-size:12px; color:#374151; }
-    .ticket.active { border-color:#111827; box-shadow:0 0 0 2px rgba(17,24,39,0.15); }
-
-    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    .sec { border:1px solid #e5e7eb; border-radius:12px; padding:12px; background:#fafafa; margin-top:10px; }
-    .sec h3 { margin:0 0 8px; font-size:14px; }
-
-    .badge { display:inline-block; padding:4px 10px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; }
-    .ok { color:#047857; font-weight:700; }
-
-    /* Workload UI */
-    .workloadBox { border:1px solid #e5e7eb; border-radius:12px; padding:10px 12px; background:#fafafa; margin:10px 0 12px; }
-    .workloadTop { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-    .workloadTitle { font-weight:800; font-size:13px; margin:0; }
-    .pill {
-      display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border-radius:999px;
-      border:1px solid #e5e7eb; background:#fff; font-size:12px; color:#111827; white-space:nowrap;
-    }
-    .pill strong { font-weight:800; }
-    .workloadSub { margin-top:6px; font-size:12px; color:#6b7280; line-height:1.25; }
-
-    .needTag {
-      display:inline-block; margin-top:8px; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800;
-      border:1px solid #fcd34d; background:#fffbeb; color:#92400e;
-    }
-
-    /* statement status tag */
-    .stmtTag { margin-top:8px; padding:8px 10px; border-radius:12px; font-size:12px; font-weight:900; line-height:1.2;
-      border:1px solid #e5e7eb; background:#f9fafb; color:#111827; }
-    .stmtOk { border-color:#86efac; background:#ecfdf5; color:#065f46; }
-    .stmtBad { border-color:#fca5a5; background:#fef2f2; color:#991b1b; }
-    .stmtTag small { display:block; margin-top:4px; font-weight:800; opacity:0.95; }
-
-    /* deliberation status tag */
-    .delibTag { margin-top:8px; padding:8px 10px; border-radius:12px; font-size:12px; font-weight:900; line-height:1.2;
-      border:1px solid #e5e7eb; background:#f9fafb; color:#111827; }
-    .delibBad { border-color:#fca5a5; background:#fef2f2; color:#991b1b; }
-    .delibOk { border-color:#86efac; background:#ecfdf5; color:#065f46; }
-    .delibTag small { display:block; margin-top:4px; font-weight:800; opacity:0.95; }
-
-    /* Accountability banners */
-    .bannerBox{
-      border-radius:12px;
-      padding:12px 14px;
-      font-size:14px;
-      font-weight:900;
-      line-height:1.25;
-    }
-    .bannerRed{ border:1px solid #fca5a5; background:#fef2f2; color:#991b1b; }
-    .bannerAmber{ border:1px solid #fcd34d; background:#fffbeb; color:#92400e; }
-    .bannerGreen{ border:1px solid #86efac; background:#ecfdf5; color:#065f46; }
-    .bannerBox small{ display:block; margin-top:6px; font-weight:800; opacity:.95; }
-
-    .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px;
-      opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; }
-    .toast.show { opacity:1; transform: translateY(0); }
-
-    code { background:#f2f2f2; padding:2px 6px; border-radius:6px; }
-    a { color:#111827; }
-    a:hover { opacity:0.85; }
-
-    .redBox{
-      border:1px solid #fca5a5;
-      background:#fef2f2;
-      color:#991b1b;
-      border-radius:12px;
-      padding:10px 12px;
-      margin-top:10px;
-      font-size:13px;
-      line-height:1.25;
-      font-weight:700;
-    }
-
-    .videoWrap {
-      position:relative; width:100%; padding-top:56.25%; background:#000; border-radius:12px; overflow:hidden;
-      border:1px solid #e5e7eb; margin-top:10px;
-    }
-    .videoWrap iframe, .videoWrap video { position:absolute; top:0; left:0; width:100%; height:100%; border:0; }
-
-    .commentBox { border:1px solid #e5e7eb; border-radius:12px; padding:12px; background:#fff; }
-    .commentMeta { font-size:12px; color:#6b7280; margin-top:4px; }
-
-    /* NEW: Rules audit table */
-    .tableWrap { overflow:auto; -webkit-overflow-scrolling:touch; border:1px solid #e5e7eb; border-radius:12px; }
-    table { border-collapse:collapse; width:100%; min-width:860px; background:#fff; }
-    th, td { text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; font-size:13px; vertical-align:top; }
-    th { background:#f9fafb; font-weight:900; position:sticky; top:0; z-index:1; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .miniPill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #e5e7eb; background:#fff; }
-    .miniOk { border-color:#86efac; background:#ecfdf5; color:#065f46; font-weight:900; }
-    .miniBad { border-color:#fca5a5; background:#fef2f2; color:#991b1b; font-weight:900; }
-
-    /* ===========================
-       ✅ FULL-WIDTH RULES AUDIT FIX
-       =========================== */
-    .rulesAuditFullWidth { width:100% !important; max-width:100% !important; display:block !important; }
-    .wrap .rulesAuditFullWidth { grid-column: 1 / -1 !important; }
-    .wrap #rulesAuditCard { grid-column: 1 / -1 !important; width:100% !important; max-width:100% !important; }
-    #rulesAuditCard { width:100% !important; max-width:100% !important; }
-
-    /* ========= UPDATED: Effect checklist UI (MATCH HEAD STEWARD) ========= */
-    .effectWrap{
-      margin-top:10px;
-      padding:10px 12px;
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#fff;
-    }
-    .effectTop{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .effectHeading{
-      font-weight:900;
-      font-size:13px;
-      margin-bottom:4px;
-      color:#111827;
-    }
-    .effectCols{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-      margin-top:10px;
-    }
-    .effectCol{
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#fff;
-      overflow:hidden;
-    }
-    .effectColHeader{
-      padding:10px 12px;
-      border-bottom:1px solid #e5e7eb;
-      background:#f9fafb;
-      font-weight:900;
-      font-size:12px;
-      color:#111827;
-    }
-    .effectList{
-      padding:8px;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-    .effectItem{
-      display:flex;
-      gap:10px;
-      align-items:flex-start;
-      padding:10px 10px;
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#fff;
-      cursor:pointer;
-    }
-    .effectItem:hover{ background:#f9fafb; }
-    .effectItem input[type="checkbox"]{
-      width:18px;
-      height:18px;
-      margin-top:2px;
-      flex:0 0 auto;
-      cursor:pointer;
-    }
-    .effectMain{
-      flex:1;
-      min-width:0;
-    }
-    .effectTitle{
-      font-size:13px;
-      line-height:1.25;
-      font-weight:800;
-      color:#111827;
-      word-break:break-word;
-    }
-    .effectNote{
-      margin-top:4px;
-      font-size:11px;
-      font-weight:700;
-      color:#6b7280;
-      line-height:1.25;
-      word-break:break-word;
-    }
-    .effectDeltaPill{
-      flex:0 0 auto;
-      margin-left:auto;
-      margin-top:1px;
-      padding:2px 8px;
-      border-radius:999px;
-      font-size:12px;
-      font-weight:900;
-      border:1px solid #e5e7eb;
-      background:#fff;
-      white-space:nowrap;
-    }
-    .deltaAdd{
-      border-color:#fca5a5;
-      background:#fef2f2;
-      color:#991b1b;
-    }
-    .deltaSub{
-      border-color:#86efac;
-      background:#ecfdf5;
-      color:#065f46;
-    }
-    .effectItemSpecialRed{
-      border-color:#fca5a5 !important;
-      background:#fef2f2 !important;
-    }
-    .effectItemSpecialRed .effectTitle{ color:#991b1b; }
-    .effectItemSpecialRed .effectNote{ color:#991b1b; opacity:0.9; }
-    .effectPills{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-    .calcWrap{
-      margin-top:10px;
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#fff;
-      padding:10px 12px;
-    }
-    .calcTitle{
-      font-weight:900;
-      font-size:12px;
-      color:#111827;
-      margin-bottom:6px;
-    }
-    .calcLine{
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size:12px;
-      color:#111827;
-      white-space:pre-wrap;
-    }
-    .calcSub{
-      margin-top:6px;
-      font-size:11px;
-      color:#6b7280;
-      font-weight:700;
-      line-height:1.25;
-    }
-
-
-
-    /* Linked incident awareness panel (Steward view only - no merge authority) */
-    .linkedMiniTag{
-      display:inline-block;
-      margin-top:8px;
-      padding:4px 10px;
-      border-radius:999px;
-      border:1px solid #c7d2fe;
-      background:#eef2ff;
-      color:#3730a3;
-      font-size:12px;
-      font-weight:900;
-      word-break:break-word;
-    }
-    .linkedIncidentBox{
-      border:1px solid #c7d2fe;
-      border-radius:12px;
-      background:#eef2ff;
-      padding:12px;
-      margin-top:10px;
-    }
-    .linkedIncidentTitle{
-      font-size:14px;
-      font-weight:900;
-      color:#111827;
-      margin-bottom:6px;
-    }
-    .linkedTicketGrid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px;
-      margin-top:10px;
-    }
-    .linkedTicketCard{
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#fff;
-      padding:10px 12px;
-      font-size:13px;
-      line-height:1.35;
-      cursor:pointer;
-    }
-    .linkedTicketCard:hover{ background:#f9fafb; }
-    .linkedTicketCard .mono{
-      word-break:break-all;
-      font-size:12px;
-    }
-    .linkedDriverList{
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#fff;
-      padding:10px 12px;
-      margin-top:10px;
-      font-size:13px;
-      line-height:1.35;
-    }
-    .linkedDriverList ol{
-      margin:6px 0 0 20px;
-      padding:0;
-    }
-    .linkedDriverList li{ margin:3px 0; }
-
-
-    /* Penalty time voting + steward recommendation summary */
-    .timePenaltyRow{
-      margin-top:10px;
-    }
-    .voteSummaryBox{
-      margin-top:12px;
-      border:1px solid #d1d5db;
-      border-radius:12px;
-      background:#f9fafb;
-      padding:12px;
-    }
-    .voteSummaryTitle{
-      font-weight:900;
-      font-size:14px;
-      margin-bottom:8px;
-      color:#111827;
-    }
-    .voteSummaryGrid{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-      margin-top:8px;
-    }
-    .voteSummaryPanel{
-      border:1px solid #e5e7eb;
-      border-radius:12px;
-      background:#fff;
-      padding:10px 12px;
-    }
-    .voteSummaryPanelTitle{
-      font-size:12px;
-      font-weight:900;
-      color:#111827;
-      margin-bottom:6px;
-    }
-    .voteLine{
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      border-top:1px solid #f3f4f6;
-      padding:6px 0;
-      font-size:12px;
-      line-height:1.25;
-    }
-    .voteLine:first-of-type{ border-top:0; }
-    .voteLine strong{ font-weight:900; }
-    .recommendationBox{
-      margin-top:10px;
-      border:1px solid #86efac;
-      background:#ecfdf5;
-      color:#065f46;
-      border-radius:12px;
-      padding:10px 12px;
-      font-size:13px;
-      font-weight:900;
-      line-height:1.25;
-    }
-    .recommendationBox small{
-      display:block;
-      margin-top:5px;
-      font-weight:800;
-      opacity:.95;
-    }
-
-
-    /* NFA handling: when No Further Action is selected, no time penalty is required */
-    select.nfaNoTimeRequired{
-      opacity:.72;
-      background:#f8fafc !important;
-    }
-    .nfaNoTimeNote{
-      margin-top:6px;
-      font-size:12px;
-      font-weight:800;
-      color:#065f46;
-      display:none;
-    }
-
-    @media (max-width: 980px) {
-      .voteSummaryGrid{ grid-template-columns:1fr; }
-      .linkedTicketGrid{ grid-template-columns:1fr; }
-    }
-
-    @media (max-width: 980px) {
-      header { flex-direction:column; align-items:stretch; }
-      header .row { width:100%; }
-      header button { width:100%; }
-      .wrap { grid-template-columns: 1fr; }
-      .list { max-height:320px; }
-      .grid2 { grid-template-columns: 1fr; }
-      #refreshStatementsBtn, #refreshTicketsBtn, #refreshDiscussionBtn, #postDiscussionBtn { width:100%; }
-      #filter { font-size:16px; }
-      .sec { padding:12px; }
-      .brand { align-items:center; }
-      .brand img { width:34px; height:34px; margin-top:0; }
-      .effectCols{ grid-template-columns: 1fr; }
-      .effectPills{ justify-content:flex-start; }
-    }
-  
-
-    /* ==========================================================
-       IFWL STEWARD UI REDESIGN — LIGHT THEME / WEB + MOBILE
-       UI-only layer: preserves existing IDs, Firebase writes, and JS.
-       ========================================================== */
+    /* ============================================================
+       IFWL STEWARD DASHBOARD — design system (single source of truth)
+       Light theme. Every id/class the JS relies on is preserved;
+       this replaces three previously-stacked !important patch layers
+       with one consolidated stylesheet.
+       ============================================================ */
     :root{
-      --ifwl-navy:#0f172a;
-      --ifwl-navy-2:#111827;
-      --ifwl-ink:#111827;
-      --ifwl-muted:#64748b;
-      --ifwl-line:#dbe3ef;
-      --ifwl-soft:#f8fafc;
-      --ifwl-card:rgba(255,255,255,.92);
-      --ifwl-card-solid:#ffffff;
-      --ifwl-red:#dc2626;
-      --ifwl-red-dark:#991b1b;
-      --ifwl-blue:#2563eb;
-      --ifwl-blue-soft:#eff6ff;
-      --ifwl-green:#059669;
-      --ifwl-amber:#d97706;
-      --ifwl-shadow:0 18px 55px rgba(15,23,42,.10);
-      --ifwl-shadow-sm:0 10px 25px rgba(15,23,42,.08);
-      --ifwl-radius:22px;
-      --ifwl-radius-sm:16px;
-      --ifwl-focus:0 0 0 4px rgba(37,99,235,.16);
+      --navy:#0f172a;
+      --ink:#111827;
+      --muted:#64748b;
+      --muted-2:#94a3b8;
+      --line:#dfe6f0;
+      --line-soft:#eef2f8;
+      --bg:#eef2f9;
+      --card:#ffffff;
+      --card-soft:#f8fafc;
+      --red:#dc2626;
+      --red-dark:#991b1b;
+      --red-soft:#fef2f2;
+      --red-line:#fecaca;
+      --amber:#d97706;
+      --amber-dark:#92400e;
+      --amber-soft:#fffbeb;
+      --amber-line:#fde68a;
+      --green:#059669;
+      --green-dark:#065f46;
+      --green-soft:#ecfdf5;
+      --green-line:#a7f3d0;
+      --blue:#2563eb;
+      --blue-dark:#1d4ed8;
+      --blue-soft:#eff6ff;
+      --blue-line:#bfdbfe;
+      --purple:#7c3aed;
+      --radius-lg:20px;
+      --radius:16px;
+      --radius-sm:12px;
+      --shadow:0 14px 32px rgba(15,23,42,.09);
+      --shadow-sm:0 6px 16px rgba(15,23,42,.06);
+      --focus:0 0 0 4px rgba(37,99,235,.15);
     }
 
-    html{
-      scroll-behavior:smooth;
-      background:#eef3f9;
-    }
+    *, *::before, *::after{ box-sizing:border-box; }
+
+    html{ background:var(--bg); scroll-behavior:smooth; }
+    html, body{ width:100%; max-width:100%; overflow-x:hidden; }
 
     body{
+      margin:0;
       min-height:100vh;
-      background:
-        radial-gradient(circle at 18% 4%, rgba(220,38,38,.10), transparent 30%),
-        radial-gradient(circle at 82% 0%, rgba(37,99,235,.12), transparent 34%),
-        linear-gradient(180deg, rgba(248,250,252,.96), rgba(241,245,249,.96)),
-        url("./ifwl_bg.webp");
-      background-size:auto, auto, auto, cover;
-      background-position:center;
-      background-attachment:fixed;
-      color:var(--ifwl-ink);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      color:var(--ink);
       line-height:1.45;
+      background:
+        radial-gradient(circle at 16% 0%, rgba(220,38,38,.07), transparent 32%),
+        radial-gradient(circle at 84% 4%, rgba(37,99,235,.09), transparent 36%),
+        var(--bg);
+      background-attachment:fixed;
     }
 
-    body::before{
-      content:"";
-      position:fixed;
-      inset:0;
-      pointer-events:none;
-      z-index:-1;
-      background-image:
-        linear-gradient(rgba(15,23,42,.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(15,23,42,.035) 1px, transparent 1px);
-      background-size:44px 44px;
-      mask-image:linear-gradient(to bottom, black, transparent 78%);
-    }
+    img, video, iframe, canvas, svg{ max-width:100%; }
 
+    /* ---------- header ---------- */
     header{
-      position:sticky;
-      top:0;
-      z-index:50;
-      padding:16px clamp(14px, 2vw, 28px);
-      background:rgba(255,255,255,.88) !important;
-      color:var(--ifwl-ink) !important;
-      border-bottom:1px solid rgba(219,227,239,.92);
-      box-shadow:0 12px 30px rgba(15,23,42,.08);
-      backdrop-filter:blur(18px) saturate(1.25);
-      -webkit-backdrop-filter:blur(18px) saturate(1.25);
+      position:sticky; top:0; z-index:50;
+      display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
+      padding:16px clamp(14px, 2vw, 26px);
+      background:rgba(255,255,255,.92);
+      border-bottom:1px solid var(--line);
+      box-shadow:0 10px 26px rgba(15,23,42,.07);
+      backdrop-filter:blur(16px) saturate(1.2);
+      -webkit-backdrop-filter:blur(16px) saturate(1.2);
     }
-
     header::before{
-      content:"";
-      position:absolute;
-      left:0;
-      right:0;
-      top:0;
-      height:4px;
-      background:linear-gradient(90deg, var(--ifwl-red), var(--ifwl-navy), var(--ifwl-blue));
+      content:""; position:absolute; left:0; right:0; top:0; height:3px;
+      background:linear-gradient(90deg, var(--red), var(--navy), var(--blue));
     }
-
-    .brand{
-      align-items:center;
-    }
-
+    .brand{ display:flex; gap:12px; align-items:center; min-width:0; }
     .brand img{
-      width:46px;
-      height:46px;
-      padding:7px;
-      border-radius:16px;
+      width:42px; height:42px; object-fit:contain; flex:0 0 auto;
+      padding:6px; border-radius:14px;
       background:linear-gradient(135deg,#fff,#f1f5f9);
-      border:1px solid rgba(219,227,239,.95);
-      box-shadow:var(--ifwl-shadow-sm);
-      filter:none;
+      border:1px solid var(--line);
+      box-shadow:var(--shadow-sm);
+    }
+    .brandText{ min-width:0; }
+    .brandText > div:first-child{ letter-spacing:-.02em; color:var(--navy); }
+    .welcomeLine{ font-size:12px; color:#334155; margin-top:5px; line-height:1.3; max-width:900px; }
+    header .small{ font-size:12px; color:var(--muted); margin-top:4px; line-height:1.2; word-break:break-word; }
+    header .row{ align-items:center; }
+
+    @media (max-width: 980px){
+      header{ position:relative; flex-direction:column; align-items:stretch; padding:14px; }
+      header .row{ width:100%; display:grid; grid-template-columns:1fr; gap:8px; }
+      header button{ width:100%; }
+      .brand{ align-items:center; }
+      .brandText > div, .welcomeLine, header .small{ max-width:100%; overflow-wrap:anywhere; word-break:break-word; }
     }
 
-    .brandText > div:first-child{
-      letter-spacing:-.04em;
-      font-size:clamp(18px, 2vw, 24px) !important;
-      line-height:1.05;
-      color:var(--ifwl-navy);
-    }
-
-    .welcomeLine{
-      color:#334155;
-      opacity:1;
-      max-width:980px;
-    }
-
-    header .small{
-      color:var(--ifwl-muted);
-      opacity:1;
-    }
-
-    header .row{
-      align-items:center;
-    }
-
-    button{
-      min-height:42px;
-      border-radius:14px;
-      border:1px solid var(--ifwl-line);
-      color:var(--ifwl-navy);
-      background:rgba(255,255,255,.88);
-      font-weight:800;
-      box-shadow:0 5px 14px rgba(15,23,42,.06);
-      transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
-    }
-
-    button:hover:not(:disabled){
-      transform:translateY(-1px);
-      border-color:#bfccdd;
-      box-shadow:0 10px 22px rgba(15,23,42,.10);
-      background:#fff;
-    }
-
-    button:active:not(:disabled){
-      transform:translateY(0);
-      box-shadow:0 5px 14px rgba(15,23,42,.06);
-    }
-
-    button.primary{
-      background:linear-gradient(135deg, var(--ifwl-navy), #1e293b) !important;
-      border-color:rgba(15,23,42,.95) !important;
-      color:#fff !important;
-      box-shadow:0 12px 25px rgba(15,23,42,.18);
-    }
-
-    button#tlsBtn{
-      border-color:rgba(220,38,38,.24);
-      color:var(--ifwl-red-dark);
-      background:linear-gradient(135deg,#fff, #fff5f5);
-    }
-
+    /* ---------- layout ---------- */
     .wrap{
-      width:min(1760px, calc(100% - 28px));
+      display:grid;
+      grid-template-columns:minmax(320px, 400px) minmax(0, 1fr);
+      gap:16px;
+      width:min(1680px, calc(100% - 28px));
       margin:0 auto;
-      padding:18px 0 20px;
-      grid-template-columns:minmax(320px, 410px) minmax(0, 1fr);
-      gap:18px;
+      padding:16px 0 20px;
       align-items:start;
     }
-
     body > div[style*="padding:14px"]{
-      width:min(1760px, calc(100% - 28px));
+      width:min(1680px, calc(100% - 28px));
       margin:0 auto;
-      padding:18px 0 0 !important;
+    }
+    @media (max-width: 980px){
+      .wrap{ grid-template-columns:1fr; width:calc(100% - 20px); }
+      body > div[style*="padding:14px"]{ width:calc(100% - 20px); }
+      .rulesAuditFullWidth{ width:calc(100% - 20px) !important; margin:0 auto; }
     }
 
     .card{
-      background:var(--ifwl-card) !important;
-      border:1px solid rgba(219,227,239,.90) !important;
-      border-radius:var(--ifwl-radius) !important;
-      box-shadow:var(--ifwl-shadow);
-      backdrop-filter:blur(14px);
-      -webkit-backdrop-filter:blur(14px);
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:var(--radius-lg);
+      box-shadow:var(--shadow);
+      padding:16px;
       overflow:hidden;
     }
-
     .wrap > .card{
-      position:sticky;
-      top:96px;
-      max-height:calc(100vh - 116px);
-      overflow:hidden;
-      display:flex;
-      flex-direction:column;
+      position:sticky; top:88px;
+      max-height:calc(100vh - 108px);
+      display:flex; flex-direction:column;
+    }
+    @media (max-width: 980px){
+      .wrap > .card{ position:relative; top:auto; max-height:none; }
     }
 
-    .title{
-      letter-spacing:-.025em;
-      color:var(--ifwl-navy);
-      font-size:17px;
+    .title{ font-weight:800; font-size:16px; margin:0 0 10px; color:var(--navy); letter-spacing:-.01em; }
+    .muted{ color:var(--muted); font-size:12px; font-weight:600; }
+    .small{ font-size:12px; }
+    .ok{ color:var(--green-dark); font-weight:700; }
+
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    @media (max-width: 980px){ .grid2{ grid-template-columns:1fr; } }
+
+    /* ---------- buttons & inputs ---------- */
+    button{
+      padding:10px 14px; min-height:42px;
+      border:1px solid var(--line); border-radius:var(--radius-sm);
+      background:var(--card); color:var(--navy); font-weight:750; font-size:13px;
+      cursor:pointer; box-shadow:var(--shadow-sm);
+      transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease, background .12s ease;
+    }
+    button:hover:not(:disabled){ transform:translateY(-1px); border-color:#c7d2e0; background:#fff; box-shadow:0 8px 18px rgba(15,23,42,.10); }
+    button:active:not(:disabled){ transform:translateY(0); }
+    button:disabled{ opacity:.55; cursor:not-allowed; }
+    button.primary{
+      background:linear-gradient(135deg, var(--navy), #1e293b);
+      border-color:rgba(15,23,42,.9); color:#fff;
+      box-shadow:0 10px 22px rgba(15,23,42,.20);
+    }
+    button#tlsBtn{
+      border-color:rgba(220,38,38,.25); color:var(--red-dark);
+      background:linear-gradient(135deg,#fff,#fff5f5);
     }
 
-    .muted{
-      color:var(--ifwl-muted);
-      font-weight:650;
+    select, input, textarea{
+      width:100%; box-sizing:border-box;
+      padding:10px 12px; font-size:14px; color:var(--ink);
+      border:1px solid #cbd5e1; border-radius:var(--radius-sm);
+      background:#fff; outline:none;
+      transition:border-color .14s ease, box-shadow .14s ease;
     }
+    textarea{ min-height:70px; resize:vertical; font-family:inherit; }
+    select:focus, input:focus, textarea:focus{ border-color:rgba(37,99,235,.6); box-shadow:var(--focus); }
+    select.nfaNoTimeRequired{ opacity:.7; background:var(--card-soft); }
+    textarea[readonly]{ background:var(--card-soft); color:#334155; }
 
-    .workloadBox,
-    .sec,
-    .commentBox,
-    .voteSummaryBox,
-    .effectWrap,
-    .calcWrap,
-    .linkedIncidentBox,
-    .redBox,
-    .tableWrap{
-      border-radius:var(--ifwl-radius-sm) !important;
-      border-color:rgba(219,227,239,.92) !important;
-      box-shadow:0 8px 22px rgba(15,23,42,.045);
+    label.muted{ display:block; margin-bottom:5px; }
+
+    code{ background:var(--card-soft); border:1px solid var(--line); padding:2px 6px; border-radius:6px; font-size:12px; }
+    a{ color:var(--navy); }
+    a:hover{ opacity:.85; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    /* ---------- pills, badges, tags ---------- */
+    .pill, .badge, .miniPill{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:5px 11px; border-radius:999px;
+      border:1px solid var(--line); background:#fff;
+      font-size:12px; font-weight:750; color:var(--ink);
+      box-shadow:var(--shadow-sm); white-space:nowrap;
     }
+    .pill strong{ font-weight:850; }
+    .miniOk{ border-color:var(--green-line); background:var(--green-soft); color:var(--green-dark); font-weight:850; }
+    .miniBad{ border-color:var(--red-line); background:var(--red-soft); color:var(--red-dark); font-weight:850; }
 
-    .workloadBox{
-      background:
-        linear-gradient(135deg, rgba(239,246,255,.98), rgba(255,255,255,.96)) !important;
-      border-color:rgba(37,99,235,.20) !important;
+    .needTag, .linkedMiniTag, .ticketTinyPill, .ticketStatusPill, .ticketOpenHint{
+      display:inline-flex; align-items:center; gap:5px;
+      padding:5px 10px; border-radius:999px; font-size:11px; font-weight:850;
+      border:1px solid var(--line); background:#fff; color:#334155;
+      box-shadow:var(--shadow-sm); white-space:nowrap; line-height:1.1;
     }
+    .needTag{ border-color:var(--amber-line); background:var(--amber-soft); color:var(--amber-dark); }
+    .linkedMiniTag{ border-color:var(--blue-line); background:var(--blue-soft); color:#1e3a8a; word-break:break-word; white-space:normal; }
+    .ticketOpenHint{ color:var(--blue-dark); background:var(--blue-soft); border-color:var(--blue-line); }
+    .proofYes{ color:var(--green-dark); background:var(--green-soft); border-color:var(--green-line); }
+    .proofNo{ color:var(--amber-dark); background:var(--amber-soft); border-color:var(--amber-line); }
 
-    .workloadTitle::before{
-      content:"▣";
-      color:var(--ifwl-blue);
-      margin-right:7px;
-      font-size:12px;
+    .stmtTag, .delibTag{
+      padding:9px 10px; border-radius:var(--radius-sm); font-size:12px; font-weight:850; line-height:1.25;
+      border:1px solid var(--line); background:var(--card-soft); color:var(--ink);
     }
+    .stmtTag small, .delibTag small{ display:block; margin-top:4px; font-weight:750; opacity:.9; }
+    .stmtOk, .delibOk{ border-color:var(--green-line); background:var(--green-soft); color:var(--green-dark); }
+    .stmtBad, .delibBad{ border-color:var(--red-line); background:var(--red-soft); color:var(--red-dark); }
 
-    .pill,
-    .badge,
-    .miniPill{
-      border-radius:999px;
-      background:rgba(255,255,255,.92);
-      border-color:rgba(219,227,239,.95);
-      box-shadow:0 4px 12px rgba(15,23,42,.05);
-      font-weight:900;
-    }
+    /* ---------- workload box ---------- */
+    .workloadBox{ border:1px solid var(--blue-line); border-radius:var(--radius-sm); padding:12px 14px; background:linear-gradient(135deg,var(--blue-soft),#fff); margin:10px 0 12px; }
+    .workloadTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .workloadTitle{ font-weight:800; font-size:13px; margin:0; color:var(--navy); }
+    .workloadTitle::before{ content:"▣"; color:var(--blue); margin-right:6px; font-size:12px; }
+    .workloadSub{ margin-top:6px; font-size:12px; color:var(--muted); line-height:1.3; }
 
-    select,
-    input,
-    textarea{
-      border-radius:16px !important;
-      border:1px solid rgba(203,213,225,.95) !important;
-      background:rgba(255,255,255,.94) !important;
-      color:var(--ifwl-ink);
-      outline:none;
-      box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
-      transition:border-color .16s ease, box-shadow .16s ease, background .16s ease;
-    }
-
-    select:focus,
-    input:focus,
-    textarea:focus{
-      border-color:rgba(37,99,235,.58) !important;
-      box-shadow:var(--ifwl-focus), inset 0 1px 0 rgba(255,255,255,.85) !important;
-      background:#fff !important;
-    }
-
-    textarea[readonly]{
-      background:linear-gradient(180deg,#fff,#f8fafc) !important;
-    }
-
+    /* ---------- ticket list ---------- */
     .list{
-      max-height:none;
-      flex:1;
-      padding-right:4px;
-      margin-right:-4px;
-      scrollbar-width:thin;
-      scrollbar-color:#cbd5e1 transparent;
+      flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
+      display:flex; flex-direction:column; gap:12px;
+      padding:2px 6px 14px 2px; margin-right:-4px;
+      scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent;
     }
-
-    .list::-webkit-scrollbar{ width:10px; }
+    .list::-webkit-scrollbar{ width:9px; }
     .list::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:999px; border:3px solid transparent; background-clip:content-box; }
-    .list::-webkit-scrollbar-track{ background:transparent; }
+    @media (max-width: 980px){ .list{ max-height:62vh; min-height:280px; } }
 
     .ticket{
-      border-radius:18px !important;
-      border:1px solid rgba(219,227,239,.92) !important;
-      box-shadow:0 8px 22px rgba(15,23,42,.055);
-      background:linear-gradient(180deg,#fff, #fbfdff) !important;
-      position:relative;
-      overflow:hidden;
-      transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease;
+      position:relative; cursor:pointer; border-radius:var(--radius); overflow:hidden;
+      border:1px solid var(--line); background:linear-gradient(180deg,#fff,#fbfdff);
+      box-shadow:var(--shadow-sm);
+      transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+    .ticket::before{ content:""; position:absolute; inset:0 auto 0 0; width:5px; background:linear-gradient(180deg,var(--blue),var(--red)); opacity:.35; }
+    .ticket:hover{ transform:translateY(-1px); box-shadow:0 12px 26px rgba(15,23,42,.11); background:#fff; }
+    .ticket.active{ border-color:rgba(37,99,235,.55); box-shadow:0 0 0 3px rgba(37,99,235,.12), var(--shadow); background:linear-gradient(135deg,#fff,var(--blue-soft)); }
+    .ticket.active::before{ width:6px; opacity:1; }
+    .ticket .id{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; color:var(--navy); font-weight:750; }
+    .ticket .status{ font-size:12px; color:#334155; margin-top:3px; }
+
+    .ticketCardInner, .ticketCardInner.compactTicketCard{ position:relative; z-index:1; padding:14px 14px 13px 18px; }
+    .ticketHeadLine{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; min-width:0; }
+    .ticketHeadText{ min-width:0; flex:1; }
+    .ticketEvent{ font-size:14px; font-weight:850; color:var(--navy); line-height:1.25; white-space:normal; word-break:break-word; }
+    .ticketCompetition{ margin-top:3px; font-size:12px; font-weight:700; color:var(--muted); line-height:1.25; white-space:normal; word-break:break-word; }
+
+    .ticketIdLine{
+      margin-top:9px; display:flex; gap:8px; align-items:center; min-width:0;
+      border:1px solid var(--line); background:var(--card-soft); border-radius:var(--radius-sm); padding:7px 9px;
+    }
+    .ticketIdLine span, .ticketPeopleLine span, .ticketInfoLine span{
+      display:block; color:var(--muted-2); font-size:10px; text-transform:uppercase; letter-spacing:.07em; font-weight:850;
+    }
+    .ticketIdLine strong{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--navy); font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+
+    .ticketPeopleLine, .ticketInfoLine{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+    .ticketPeopleLine > div, .ticketInfoLine > div{ min-width:0; border:1px solid var(--line); border-radius:var(--radius-sm); background:#fff; padding:8px 9px; }
+    .ticketPeopleLine strong, .ticketInfoLine strong{ display:block; margin-top:3px; color:var(--navy); font-size:12px; line-height:1.25; font-weight:800; white-space:normal; word-break:break-word; }
+    .ticketPeopleLine > div:first-child{ background:#fffafa; border-color:var(--red-line); }
+    .ticketPeopleLine > div:last-child{ background:#f8fbff; border-color:var(--blue-line); }
+    @media (max-width: 560px){ .ticketPeopleLine, .ticketInfoLine{ grid-template-columns:1fr; } }
+
+    .ticketIncidentLine{
+      margin-top:8px; color:#334155; font-size:12px; line-height:1.35; font-weight:650;
+      background:var(--card-soft); border:1px solid var(--line); border-radius:var(--radius-sm); padding:8px 9px;
+      white-space:normal; word-break:break-word;
     }
 
-    .ticket::before{
-      content:"";
-      position:absolute;
-      inset:0 auto 0 0;
-      width:5px;
-      background:linear-gradient(180deg,var(--ifwl-blue), var(--ifwl-red));
-      opacity:.32;
-    }
+    .ticketStatusPill{ flex:0 0 auto; max-width:140px; text-align:center; }
+    .compactFooter{ margin-top:9px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+    .compactFooter .ticketOpenHint{ margin-left:auto; }
+    .compactChecklist{ margin-top:8px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    @media (max-width: 980px){ .compactChecklist{ grid-template-columns:1fr; } }
 
-    .ticket:hover{
-      transform:translateY(-2px);
-      background:#fff !important;
-      box-shadow:0 16px 32px rgba(15,23,42,.11);
-    }
-
-    .ticket.active{
-      border-color:rgba(37,99,235,.62) !important;
-      box-shadow:0 0 0 4px rgba(37,99,235,.13), 0 18px 38px rgba(15,23,42,.13) !important;
-      background:linear-gradient(135deg,#fff, #eff6ff) !important;
-    }
-
-    .ticket.active::before{
-      width:7px;
-      opacity:1;
-    }
-
-    .ticket .id{
-      color:#0f172a;
-      font-weight:950;
-      letter-spacing:.01em;
-      padding-left:4px;
-    }
-
-    .ticket .status{
-      color:#334155;
-      margin-top:4px;
-      padding-left:4px;
-    }
-
-    /* Ticket list readability upgrade */
-    .wrap > .card{
-      height:calc(100vh - 116px);
-      max-height:calc(100vh - 116px);
-      min-height:560px;
-    }
-
-    .list{
-      overflow-y:auto !important;
-      overflow-x:hidden;
-      min-height:0;
-      overscroll-behavior:contain;
-      padding-bottom:12px;
-    }
-
-    .ticket{
-      padding:14px 14px 13px 17px !important;
-    }
-
-    .ticketTop{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:10px;
-      padding-left:4px;
-    }
-
-    .ticketStatusPill{
-      flex:0 0 auto;
-      display:inline-flex;
-      align-items:center;
-      border:1px solid rgba(203,213,225,.9);
-      background:#fff;
-      border-radius:999px;
-      padding:4px 9px;
-      font-size:11px;
-      font-weight:950;
-      color:#334155;
-      white-space:nowrap;
-      box-shadow:0 4px 10px rgba(15,23,42,.05);
-    }
-
-    .ticketMainLine{
-      margin-top:9px;
-      padding-left:4px;
-      font-size:13px;
-      line-height:1.35;
-      color:#0f172a;
-    }
-
-    .ticketMainLine strong{
-      font-weight:950;
-    }
-
-    .ticketSubGrid{
-      margin-top:10px;
-      padding-left:4px;
-      display:grid;
-      grid-template-columns:1fr;
-      gap:6px;
-      font-size:12px;
-      line-height:1.3;
-      color:#475569;
-    }
-
-    .ticketSubGrid span{
-      display:block;
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-
-    .ticketFooterRow{
-      margin-top:10px;
-      padding-left:4px;
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
-
-    .ticketTinyPill{
-      display:inline-flex;
-      align-items:center;
-      gap:5px;
-      padding:4px 8px;
-      border-radius:999px;
-      border:1px solid rgba(219,227,239,.95);
-      background:rgba(255,255,255,.82);
-      color:#475569;
-      font-size:11px;
-      font-weight:900;
-    }
-
-    .ticketOpenHint{
-      margin-left:auto;
-      color:#2563eb;
-      background:#eff6ff;
-      border-color:#bfdbfe;
-    }
-
-    .stmtTag,
-    .delibTag,
-    .needTag,
-    .linkedMiniTag{
-      border-radius:14px !important;
-      box-shadow:0 6px 14px rgba(15,23,42,.045);
-    }
-
-    .stmtOk,
-    .delibOk,
-    .bannerGreen,
-    .miniOk{
-      background:linear-gradient(135deg,#ecfdf5,#f7fffb) !important;
-      border-color:#86efac !important;
-    }
-
-    .stmtBad,
-    .delibBad,
-    .bannerRed,
-    .miniBad{
-      background:linear-gradient(135deg,#fef2f2,#fff8f8) !important;
-      border-color:#fca5a5 !important;
-    }
-
-    .needTag{
-      background:linear-gradient(135deg,#fffbeb,#fffdf7) !important;
-      border-color:#fde68a !important;
-      color:#92400e;
-    }
-
-    .linkedMiniTag,
-    .linkedIncidentBox{
-      background:linear-gradient(135deg,#eff6ff,#ffffff) !important;
-      border-color:#bfdbfe !important;
-      color:#1e3a8a !important;
-    }
-
-    .linkedIncidentTitle::before{
-      content:"🔗 ";
-    }
-
-    .linkedTicketCard{
-      border-radius:16px !important;
-      border-color:rgba(191,219,254,.95) !important;
-      background:linear-gradient(180deg,#ffffff,#f8fbff) !important;
-      box-shadow:0 8px 18px rgba(37,99,235,.055);
-    }
-
-    .linkedTicketCard:hover{
-      transform:translateY(-1px);
-      box-shadow:0 14px 26px rgba(37,99,235,.10);
-    }
-
-    .sec{
-      background:rgba(255,255,255,.78) !important;
-      margin-top:14px;
-      padding:14px;
-    }
-
-    .sec h3{
-      font-size:15px;
-      letter-spacing:-.02em;
-      color:var(--ifwl-navy);
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
-
+    /* ---------- section blocks ---------- */
+    .sec{ border:1px solid var(--line); border-radius:var(--radius); padding:14px; background:var(--card-soft); margin-top:12px; }
+    .sec h3{ margin:0 0 8px; font-size:14px; color:var(--navy); display:flex; align-items:center; gap:7px; }
     #statementsSec h3::before{ content:"🗣️"; }
     #discussionSec h3::before{ content:"💬"; }
-    #reviewSec h3::before{ content:"🧾"; }
     #linkedIncidentSec h3::before{ content:"🔗"; }
     #rulesAuditCard .title::before{ content:"📚 "; }
 
-    .grid2{
-      gap:12px;
-    }
+    #selTitle{ font-size:19px; }
+    #selTitle::after{ content:""; display:block; width:60px; height:3px; margin-top:8px; border-radius:999px; background:linear-gradient(90deg,var(--red),var(--blue)); }
 
-    .grid2 > div{
-      min-width:0;
-    }
-
-    #sumAccused,
-    #sumReporter,
-    #sumCompetition,
-    #sumEvent,
-    #sumRule,
-    #sumProof{
-      font-weight:850;
-      color:#172033;
-      word-break:break-word;
-    }
-
-    .infoBox{
-      background:linear-gradient(180deg,#fff,#f8fafc) !important;
-      border-color:rgba(219,227,239,.95) !important;
-      color:#475569 !important;
-      font-size:14px !important;
-      border-radius:16px !important;
-    }
-
-    .penPreview{
-      border-radius:16px !important;
-      background:linear-gradient(180deg,#ffffff,#f8fafc) !important;
-      border-color:rgba(219,227,239,.92) !important;
-    }
+    #sumAccused, #sumReporter, #sumCompetition, #sumEvent, #sumRule, #sumProof{ font-weight:750; color:#172033; word-break:break-word; }
 
     .redBox{
-      background:linear-gradient(135deg,#fff7f7,#fff) !important;
-      border-color:#fecaca !important;
-      color:#991b1b !important;
-      position:relative;
-      padding-left:44px !important;
+      border:1px solid var(--red-line); background:var(--red-soft); color:var(--red-dark);
+      border-radius:var(--radius-sm); padding:10px 12px 10px 40px; margin-top:10px;
+      font-size:13px; line-height:1.3; font-weight:700; position:relative;
+    }
+    .redBox::before{
+      content:"!"; position:absolute; left:12px; top:50%; transform:translateY(-50%);
+      width:20px; height:20px; display:grid; place-items:center; border-radius:999px;
+      color:#fff; background:var(--red); font-weight:900; font-size:12px;
     }
 
-    .redBox::before{
-      content:"!";
-      position:absolute;
-      left:13px;
-      top:50%;
-      transform:translateY(-50%);
-      width:22px;
-      height:22px;
-      display:grid;
-      place-items:center;
-      border-radius:999px;
-      color:#fff;
-      background:var(--ifwl-red);
-      font-weight:950;
-    }
+    .bannerBox{ border-radius:var(--radius-sm); padding:12px 14px; font-size:13px; font-weight:800; line-height:1.3; }
+    .bannerBox small{ display:block; margin-top:6px; font-weight:700; opacity:.95; }
+    .bannerRed{ border:1px solid var(--red-line); background:var(--red-soft); color:var(--red-dark); }
+    .bannerAmber{ border:1px solid var(--amber-line); background:var(--amber-soft); color:var(--amber-dark); }
+    .bannerGreen{ border:1px solid var(--green-line); background:var(--green-soft); color:var(--green-dark); }
+
+    .videoWrap{ position:relative; width:100%; padding-top:56.25%; background:#000; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--line); margin-top:10px; box-shadow:var(--shadow-sm); }
+    .videoWrap iframe, .videoWrap video{ position:absolute; top:0; left:0; width:100%; height:100%; border:0; }
 
     .commentBox{
-      position:relative;
-      background:linear-gradient(180deg,#fff,#fbfdff) !important;
-      border-color:rgba(219,227,239,.95) !important;
-      padding-left:16px !important;
+      position:relative; border:1px solid var(--line); border-radius:var(--radius-sm);
+      padding:12px 12px 12px 16px; background:#fff;
     }
+    .commentBox::before{ content:""; position:absolute; left:0; top:12px; bottom:12px; width:4px; border-radius:999px; background:linear-gradient(180deg,var(--blue),var(--red)); opacity:.5; }
+    .commentMeta{ font-size:12px; color:var(--muted); margin-top:4px; font-weight:650; }
 
-    .commentBox::before{
-      content:"";
-      position:absolute;
-      left:0;
-      top:12px;
-      bottom:12px;
-      width:4px;
-      border-radius:999px;
-      background:linear-gradient(180deg,var(--ifwl-blue),var(--ifwl-red));
-      opacity:.5;
+    .timePenaltyRow{ margin-top:10px; }
+    .nfaNoTimeNote{ margin-top:6px; font-size:12px; font-weight:800; color:var(--green-dark); display:none; }
+
+    .penPreview{ margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:#fff; color:var(--ink); font-size:13px; line-height:1.3; }
+    .penPreview .mutedLine{ color:var(--muted); font-size:12px; margin-top:6px; }
+    .penPreview .k{ font-weight:900; }
+    .penPreview pre{ margin:8px 0 0; white-space:pre-wrap; font-family:inherit; background:transparent; }
+
+    .voteSummaryBox{ margin-top:12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:#fff; padding:12px; }
+    .voteSummaryTitle{ font-weight:850; font-size:14px; margin-bottom:8px; color:var(--navy); }
+    .voteSummaryTitle::before{ content:"📊 "; }
+    .voteSummaryGrid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+    @media (max-width: 980px){ .voteSummaryGrid{ grid-template-columns:1fr; } }
+    .voteSummaryPanel{ border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--card-soft); padding:10px 12px; }
+    .voteSummaryPanelTitle{ font-size:12px; font-weight:850; color:var(--navy); margin-bottom:6px; }
+    .voteLine{ display:flex; justify-content:space-between; gap:10px; border-top:1px solid var(--line-soft); padding:6px 0; font-size:12px; line-height:1.25; }
+    .voteLine:first-of-type{ border-top:0; }
+    .voteLine strong{ font-weight:850; }
+    .recommendationBox{ margin-top:10px; border:1px solid var(--green-line); background:var(--green-soft); color:var(--green-dark); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; font-weight:850; line-height:1.3; }
+    .recommendationBox small{ display:block; margin-top:5px; font-weight:750; opacity:.95; }
+
+    .linkedMiniTag{ margin-top:8px; display:inline-block; }
+    .linkedIncidentBox{ border:1px solid var(--blue-line); border-radius:var(--radius-sm); background:linear-gradient(135deg,var(--blue-soft),#fff); padding:12px; margin-top:10px; }
+    .linkedIncidentTitle{ font-size:14px; font-weight:850; color:var(--navy); margin-bottom:6px; }
+    .linkedTicketGrid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+    @media (max-width: 980px){ .linkedTicketGrid{ grid-template-columns:1fr; } }
+    .linkedTicketCard{ border:1px solid var(--line); border-radius:var(--radius-sm); background:linear-gradient(180deg,#fff,#f8fbff); padding:10px 12px; font-size:13px; line-height:1.35; cursor:pointer; box-shadow:var(--shadow-sm); }
+    .linkedTicketCard:hover{ transform:translateY(-1px); box-shadow:0 10px 20px rgba(37,99,235,.10); }
+    .linkedTicketCard .mono{ word-break:break-all; font-size:12px; }
+    .linkedDriverList{ border:1px solid var(--line); border-radius:var(--radius-sm); background:#fff; padding:10px 12px; margin-top:10px; font-size:13px; line-height:1.35; }
+    .linkedDriverList ol{ margin:6px 0 0 20px; padding:0; }
+    .linkedDriverList li{ margin:3px 0; }
+
+    /* ---------- rules audit table ---------- */
+    .rulesAuditFullWidth{ width:100%; max-width:100%; display:block; }
+    .wrap .rulesAuditFullWidth{ grid-column:1 / -1; }
+    .tableWrap{ overflow:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:var(--radius-sm); max-width:100%; }
+    table{ border-collapse:collapse; width:100%; min-width:760px; background:#fff; }
+    th, td{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:top; }
+    th{ background:var(--card-soft); font-weight:850; color:var(--navy); position:sticky; top:0; z-index:1; }
+    td{ background:#fff; }
+
+    /* ---------- driver identity cards (NEW — licence-card styling) ---------- */
+    .driverCardRow{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+    @media (max-width: 640px){ .driverCardRow{ grid-template-columns:1fr; } }
+
+    .driverIdCard{
+      position:relative; border-radius:18px; padding:3px;
+      background:linear-gradient(135deg, var(--muted-2), #cbd5e1);
+      box-shadow:var(--shadow-sm);
+      transition:box-shadow .15s ease, transform .15s ease;
     }
+    .driverIdCard.role-accused{ background:linear-gradient(135deg,#fca5a5,var(--red)); }
+    .driverIdCard.role-reporter{ background:linear-gradient(135deg,var(--blue-line),var(--blue)); }
+    .driverIdCard.linked:hover{ transform:translateY(-1px); box-shadow:var(--shadow); }
 
-    .commentMeta{
-      color:#64748b;
-      font-weight:700;
+    .driverIdCardInner{
+      border-radius:15px; background:#11151b; padding:12px 13px 13px;
+      position:relative; min-height:96px; background-size:cover; background-position:center;
+      display:flex; gap:11px; align-items:center;
     }
-
-    .voteSummaryBox{
-      background:linear-gradient(135deg,#f8fafc,#ffffff) !important;
+    .driverIdCardInner::before{
+      content:""; position:absolute; inset:0; border-radius:15px;
+      background:linear-gradient(180deg, rgba(8,10,13,.15), rgba(8,10,13,.82)); pointer-events:none;
     }
+    .driverIdCard.unlinked .driverIdCardInner{ background:#1f2937; }
 
-    .voteSummaryTitle::before{
-      content:"📊 ";
+    .driverCardRole{
+      position:absolute; top:8px; left:13px; z-index:1;
+      font-size:9px; font-weight:900; letter-spacing:.09em; text-transform:uppercase; color:rgba(255,255,255,.75);
     }
-
-    .voteSummaryPanel,
-    .linkedDriverList,
-    .effectCol,
-    .calcWrap{
-      background:rgba(255,255,255,.90) !important;
-      border-color:rgba(219,227,239,.92) !important;
-      border-radius:16px !important;
+    .driverCardPhoto{
+      position:relative; z-index:1; width:52px; height:52px; border-radius:12px; object-fit:cover; flex:0 0 auto;
+      border:2px solid rgba(255,255,255,.25); background:#1a2027;
     }
+    .driverCardBody{ position:relative; z-index:1; min-width:0; flex:1; padding-top:8px; }
+    .driverCardName{ font-size:14px; font-weight:800; color:#fff; line-height:1.2; word-break:break-word; }
+    .driverCardNumber{ font-size:10.5px; color:rgba(255,255,255,.62); font-family:ui-monospace, SFMono-Regular, Menlo, monospace; margin-top:2px; }
+    .driverCardMetaRow{ display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap; }
+    .driverCardTierPill{ display:inline-block; padding:3px 9px; border-radius:999px; font-size:9.5px; font-weight:900; text-transform:uppercase; letter-spacing:.03em; }
+    .driverCardPoints{ font-size:10.5px; font-weight:850; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.12); }
+    .driverCardPoints.pts-green{ color:#6ee7b7; }
+    .driverCardPoints.pts-orange{ color:#fcd34d; }
+    .driverCardPoints.pts-red{ color:#fca5a5; }
+    .driverIdCard.unlinked .driverCardName{ color:#e5e7eb; }
+    .driverIdCard.unlinked .driverCardNumber{ color:rgba(255,255,255,.5); }
 
-    .recommendationBox{
-      background:linear-gradient(135deg,#ecfdf5,#f6fff9) !important;
-      border-color:#86efac !important;
-      color:#065f46 !important;
-    }
-
-    .effectWrap{
-      background:linear-gradient(135deg,#ffffff,#f8fafc) !important;
-      padding:14px !important;
-    }
-
-    .effectHeading::before{
-      content:"⚙️ ";
-    }
-
-    .effectItem{
-      border-radius:15px !important;
-      background:linear-gradient(180deg,#fff,#fbfdff) !important;
-      border-color:rgba(219,227,239,.95) !important;
-      transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
-    }
-
-    .effectItem:hover{
-      transform:translateY(-1px);
-      box-shadow:0 10px 20px rgba(15,23,42,.08);
-    }
-
-    .effectItem input[type="checkbox"]{
-      accent-color:var(--ifwl-blue);
-    }
-
-    .effectDeltaPill,
-    .deltaAdd,
-    .deltaSub{
-      box-shadow:0 5px 10px rgba(15,23,42,.045);
-    }
-
-    .videoWrap{
-      box-shadow:var(--ifwl-shadow-sm);
-    }
-
-    #rulesAuditCard{
-      margin-top:0;
-    }
-
-    #rulesAuditCard table{
-      border-radius:16px;
-      overflow:hidden;
-    }
-
-    th{
-      color:#0f172a;
-      background:linear-gradient(180deg,#f8fafc,#eef2f7) !important;
-      letter-spacing:.01em;
-    }
-
-    td{
-      background:rgba(255,255,255,.82);
-    }
-
+    /* ---------- toast ---------- */
     .toast{
-      border-radius:16px;
-      background:linear-gradient(135deg,#0f172a,#1e293b) !important;
-      box-shadow:0 16px 32px rgba(15,23,42,.22);
-      font-weight:850;
+      position:fixed; right:16px; bottom:16px; z-index:9999;
+      background:linear-gradient(135deg,var(--navy),#1e293b); color:#fff;
+      padding:11px 14px; border-radius:var(--radius-sm);
+      box-shadow:0 16px 32px rgba(15,23,42,.24); font-weight:750; font-size:13px;
+      opacity:0; transform:translateY(8px); transition:all .18s ease;
     }
+    .toast.show{ opacity:1; transform:translateY(0); }
 
-    @media (min-width: 981px){
-      .wrap > div:not(.card) > .card{
-        padding:16px;
-      }
-
-      #selTitle{
-        position:relative;
-        padding:14px 16px 4px;
-        margin:-2px -4px 0;
-        font-size:22px;
-      }
-
-      #selTitle::after{
-        content:"";
-        display:block;
-        width:72px;
-        height:4px;
-        margin-top:10px;
-        border-radius:999px;
-        background:linear-gradient(90deg,var(--ifwl-red),var(--ifwl-blue));
-      }
-
-      #selSub{
-        padding:0 12px 4px;
-      }
-    }
-
+    /* ---------- misc small-screen guards ---------- */
     @media (max-width: 980px){
-      body{
-        background-attachment:scroll;
-      }
-
-      header{
-        position:relative;
-        padding:14px;
-      }
-
-      .brand img{
-        width:42px;
-        height:42px;
-      }
-
-      header .row{
-        display:grid;
-        grid-template-columns:1fr;
-        gap:8px;
-      }
-
-      .wrap,
-      body > div[style*="padding:14px"]{
-        width:calc(100% - 20px);
-      }
-
-      .wrap{
-        padding-top:10px;
-      }
-
-      .wrap > .card{
-        position:relative;
-        top:auto;
-        height:auto;
-        max-height:none;
-        min-height:0;
-      }
-
-      .list{
-        max-height:70vh;
-        min-height:420px;
-        overflow-y:auto !important;
-        padding-right:6px;
-      }
-
-      .card{
-        border-radius:20px !important;
-      }
-
-      .sec{
-        padding:12px;
-      }
-
-      .ticket{
-        border-radius:16px !important;
-      }
-
-      .grid2,
-      .effectCols,
-      .voteSummaryGrid,
-      .linkedTicketGrid{
-        grid-template-columns:1fr !important;
-      }
-
-      .effectTop > div:last-child{
-        width:100%;
-        align-items:stretch !important;
-      }
-
-      .effectPills{
-        justify-content:flex-start;
-      }
-    }
-
-    @media (max-width: 560px){
-      .brand{
-        gap:10px;
-      }
-
-      .brandText > div:first-child{
-        font-size:18px !important;
-      }
-
-      .welcomeLine,
-      header .small{
-        font-size:11px;
-      }
-
-      .row{
-        gap:8px;
-      }
-
-      button,
-      select,
-      input,
-      textarea{
-        min-height:44px;
-      }
-
-      .workloadTop{
-        align-items:flex-start;
-      }
-
-      .pill{
-        width:max-content;
-        max-width:100%;
-      }
-
-      .voteLine{
-        flex-direction:column;
-        gap:2px;
-      }
-    }
-
-
-    /* IFWL Steward workload cards — detailed mobile/desktop rebuild */
-    .wrap > .card{
-      overflow:hidden !important;
-    }
-
-    .list{
-      display:flex !important;
-      flex-direction:column !important;
-      gap:14px !important;
-      overflow-y:auto !important;
-      overflow-x:hidden !important;
-      padding:4px 8px 18px 4px !important;
-      scroll-padding:14px;
-    }
-
-    .ticket{
-      padding:0 !important;
-      overflow:visible !important;
-      border-radius:22px !important;
-      border:1px solid rgba(191,210,237,.95) !important;
-      background:linear-gradient(145deg,#ffffff 0%,#f8fbff 72%,#fff 100%) !important;
-      box-shadow:0 12px 26px rgba(15,23,42,.075) !important;
-      min-height:0 !important;
-      height:auto !important;
-    }
-
-    .ticket::before{
-      border-radius:22px 0 0 22px;
-      width:6px;
-      opacity:.42;
-    }
-
-    .ticketCardInner{
-      position:relative;
-      z-index:1;
-      padding:15px 15px 14px 19px;
-    }
-
-    .ticketHero{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-    }
-
-    .ticketHeroText{
-      min-width:0;
-      flex:1;
-    }
-
-    .ticketEvent{
-      color:#0f172a;
-      font-size:15px;
-      line-height:1.2;
-      font-weight:950;
-      letter-spacing:-.025em;
-      overflow:visible;
-      white-space:normal;
-      word-break:break-word;
-    }
-
-    .ticketCompetition{
-      margin-top:3px;
-      color:#64748b;
-      font-size:12px;
-      font-weight:850;
-      line-height:1.25;
-      white-space:normal;
-      word-break:break-word;
-    }
-
-    .ticketIdRow{
-      margin-top:10px;
-      display:flex;
-      gap:8px;
-      align-items:center;
-      padding:7px 9px;
-      border:1px solid rgba(226,232,240,.95);
-      border-radius:14px;
-      background:rgba(248,250,252,.92);
-      min-width:0;
-    }
-
-    .ticketIdLabel{
-      color:#64748b;
-      font-size:10px;
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-weight:950;
-      flex:0 0 auto;
-    }
-
-    .ticket .id{
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      padding-left:0 !important;
-      font-size:12px !important;
-    }
-
-    .ticketDriverMatrix{
-      margin-top:10px;
-      display:grid;
-      grid-template-columns:1fr;
-      gap:8px;
-    }
-
-    .ticketDriverBox{
-      border:1px solid rgba(226,232,240,.95);
-      border-radius:16px;
-      padding:10px 11px;
-      background:#fff;
-      min-width:0;
-    }
-
-    .ticketDriverBox strong{
-      display:block;
-      margin-top:3px;
-      color:#0f172a;
-      font-size:13px;
-      line-height:1.25;
-      font-weight:950;
-      white-space:normal;
-      overflow:visible;
-      word-break:break-word;
-    }
-
-    .ticketLabel,
-    .ticketDetailGrid span{
-      display:block;
-      color:#64748b;
-      font-size:10px;
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-weight:950;
-    }
-
-    .accusedBox{
-      background:linear-gradient(135deg,#fff,#fff7f7);
-      border-color:rgba(254,202,202,.9);
-    }
-
-    .reporterBox{
-      background:linear-gradient(135deg,#fff,#f8fbff);
-      border-color:rgba(191,219,254,.92);
-    }
-
-    .ticketIncidentPreview{
-      margin-top:10px;
-      padding:10px 11px;
-      border-radius:16px;
-      border:1px solid rgba(226,232,240,.95);
-      background:rgba(248,250,252,.92);
-      color:#334155;
-      font-size:12px;
-      line-height:1.35;
-      font-weight:750;
-      white-space:normal;
-      word-break:break-word;
-    }
-
-    .ticketDetailGrid{
-      margin-top:10px;
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:8px;
-    }
-
-    .ticketDetailGrid div{
-      min-width:0;
-      border:1px solid rgba(226,232,240,.95);
-      border-radius:15px;
-      padding:9px 10px;
-      background:#fff;
-    }
-
-    .ticketDetailGrid strong{
-      display:block;
-      margin-top:3px;
-      color:#0f172a;
-      font-size:12px;
-      line-height:1.25;
-      font-weight:900;
-      white-space:normal;
-      word-break:break-word;
-    }
-
-    .ticketFooterRow{
-      margin-top:11px !important;
-      padding-left:0 !important;
-      gap:7px !important;
-    }
-
-    .ticketTinyPill,
-    .linkedMiniTag,
-    .needTag{
-      margin-top:0 !important;
-      padding:5px 9px !important;
-      border-radius:999px !important;
-      font-size:11px !important;
-      line-height:1.1;
-      font-weight:950 !important;
-    }
-
-    .proofYes{
-      color:#065f46;
-      background:#ecfdf5;
-      border-color:#a7f3d0;
-    }
-
-    .proofNo{
-      color:#92400e;
-      background:#fffbeb;
-      border-color:#fde68a;
-    }
-
-    .ticketOpenHint{
-      margin-left:0 !important;
-      color:#1d4ed8 !important;
-      background:#eff6ff !important;
-      border-color:#bfdbfe !important;
-    }
-
-    .ticketChecklistRow{
-      margin-top:10px;
-      display:grid;
-      grid-template-columns:1fr;
-      gap:8px;
-    }
-
-    .ticketChecklistRow .stmtTag,
-    .ticketChecklistRow .delibTag{
-      margin-top:0 !important;
-      padding:9px 10px !important;
-      font-size:11px !important;
-      line-height:1.2 !important;
-    }
-
-    @media (min-width: 1400px){
-      .ticketDriverMatrix,
-      .ticketChecklistRow{
-        grid-template-columns:1fr 1fr;
-      }
-    }
-
-    @media (max-width: 980px){
-      .list{
-        max-height:calc(100vh - 330px) !important;
-        min-height:520px !important;
-      }
-      .ticketCardInner{
-        padding:15px 14px 14px 19px;
-      }
-    }
-
-    @media (max-width: 560px){
-      .list{
-        max-height:calc(100vh - 300px) !important;
-        min-height:540px !important;
-      }
-      .ticketHero{
-        gap:9px;
-      }
-      .ticketStatusPill{
-        font-size:10px;
-        padding:5px 8px;
-      }
-      .ticketEvent{
-        font-size:14px;
-      }
-      .ticketDetailGrid{
-        grid-template-columns:1fr;
-      }
-    }
-
-
-    /* IFWL emergency usability fix: compact workload cards, no clipping/overlap */
-    .wrap > .card{
-      overflow:hidden !important;
-    }
-    .list{
-      display:block !important;
-      overflow-y:auto !important;
-      overflow-x:hidden !important;
-      max-height:calc(100vh - 365px) !important;
-      min-height:420px !important;
-      padding:0 6px 18px 0 !important;
-      margin:0 !important;
-      scroll-behavior:smooth;
-    }
-    .ticket{
-      display:block !important;
-      position:relative !important;
-      height:auto !important;
-      min-height:0 !important;
-      margin:0 0 12px 0 !important;
-      padding:0 !important;
-      overflow:hidden !important;
-      border-radius:20px !important;
-      background:#fff !important;
-      border:1px solid #cbdcf2 !important;
-      box-shadow:0 8px 18px rgba(15,23,42,.08) !important;
-      transform:none !important;
-    }
-    .ticket:hover{
-      transform:none !important;
-      box-shadow:0 10px 22px rgba(15,23,42,.12) !important;
-    }
-    .ticketCardInner.compactTicketCard{
-      display:block !important;
-      position:relative !important;
-      z-index:1 !important;
-      padding:13px 13px 12px 18px !important;
-      height:auto !important;
-      min-height:0 !important;
-    }
-    .ticketHeadLine{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:10px;
-      min-width:0;
-    }
-    .ticketHeadText{ min-width:0; flex:1; }
-    .ticketEvent{
-      font-size:15px !important;
-      line-height:1.2 !important;
-      font-weight:950 !important;
-      color:#0f172a !important;
-      margin:0 !important;
-      white-space:normal !important;
-      word-break:break-word !important;
-      overflow:visible !important;
-    }
-    .ticketCompetition{
-      margin-top:4px !important;
-      font-size:12px !important;
-      line-height:1.25 !important;
-      font-weight:850 !important;
-      color:#64748b !important;
-      white-space:normal !important;
-      word-break:break-word !important;
-    }
-    .ticketStatusPill{
-      flex:0 0 auto !important;
-      max-width:130px;
-      padding:6px 10px !important;
-      font-size:11px !important;
-      line-height:1 !important;
-      text-align:center;
-      white-space:nowrap !important;
-    }
-    .ticketIdLine{
-      margin-top:9px;
-      display:flex;
-      gap:8px;
-      align-items:center;
-      border:1px solid #e2e8f0;
-      background:#f8fafc;
-      border-radius:12px;
-      padding:7px 9px;
-      min-width:0;
-    }
-    .ticketIdLine span,
-    .ticketPeopleLine span,
-    .ticketInfoLine span{
-      display:block;
-      color:#64748b;
-      font-size:10px;
-      line-height:1.1;
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-weight:950;
-    }
-    .ticketIdLine strong{
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      color:#0f172a;
-      font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size:12px;
-    }
-    .ticketPeopleLine,
-    .ticketInfoLine{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:8px;
-      margin-top:8px;
-    }
-    .ticketPeopleLine > div,
-    .ticketInfoLine > div{
-      min-width:0;
-      border:1px solid #e2e8f0;
-      border-radius:13px;
-      background:#fff;
-      padding:8px 9px;
-    }
-    .ticketPeopleLine strong,
-    .ticketInfoLine strong{
-      display:block;
-      margin-top:3px;
-      color:#0f172a;
-      font-size:12px;
-      line-height:1.25;
-      font-weight:900;
-      white-space:normal;
-      word-break:break-word;
-    }
-    .ticketPeopleLine > div:first-child{
-      background:#fffafa;
-      border-color:#fecaca;
-    }
-    .ticketPeopleLine > div:last-child{
-      background:#f8fbff;
-      border-color:#bfdbfe;
-    }
-    .ticketIncidentLine{
-      margin-top:8px;
-      color:#334155;
-      font-size:12px;
-      line-height:1.35;
-      font-weight:750;
-      background:#f8fafc;
-      border:1px solid #e2e8f0;
-      border-radius:13px;
-      padding:8px 9px;
-      white-space:normal;
-      word-break:break-word;
-    }
-    .compactFooter{
-      margin-top:8px !important;
-      display:flex !important;
-      flex-wrap:wrap !important;
-      gap:6px !important;
-      align-items:center !important;
-      padding-left:0 !important;
-    }
-    .compactFooter .ticketTinyPill,
-    .compactFooter .needTag,
-    .compactFooter .linkedMiniTag{
-      margin:0 !important;
-      padding:5px 8px !important;
-      font-size:10px !important;
-      line-height:1 !important;
-    }
-    .compactFooter .ticketOpenHint{
-      margin-left:auto !important;
-    }
-    .compactChecklist{
-      margin-top:8px !important;
-      display:grid !important;
-      grid-template-columns:1fr !important;
-      gap:6px !important;
-    }
-    .compactChecklist .stmtTag,
-    .compactChecklist .delibTag{
-      display:block !important;
-      margin:0 !important;
-      padding:8px 9px !important;
-      font-size:11px !important;
-      line-height:1.2 !important;
-      height:auto !important;
-    }
-    @media (max-width:560px){
-      .list{
-        max-height:calc(100vh - 315px) !important;
-        min-height:480px !important;
-      }
-      .ticketPeopleLine,
-      .ticketInfoLine{
-        grid-template-columns:1fr !important;
-      }
-      .ticketStatusPill{
-        max-width:110px;
-        font-size:10px !important;
-      }
-    }
-
-</style>
-
-
-  <!-- IFWL MOBILE CONTAINMENT FIX — ADDITIVE ONLY, NOTHING REMOVED -->
-  <style id="ifwl-mobile-containment-fix">
-    /*
-      Additive mobile-only guard rails for the steward dashboard.
-      Purpose: stop cards/grids/buttons/tables from pushing half the UI off-screen on phones.
-      No existing selectors/IDs/JS are removed or renamed.
-    */
-    html,
-    body{
-      width:100% !important;
-      max-width:100% !important;
-      overflow-x:hidden !important;
-    }
-
-    *,
-    *::before,
-    *::after{
-      box-sizing:border-box;
-    }
-
-    img,
-    video,
-    iframe,
-    canvas,
-    svg{
-      max-width:100%;
-    }
-
-    .wrap,
-    .card,
-    .sec,
-    .row,
-    .grid2,
-    .effectCols,
-    .voteSummaryGrid,
-    .linkedTicketGrid,
-    .ticket,
-    .ticketCardInner,
-    .ticketHeadText,
-    .ticketDriverBox,
-    .ticketPeopleLine > div,
-    .ticketInfoLine > div,
-    .commentBox,
-    .tableWrap,
-    #acctCard,
-    #rulesAuditCard{
-      min-width:0 !important;
-    }
-
-    .tableWrap{
-      max-width:100% !important;
-      overflow-x:auto !important;
-      -webkit-overflow-scrolling:touch;
-    }
-
-    @media (max-width: 980px){
-      body{
-        overflow-x:hidden !important;
-        background-attachment:scroll !important;
-      }
-
-      header{
-        width:100% !important;
-        max-width:100% !important;
-        left:auto !important;
-        right:auto !important;
-        margin:0 !important;
-        padding:12px 10px !important;
-        overflow:hidden !important;
-      }
-
-      header .brand,
-      header .row{
-        width:100% !important;
-        max-width:100% !important;
-        min-width:0 !important;
-      }
-
-      header .row{
-        display:grid !important;
-        grid-template-columns:1fr !important;
-        gap:8px !important;
-      }
-
-      header button,
-      header .row button{
-        width:100% !important;
-        max-width:100% !important;
-        white-space:normal !important;
-      }
-
-      .brandText{
-        min-width:0 !important;
-        max-width:100% !important;
-      }
-
-      .brandText > div,
-      .welcomeLine,
-      header .small,
-      #who{
-        max-width:100% !important;
-        overflow-wrap:anywhere !important;
-        word-break:break-word !important;
-      }
-
-      body > div[style*="padding:14px"],
-      .rulesAuditFullWidth,
-      .wrap{
-        width:100% !important;
-        max-width:100% !important;
-        margin:0 !important;
-        padding-left:10px !important;
-        padding-right:10px !important;
-      }
-
-      .wrap{
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) !important;
-        gap:12px !important;
-        align-items:stretch !important;
-      }
-
-      .wrap > .card,
-      .wrap > div,
-      .wrap > div > .card,
-      #acctCard,
-      #rulesAuditCard{
-        width:100% !important;
-        max-width:100% !important;
-        min-width:0 !important;
-        position:relative !important;
-        top:auto !important;
-        left:auto !important;
-        right:auto !important;
-        height:auto !important;
-        max-height:none !important;
-      }
-
-      .card,
-      .sec,
-      .workloadBox,
-      .commentBox,
-      .voteSummaryBox,
-      .effectWrap,
-      .calcWrap,
-      .linkedIncidentBox,
-      .tableWrap{
-        width:100% !important;
-        max-width:100% !important;
-        overflow:hidden;
-      }
-
-      .row{
-        width:100% !important;
-        max-width:100% !important;
-        min-width:0 !important;
-      }
-
-      .row > *,
-      .grid2 > *,
-      .effectCols > *,
-      .voteSummaryGrid > *,
-      .linkedTicketGrid > *{
-        min-width:0 !important;
-        max-width:100% !important;
-      }
-
-      .grid2,
-      .effectCols,
-      .voteSummaryGrid,
-      .linkedTicketGrid,
-      .ticketPeopleLine,
-      .ticketInfoLine,
-      .ticketDriverMatrix,
-      .ticketChecklistRow{
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) !important;
-      }
-
-      select,
-      input,
-      textarea,
-      button{
-        max-width:100% !important;
-      }
-
-      textarea{
-        width:100% !important;
-      }
-
-      .list{
-        width:100% !important;
-        max-width:100% !important;
-        min-width:0 !important;
-        max-height:65vh !important;
-        min-height:260px !important;
-        overflow-y:auto !important;
-        overflow-x:hidden !important;
-        padding-right:4px !important;
-      }
-
-      .ticket{
-        width:100% !important;
-        max-width:100% !important;
-        margin-left:0 !important;
-        margin-right:0 !important;
-      }
-
-      .ticketHeadLine,
-      .ticketHero,
-      .ticketTop{
-        min-width:0 !important;
-        max-width:100% !important;
-      }
-
-      .ticketStatusPill{
-        max-width:42% !important;
-        overflow:hidden !important;
-        text-overflow:ellipsis !important;
-      }
-
-      .ticketEvent,
-      .ticketCompetition,
-      .ticketIncidentLine,
-      .ticketPeopleLine strong,
-      .ticketInfoLine strong,
-      .ticketDriverBox strong,
-      .linkedTicketCard,
-      .linkedDriverList,
-      .commentBox,
-      .calcLine,
-      .calcSub,
-      .effectTitle,
-      .effectNote,
-      .voteLine,
-      .muted,
-      code{
-        max-width:100% !important;
-        overflow-wrap:anywhere !important;
-        word-break:break-word !important;
-      }
-
-      .effectTop{
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) !important;
-      }
-
-      .effectTop > div,
-      .effectTop > div:last-child{
-        width:100% !important;
-        max-width:100% !important;
-        min-width:0 !important;
-        align-items:stretch !important;
-      }
-
-      .effectPills{
-        width:100% !important;
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) !important;
-      }
-
-      .pill,
-      .badge,
-      .miniPill,
-      .needTag,
-      .linkedMiniTag,
-      .ticketTinyPill{
-        max-width:100% !important;
-        white-space:normal !important;
-        overflow-wrap:anywhere !important;
-      }
-
-      .voteLine{
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) !important;
-      }
-
-      .videoWrap{
-        width:100% !important;
-        max-width:100% !important;
-      }
-
-      #rulesAuditCard .tableWrap{
-        overflow-x:auto !important;
-        max-width:100% !important;
-      }
-
-      #rulesAuditCard table{
-        width:max-content !important;
-        min-width:760px !important;
-        max-width:none !important;
-      }
-    }
-
-    @media (max-width: 560px){
-      body > div[style*="padding:14px"],
-      .rulesAuditFullWidth,
-      .wrap{
-        padding-left:8px !important;
-        padding-right:8px !important;
-      }
-
-      header{
-        padding-left:8px !important;
-        padding-right:8px !important;
-      }
-
-      .card,
-      .sec,
-      .workloadBox,
-      .effectWrap,
-      .voteSummaryBox,
-      .linkedIncidentBox,
-      .commentBox,
-      .calcWrap{
-        border-radius:16px !important;
-      }
-
-      .list{
-        max-height:62vh !important;
-        min-height:240px !important;
-      }
-
-      .ticketCardInner,
-      .ticketCardInner.compactTicketCard{
-        padding:12px 11px 12px 16px !important;
-      }
-
-      .ticketHeadLine{
-        display:grid !important;
-        grid-template-columns:minmax(0, 1fr) !important;
-      }
-
-      .ticketStatusPill{
-        width:max-content !important;
-        max-width:100% !important;
-      }
-
-      .compactFooter .ticketOpenHint{
-        margin-left:0 !important;
-      }
-
-      .effectItem{
-        display:grid !important;
-        grid-template-columns:auto minmax(0, 1fr) !important;
-      }
-
-      .effectDeltaPill{
-        grid-column:2 !important;
-        justify-self:start !important;
-        margin-left:0 !important;
-      }
+      #refreshStatementsBtn, #refreshTicketsBtn, #refreshDiscussionBtn, #postDiscussionBtn{ width:100%; }
+      #filter{ font-size:16px; }
     }
   </style>
 
@@ -2202,7 +497,7 @@
           <div class="pill" id="workloadPill">Loading…</div>
         </div>
         <div class="workloadSub" id="workloadSub">
-          Live tickets are non-finalised tickets that may still need a CAUSE review from you.
+          Live tickets are non-finalised tickets you may not have weighed in on yet — check the discussion tab.
         </div>
       </div>
 
@@ -2230,9 +525,44 @@
 
         <div class="sec">
           <h3>Ticket Summary</h3>
+
+          <!-- ✅ ADDED: driver identity cards, styled like the IFWL Licence
+               Centre home cards. Populated by renderDriverIdCard() in
+               selectTicket() via a name lookup against the `licences`
+               collection (same accDriverNames match Head Steward uses). -->
+          <div class="driverCardRow">
+            <div class="driverIdCard role-accused unlinked" id="sumAccusedCardOuter">
+              <div class="driverIdCardInner" id="sumAccusedCardInner">
+                <div class="driverCardRole">Accused</div>
+                <img class="driverCardPhoto" id="sumAccusedPhoto" alt="" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52'><rect width='52' height='52' fill='%231a2027'/></svg>">
+                <div class="driverCardBody">
+                  <div class="driverCardName" id="sumAccused">—</div>
+                  <div class="driverCardNumber" id="sumAccusedNumber"></div>
+                  <div class="driverCardMetaRow" id="sumAccusedMetaRow" style="display:none;">
+                    <span class="driverCardTierPill" id="sumAccusedTier"></span>
+                    <span class="driverCardPoints" id="sumAccusedPoints"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="driverIdCard role-reporter unlinked" id="sumReporterCardOuter">
+              <div class="driverIdCardInner" id="sumReporterCardInner">
+                <div class="driverCardRole">Reporter</div>
+                <img class="driverCardPhoto" id="sumReporterPhoto" alt="" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52'><rect width='52' height='52' fill='%231a2027'/></svg>">
+                <div class="driverCardBody">
+                  <div class="driverCardName" id="sumReporter">—</div>
+                  <div class="driverCardNumber" id="sumReporterNumber"></div>
+                  <div class="driverCardMetaRow" id="sumReporterMetaRow" style="display:none;">
+                    <span class="driverCardTierPill" id="sumReporterTier"></span>
+                    <span class="driverCardPoints" id="sumReporterPoints"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="grid2">
-            <div><div class="muted">Accused</div><div id="sumAccused">—</div></div>
-            <div><div class="muted">Reporter</div><div id="sumReporter">—</div></div>
             <div><div class="muted">Competition</div><div id="sumCompetition">—</div></div>
             <div><div class="muted">Event</div><div id="sumEvent">—</div></div>
             <div><div class="muted">Rule Breach</div><div id="sumRule">—</div></div>
@@ -2296,10 +626,6 @@
             <div class="row" style="width:100%; justify-content:flex-end;">
               <button id="refreshStatementsBtn">Refresh</button>
             </div>
-          </div>
-
-          <div class="redBox">
-            CAUSE is still currently under construction - there is NO CAUSE input required on ANY ticket.
           </div>
 
           <div class="muted" id="statementsHint" style="margin-top:8px;">—</div>
@@ -2382,156 +708,9 @@
           </div>
         </div>
 
-        <div class="sec" id="reviewSec">
-          <div class="row" style="justify-content:space-between;">
-            <h3 style="margin:0;">Initial CAUSE Review (Steward Officer View)</h3>
-            <div id="myReviewStatus" class="badge">Not submitted</div>
-          </div>
-
-          <div class="muted" style="margin-top:6px;">
-            This CAUSE review is your <b>initial</b> assessment based on the footage/evidence available at the time. It is <b>not</b> the final say.
-            Submit your CAUSE review first, then head to Discord to deliberate as a steward team on the final outcome.
-          </div>
-
-          <div class="grid2" style="margin-top:10px;">
-            <div>
-              <label class="muted">C — Control (1–5)</label>
-              <select id="cScore"></select>
-              <div class="infoBox" id="cText">Score on the merit of the footage: control/loss of control, stability, reactions.</div>
-            </div>
-
-            <div>
-              <label class="muted">A — Awareness (1–5)</label>
-              <select id="aScore"></select>
-              <div class="infoBox" id="aText">Score on the merit of the footage: awareness of surroundings, mirrors, positioning.</div>
-            </div>
-
-            <div>
-              <label class="muted">U — User Input (1–5)</label>
-              <select id="uScore"></select>
-              <div class="infoBox" id="uText">Score on the merit of the footage: braking/steering inputs, corrections, avoidability.</div>
-            </div>
-
-            <div>
-              <label class="muted">S — Severity (1–5)</label>
-              <select id="sScore"></select>
-              <div class="infoBox" id="sText">Score on the merit of the footage: impact, time loss, damage, race outcome.</div>
-            </div>
-
-            <div>
-              <label class="muted">E — Environment (1–5)</label>
-              <select id="eScore"></select>
-              <div class="infoBox" id="eText">Score on the merit of the footage: conditions, visibility, track factors.</div>
-            </div>
-
-            <div>
-              <label class="muted">What penalty best fits this incident? (required)</label>
-              <select id="penaltyCode"></select>
-
-              <div class="timePenaltyRow">
-                <label class="muted">Recommended time penalty / DQ (required unless NFA)</label>
-                <select id="penaltyTime"></select>
-                <div class="nfaNoTimeNote" id="reviewNfaNoTimeNote">NFA selected — no time penalty is required or saved.</div>
-                <div class="muted" style="margin-top:6px;">
-                  Choose from 5s to 60s in 5-second steps, DQ, or NFA if No Further Action is selected. This is stored with your review and copied into the steward comments audit entry.
-                </div>
-              </div>
-
-              <div class="muted" style="margin-top:8px;">Head Steward-only notes are not shown here.</div>
-
-              <!-- NEW: guidance preview (Description + Example from JSON) -->
-              <div class="penPreview" id="penaltyPreview" style="display:none;">
-                <div><span class="k">Penalty:</span> <span id="ppPenalty">—</span></div>
-                <div class="mutedLine"><span class="k">Who:</span> <span id="ppWho">—</span></div>
-                <pre id="ppDesc"></pre>
-                <pre id="ppExample"></pre>
-              </div>
-            </div>
-          </div>
-
-          <!-- =============================
-               UPDATED: CAUSE + EFFECT SECTION
-               (MATCH HEAD STEWARD LOOK + COLOURS)
-               ============================= -->
-          <div class="effectWrap" id="effectWrap">
-            <div class="effectTop">
-              <div style="min-width:220px; flex:1;">
-                <div class="effectHeading">EFFECT (tick all that apply)</div>
-                <div class="muted">
-                  Ensure you remember this is scoring the <b>ACCUSED</b> driver — at no point are you scoring the reporting driver — so ensure footage is checked.
-                </div>
-                <div class="muted" style="margin-top:4px;">
-                  Effects stack using micro-values. Your total EFFECT is clamped to <b>-1.00 to +1.00</b>. EFFECT modifies the aggregated CAUSE total (RAW score) to produce a final CAUSE+EFFECT score.
-                </div>
-              </div>
-
-              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
-                <div class="effectPills">
-                  <div class="pill" id="pillRaw">RAW: <strong>—</strong></div>
-                  <div class="pill" id="pillEff">EFFECT: <strong>—</strong></div>
-                  <div class="pill" id="pillFinal">FINAL: <strong>—</strong></div>
-                </div>
-                <button id="clearEffectsBtn">Clear Effects</button>
-              </div>
-            </div>
-
-            <div class="effectCols">
-              <div class="effectCol">
-                <div class="effectColHeader">Aggravating (adds)</div>
-                <div class="effectList" id="effectsAggravating"></div>
-              </div>
-
-              <div class="effectCol">
-                <div class="effectColHeader">Mitigating (reduces)</div>
-                <div class="effectList" id="effectsMitigating"></div>
-              </div>
-            </div>
-
-            <div class="calcWrap" id="effectCalcBox">
-              <div class="calcTitle">Calculation</div>
-              <div class="calcLine" id="calcLine">RAW —  +  EFFECT —  =  FINAL —</div>
-              <div class="calcSub" id="calcSub">
-                EFFECT is a micro-adjustment layer. It is intended to swing outcomes when context is clearly present in the evidence.
-              </div>
-              <div class="calcSub" id="effectSelectedOut">Selected effects: —</div>
-            </div>
-          </div>
-
-          <div class="row" style="justify-content:flex-end; margin-top:10px;">
-            <button id="loadMyReviewBtn">Load My Review</button>
-            <button class="primary" id="submitReviewBtn">Submit CAUSE Review</button>
-          </div>
-
-          <div class="muted" style="margin-top:8px;">
-            After submitting your CAUSE review, head to Discord and deliberate as a team on this ticket’s outcome.
-          </div>
-
-          <div class="muted" style="margin-top:8px;">
-            Submitting writes to <code>/tickets/&lt;ticket&gt;/reviews/&lt;yourEmailKey&gt;</code>.
-          </div>
-
-          <div class="muted" style="margin-top:8px;">
-            Note: the Head Steward’s aggregate CAUSE score is primarily used to break tied votes.
-          </div>
-        </div>
       </div>
     </div>
   </div>
-
-  <style>
-    /* Rules Audit table styling (scoped to the audit card so it won't affect other tables) */
-    #rulesAuditCard .tableWrap { overflow-x:auto; }
-    #rulesAuditCard table { width:100%; border-collapse:collapse; min-width:860px; }
-    #rulesAuditCard th, #rulesAuditCard td {
-      padding:10px 12px;
-      border-bottom:1px solid #e5e7eb;
-      text-align:left;
-      font-size:13px;
-      vertical-align:top;
-    }
-    #rulesAuditCard th { font-weight:900; background:#f9fafb; }
-    #rulesAuditCard tbody tr:hover { background:#f9fafb; }
-  </style>
 
   <!-- ✅ ONLY ADDITION HERE: class="rulesAuditFullWidth" (nothing removed) -->
   <div style="padding:14px; padding-top:0;" class="rulesAuditFullWidth">
@@ -2638,20 +817,13 @@
         console.warn("Accountability comment query failed:", e);
       }
 
-      // REVIEWS (last 7 days)
-      let reviewSnap = null;
-      try {
-        reviewSnap = await db.collectionGroup("reviews")
-          .where("submittedAt", ">=", cutoff)
-          .limit(2000)
-          .get();
-      } catch (e) {
-        console.warn("Accountability review query failed:", e);
-      }
-
-      const per = new Map(); // authorKey -> {comments, reviews, lastActiveMs}
+      // Penalty-opinion recommendations are just steward_comments with
+      // kind:"penalty_opinion", so they're already inside commentSnap above -
+      // no separate query needed (the old CAUSE-review query this replaced
+      // hit a `reviews` subcollection that no longer gets written to).
+      const per = new Map(); // authorKey -> {comments, opinions, lastActiveMs}
       function ensure(ak) {
-        if (!per.has(ak)) per.set(ak, { comments:0, reviews:0, lastActiveMs:0 });
+        if (!per.has(ak)) per.set(ak, { comments:0, opinions:0, lastActiveMs:0 });
         return per.get(ak);
       }
 
@@ -2662,47 +834,33 @@
           if (!ak) return;
           const o = ensure(ak);
           o.comments++;
+          if (String(d.kind || "").trim() === "penalty_opinion") o.opinions++;
 
           const ts = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate() : null;
           if (ts) o.lastActiveMs = Math.max(o.lastActiveMs, ts.getTime());
         });
       }
 
-      if (reviewSnap) {
-        reviewSnap.forEach(doc => {
-          const d = doc.data() || {};
-          const email = String(d.stewardEmail || "").toLowerCase().trim();
-          const ak = safeKey(email);
-          if (!ak) return;
-
-          const o = ensure(ak);
-          o.reviews++;
-
-          const ts = d.submittedAt && d.submittedAt.toDate ? d.submittedAt.toDate() : null;
-          if (ts) o.lastActiveMs = Math.max(o.lastActiveMs, ts.getTime());
-        });
-      }
-
-      const mine = per.get(authorKey) || { comments:0, reviews:0, lastActiveMs:0 };
+      const mine = per.get(authorKey) || { comments:0, opinions:0, lastActiveMs:0 };
 
       const arr = [...per.values()];
       const avgComments = arr.length ? arr.reduce((a,x)=>a+x.comments,0) / arr.length : 0;
-      const avgReviews  = arr.length ? arr.reduce((a,x)=>a+x.reviews,0) / arr.length : 0;
+      const avgOpinions  = arr.length ? arr.reduce((a,x)=>a+x.opinions,0) / arr.length : 0;
 
-      minePill.innerHTML = `You: <strong>${mine.comments}</strong> comments • <strong>${mine.reviews}</strong> reviews`;
-      teamPill.innerHTML = `Team avg: <strong>${avgComments.toFixed(1)}</strong> comments • <strong>${avgReviews.toFixed(1)}</strong> reviews`;
+      minePill.innerHTML = `You: <strong>${mine.comments}</strong> comments • <strong>${mine.opinions}</strong> recommendations`;
+      teamPill.innerHTML = `Team avg: <strong>${avgComments.toFixed(1)}</strong> comments • <strong>${avgOpinions.toFixed(1)}</strong> recommendations`;
 
       const lastActive = mine.lastActiveMs ? new Date(mine.lastActiveMs).toLocaleString() : "No activity logged";
       sub.textContent = `Last active: ${lastActive}`;
 
-      const isRed = (mine.comments + mine.reviews) === 0;
-      const isAmber = !isRed && (mine.comments < avgComments * 0.6 || mine.reviews < avgReviews * 0.6);
+      const isRed = (mine.comments + mine.opinions) === 0;
+      const isAmber = !isRed && (mine.comments < avgComments * 0.6 || mine.opinions < avgOpinions * 0.6);
 
       if (isRed) {
         banner.innerHTML = `
           <div class="bannerBox bannerRed">
             ACTION REQUIRED: No steward activity recorded in the last 7 days.
-            <small>Please add discussion comments and/or submit reviews to stay active.</small>
+            <small>Please add discussion comments and/or submit penalty recommendations to stay active.</small>
           </div>
         `;
         return;
@@ -2726,32 +884,8 @@
       `;
     }
 
-    function optionList() {
-      return [
-        {v:1, t:"1 — minimal / none"},
-        {v:2, t:"2 — low"},
-        {v:3, t:"3 — moderate"},
-        {v:4, t:"4 — high"},
-        {v:5, t:"5 — extreme"},
-      ];
-    }
-    function fillScores() {
-      for (const id of ["cScore","aScore","uScore","sScore","eScore"]) {
-        const sel = $(id);
-        sel.innerHTML = "";
-        for (const o of optionList()) {
-          const opt = document.createElement("option");
-          opt.value = o.v;
-          opt.textContent = o.t;
-          sel.appendChild(opt);
-        }
-        sel.value = "1";
-      }
-    }
-    fillScores();
-
     function fillPenaltyTimeSelects() {
-      const ids = ["penaltyTime", "discussionPenaltyTime"];
+      const ids = ["discussionPenaltyTime"];
       for (const id of ids) {
         const sel = $(id);
         if (!sel) continue;
@@ -2849,7 +983,6 @@
     }
 
     function refreshPenaltyTimeRequirements() {
-      updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
       updatePenaltyTimeRequirement("discussionPenaltyCode", "discussionPenaltyTime", "discussionNfaNoTimeNote");
     }
 
@@ -2893,26 +1026,6 @@
       } catch (e) {
         console.error("loadOwnerClause failed:", e);
       }
-    }
-
-    function clampScore(v) {
-      const n = parseInt(v || 1, 10);
-      return Math.min(5, Math.max(1, isNaN(n) ? 1 : n));
-    }
-
-    function reverseScore(v) { return 6 - clampScore(v); }
-    function unreverseScore(v) { return 6 - clampScore(v); }
-
-    // NEW: clamps for final score & effect
-    function clampNumber(n, min, max){
-      const x = Number(n);
-      if (isNaN(x)) return min;
-      return Math.min(max, Math.max(min, x));
-    }
-    function fmt2(n){
-      const x = Number(n);
-      if (isNaN(x)) return "0.00";
-      return x.toFixed(2);
     }
 
     function normalizeUrl(u) {
@@ -2987,6 +1100,131 @@
           videoEmbedEl.innerHTML = "";
         }
       }
+    }
+
+    // =======================================================
+    // ✅ ADDED: driver identity cards, styled like the Licence Centre's
+    // home-page licence cards. Read-only here (linking/points are Head
+    // Steward-only, done on headsteward.html) - this just looks a driver
+    // name up against the `licences` collection (accDriverNames match,
+    // same approach headsteward.html uses) and renders a mini card.
+    // =======================================================
+    const DEFAULT_TIERS = [
+      { id:'no_licence',  name:'No Licence',   order:0, color:'#4b5760', foil:false },
+      { id:'provisional', name:'Provisional',  order:1, color:'#ffb238', foil:false },
+      { id:'gt3_beginner',name:'GT3 Beginner', order:2, color:'#1fd6bd', foil:false },
+      { id:'gt3_amateur', name:'GT3 Amateur',  order:3, color:'#c65be8', foil:false },
+      { id:'gt3_pro',     name:'GT3 Pro',      order:4, color:'#eaf3ff', foil:true  }
+    ];
+
+    function hexToRgba(hex, alpha){
+      const clean = String(hex || '').replace('#','');
+      const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean.padEnd(6,'0').slice(0,6);
+      const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+    function findTier(tierName){
+      return DEFAULT_TIERS.find(t => t.name === tierName) || DEFAULT_TIERS[0];
+    }
+    function driverCardPointsClass(points){
+      const n = Number(points || 0);
+      return n <= 3 ? "pts-green" : n <= 6 ? "pts-orange" : "pts-red";
+    }
+    function driverNameKey(name){ return String(name || "").trim().toLowerCase(); }
+
+    // Ticket accused/reporter fields have been seen as either a plain
+    // string or an array elsewhere in this codebase - handle both.
+    function namesFromTicketField(raw){
+      if (Array.isArray(raw)) return raw.filter(Boolean);
+      if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+      return [];
+    }
+
+    let licenceProfilesCacheSteward = null;
+    async function loadAllLicenceProfilesSteward(){
+      if (licenceProfilesCacheSteward) return licenceProfilesCacheSteward;
+      try {
+        const snap = await db.collection("licences").limit(3000).get();
+        licenceProfilesCacheSteward = snap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
+      } catch (e) {
+        console.warn("Could not load licence profiles:", e);
+        licenceProfilesCacheSteward = [];
+      }
+      return licenceProfilesCacheSteward;
+    }
+
+    function findLinkedLicenceSteward(names, profiles){
+      const keys = names.map(driverNameKey);
+      if (!keys.length) return null;
+      return profiles.find(p => (p.accDriverNames || []).some(n => {
+        const key = driverNameKey(n);
+        // Substring match, not exact - ticket name strings often carry a
+        // bracketed car number ("[18] - Mathias Gonalons") that a driver's
+        // self-reported name usually won't include verbatim.
+        return keys.some(k => k.includes(key) || key.includes(k));
+      })) || null;
+    }
+
+    function driverCardPhotoUrl(p){
+      return p.avatarMode === 'upload' && p.photoUploadUrl ? p.photoUploadUrl
+        : p.avatarMode === 'url' && p.avatarUrl ? p.avatarUrl
+        : (p.discordAvatarUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52'><rect width='52' height='52' fill='%231a2027'/></svg>");
+    }
+
+    // role is "Accused" or "Reporter" - matches the #sum<role>... ids in
+    // the Ticket Summary markup.
+    async function renderDriverIdCard(role, ticketFieldValue){
+      const outer = $(`sum${role}CardOuter`);
+      const nameEl = $(`sum${role}`);
+      const numberEl = $(`sum${role}Number`);
+      const photoEl = $(`sum${role}Photo`);
+      const metaRow = $(`sum${role}MetaRow`);
+      const tierEl = $(`sum${role}Tier`);
+      const pointsEl = $(`sum${role}Points`);
+      if (!outer || !nameEl) return;
+
+      const names = namesFromTicketField(ticketFieldValue);
+      nameEl.textContent = names.length ? names[0] : "—";
+
+      if (!names.length){
+        outer.classList.add("unlinked");
+        numberEl.textContent = "";
+        if (metaRow) metaRow.style.display = "none";
+        return;
+      }
+
+      let profiles;
+      try { profiles = await loadAllLicenceProfilesSteward(); }
+      catch (e) { profiles = []; }
+
+      const match = findLinkedLicenceSteward(names, profiles);
+      if (!match){
+        outer.classList.add("unlinked");
+        numberEl.textContent = "No linked licence profile";
+        if (metaRow) metaRow.style.display = "none";
+        return;
+      }
+
+      outer.classList.remove("unlinked");
+      numberEl.textContent = match.licenceNumber || "IFWL-0000-00000";
+      photoEl.src = driverCardPhotoUrl(match);
+
+      const tier = findTier(match.tier || "No Licence");
+      if (tierEl){
+        tierEl.textContent = match.tier || tier.name;
+        tierEl.style.background = hexToRgba(tier.color, 0.22);
+        tierEl.style.color = tier.color === '#eaf3ff' ? '#0f172a' : tier.color;
+        tierEl.style.border = `1px solid ${hexToRgba(tier.color, 0.45)}`;
+      }
+      const points = Number(match.licencePoints || 0);
+      if (pointsEl){
+        pointsEl.textContent = `${points} pt${points === 1 ? "" : "s"}`;
+        pointsEl.className = "driverCardPoints " + driverCardPointsClass(points);
+      }
+      outer.style.background = tier.foil
+        ? "linear-gradient(135deg,#eaf3ff,#c65be8,#1fd6bd,#eaf3ff)"
+        : `linear-gradient(135deg, ${tier.color}, #7c3aed)`;
+      if (metaRow) metaRow.style.display = "flex";
     }
 
     // ---------- statement status ----------
@@ -3101,30 +1339,6 @@
       el.innerHTML = `Requires deliberation<br><small>No steward comment from you yet</small>`;
     }
 
-    // ---------- penalty preview (NEW) ----------
-    function setPenaltyPreviewFromSelected() {
-      const sel = $("penaltyCode");
-      const box = $("penaltyPreview");
-      if (!sel || !box) return;
-
-      const opt = sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0] : null;
-      if (!opt || !opt.value) { box.style.display = "none"; updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote"); return; }
-
-      updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
-
-      const pen = (opt.dataset.penalty || "").trim();
-      const who = (opt.dataset.who || "").trim();
-      const desc = (opt.dataset.desc || "").trim();
-      const ex = (opt.dataset.example || "").trim();
-
-      $("ppPenalty").textContent = pen || "—";
-      $("ppWho").textContent = who || "—";
-      $("ppDesc").textContent = desc ? `Description:\n${desc}` : "";
-      $("ppExample").textContent = ex ? `\nExample:\n${ex}` : "";
-
-      box.style.display = "block";
-    }
-
     // ---------- discussion penalty preview ----------
     function setDiscussionPenaltyPreviewFromSelected() {
       const sel = $("discussionPenaltyCode");
@@ -3217,8 +1431,7 @@
       }
 
       try {
-        await fillSelect("penaltyCode");            // existing CAUSE dropdown
-        await fillSelect("discussionPenaltyCode");  // NEW discussion dropdown
+        await fillSelect("discussionPenaltyCode");
         refreshPenaltyTimeRequirements();
       } catch (e) {
         console.error("Penalty code load failed:", e);
@@ -3361,32 +1574,12 @@
     const ticketHintEl = $("ticketHint");
     const filterEl = $("filter");
 
-    const submitReviewBtn = $("submitReviewBtn");
-    const loadMyReviewBtn = $("loadMyReviewBtn");
-
     const workloadPillEl = $("workloadPill");
     const workloadSubEl = $("workloadSub");
     const welcomeLineEl = $("welcomeLine");
 
     const refreshDiscussionBtn = $("refreshDiscussionBtn");
     const postDiscussionBtn = $("postDiscussionBtn");
-
-    // ---------- CAUSE boxes are non-editable divs ----------
-    function isFormTextInput(el) {
-      if (!el) return false;
-      const tag = (el.tagName || "").toUpperCase();
-      return tag === "TEXTAREA" || tag === "INPUT";
-    }
-    function getFreeText(id) {
-      const el = $(id);
-      if (!isFormTextInput(el)) return "";
-      return (el.value || "").trim();
-    }
-    function setFreeText(id, v) {
-      const el = $(id);
-      if (!isFormTextInput(el)) return;
-      el.value = v || "";
-    }
 
     // ---------- navigation ----------
     $("backBtn").onclick = () => window.location.href = "index.html";
@@ -3398,8 +1591,6 @@
 
     $("acctRefreshBtn").onclick = () => loadMyAccountability();
 
-    loadMyReviewBtn.onclick = () => loadMyReview();
-    submitReviewBtn.onclick = () => submitMyReview();
     if (postDiscussionBtn) postDiscussionBtn.onclick = () => postDiscussion();
     const postPenaltyOpinionBtn = $("postPenaltyOpinionBtn");
     if (postPenaltyOpinionBtn) postPenaltyOpinionBtn.onclick = () => postPenaltyOpinion();
@@ -3431,7 +1622,7 @@
         const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
         const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Steward";
         welcomeLineEl.textContent =
-          `Welcome, ${niceName}. Your live workload is shown on the left — please review any tickets marked as needing your CAUSE input.`;
+          `Welcome, ${niceName}. Your live workload is shown on the left — please weigh in on any tickets marked "Needs view".`;
 
         $("who").textContent = `Signed in as: ${maskEmail(currentEmail)} | role: ${data.role || "steward"}`;
 
@@ -3445,16 +1636,6 @@
           updatePenaltyTimeRequirement("discussionPenaltyCode", "discussionPenaltyTime", "discussionNfaNoTimeNote");
         };
         setDiscussionPenaltyPreviewFromSelected();
-
-        // NEW: wire penalty preview for CAUSE dropdown
-        const pSel = $("penaltyCode");
-        if (pSel) pSel.onchange = () => {
-          setPenaltyPreviewFromSelected();
-          updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
-        };
-
-        // NEW: init effect checklist (renders checkboxes and wires handlers)
-        initEffectsUI();
 
         await loadTickets();
         await loadMyAccountability();
@@ -3581,226 +1762,6 @@
       }
     }
 
-    // ==========================
-    // EFFECT SYSTEM (STACKING, MICRO VALUES) — MATCH HEAD STEWARD
-    // ==========================
-    const EFFECT_CAP_MIN = -1.00;
-    const EFFECT_CAP_MAX =  1.00;
-
-    // First lap "golden bullet" rule (as per your direction): when selected, FINAL is clamped to >= 4.0
-    const FIRST_LAP_FINAL_MIN = 4.0;
-
-    const EFFECTS = [
-      // Aggravating (adds)
-      { key:"first_lap_incident", label:"First corner Incident (AUTOMATICALLY SEVERE)", delta:+0.40, group:"add", note:"First corner context: final score is clamped to >= 4.0 when selected" },
-      { key:"lap1_opening_sector", label:"Lap 1 opening sector / high-density traffic", delta:+0.20, group:"add", note:"T1–T3 crowded phase" },
-
-      { key:"minor_contact", label:"Minor contact – visible but negligible damage", delta:+0.10, group:"add", note:"Light tap / scrape" },
-      { key:"moderate_damage", label:"Moderate damage – performance affected", delta:+0.20, group:"add", note:"Handling/pace affected" },
-      { key:"significant_damage_pit", label:"Significant damage – forced pit stop", delta:+0.30, group:"add", note:"Pit required to repair" },
-      { key:"severe_damage_race_compromised", label:"Severe damage – race heavily compromised", delta:+0.30, group:"add", note:"Major time loss / limp" },
-      { key:"dnf_caused", label:"DNF caused", delta:+0.30, group:"add", note:"Retired from race" },
-
-      { key:"positions_lost_not_returned", label:"Position(s) lost and not returned", delta:+0.20, group:"add", note:"No redress" },
-      { key:"multiple_positions_lost", label:"Multiple positions lost", delta:+0.20, group:"add", note:"Compounded loss" },
-      { key:"multiple_cars_affected", label:"Multiple cars affected", delta:+0.30, group:"add", note:"More than two cars impacted" },
-      { key:"secondary_incident_triggered", label:"Secondary incident triggered", delta:+0.30, group:"add", note:"Knock-on incident" },
-      { key:"chain_reaction", label:"Chain reaction incident", delta:+0.30, group:"add", note:"Cascading contacts" },
-      { key:"safety_car_vsc", label:"Safety Car / VSC triggered", delta:+0.30, group:"add", note:"Neutralisation impact" },
-      { key:"race_result_materially_altered", label:"Race result materially altered", delta:+0.30, group:"add", note:"Outcome changed significantly" },
-
-      { key:"advantage_gained_and_kept", label:"Advantage gained and kept", delta:+0.30, group:"add", note:"Position/time gained retained" },
-      { key:"track_position_retained", label:"Track position retained after contact", delta:+0.20, group:"add", note:"Stayed ahead without redress" },
-      { key:"continued_without_waiting", label:"Continued racing without waiting", delta:+0.20, group:"add", note:"No pause / no redress" },
-      { key:"repeated_contact_same_sequence", label:"Repeated contact in same sequence", delta:+0.20, group:"add", note:"Multiple hits" },
-      { key:"aggressive_defence_beyond_reasonable", label:"Aggressive defence beyond reasonable expectation", delta:+0.20, group:"add", note:"Overly forceful defence" },
-      { key:"repeated_pattern_season_context", label:"Repeated pattern of similar behaviour (season context)", delta:+0.20, group:"add", note:"Prior similar incidents" },
-
-      // Mitigating (reduces)
-      { key:"no_lasting_damage", label:"No lasting damage", delta:-0.10, group:"sub", note:"Damage not sustained" },
-      { key:"no_meaningful_time_loss", label:"No meaningful time loss", delta:-0.10, group:"sub", note:"Negligible delta" },
-      { key:"cosmetic_contact_only", label:"Cosmetic contact only", delta:-0.20, group:"sub", note:"Paint/trivial" },
-      { key:"incident_self_neutralising", label:"Incident self-neutralising (no net gain/loss)", delta:-0.20, group:"sub", note:"No lasting benefit" },
-
-      { key:"immediate_position_returned", label:"Immediate position returned", delta:-0.30, group:"sub", note:"Clear redress" },
-      { key:"waited_before_safely_rejoining", label:"Waited before safely rejoining", delta:-0.20, group:"sub", note:"Rejoined with care" },
-      { key:"clear_evasive_action_attempted", label:"Clear evasive action attempted", delta:-0.20, group:"sub", note:"Avoidance attempt visible" },
-      { key:"lifted_yielded_prevent_escalation", label:"Lifted / yielded to prevent escalation", delta:-0.20, group:"sub", note:"De-escalation" },
-      { key:"gave_space_after_contact", label:"Gave space after contact", delta:-0.10, group:"sub", note:"Allowed recovery room" },
-
-      { key:"driver_self_reported", label:"Driver self-reported", delta:-0.10, group:"sub", note:"Owned it proactively" },
-      { key:"driver_acknowledged_fault", label:"Driver acknowledged fault", delta:-0.10, group:"sub", note:"Accepted blame" },
-      { key:"immediate_apology_issued", label:"Immediate apology issued", delta:-0.10, group:"sub", note:"Prompt apology" },
-      { key:"clean_prior_record_season", label:"Clean prior record this season", delta:-0.10, group:"sub", note:"Contextual mitigation" },
-    ];
-
-    function getSelectedEffectKeys(){
-      const keys = [];
-      for (const ef of EFFECTS){
-        const cb = $("ef_" + ef.key);
-        if (cb && cb.checked) keys.push(ef.key);
-      }
-      return keys;
-    }
-
-    function computeRawCauseThisSteward(){
-      const c = clampScore($("cScore")?.value);
-      const a = clampScore($("aScore")?.value);
-      const u = clampScore($("uScore")?.value); // UI score
-      const s = clampScore($("sScore")?.value);
-      const e = clampScore($("eScore")?.value);
-
-      const avg = (c + a + u + s + e) / 5;
-      return clampNumber(avg, 1, 5);
-    }
-
-    function computeEffectTotals(){
-      const selected = getSelectedEffectKeys();
-      let total = 0;
-
-      const labels = [];
-      for (const key of selected){
-        const ef = EFFECTS.find(x => x.key === key);
-        if (!ef) continue;
-        total += Number(ef.delta || 0);
-        labels.push(`${ef.label} (${ef.delta >= 0 ? "+" : ""}${fmt2(ef.delta)})`);
-      }
-
-      const applied = clampNumber(total, EFFECT_CAP_MIN, EFFECT_CAP_MAX);
-
-      const rawCause = computeRawCauseThisSteward();
-      let finalScore = clampNumber(rawCause + applied, 1, 5);
-
-      // First lap golden bullet: force severe floor
-      const hasFirstLap = selected.includes("first_lap_incident");
-      if (hasFirstLap) finalScore = Math.max(finalScore, FIRST_LAP_FINAL_MIN);
-
-      return {
-        selectedKeys: selected,
-        selectedLabels: labels,
-        rawCause,
-        total,
-        applied,
-        finalScore,
-        hasFirstLap
-      };
-    }
-
-    function renderEffectPreview(){
-      const pillRaw = $("pillRaw");
-      const pillEff = $("pillEff");
-      const pillFinal = $("pillFinal");
-      const calcLine = $("calcLine");
-      const selOut = $("effectSelectedOut");
-
-      const x = computeEffectTotals();
-
-      const rawTxt = fmt2(x.rawCause);
-      const effTxt = (x.applied >= 0 ? "+" : "") + fmt2(x.applied);
-      const finTxt = fmt2(x.finalScore);
-
-      if (pillRaw) pillRaw.innerHTML = `RAW: <strong>${rawTxt}</strong>`;
-      if (pillEff) pillEff.innerHTML = `EFFECT: <strong>${effTxt}</strong>`;
-      if (pillFinal) pillFinal.innerHTML = `FINAL: <strong>${finTxt}</strong>`;
-
-      if (calcLine) {
-        const firstLapNote = x.hasFirstLap ? ` (First lap clamp: >= ${fmt2(FIRST_LAP_FINAL_MIN)})` : "";
-        calcLine.textContent = `RAW ${rawTxt}  +  EFFECT ${effTxt}  =  FINAL ${finTxt}${firstLapNote}`;
-      }
-
-      if (selOut) {
-        if (!x.selectedLabels.length) selOut.textContent = "Selected effects: —";
-        else selOut.textContent = "Selected effects: " + x.selectedLabels.join(" | ");
-      }
-    }
-
-    function initEffectsUI(){
-      const addWrap = $("effectsAggravating");
-      const subWrap = $("effectsMitigating");
-      if (!addWrap || !subWrap) return;
-
-      addWrap.innerHTML = "";
-      subWrap.innerHTML = "";
-
-      function makeItem(ef){
-        const wrap = document.createElement("label");
-        wrap.className = "effectItem";
-        wrap.htmlFor = "ef_" + ef.key;
-
-        if (ef.key === "first_lap_incident") {
-          wrap.classList.add("effectItemSpecialRed");
-        }
-
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.id = "ef_" + ef.key;
-        cb.dataset.delta = String(ef.delta);
-        cb.dataset.label = ef.label;
-        cb.onchange = () => renderEffectPreview();
-
-        const main = document.createElement("div");
-        main.className = "effectMain";
-
-        const title = document.createElement("div");
-        title.className = "effectTitle";
-        title.textContent = ef.label;
-
-        const note = document.createElement("div");
-        note.className = "effectNote";
-        note.textContent = (ef.note || "").trim();
-
-        main.appendChild(title);
-        if ((ef.note || "").trim()) main.appendChild(note);
-
-        const pill = document.createElement("div");
-        pill.className = "effectDeltaPill " + (ef.delta >= 0 ? "deltaAdd" : "deltaSub");
-        pill.textContent = (ef.delta >= 0 ? "+" : "") + fmt2(ef.delta);
-
-        wrap.appendChild(cb);
-        wrap.appendChild(main);
-        wrap.appendChild(pill);
-
-        return wrap;
-      }
-
-      for (const ef of EFFECTS){
-        const node = makeItem(ef);
-        if (ef.group === "add") addWrap.appendChild(node);
-        else subWrap.appendChild(node);
-      }
-
-      const clearBtn = $("clearEffectsBtn");
-      if (clearBtn){
-        clearBtn.onclick = () => {
-          for (const ef of EFFECTS){
-            const cb = $("ef_" + ef.key);
-            if (cb) cb.checked = false;
-          }
-          renderEffectPreview();
-          toast("Effects cleared");
-        };
-      }
-
-      // Wire CAUSE score changes to refresh preview too (raw cause changes)
-      for (const id of ["cScore","aScore","uScore","sScore","eScore"]){
-        const el = $(id);
-        if (el) el.onchange = () => renderEffectPreview();
-      }
-
-      renderEffectPreview();
-    }
-
-    function applySelectedEffects(keys){
-      for (const ef of EFFECTS){
-        const cb = $("ef_" + ef.key);
-        if (cb) cb.checked = false;
-      }
-      for (const k of (keys || [])){
-        const cb = $("ef_" + k);
-        if (cb) cb.checked = true;
-      }
-      renderEffectPreview();
-    }
 
     // ---------- tickets ----------
     function passesFilter(status) {
@@ -3815,19 +1776,6 @@
     function isFinalised(status) {
       const s = (status || "").trim().toLowerCase();
       return s === "finalised";
-    }
-
-    async function doesMyReviewExist(ticketId) {
-      try {
-        const reviewId = safeKey(currentEmail);
-        if (!reviewId) return false;
-        const ref = db.collection("tickets").doc(ticketId).collection("reviews").doc(reviewId);
-        const snap = await ref.get();
-        return snap.exists;
-      } catch (e) {
-        console.warn("Review check failed for ticket:", ticketId, e);
-        return false;
-      }
     }
 
     function formatTicketListDate(data) {
@@ -3851,7 +1799,7 @@
       ticketListEl.innerHTML = "";
       ticketHintEl.textContent = "Loading tickets…";
       workloadPillEl.textContent = "Loading…";
-      workloadSubEl.textContent = "Live tickets are non-finalised tickets that may still need a CAUSE review from you.";
+      workloadSubEl.textContent = "Live tickets are non-finalised tickets you may not have weighed in on yet — check the discussion tab.";
 
       statementStatusCache.clear();
       deliberationStatusCache.clear();
@@ -3870,7 +1818,7 @@
       const liveCount = liveTickets.length;
 
       const myReviewChecks = liveTickets.map(async (t) => {
-        const hasMine = await doesMyReviewExist(t.id);
+        const hasMine = await getMyDeliberationStatus(t.id);
         return { id: t.id, hasMine };
       });
 
@@ -3883,9 +1831,9 @@
       if (liveCount === 0) {
         workloadSubEl.textContent = "No live tickets found. You're all caught up ✅";
       } else if (needsMyInputCount === 0) {
-        workloadSubEl.textContent = "All live tickets in this batch already have your CAUSE review submitted ✅";
+        workloadSubEl.textContent = "You've weighed in on every live ticket in this batch ✅";
       } else {
-        workloadSubEl.textContent = "Tickets marked “Needs your CAUSE input” do not currently have a submitted review from you.";
+        workloadSubEl.textContent = "Tickets marked “Needs view” don't have a steward comment from you yet.";
       }
 
       let shown = 0;
@@ -4009,8 +1957,6 @@
     async function selectTicket(ticketId) {
       $("selTitle").textContent = `Ticket: ${ticketId}`;
       $("selSub").textContent = "";
-      $("myReviewStatus").textContent = "Not submitted";
-      $("myReviewStatus").className = "badge";
 
       $("statementsHint").textContent = "Loading statements…";
       $("statementsList").innerHTML = "";
@@ -4018,13 +1964,9 @@
       $("discussionList").innerHTML = `<div class="muted">Loading comments…</div>`;
       $("discussionInput").value = "";
       if ($("discussionPenaltyTime")) $("discussionPenaltyTime").value = "";
-      if ($("penaltyTime")) $("penaltyTime").value = "";
       refreshPenaltyTimeRequirements();
       if ($("linkedIncidentSec")) $("linkedIncidentSec").style.display = "none";
       if ($("linkedIncidentDetails")) $("linkedIncidentDetails").style.display = "none";
-
-      // clear effects when switching tickets
-      applySelectedEffects([]);
 
       const ref = db.collection("tickets").doc(ticketId);
       selectedTicketSnap = await ref.get();
@@ -4040,10 +1982,12 @@
       $("sumIncident").value = t.fullIncident || "";
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
 
+      renderDriverIdCard("Accused", t.accused);
+      renderDriverIdCard("Reporter", t.reporter);
+
       await loadLinkedIncidentForSelectedTicket();
       await loadStatements();
       await loadDiscussion();
-      await loadMyReview();
     }
 
     // ---------- statements ----------
@@ -4431,166 +2375,6 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
       }
     }
 
-    // ---------- reviews ----------
-    async function loadMyReview() {
-      if (!selectedTicketId) return;
-
-      const reviewId = safeKey(currentEmail);
-      const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
-      const snap = await ref.get();
-
-      if (!snap.exists) {
-        $("myReviewStatus").textContent = "Not submitted";
-        $("myReviewStatus").className = "badge";
-        renderEffectPreview();
-        return;
-      }
-
-      const d = snap.data() || {};
-      const cause = d.CAUSE || {};
-
-      $("cScore").value = String(clampScore(cause.control?.score));
-      setFreeText("cText", cause.control?.text || "");
-
-      $("aScore").value = String(clampScore(cause.awareness?.score));
-      setFreeText("aText", cause.awareness?.text || "");
-
-      $("uScore").value = String(unreverseScore(cause.userInput?.score));
-      setFreeText("uText", cause.userInput?.text || "");
-
-      $("sScore").value = String(clampScore(cause.severity?.score));
-      setFreeText("sText", cause.severity?.text || "");
-
-      $("eScore").value = String(clampScore(cause.environment?.score));
-      setFreeText("eText", cause.environment?.text || "");
-
-      $("penaltyCode").value = d.penaltyCode || "";
-      const loadedReviewIsNfa = isNfaPenaltySelection("penaltyCode");
-      if ($("penaltyTime")) $("penaltyTime").value = loadedReviewIsNfa ? "NFA" : normalisePenaltyTimeValue(d.penaltyTime || "");
-      updatePenaltyTimeRequirement("penaltyCode", "penaltyTime", "reviewNfaNoTimeNote");
-
-      // restore effects
-      const eff = d.EFFECT || d.effect || {};
-      const keys = Array.isArray(eff.selectedKeys) ? eff.selectedKeys : (Array.isArray(eff.selected) ? eff.selected : []);
-      applySelectedEffects(keys);
-
-      setPenaltyPreviewFromSelected();
-
-      $("myReviewStatus").textContent = "Submitted ✅";
-      $("myReviewStatus").className = "badge ok";
-      toast("Loaded your review");
-    }
-
-    async function submitMyReview() {
-      if (!selectedTicketId) { toast("Select a ticket first"); return; }
-
-      const pen = ($("penaltyCode").value || "").trim();
-      if (!pen) { toast("Penalty code required"); return; }
-
-      const isNfa = isNfaPenaltySelection("penaltyCode");
-      const timePenalty = isNfa ? "NFA" : normalisePenaltyTimeValue($("penaltyTime")?.value || "");
-      if (!isNfa && !timePenalty) { toast("Time penalty / DQ required"); return; }
-
-      submitReviewBtn.disabled = true;
-      const original = submitReviewBtn.textContent;
-      submitReviewBtn.textContent = "Submitting…";
-
-      try {
-        const reviewId = safeKey(currentEmail);
-        const ref = db.collection("tickets").doc(selectedTicketId).collection("reviews").doc(reviewId);
-
-        const uUi = Number($("uScore").value);
-        const uStored = reverseScore(uUi);
-
-        const eff = computeEffectTotals();
-
-        const review = {
-          stewardEmail: currentEmail,
-          submittedAt: firebase.firestore.Timestamp.fromDate(new Date()),
-          isFinal: true,
-          CAUSE: {
-            control:      { score: Number($("cScore").value), text: getFreeText("cText") },
-            awareness:    { score: Number($("aScore").value), text: getFreeText("aText") },
-            userInput:    { score: uStored,                 text: getFreeText("uText") },
-            severity:     { score: Number($("sScore").value), text: getFreeText("sText") },
-            environment:  { score: Number($("eScore").value), text: getFreeText("eText") },
-          },
-          EFFECT: {
-            selectedKeys: eff.selectedKeys,
-            total: Number(eff.total),
-            applied: Number(eff.applied),
-            capMin: EFFECT_CAP_MIN,
-            capMax: EFFECT_CAP_MAX,
-            rawCauseThisSteward: Number(eff.rawCause),
-            finalScoreThisSteward: Number(eff.finalScore),
-            firstLapClampMin: FIRST_LAP_FINAL_MIN,
-            firstLapSelected: !!eff.hasFirstLap,
-            model: "stacking_micro_values_v2_headsteward_match"
-          },
-          penaltyCode: pen,
-          penaltyTime: timePenalty
-        };
-
-        await ref.set(review, { merge: true });
-
-        // also write auditable steward comment (overwrites per steward per ticket)
-        try {
-          const authorKey = safeKey(currentEmail);
-          const col = db.collection("tickets").doc(selectedTicketId).collection("steward_comments");
-          const commentId = `cause_effect_${authorKey || reviewId || "steward"}`;
-
-          const effectsLine = eff.selectedLabels.length ? eff.selectedLabels.join(" | ") : "—";
-          const clampLine = eff.hasFirstLap ? `\nFirst lap clamp applied: final >= ${fmt2(FIRST_LAP_FINAL_MIN)}` : "";
-
-          const msg =
-`CAUSE + EFFECT REVIEW (INITIAL)
-Steward: ${maskEmail(currentEmail) || "Unknown"}
-Penalty selected: ${pen}
-Recommended time penalty: ${formatPenaltyTime(timePenalty)}
-
-Raw CAUSE (this steward): ${fmt2(eff.rawCause)}
-EFFECT total (stacked): ${(eff.total >= 0 ? "+" : "")}${fmt2(eff.total)}
-EFFECT applied (clamped): ${(eff.applied >= 0 ? "+" : "")}${fmt2(eff.applied)} (cap ${fmt2(EFFECT_CAP_MIN)} to +${fmt2(EFFECT_CAP_MAX)})
-Final Score (this steward): ${fmt2(eff.finalScore)}${clampLine}
-
-Selected effects: ${effectsLine}`;
-
-          await col.doc(commentId).set({
-            text: msg,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            authorKey,
-            kind: "cause_effect_review",
-            penaltyCode: pen,
-            penaltyTime: timePenalty,
-            effect: {
-              selectedKeys: eff.selectedKeys,
-              total: Number(eff.total),
-              applied: Number(eff.applied),
-              rawCauseThisSteward: Number(eff.rawCause),
-              finalScoreThisSteward: Number(eff.finalScore),
-              capMin: EFFECT_CAP_MIN,
-              capMax: EFFECT_CAP_MAX,
-              firstLapSelected: !!eff.hasFirstLap,
-              firstLapClampMin: FIRST_LAP_FINAL_MIN
-            }
-          }, { merge: true });
-        } catch (e) {
-          console.warn("Failed to write CAUSE+EFFECT audit comment:", e);
-        }
-
-        $("myReviewStatus").textContent = "Submitted ✅";
-        $("myReviewStatus").className = "badge ok";
-
-        toast("CAUSE review submitted ✅");
-        await loadTickets();
-        await loadDiscussion();
-      } catch (e) {
-        toast("Submit failed: " + (e?.message || e));
-      } finally {
-        submitReviewBtn.textContent = original;
-        submitReviewBtn.disabled = false;
-      }
-    }
   </script>
 </body>
 </html>
