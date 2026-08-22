@@ -665,6 +665,63 @@
     .licence-points-form{display:flex;gap:8px;align-items:end;margin-top:10px;flex-wrap:wrap}
     .licence-points-form input[type="number"]{width:90px;padding:8px;border:1px solid #d1d5db;border-radius:10px}
     .licence-points-form input[type="text"]{flex:1;min-width:180px;padding:8px;border:1px solid #d1d5db;border-radius:10px}
+
+    /* ✅ ADDED: driver identity cards, styled like the Licence Centre's
+       home-page licence cards (same treatment added to steward.html).
+       Read-only visual lookup by name match against `licences` - separate
+       from, and doesn't replace, the "Linked Driver Licence" management
+       panel above (which stays the authoritative accused-driver link). */
+    .driverCardRow{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+    @media (max-width: 640px){ .driverCardRow{ grid-template-columns:1fr; } }
+
+    .driverIdCard{
+      position:relative; border-radius:18px; padding:3px;
+      background:linear-gradient(135deg, #cbd5e1, #94a3b8);
+      box-shadow:0 6px 16px rgba(15,23,42,.10);
+      transition:box-shadow .15s ease, transform .15s ease;
+    }
+    .driverIdCard.role-accused{ background:linear-gradient(135deg,#fca5a5,#dc2626); }
+    .driverIdCard.role-reporter{ background:linear-gradient(135deg,#c7d2fe,#4f46e5); }
+    .driverIdCard:not(.unlinked):hover{ transform:translateY(-1px); box-shadow:0 10px 22px rgba(15,23,42,.16); }
+
+    .driverIdCardInner{
+      border-radius:15px; background:#11151b; padding:12px 13px 13px;
+      position:relative; min-height:96px; background-size:cover; background-position:center;
+      display:flex; gap:11px; align-items:center;
+    }
+    .driverIdCardInner::before{
+      content:""; position:absolute; inset:0; border-radius:15px;
+      background:linear-gradient(180deg, rgba(8,10,13,.15), rgba(8,10,13,.82)); pointer-events:none;
+    }
+    .driverIdCard.unlinked .driverIdCardInner{ background:#1f2937; }
+
+    .driverCardRole{
+      position:absolute; top:8px; left:13px; z-index:1;
+      font-size:9px; font-weight:900; letter-spacing:.09em; text-transform:uppercase; color:rgba(255,255,255,.75);
+    }
+    .driverCardPhoto{
+      position:relative; z-index:1; width:52px; height:52px; border-radius:12px; object-fit:cover; flex:0 0 auto;
+      border:2px solid rgba(255,255,255,.25); background:#1a2027;
+    }
+    .driverCardBody{ position:relative; z-index:1; min-width:0; flex:1; padding-top:8px; }
+    .driverCardName{ font-size:14px; font-weight:800; color:#fff; line-height:1.2; word-break:break-word; }
+    .driverCardNumber{ font-size:10.5px; color:rgba(255,255,255,.62); font-family:ui-monospace, SFMono-Regular, Menlo, monospace; margin-top:2px; }
+    .driverCardMetaRow{ display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap; }
+    .driverCardTierPill{ display:inline-block; padding:3px 9px; border-radius:999px; font-size:9.5px; font-weight:900; text-transform:uppercase; letter-spacing:.03em; }
+    .driverCardPoints{ font-size:10.5px; font-weight:850; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.12); }
+    .driverCardPoints.pts-green{ color:#6ee7b7; }
+    .driverCardPoints.pts-orange{ color:#fcd34d; }
+    .driverCardPoints.pts-red{ color:#fca5a5; }
+    .driverIdCard.unlinked .driverCardName{ color:#e5e7eb; }
+    .driverIdCard.unlinked .driverCardNumber{ color:rgba(255,255,255,.5); }
+
+    /* ✅ ADDED: Steward Collusion Check (Head Steward only) */
+    .collusionBanner{ border-radius:12px; padding:10px 12px; font-size:13px; font-weight:800; line-height:1.35; }
+    .collusionBanner small{ display:block; margin-top:6px; font-weight:700; opacity:.9; }
+    .collusionHigh{ border:1px solid #fca5a5; background:#fef2f2; color:#991b1b; }
+    .collusionModerate{ border:1px solid #fde68a; background:#fffbeb; color:#92400e; }
+    .collusionLow{ border:1px solid #86efac; background:#ecfdf5; color:#065f46; }
+    .collusionPairLine{ margin-top:8px; font-size:12px; color:#374151; line-height:1.35; }
   </style>
 </head>
 
@@ -800,7 +857,7 @@
               <tr>
                 <th>Steward</th>
                 <th>Comments (7d)</th>
-                <th>Reviews (7d)</th>
+                <th>Recommendations (7d)</th>
                 <th>Tickets Touched (7d)</th>
                 <th>Last Active</th>
               </tr>
@@ -838,9 +895,46 @@
 
         <div class="sec">
           <h3>Ticket Summary</h3>
+
+          <!-- ✅ ADDED: driver identity cards, styled like the IFWL Licence
+               Centre home cards (same treatment added to steward.html).
+               Populated by renderDriverIdCardHead() in selectTicket() via a
+               name lookup against the `licences` collection - purely a
+               read-only visual, separate from the "Linked Driver Licence"
+               management panel below which stays the authoritative link. -->
+          <div class="driverCardRow">
+            <div class="driverIdCard role-accused unlinked" id="sumAccusedCardOuter">
+              <div class="driverIdCardInner" id="sumAccusedCardInner">
+                <div class="driverCardRole">Accused</div>
+                <img class="driverCardPhoto" id="sumAccusedPhoto" alt="" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52'><rect width='52' height='52' fill='%231a2027'/></svg>">
+                <div class="driverCardBody">
+                  <div class="driverCardName" id="sumAccused">—</div>
+                  <div class="driverCardNumber" id="sumAccusedNumber"></div>
+                  <div class="driverCardMetaRow" id="sumAccusedMetaRow" style="display:none;">
+                    <span class="driverCardTierPill" id="sumAccusedTier"></span>
+                    <span class="driverCardPoints" id="sumAccusedPoints"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="driverIdCard role-reporter unlinked" id="sumReporterCardOuter">
+              <div class="driverIdCardInner" id="sumReporterCardInner">
+                <div class="driverCardRole">Reporter</div>
+                <img class="driverCardPhoto" id="sumReporterPhoto" alt="" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52'><rect width='52' height='52' fill='%231a2027'/></svg>">
+                <div class="driverCardBody">
+                  <div class="driverCardName" id="sumReporter">—</div>
+                  <div class="driverCardNumber" id="sumReporterNumber"></div>
+                  <div class="driverCardMetaRow" id="sumReporterMetaRow" style="display:none;">
+                    <span class="driverCardTierPill" id="sumReporterTier"></span>
+                    <span class="driverCardPoints" id="sumReporterPoints"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="grid2">
-            <div><div class="muted">Accused</div><div id="sumAccused">—</div></div>
-            <div><div class="muted">Reporter</div><div id="sumReporter">—</div></div>
             <div><div class="muted">Competition</div><div id="sumCompetition">—</div></div>
             <div><div class="muted">Event</div><div id="sumEvent">—</div></div>
             <div><div class="muted">Rule Breach</div><div id="sumRule">—</div></div>
@@ -1053,6 +1147,24 @@
           <div class="muted" style="margin-top:8px;">
             Writes to <code>/tickets&lt;ticket&gt;/steward_comments</code>
           </div>
+        </div>
+
+        <!-- ✅ ADDED: Steward Collusion Check - Head Steward only, never
+             shown to stewards on steward.html. Stewards can no longer see
+             one another's submissions on their own dashboard, so this
+             compares the penalty opinions actually submitted on this
+             ticket for suspicious overlap (identical code/time picks,
+             near-simultaneous submission times, matching written notes).
+             Computed client-side from the same steward_comments already
+             loaded for the discussion thread above - no extra query, and
+             nothing here is written back to Firestore or exposed anywhere
+             a steward can see it. Heuristic only, not proof. -->
+        <div class="sec" id="collusionSec">
+          <h3 style="margin:0;">Steward Collusion Check</h3>
+          <div class="muted" style="margin-top:6px;">
+            Head Steward only. Compares submitted penalty opinions on this ticket for suspicious overlap — identical code/time, near-simultaneous timing, and matching written notes. Heuristic, not proof — use your judgement.
+          </div>
+          <div id="collusionBody" style="margin-top:10px;"></div>
         </div>
 
         <!-- NEW: Finalisation controls -->
@@ -2986,6 +3098,149 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       };
     }
 
+    // =======================================================
+    // ✅ ADDED: driver identity cards (same treatment added to
+    // steward.html) — a read-only visual lookup for BOTH accused and
+    // reporter, by name match against the `licences` collection already
+    // loaded above via loadAllLicenceProfiles(). This is separate from,
+    // and doesn't replace, the "Linked Driver Licence" panel above (which
+    // stays the authoritative accused-driver link/points/notes tool).
+    // =======================================================
+    function hexToRgba(hex, alpha){
+      const clean = String(hex || '').replace('#','');
+      const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean.padEnd(6,'0').slice(0,6);
+      const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+    // Live tier colours are staff-editable and arbitrary, so pill text
+    // colour is worked out from actual luminance rather than a hardcoded
+    // "is this the light tier" check.
+    function isLightColor(hex){
+      const clean = String(hex || '').replace('#','');
+      const full = clean.length === 3 ? clean.split('').map(c => c+c).join('') : clean.padEnd(6,'0').slice(0,6);
+      const r = parseInt(full.substring(0,2),16) || 0, g = parseInt(full.substring(2,4),16) || 0, b = parseInt(full.substring(4,6),16) || 0;
+      return (0.299*r + 0.587*g + 0.114*b) > 175;
+    }
+
+    // Emergency-only fallback, used solely if the live tier list below
+    // can't be reached (Firestore read fails / doc missing). Names match
+    // the real ladder (Staff > Manage Licence Tiers) so a stale colour is
+    // the worst case, never a wrong tier name.
+    const DEFAULT_TIERS = [
+      { id:'no_licence',   name:'No Licence',          order:0,  color:'#4b5760', foil:false },
+      { id:'provisional',  name:'IFWL-GT-Provisional', order:1,  color:'#93a1a9', foil:false },
+      { id:'gt_rookie',    name:'IFWL-GT-Rookie',      order:2,  color:'#8fb996', foil:false },
+      { id:'gt_beginner',  name:'IFWL-GT-Beginner',    order:3,  color:'#1fd6bd', foil:false },
+      { id:'gt_amateur',   name:'IFWL-GT-Amateur',     order:4,  color:'#4f9df0', foil:false },
+      { id:'gt_pro',       name:'IFWL-GT-Pro',         order:5,  color:'#c65be8', foil:false },
+      { id:'lmu_lmp2',     name:'IFWL-LMU-LMP2',       order:6,  color:'#ff9d4d', foil:false },
+      { id:'lmu_lmp3',     name:'IFWL-LMU-LMP3',       order:7,  color:'#ffb238', foil:false },
+      { id:'lmu_lmgt3',    name:'IFWL-LMU-LMGT3',      order:8,  color:'#f45b69', foil:false },
+      { id:'lmu_lmgte',    name:'IFWL-LMU-LMGTE',      order:9,  color:'#eaf3ff', foil:true  }
+    ];
+
+    // Live tier ladder, same document the Staff "Manage Licence Tiers"
+    // panel writes to (league_meta/licenceTiers) - read directly here
+    // since this page already has Firebase Auth + Firestore access (the
+    // existing `league_meta/{docId}` rule already covers this doc for any
+    // steward/head steward, no rules change needed). Falls back to
+    // DEFAULT_TIERS only if this read fails or the doc doesn't exist yet.
+    let tierListCacheHS = null;
+    async function loadTierList(){
+      if (tierListCacheHS) return tierListCacheHS;
+      try {
+        const snap = await db.collection("league_meta").doc("licenceTiers").get();
+        const tiers = snap.exists ? (snap.data()?.tiers || []) : [];
+        tierListCacheHS = tiers.length ? tiers : DEFAULT_TIERS;
+      } catch (e) {
+        console.warn("Could not load live tier list, using fallback:", e);
+        tierListCacheHS = DEFAULT_TIERS;
+      }
+      return tierListCacheHS;
+    }
+    function findTier(tierName, tiers){
+      const list = (tiers && tiers.length) ? tiers : DEFAULT_TIERS;
+      return list.find(t => t.name === tierName) || list[0];
+    }
+
+    // Generic name-based lookup (works for accused OR reporter) - the
+    // existing findLinkedLicenceForTicket() above is accused-only and
+    // drives the manual link panel, left untouched.
+    function namesFromTicketField(raw){
+      if (Array.isArray(raw)) return raw.filter(Boolean);
+      if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+      return [];
+    }
+    function findLinkedLicenceByNames(names, profiles){
+      const keys = names.map(driverNameKeyLocal);
+      if (!keys.length) return null;
+      return profiles.find(p => (p.accDriverNames || []).some(n => {
+        const key = driverNameKeyLocal(n);
+        return keys.some(k => k.includes(key) || key.includes(k));
+      })) || null;
+    }
+
+    function driverCardPhotoUrl(p){
+      return p.avatarMode === 'upload' && p.photoUploadUrl ? p.photoUploadUrl
+        : p.avatarMode === 'url' && p.avatarUrl ? p.avatarUrl
+        : (p.discordAvatarUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52'><rect width='52' height='52' fill='%231a2027'/></svg>");
+    }
+
+    // role is "Accused" or "Reporter" - matches the #sum<role>... ids in
+    // the Ticket Summary markup.
+    async function renderDriverIdCardHead(role, ticketFieldValue){
+      const outer = $(`sum${role}CardOuter`);
+      const nameEl = $(`sum${role}`);
+      const numberEl = $(`sum${role}Number`);
+      const photoEl = $(`sum${role}Photo`);
+      const metaRow = $(`sum${role}MetaRow`);
+      const tierEl = $(`sum${role}Tier`);
+      const pointsEl = $(`sum${role}Points`);
+      if (!outer || !nameEl) return;
+
+      const names = namesFromTicketField(ticketFieldValue);
+      nameEl.textContent = names.length ? names[0] : "—";
+
+      if (!names.length){
+        outer.classList.add("unlinked");
+        if (numberEl) numberEl.textContent = "";
+        if (metaRow) metaRow.style.display = "none";
+        return;
+      }
+
+      let profiles, tiers;
+      try { [profiles, tiers] = await Promise.all([loadAllLicenceProfiles(), loadTierList()]); }
+      catch (e) { profiles = []; tiers = DEFAULT_TIERS; }
+
+      const match = findLinkedLicenceByNames(names, profiles);
+      if (!match){
+        outer.classList.add("unlinked");
+        if (numberEl) numberEl.textContent = "No linked licence profile";
+        if (metaRow) metaRow.style.display = "none";
+        return;
+      }
+
+      outer.classList.remove("unlinked");
+      if (numberEl) numberEl.textContent = match.licenceNumber || "IFWL-0000-00000";
+      if (photoEl) photoEl.src = driverCardPhotoUrl(match);
+
+      const tier = findTier(match.tier || "No Licence", tiers);
+      if (tierEl){
+        tierEl.textContent = match.tier || tier.name;
+        tierEl.style.background = hexToRgba(tier.color, 0.22);
+        tierEl.style.color = isLightColor(tier.color) ? '#0f172a' : tier.color;
+        tierEl.style.border = `1px solid ${hexToRgba(tier.color, 0.45)}`;
+      }
+      const points = Number(match.licencePoints || 0);
+      if (pointsEl){
+        pointsEl.textContent = `${points} pt${points === 1 ? "" : "s"}`;
+        pointsEl.className = "driverCardPoints " + pointsClass(points);
+      }
+      outer.style.background = tier.foil
+        ? "linear-gradient(135deg,#eaf3ff,#c65be8,#1fd6bd,#eaf3ff)"
+        : `linear-gradient(135deg, ${tier.color}, #4f46e5)`;
+      if (metaRow) metaRow.style.display = "flex";
+    }
 
     async function selectTicket(ticketId) {
       $("selTitle").textContent = `Ticket: ${ticketId}`;
@@ -3013,6 +3268,9 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       renderProof(t.proofUrl || "", t.videoProofUrl || "");
       $("sumIncident").value = t.fullIncident || "";
       $("selSub").textContent = `Accused: ${t.accused || "-"} | Event: ${t.event || "-"}`;
+
+      renderDriverIdCardHead("Accused", t.accused);
+      renderDriverIdCardHead("Reporter", t.reporter);
 
       prefillFinalisationFromTicket();
       await loadLinkedIncidentForSelectedTicket();
@@ -3279,6 +3537,130 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       renderStewardVoteSummary(rows);
     }
 
+    // =======================================================
+    // ✅ ADDED: Steward Collusion Check — Head Steward only. Stewards no
+    // longer see one another's submissions on steward.html, so this looks
+    // for suspicious overlap between the penalty opinions actually
+    // submitted on this ticket: identical code+time picks, near-
+    // simultaneous submission times, and matching written notes. This is
+    // a heuristic signal for the Head Steward to look into, not proof of
+    // wrongdoing - it's computed entirely client-side from the same
+    // steward_comments already loaded for the discussion thread, is never
+    // written back to Firestore, and never reaches steward.html.
+    // =======================================================
+    function normaliseNoteWords(s){
+      return String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    }
+    // The penalty-opinion `text` field is "🧾 PENALTY OPINION\n...\n\nSteward
+    // note:\n<note>" (see postPenaltyOpinion) - pull out just the free-typed
+    // note so two stewards independently agreeing on the same code/time
+    // (using the same boilerplate wording) doesn't look like copying.
+    function extractStewardNote(text){
+      const m = /steward note:\s*\n([\s\S]*)$/i.exec(String(text || ""));
+      return m ? m[1].trim() : "";
+    }
+    function noteSimilarity(a, b){
+      const ta = new Set(normaliseNoteWords(a).split(" ").filter(Boolean));
+      const tb = new Set(normaliseNoteWords(b).split(" ").filter(Boolean));
+      if (!ta.size || !tb.size) return 0;
+      let shared = 0;
+      ta.forEach(w => { if (tb.has(w)) shared++; });
+      const union = new Set([...ta, ...tb]).size;
+      return union ? shared / union : 0;
+    }
+
+    function analyseStewardCollusion(commentRows){
+      const opinions = (commentRows || []).filter(r => r && r.kind === "penalty_opinion" && r.author && r.penaltyCode);
+
+      // One opinion per steward - if someone resubmitted, compare their latest.
+      const byAuthor = new Map();
+      for (const r of opinions){
+        const prev = byAuthor.get(r.author);
+        if (!prev || (r.tsMs || 0) > (prev.tsMs || 0)) byAuthor.set(r.author, r);
+      }
+      const list = [...byAuthor.values()];
+
+      if (list.length < 2){
+        return { verdict: "insufficient", score: 0, stewardCount: list.length };
+      }
+
+      let bestScore = 0;
+      let bestPair = null;
+
+      for (let i = 0; i < list.length; i++){
+        for (let j = i + 1; j < list.length; j++){
+          const a = list[i], b = list[j];
+          let score = 0;
+          const signals = [];
+
+          const sameCode = a.penaltyCode === b.penaltyCode;
+          const sameTime = !!a.penaltyTime && a.penaltyTime === b.penaltyTime;
+          if (sameCode) { score += 28; signals.push("same penalty code"); }
+          if (sameTime) { score += 22; signals.push("same time penalty"); }
+
+          const noteA = extractStewardNote(a.text);
+          const noteB = extractStewardNote(b.text);
+          if (noteA && noteB){
+            const sim = noteSimilarity(noteA, noteB);
+            if (sim >= 0.9) { score += 40; signals.push("near-identical written note"); }
+            else if (sim >= 0.7) { score += 25; signals.push("very similar note wording"); }
+            else if (sim >= 0.45) { score += 10; signals.push("some overlapping note phrasing"); }
+          }
+
+          const gapSec = Math.abs((a.tsMs || 0) - (b.tsMs || 0)) / 1000;
+          if (sameCode && sameTime && a.tsMs && b.tsMs){
+            if (gapSec <= 120) { score += 20; signals.push(`submitted only ${Math.round(gapSec)}s apart`); }
+            else if (gapSec <= 600) { score += 8; signals.push(`submitted ${Math.round(gapSec / 60)} min apart`); }
+          }
+
+          score = Math.min(100, score);
+          if (score > bestScore){ bestScore = score; bestPair = { a: a.author, b: b.author, signals }; }
+        }
+      }
+
+      let verdict;
+      if (bestScore >= 65) verdict = "high";
+      else if (bestScore >= 35) verdict = "moderate";
+      else verdict = "low";
+
+      return { verdict, score: bestScore, stewardCount: list.length, bestPair };
+    }
+
+    function renderCollusionCheck(commentRows){
+      const el = $("collusionBody");
+      if (!el) return;
+
+      const analysis = analyseStewardCollusion(commentRows);
+
+      if (analysis.verdict === "insufficient"){
+        el.innerHTML = `<div class="muted">Not enough independent steward penalty opinions submitted yet (${analysis.stewardCount}/2 minimum) to run a collusion check.</div>`;
+        return;
+      }
+
+      const info = {
+        high:     { cls: "collusionHigh",     label: "HIGH CHANCE of collusion or copying" },
+        moderate: { cls: "collusionModerate", label: "Some similarity — worth a second look" },
+        low:      { cls: "collusionLow",      label: "Appears independent — ~0% chance of collusion" }
+      }[analysis.verdict];
+
+      const msg = analysis.verdict === "high"
+        ? "There is a high chance stewards have simply colluded, or copied one another's penalty code/opinion."
+        : analysis.verdict === "moderate"
+          ? "Some overlap was detected between steward opinions. Not conclusive on its own, but may be worth a second look."
+          : "It appears to have ~0% chance these stewards have colluded or copied one another.";
+
+      const pairLine = analysis.bestPair
+        ? `<div class="collusionPairLine">Most similar pair: <b>${escapeHtml(analysis.bestPair.a)}</b> and <b>${escapeHtml(analysis.bestPair.b)}</b>${analysis.bestPair.signals.length ? " — " + escapeHtml(analysis.bestPair.signals.join(", ")) : ""}.</div>`
+        : "";
+
+      el.innerHTML = `
+        <div class="collusionBanner ${info.cls}">
+          ${escapeHtml(info.label)}
+          <small>Heuristic score ${analysis.score}/100, based on ${analysis.stewardCount} independent steward penalty opinion(s) on this ticket. ${escapeHtml(msg)}</small>
+        </div>
+        ${pairLine}
+      `;
+    }
 
     // ---------- NEW: steward discussion (head steward sees author email) ----------
     async function loadDiscussion() {
@@ -3298,6 +3680,7 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
         if (snap.empty) {
           list.innerHTML = `<div class="muted">No steward comments yet.</div>`;
           await updateStewardVoteSummary([]);
+          renderCollusionCheck([]);
           return;
         }
 
@@ -3319,7 +3702,8 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
             text,
             kind: String(d.kind || "").trim(),
             penaltyCode: String(d.penaltyCode || "").trim(),
-            penaltyTime: normalisePenaltyTimeValue(d.penaltyTime || d.timePenalty || d.recommendedPenaltyTime || "")
+            penaltyTime: normalisePenaltyTimeValue(d.penaltyTime || d.timePenalty || d.recommendedPenaltyTime || ""),
+            tsMs: ts ? ts.getTime() : 0 // ✅ ADDED - for the collusion check's submission-timing signal
           });
 
           const box = document.createElement("div");
@@ -3339,6 +3723,7 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
         });
 
         await updateStewardVoteSummary(commentRows);
+        renderCollusionCheck(commentRows);
       } catch (e) {
         console.error("loadDiscussion failed:", e);
         list.innerHTML = `<div class="muted">Failed to load comments (check console).</div>`;
@@ -3481,10 +3866,18 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
       }
 
       let commentDocs = 0;
-      let reviewDocs = 0;
 
       try {
-        // Comments (7 days) — collectionGroup
+        // Comments (7 days) — collectionGroup. Penalty-opinion posts
+        // (kind:"penalty_opinion") are counted as recommendations here too.
+        // ✅ CHANGED: this used to also query a separate `reviews`
+        // sub-collection (the old CAUSE+EFFECT review docs). CAUSE+EFFECT
+        // has been fully removed and nothing writes to `reviews` any more,
+        // so that query always came back empty and silently zeroed out
+        // this whole column. Penalty opinions are the real, still-used
+        // recommendation signal - same one the per-ticket steward vote
+        // summary and collusion check are built from - so this now counts
+        // those instead, from data already being fetched here anyway.
         const commentsSnap = await db
           .collectionGroup("steward_comments")
           .where("createdAt", ">=", since)
@@ -3503,31 +3896,7 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
 
           const s = getOrCreate(key, author);
           s.comments += 1;
-          if (ticketId) s.tickets.add(ticketId);
-
-          const tms = ts.getTime();
-          if (tms > s.lastActiveMs) s.lastActiveMs = tms;
-        });
-
-        // Reviews (7 days)
-        const reviewsSnap = await db
-          .collectionGroup("reviews")
-          .where("submittedAt", ">=", since)
-          .get();
-
-        reviewDocs = reviewsSnap.size;
-
-        reviewsSnap.forEach(doc => {
-          const d = doc.data() || {};
-          const ts = d.submittedAt && d.submittedAt.toDate ? d.submittedAt.toDate() : null;
-          if (!ts) return;
-
-          const author = String(d.stewardEmail || d.authorKey || "unknown").trim() || "unknown";
-          const key = safeKey(author) || "unknown";
-          const ticketId = ticketIdFromDocRef(doc.ref);
-
-          const s = getOrCreate(key, author);
-          s.reviews += 1;
+          if (String(d.kind || "").trim() === "penalty_opinion") s.reviews += 1;
           if (ticketId) s.tickets.add(ticketId);
 
           const tms = ts.getTime();
@@ -3559,7 +3928,7 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
         }
 
         wrapEl.style.display = "block";
-        metaEl.textContent = `Loaded. Comments scanned: ${commentDocs} • Reviews scanned: ${reviewDocs} • Window: last 7 days.`;
+        metaEl.textContent = `Loaded. Comments scanned: ${commentDocs} • Window: last 7 days.`;
       } catch (e) {
         console.error("loadStewardAudit7d failed:", e);
         metaEl.textContent = "Audit failed. Likely missing Firestore index for collectionGroup query, or rules deny access. Check console for the exact Firebase error (it often includes a 'create index' link).";
