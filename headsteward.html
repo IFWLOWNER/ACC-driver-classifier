@@ -1116,6 +1116,30 @@
           </div>
         </div>
 
+        <!-- ✅ ADDED: Submit to SimGrid - builds a public, read-only report
+             page (simgridreport.html) for this ticket and gives you a
+             shareable link. Snapshots the ticket facts, evidence, the full
+             internal steward comment/action trail, and the final ruling at
+             the moment you click - so the link stays a fixed record even if
+             the ticket is edited afterwards. Head Steward only. -->
+        <div class="sec" id="simgridSec">
+          <div class="row" style="justify-content:space-between; align-items:flex-start;">
+            <div>
+              <h3 style="margin:0;">Submit to SimGrid</h3>
+              <div class="muted" style="margin-top:6px;">
+                Builds a shareable, public report link for SimGrid staff - incident footage, driver info, the full steward comment trail, and the rules breach/final ruling on this ticket.
+              </div>
+            </div>
+            <div id="simgridStatusLine" class="badge">Not yet submitted to SimGrid</div>
+          </div>
+
+          <div class="finaliseActions">
+            <button class="primary" id="submitSimgridBtn">Submit to SimGrid</button>
+          </div>
+
+          <div class="finalisePreview" id="simgridLinkBox"></div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -1798,6 +1822,140 @@
     const OPEN_STATEMENTS_URL = IFWL_PORTAL_BASE_URL + "openstatements.html";
     const STEWARD_DELIBERATION_URL = IFWL_PORTAL_BASE_URL + "steward.html";
 
+    // ✅ ADDED: Submit to SimGrid. simgrid_reports/{ticketId} is a
+    // Head-Steward-written, publicly-readable SNAPSHOT doc (see Firestore
+    // rules) - deliberately separate from the live /tickets doc so the
+    // shared link stays a fixed record of what was true when it was sent,
+    // even if the ticket is edited or re-opened afterwards.
+    const SIMGRID_REPORT_URL = IFWL_PORTAL_BASE_URL + "simgridreport.html";
+
+    function buildSimgridReportLink(ticketId) {
+      return `${SIMGRID_REPORT_URL}?ticket=${encodeURIComponent(ticketId)}`;
+    }
+
+    function renderSimgridStatus(t) {
+      const el = $("simgridStatusLine");
+      if (!el) return;
+      if (t && t.simgridReportSubmittedAtMs) {
+        const when = new Date(t.simgridReportSubmittedAtMs).toLocaleString();
+        el.className = "badge ok";
+        el.textContent = `Submitted to SimGrid — ${when}`;
+      } else {
+        el.className = "badge";
+        el.textContent = "Not yet submitted to SimGrid";
+      }
+
+      // hide the link box on ticket switch until re-submitted/refreshed this session,
+      // so a stale link from a PREVIOUSLY selected ticket can't be mistaken for this one
+      const box = $("simgridLinkBox");
+      if (box) { box.style.display = "none"; box.innerHTML = ""; }
+    }
+
+    async function submitToSimGrid() {
+      if (!selectedTicketId) { toast("Select a ticket first"); return; }
+      if (!isHead) { toast("Head Steward access required"); return; }
+      const t = getSelectedTicketData();
+      if (!t) { toast("Ticket not loaded"); return; }
+
+      const already = !!t.simgridReportSubmittedAtMs;
+      const notFinal = !isFinalised(t.status);
+
+      let warnMsg = already
+        ? "This ticket was already submitted to SimGrid. Re-submitting refreshes the report with the latest data - the link stays the same."
+        : "Submit this ticket to SimGrid?";
+      if (notFinal) {
+        warnMsg += `\n\nWarning: this ticket is NOT yet finalised (status: "${t.status || "Under Review"}"). SimGrid will see it with no final IFWL ruling attached unless you finalise first.`;
+      }
+      warnMsg += "\n\nThis creates a public, shareable report page containing the incident evidence, driver info, and the full internal steward comment/action trail on this ticket. Continue?";
+
+      const ok = confirm(warnMsg);
+      if (!ok) return;
+
+      const note = (prompt("Optional note to SimGrid staff (leave blank to skip):", t.simgridReportNote || "") || "").trim();
+
+      const btn = $("submitSimgridBtn");
+      const original = btn ? btn.textContent : "";
+      if (btn) { btn.disabled = true; btn.textContent = "Submitting…"; }
+
+      try {
+        const comments = await fetchStewardComments(selectedTicketId);
+        const stewardActions = comments.map(c => ({
+          when: c.when,
+          who: maskEmail(c.author) || "Unknown",
+          text: c.text,
+          kind: c.kind || ""
+        }));
+
+        const nowMs = Date.now();
+        const finalisedAtMs = (t.finalisedAt && typeof t.finalisedAt.toMillis === "function") ? t.finalisedAt.toMillis() : null;
+
+        const payload = {
+          ticketId: selectedTicketId,
+          accused: t.accused || "",
+          reporter: t.reporter || "",
+          competition: t.competition || "",
+          event: t.event || "",
+          ruleBreach: t.ruleBreach || "",
+          fullIncident: t.fullIncident || "",
+          proofUrl: t.proofUrl || "",
+          videoProofUrl: t.videoProofUrl || "",
+          status: t.status || "Under Review",
+          stewardDecision: t.stewardDecision || "",
+          finalPenalty: t.finalPenalty || t.penaltyApplied || "",
+          finalPenaltyCode: t.finalPenaltyCode || t.postRaceCode || "",
+          finalPenaltyTime: t.finalPenaltyTime || t.penaltyTime || t.timePenalty || "",
+          finalStewardTag: t.stewardTag || "",
+          finalisedAtMs: finalisedAtMs,
+          stewardActions,
+          note,
+          submittedBy: maskEmail(currentEmail) || "Head Steward",
+          submittedAtMs: nowMs
+        };
+
+        await db.collection("simgrid_reports").doc(selectedTicketId).set(payload);
+
+        await db.collection("tickets").doc(selectedTicketId).update({
+          simgridReportSubmittedAtMs: nowMs,
+          simgridReportSubmittedBy: currentEmail || "",
+          simgridReportNote: note
+        });
+
+        selectedTicketSnap = await db.collection("tickets").doc(selectedTicketId).get();
+        renderSimgridStatus(getSelectedTicketData());
+
+        const link = buildSimgridReportLink(selectedTicketId);
+        const linkBox = $("simgridLinkBox");
+        if (linkBox) {
+          linkBox.style.display = "block";
+          linkBox.innerHTML = `
+            <div><b>Shareable SimGrid report link:</b></div>
+            <div style="word-break:break-all; margin-top:6px;"><a href="${escapeHtml(link)}" target="_blank" rel="noopener">${escapeHtml(link)}</a></div>
+            <div class="row" style="margin-top:10px;">
+              <button id="copySimgridLinkBtn" type="button">Copy link</button>
+              <button id="openSimgridLinkBtn" type="button">Open report</button>
+            </div>
+          `;
+          const copyBtn = $("copySimgridLinkBtn");
+          if (copyBtn) copyBtn.onclick = () => {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(link).then(() => toast("Link copied ✅")).catch(() => toast("Copy failed - copy it manually from the box above"));
+            } else {
+              toast("Copy not supported here - copy the link manually");
+            }
+          };
+          const openBtn = $("openSimgridLinkBtn");
+          if (openBtn) openBtn.onclick = () => window.open(link, "_blank", "noopener");
+        }
+
+        toast("Submitted to SimGrid ✅");
+      } catch (e) {
+        console.error("submitToSimGrid failed:", e);
+        toast("Submit to SimGrid failed:\n" + (e?.message || e));
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = original; }
+      }
+    }
+
     function discordLink(label, url) {
       const safeLabel = String(label || "Open link").replace(/[\[\]]/g, "");
       const safeUrl = String(url || "").trim();
@@ -2121,6 +2279,7 @@ This will not change Firestore status.`);
     if (clearLinkedSelectionBtn) clearLinkedSelectionBtn.onclick = () => clearLinkedTicketSelection();
     if (previewLinkedOutcomeBtn) previewLinkedOutcomeBtn.onclick = () => updateLinkedOutcomePreview();
     if (publishLinkedOutcomeBtn) publishLinkedOutcomeBtn.onclick = () => publishLinkedIncidentOutcome();
+    if ($("submitSimgridBtn")) $("submitSimgridBtn").onclick = () => submitToSimGrid();
 
 
 
@@ -2861,6 +3020,7 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       await loadDiscussion();
       updateFinalDiscordPreview();
       renderLicenceLinkPanel(t); // ✅ ADDED: Licence Centre integration
+      renderSimgridStatus(t); // ✅ ADDED: Submit to SimGrid status
     }
 
     async function loadStatements() {
