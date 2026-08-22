@@ -1162,7 +1162,7 @@
         <div class="sec" id="collusionSec">
           <h3 style="margin:0;">Steward Collusion Check</h3>
           <div class="muted" style="margin-top:6px;">
-            Head Steward only. Compares submitted penalty opinions on this ticket for suspicious overlap — identical code/time, near-simultaneous timing, and matching written notes. Heuristic, not proof — use your judgement.
+            Head Steward only. Compares submitted penalty opinions on this ticket for suspicious overlap — same penalty code, and time penalties that are identical or within 5 seconds of each other. Written notes are ignored. Heuristic, not proof — use your judgement.
           </div>
           <div id="collusionBody" style="margin-top:10px;"></div>
         </div>
@@ -3541,32 +3541,24 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
     // ✅ ADDED: Steward Collusion Check — Head Steward only. Stewards no
     // longer see one another's submissions on steward.html, so this looks
     // for suspicious overlap between the penalty opinions actually
-    // submitted on this ticket: identical code+time picks, near-
-    // simultaneous submission times, and matching written notes. This is
-    // a heuristic signal for the Head Steward to look into, not proof of
-    // wrongdoing - it's computed entirely client-side from the same
-    // steward_comments already loaded for the discussion thread, is never
-    // written back to Firestore, and never reaches steward.html.
+    // submitted on this ticket. ✅ CHANGED: written-note comparison has
+    // been removed per Head Steward direction (notes are too easy to
+    // reword and not a reliable signal) - this is now based purely on the
+    // penalty code and time penalty each steward actually selected: an
+    // exact code match, plus their time penalties being identical or
+    // within 5 seconds of each other (the dropdown steps in 5s
+    // increments, so "20s" vs "25s" is as close as two independent
+    // stewards can get without matching exactly). This is a heuristic
+    // signal for the Head Steward to look into, not proof of wrongdoing -
+    // it's computed entirely client-side from the same steward_comments
+    // already loaded for the discussion thread, is never written back to
+    // Firestore, and never reaches steward.html.
     // =======================================================
-    function normaliseNoteWords(s){
-      return String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-    }
-    // The penalty-opinion `text` field is "🧾 PENALTY OPINION\n...\n\nSteward
-    // note:\n<note>" (see postPenaltyOpinion) - pull out just the free-typed
-    // note so two stewards independently agreeing on the same code/time
-    // (using the same boilerplate wording) doesn't look like copying.
-    function extractStewardNote(text){
-      const m = /steward note:\s*\n([\s\S]*)$/i.exec(String(text || ""));
-      return m ? m[1].trim() : "";
-    }
-    function noteSimilarity(a, b){
-      const ta = new Set(normaliseNoteWords(a).split(" ").filter(Boolean));
-      const tb = new Set(normaliseNoteWords(b).split(" ").filter(Boolean));
-      if (!ta.size || !tb.size) return 0;
-      let shared = 0;
-      ta.forEach(w => { if (tb.has(w)) shared++; });
-      const union = new Set([...ta, ...tb]).size;
-      return union ? shared / union : 0;
+    // Numeric time penalties ("5".."60") compare as seconds; "DQ"/"NFA"
+    // are categorical and can only ever match themselves exactly.
+    function penaltyTimeSeconds(penaltyTime){
+      const n = parseInt(String(penaltyTime || "").trim(), 10);
+      return Number.isFinite(n) ? n : null;
     }
 
     function analyseStewardCollusion(commentRows){
@@ -3594,23 +3586,17 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
           const signals = [];
 
           const sameCode = a.penaltyCode === b.penaltyCode;
-          const sameTime = !!a.penaltyTime && a.penaltyTime === b.penaltyTime;
-          if (sameCode) { score += 28; signals.push("same penalty code"); }
-          if (sameTime) { score += 22; signals.push("same time penalty"); }
+          if (sameCode) { score += 50; signals.push("same penalty code"); }
 
-          const noteA = extractStewardNote(a.text);
-          const noteB = extractStewardNote(b.text);
-          if (noteA && noteB){
-            const sim = noteSimilarity(noteA, noteB);
-            if (sim >= 0.9) { score += 40; signals.push("near-identical written note"); }
-            else if (sim >= 0.7) { score += 25; signals.push("very similar note wording"); }
-            else if (sim >= 0.45) { score += 10; signals.push("some overlapping note phrasing"); }
-          }
-
-          const gapSec = Math.abs((a.tsMs || 0) - (b.tsMs || 0)) / 1000;
-          if (sameCode && sameTime && a.tsMs && b.tsMs){
-            if (gapSec <= 120) { score += 20; signals.push(`submitted only ${Math.round(gapSec)}s apart`); }
-            else if (gapSec <= 600) { score += 8; signals.push(`submitted ${Math.round(gapSec / 60)} min apart`); }
+          const secA = penaltyTimeSeconds(a.penaltyTime);
+          const secB = penaltyTimeSeconds(b.penaltyTime);
+          if (secA !== null && secB !== null){
+            const diff = Math.abs(secA - secB);
+            if (diff === 0) { score += 50; signals.push("identical time penalty"); }
+            else if (diff <= 5) { score += 35; signals.push(`time penalties only ${diff}s apart`); }
+          } else if (a.penaltyTime && a.penaltyTime === b.penaltyTime) {
+            // both categorical and matching, e.g. both "DQ" or both "NFA"
+            score += 50; signals.push(`same "${a.penaltyTime}" call`);
           }
 
           score = Math.min(100, score);
@@ -3619,8 +3605,8 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       }
 
       let verdict;
-      if (bestScore >= 65) verdict = "high";
-      else if (bestScore >= 35) verdict = "moderate";
+      if (bestScore >= 70) verdict = "high";
+      else if (bestScore >= 40) verdict = "moderate";
       else verdict = "low";
 
       return { verdict, score: bestScore, stewardCount: list.length, bestPair };
