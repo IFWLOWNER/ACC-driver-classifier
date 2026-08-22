@@ -121,7 +121,6 @@
     @media (max-width: 980px){
       .wrap{ grid-template-columns:1fr; width:calc(100% - 20px); }
       body > div[style*="padding:14px"]{ width:calc(100% - 20px); }
-      .rulesAuditFullWidth{ width:calc(100% - 20px) !important; margin:0 auto; }
     }
 
     .card{
@@ -293,7 +292,7 @@
     #statementsSec h3::before{ content:"🗣️"; }
     #discussionSec h3::before{ content:"💬"; }
     #linkedIncidentSec h3::before{ content:"🔗"; }
-    #rulesAuditCard .title::before{ content:"📚 "; }
+    #driverHistorySec h3::before{ content:"🕘"; }
 
     #selTitle{ font-size:19px; }
     #selTitle::after{ content:""; display:block; width:60px; height:3px; margin-top:8px; border-radius:999px; background:linear-gradient(90deg,var(--red),var(--blue)); }
@@ -360,14 +359,21 @@
     .linkedDriverList ol{ margin:6px 0 0 20px; padding:0; }
     .linkedDriverList li{ margin:3px 0; }
 
-    /* ---------- rules audit table ---------- */
-    .rulesAuditFullWidth{ width:100%; max-width:100%; display:block; }
-    .wrap .rulesAuditFullWidth{ grid-column:1 / -1; }
-    .tableWrap{ overflow:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:var(--radius-sm); max-width:100%; }
-    table{ border-collapse:collapse; width:100%; min-width:760px; background:#fff; }
-    th, td{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:top; }
-    th{ background:var(--card-soft); font-weight:850; color:var(--navy); position:sticky; top:0; z-index:1; }
-    td{ background:#fff; }
+    /* ---------- driver history (NEW) ---------- */
+    .driverHistoryGrid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px; }
+    @media (max-width: 640px){ .driverHistoryGrid{ grid-template-columns:1fr; } }
+    .driverHistoryCol{ min-width:0; }
+    .driverHistoryLabel{ font-size:12px; font-weight:800; color:var(--navy); margin-bottom:6px; }
+    .driverHistoryList{ display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding-right:2px; }
+    .driverHistoryItem{
+      border:1px solid var(--line); border-radius:var(--radius-sm); background:linear-gradient(180deg,#fff,#f8fbff);
+      padding:9px 11px; font-size:12px; line-height:1.35; cursor:pointer; box-shadow:var(--shadow-sm);
+      transition:transform .12s ease, box-shadow .12s ease;
+    }
+    .driverHistoryItem:hover{ transform:translateY(-1px); box-shadow:0 10px 20px rgba(15,23,42,.10); }
+    .driverHistoryItem .roleTag{ font-weight:850; color:var(--navy); }
+    .driverHistoryItem .muted{ margin-top:2px; }
+    .driverHistoryEmpty{ font-size:12px; color:var(--muted); font-weight:650; padding:6px 2px; }
 
     /* ---------- driver identity cards (NEW — licence-card styling) ---------- */
     .driverCardRow{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
@@ -582,6 +588,26 @@
           </div>
         </div>
 
+        <!-- ✅ ADDED: Driver History - other tickets involving the accused
+             and reporter drivers on this ticket, so a steward can spot a
+             repeat offender or a serial reporter at a glance. Matches
+             ticket accused/reporter text the same fuzzy way the licence
+             card lookup does (car-number prefixes vary between tickets). -->
+        <div class="sec" id="driverHistorySec">
+          <h3>Driver History</h3>
+          <div class="muted">Other tickets involving these two drivers, as either accused or reporter.</div>
+
+          <div class="driverHistoryGrid">
+            <div class="driverHistoryCol">
+              <div class="driverHistoryLabel">Accused: <span id="historyAccusedLabel">—</span></div>
+              <div class="driverHistoryList" id="historyAccusedList"></div>
+            </div>
+            <div class="driverHistoryCol">
+              <div class="driverHistoryLabel">Reporter: <span id="historyReporterLabel">—</span></div>
+              <div class="driverHistoryList" id="historyReporterList"></div>
+            </div>
+          </div>
+        </div>
 
         <!-- Linked Incident Notice (Steward view - read only) -->
         <div class="sec" id="linkedIncidentSec" style="display:none;">
@@ -708,53 +734,6 @@
           </div>
         </div>
 
-      </div>
-    </div>
-  </div>
-
-  <!-- ✅ ONLY ADDITION HERE: class="rulesAuditFullWidth" (nothing removed) -->
-  <div style="padding:14px; padding-top:0;" class="rulesAuditFullWidth">
-    <div class="card" id="rulesAuditCard">
-      <div class="row" style="justify-content:space-between; align-items:flex-start;">
-        <div>
-          <div class="title" style="margin:0;">Season Rules Access Audit</div>
-          <div class="muted" id="rulesAuditSub">
-            Shows Discord users who have opened the Season Rules via the gateway (Firestore: <code>rules_access</code>).
-          </div>
-        </div>
-        <div class="row" style="gap:10px;">
-          <button id="rulesAuditRefreshBtn">Refresh</button>
-        </div>
-      </div>
-
-      <div class="row" style="margin-top:10px;">
-        <div style="flex:1; min-width:240px;">
-          <label class="muted">Search (username or userId)</label>
-          <input id="rulesAuditSearch" placeholder="e.g. bobbins3425 or 6553497…" />
-        </div>
-        <div class="pill" id="rulesAuditPill">Loading…</div>
-      </div>
-
-      <div style="margin-top:10px;" class="tableWrap">
-        <table aria-label="Rules access audit table">
-          <thead>
-            <tr>
-              <th>Discord</th>
-              <th>User ID</th>
-              <th>First access</th>
-              <th>Last access</th>
-              <th>Count</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="rulesAuditTbody">
-            <tr><td colspan="6" class="muted">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="muted" style="margin-top:10px;">
-        Tip: This logs access only when users go through the Rules Gateway (the green button). Direct visits to GitHub rules page won’t be recorded.
       </div>
     </div>
   </div>
@@ -1227,6 +1206,106 @@
       if (metaRow) metaRow.style.display = "flex";
     }
 
+    // =======================================================
+    // ✅ ADDED: Driver History - other tickets involving the accused/
+    // reporter drivers on the selected ticket. Fetches a bounded set of
+    // tickets once (cached), then matches client-side the same fuzzy way
+    // findLinkedLicenceSteward() does (ticket accused/reporter text often
+    // carries a bracketed car number that varies between tickets).
+    // =======================================================
+    let allTicketsCacheSteward = null;
+    async function loadAllTicketsForHistory(){
+      if (allTicketsCacheSteward) return allTicketsCacheSteward;
+      try {
+        const snap = await db.collection("tickets").limit(1500).get();
+        allTicketsCacheSteward = snap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
+      } catch (e) {
+        console.warn("Could not load tickets for driver history:", e);
+        allTicketsCacheSteward = [];
+      }
+      return allTicketsCacheSteward;
+    }
+
+    function ticketDateMs(t){
+      const d = toDateSafe(t.timestamp || t.createdAt || t.submittedAt || t.finalisedAt || null);
+      return d ? d.getTime() : 0;
+    }
+
+    // Ticket accused/reporter text often carries a leading bracketed car
+    // number ("[18] - Mathias Gonalons") that changes between rounds as a
+    // driver switches cars, so a plain substring match (fine for the
+    // licence-card lookup, which matches against a driver's self-reported
+    // accDriverNames) misses history across a car-number change. Strip that
+    // prefix before comparing so "[7] - X" and "[18] - X" both key to "x".
+    function historyNameKey(name){
+      return String(name || "")
+        .replace(/^\s*[\[(][^\])]*[\])]\s*-?\s*/, "")
+        .trim()
+        .toLowerCase();
+    }
+
+    function findDriverHistoryTickets(names, allTickets, excludeTicketId){
+      const keys = names.map(historyNameKey).filter(Boolean);
+      if (!keys.length) return [];
+
+      const nameMatches = (fieldValue) => namesFromTicketField(fieldValue).some(n => {
+        const key = historyNameKey(n);
+        return !!key && keys.includes(key);
+      });
+
+      const out = [];
+      for (const t of allTickets) {
+        if (t.id === excludeTicketId) continue;
+        if (nameMatches(t.accused)) out.push({ t, role: "Accused" });
+        else if (nameMatches(t.reporter)) out.push({ t, role: "Reporter" });
+      }
+      out.sort((a, b) => ticketDateMs(b.t) - ticketDateMs(a.t));
+      return out;
+    }
+
+    function renderDriverHistoryList(listEl, entries){
+      if (!listEl) return;
+      if (!entries.length) {
+        listEl.innerHTML = `<div class="driverHistoryEmpty">No other tickets found for this driver.</div>`;
+        return;
+      }
+      listEl.innerHTML = entries.slice(0, 12).map(({ t, role }) => {
+        const event = shortTicketText(t.event, "Unknown event");
+        const rule = shortTicketText(t.ruleBreach || t.postRaceCode, "No rule/code listed");
+        const status = shortTicketText(t.status, "Under Review");
+        const when = fmtDate(t.timestamp || t.createdAt || t.submittedAt || t.finalisedAt);
+        return `
+          <div class="driverHistoryItem" data-ticket-id="${escapeHtml(t.id)}">
+            <div><span class="roleTag">${role}</span> — ${escapeHtml(event)}</div>
+            <div class="muted">${escapeHtml(rule)} &middot; ${escapeHtml(status)} &middot; ${escapeHtml(when)}</div>
+          </div>
+        `;
+      }).join("");
+
+      listEl.querySelectorAll("[data-ticket-id]").forEach(el => {
+        el.onclick = () => selectTicket(el.dataset.ticketId);
+      });
+    }
+
+    async function renderDriverHistoryColumn(role, ticketFieldValue, excludeTicketId){
+      const labelEl = $(`history${role}Label`);
+      const listEl = $(`history${role}List`);
+      if (!labelEl || !listEl) return;
+
+      const names = namesFromTicketField(ticketFieldValue);
+      labelEl.textContent = names.length ? names[0] : "—";
+
+      if (!names.length) {
+        listEl.innerHTML = `<div class="driverHistoryEmpty">No driver recorded on this ticket.</div>`;
+        return;
+      }
+
+      listEl.innerHTML = `<div class="driverHistoryEmpty">Loading…</div>`;
+      const allTickets = await loadAllTicketsForHistory();
+      const entries = findDriverHistoryTickets(names, allTickets, excludeTicketId);
+      renderDriverHistoryList(listEl, entries);
+    }
+
     // ---------- statement status ----------
     const statementStatusCache = new Map();
 
@@ -1597,12 +1676,6 @@
     const recuseBtn = $("recuseBtn");
     if (recuseBtn) recuseBtn.onclick = () => recuseYourself();
 
-    // NEW: Rules audit wiring
-    const rulesAuditRefreshBtn = $("rulesAuditRefreshBtn");
-    const rulesAuditSearchEl = $("rulesAuditSearch");
-    if (rulesAuditRefreshBtn) rulesAuditRefreshBtn.onclick = () => loadRulesAudit();
-    if (rulesAuditSearchEl) rulesAuditSearchEl.oninput = () => renderRulesAuditFiltered();
-
     // ---------- gating ----------
     auth.onAuthStateChanged(async (user) => {
       try {
@@ -1640,16 +1713,11 @@
         await loadTickets();
         await loadMyAccountability();
 
-        // NEW: load rules audit
-        await loadRulesAudit();
-
       } catch (e) {
         toast("Auth error: " + (e?.message || e));
       }
     });
 
-    // ---------- Rules Access Audit (NEW) ----------
-    let rulesAuditCache = []; // [{userId, username, firstAccessAt, lastAccessAt, count}]
     function toDateSafe(ts) {
       try {
         if (!ts) return null;
@@ -1665,101 +1733,6 @@
     function fmtDate(ts) {
       const d = toDateSafe(ts);
       return d ? d.toLocaleString() : "—";
-    }
-
-    function renderRulesAuditFiltered() {
-      const tbody = $("rulesAuditTbody");
-      const pill = $("rulesAuditPill");
-      const sub = $("rulesAuditSub");
-      if (!tbody || !pill || !sub) return;
-
-      const q = String(($("rulesAuditSearch")?.value || "")).toLowerCase().trim();
-
-      const filtered = rulesAuditCache.filter(r => {
-        const u = String(r.username || "").toLowerCase();
-        const id = String(r.userId || "").toLowerCase();
-        return !q || u.includes(q) || id.includes(q);
-      });
-
-      pill.innerHTML = `Rows: <strong>${filtered.length}</strong> / ${rulesAuditCache.length}`;
-
-      if (!filtered.length) {
-        tbody.innerHTML = `<tr><td colspan="6" class="muted">No results.</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = "";
-      for (const r of filtered) {
-        const ok = (Number(r.count || 0) >= 1);
-        const status = ok
-          ? `<span class="miniPill miniOk">READ ✅</span>`
-          : `<span class="miniPill miniBad">NO READ</span>`;
-
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${escapeHtml(r.username || "—")}</td>
-          <td class="mono">${escapeHtml(r.userId || "—")}</td>
-          <td>${escapeHtml(fmtDate(r.firstAccessAt))}</td>
-          <td>${escapeHtml(fmtDate(r.lastAccessAt))}</td>
-          <td><span class="miniPill"><strong>${escapeHtml(String(r.count ?? 0))}</strong></span></td>
-          <td>${status}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-    }
-
-    async function loadRulesAudit() {
-      const tbody = $("rulesAuditTbody");
-      const pill = $("rulesAuditPill");
-      const sub = $("rulesAuditSub");
-      if (!tbody || !pill || !sub) return;
-
-      tbody.innerHTML = `<tr><td colspan="6" class="muted">Loading…</td></tr>`;
-      pill.textContent = "Loading…";
-
-      try {
-        // Prefer orderBy lastAccessAt, fall back to unordered if index/rules complain.
-        let snap = null;
-        try {
-          snap = await db.collection("rules_access")
-            .orderBy("lastAccessAt", "desc")
-            .limit(1000)
-            .get();
-        } catch (e) {
-          console.warn("rules_access ordered query failed; trying unordered:", e);
-          snap = await db.collection("rules_access")
-            .limit(1000)
-            .get();
-        }
-
-        const rows = snap.docs.map(d => {
-          const x = d.data() || {};
-          return {
-            userId: String(x.userId || d.id || "").trim(),
-            username: String(x.username || "").trim(),
-            firstAccessAt: x.firstAccessAt || null,
-            lastAccessAt: x.lastAccessAt || null,
-            count: Number(x.count ?? 0)
-          };
-        });
-
-        // If unordered, sort client-side by lastAccessAt desc
-        rows.sort((a,b) => {
-          const da = toDateSafe(a.lastAccessAt);
-          const dbb = toDateSafe(b.lastAccessAt);
-          const aa = da ? da.getTime() : 0;
-          const bb = dbb ? dbb.getTime() : 0;
-          return bb - aa;
-        });
-
-        rulesAuditCache = rows;
-        sub.innerHTML = `Showing users who opened the rules via the gateway. Source: <code>rules_access</code>.`;
-        renderRulesAuditFiltered();
-      } catch (e) {
-        console.error("loadRulesAudit failed:", e);
-        tbody.innerHTML = `<tr><td colspan="6" class="muted">Failed to load rules access audit (check console / Firestore rules).</td></tr>`;
-        pill.textContent = "Error";
-      }
     }
 
 
@@ -1984,6 +1957,8 @@
 
       renderDriverIdCard("Accused", t.accused);
       renderDriverIdCard("Reporter", t.reporter);
+      renderDriverHistoryColumn("Accused", t.accused, ticketId);
+      renderDriverHistoryColumn("Reporter", t.reporter, ticketId);
 
       await loadLinkedIncidentForSelectedTicket();
       await loadStatements();
