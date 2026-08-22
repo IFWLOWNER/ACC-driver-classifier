@@ -2321,7 +2321,7 @@
               <label class="muted">Recommended time penalty / DQ (posts with your penalty opinion)</label>
               <select id="discussionPenaltyTime"></select>
               <div class="muted" style="margin-top:6px;">
-                Choose from 5s to 60s in 5-second steps, DQ, or NFA if No Further Action is selected. This feeds the shared steward recommendation summary.
+                Choose from 5s to 60s in 5-second steps, DQ, or NFA if No Further Action is selected. Only the Head Steward sees your actual code/time choice - see the note below.
               </div>
               <div class="nfaNoTimeNote" id="discussionNfaNoTimeNote">NFA selected — no time penalty is required or saved.</div>
             </div>
@@ -2339,7 +2339,7 @@
             </div>
 
             <div class="muted" style="margin-top:6px;">
-              This posts into the discussion thread so all stewards can see your suggested outcome.
+              This goes to the Head Steward in full. Other stewards will only see that you've submitted a recommendation - not the code, time, or your reasoning - so everyone's call stays independent.
             </div>
 
             <div class="muted" style="margin-top:6px;">
@@ -4020,7 +4020,6 @@
       if ($("discussionPenaltyTime")) $("discussionPenaltyTime").value = "";
       if ($("penaltyTime")) $("penaltyTime").value = "";
       refreshPenaltyTimeRequirements();
-      renderStewardVoteSummary([]);
       if ($("linkedIncidentSec")) $("linkedIncidentSec").style.display = "none";
       if ($("linkedIncidentDetails")) $("linkedIncidentDetails").style.display = "none";
 
@@ -4222,7 +4221,6 @@
 
         if (snap.empty) {
           list.innerHTML = `<div class="muted">No steward comments yet.</div>`;
-          renderStewardVoteSummary([]);
           await loadTickets();
           return;
         }
@@ -4240,16 +4238,36 @@
           const authorKey = String(d.authorKey || "").trim();
           const who = authorKey ? maskEmail(authorKey) : "Unknown";
 
+          const kind = String(d.kind || "").trim();
+          const isPenaltyOpinion = kind === "penalty_opinion" ||
+            !!String(d.penaltyCode || "").trim() ||
+            !!String(d.penaltyTime || "").trim() ||
+            /PENALTY OPINION/i.test(text);
+
           commentRows.push({
             text,
             authorKey,
-            kind: String(d.kind || "").trim(),
+            kind,
             penaltyCode: String(d.penaltyCode || "").trim(),
             penaltyTime: normalisePenaltyTimeValue(d.penaltyTime || d.timePenalty || d.recommendedPenaltyTime || "")
           });
 
           const box = document.createElement("div");
           box.className = "commentBox";
+
+          if (isPenaltyOpinion) {
+            // ✅ MASKED FOR STEWARDS: don't reveal the code/time/reasoning another
+            // steward chose - only that they've placed a recommendation. This is
+            // what stops newer stewards simply copying a long-time steward's call.
+            // Head Steward still sees the full opinion (see headsteward page).
+            box.innerHTML = `
+              <div>🧾 <b>${escapeHtml(who)}</b> has placed their penalty recommendation.</div>
+              <div class="commentMeta">${escapeHtml(when)} &middot; hidden from other stewards until the Head Steward reviews it</div>
+            `;
+            list.appendChild(box);
+            return;
+          }
+
           box.innerHTML = `
             <div><b>Steward:</b> ${escapeHtml(who)}</div>
             <div class="commentMeta">${escapeHtml(when)}</div>
@@ -4264,7 +4282,11 @@
           list.appendChild(box);
         });
 
-        renderStewardVoteSummary(commentRows);
+        // ✅ CHANGED: the aggregate vote-tally/recommendation box (code %, time %,
+        // computed recommendation) is no longer shown to regular stewards either -
+        // even without names, seeing "60% picked 20s" nudges people toward the
+        // crowd instead of an independent read. That full picture is now
+        // Head-Steward-only; see renderStewardVoteSummary's call on that page.
         await loadTickets();
       } catch (e) {
         console.error("loadDiscussion failed:", e);
