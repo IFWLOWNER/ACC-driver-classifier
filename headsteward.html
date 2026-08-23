@@ -659,6 +659,13 @@
     .licence-points-value.pts-orange{color:#d97706}
     .licence-points-value.pts-red{color:#dc2626}
     .licence-ban-banner{margin-top:8px;padding:8px 10px;border-radius:10px;background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;font-size:12px;font-weight:700}
+    /* ✅ ADDED: pending auto licence-points banner - shown when a ticket was
+       finalised with an at-fault outcome but no licence was linked yet, so
+       the points couldn't be posted automatically. */
+    .licence-pending-banner{margin-top:8px;padding:8px 10px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:12px;font-weight:700}
+    .licence-pending-banner button{margin-top:6px}
+    #finalLicencePointsBox{background:#f8fafc;border:1px solid #e2e8f0}
+    #finalLicencePointsBox input[type="number"]{max-width:120px}
     .licence-search-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:10px;margin-top:6px;background:#fff}
     .licence-search-row button{padding:6px 10px;font-size:12px}
     #licenceSearchInput{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:10px;margin-top:6px}
@@ -969,6 +976,14 @@
               <div><div class="muted">Points</div><div class="licence-points-value" id="licPoints">0</div></div>
             </div>
             <div id="licBanBanner" class="licence-ban-banner hidden"></div>
+            <!-- ✅ ADDED: shown when a finalised ticket had at-fault licence
+                 points that couldn't be posted because no licence was
+                 linked at the time - lets a Head Steward apply them now
+                 that a licence has just been linked/found. -->
+            <div id="licPendingPointsBanner" class="licence-pending-banner hidden">
+              <div id="licPendingPointsText"></div>
+              <button type="button" id="licApplyPendingPointsBtn">Apply pending points</button>
+            </div>
             <div class="licence-points-form">
               <div>
                 <div class="muted">Points +/-</div>
@@ -1207,6 +1222,31 @@
 
               <label class="muted" style="margin-top:8px; display:block;">Assigned / Finalising Steward</label>
               <input type="text" id="finalStewardTag" placeholder="e.g. Head Steward – Ben" />
+            </div>
+          </div>
+
+          <!-- ✅ ADDED: Licence Points (auto-applied on finalise). Suggested
+               from steward_rules.json's LicencePoints field for the
+               selected code (NFA=0, mild=1, standard=2, severe=default
+               shown but Head Steward judgement 3-6), overridden to 9
+               whenever the final penalty is a DQ. Always editable, and can
+               be skipped entirely. Applied automatically to the accused
+               driver's linked licence when the ticket is finalised; if no
+               licence is linked yet it's stored as pending instead (see
+               licPendingPointsBanner above). -->
+          <div class="finalisePreview" id="finalLicencePointsBox" style="margin-top:10px; display:none;">
+            <div style="font-weight:800; margin-bottom:6px;">Licence Points</div>
+            <div class="grid2">
+              <div>
+                <label class="muted">Points to apply to the accused driver's licence</label>
+                <input type="number" id="finalLicencePoints" min="0" max="20" step="1">
+                <div class="muted" id="finalLicencePointsHint" style="margin-top:4px; font-size:12px;"></div>
+              </div>
+              <div style="display:flex; align-items:flex-end; padding-bottom:4px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:#374151;">
+                  <input type="checkbox" id="finalSkipLicencePoints" style="width:auto;"> Skip — don't apply licence points for this ticket
+                </label>
+              </div>
             </div>
           </div>
 
@@ -1758,6 +1798,10 @@
           const desc = String((r.Description ?? r.description ?? "")).trim();
           const example = String((r.Example ?? r.example ?? "")).trim();
           const who = String((r.Who ?? r.who ?? "")).trim();
+          // ✅ ADDED: per-rule licence-points value from steward_rules.json,
+          // used by the Finalise Ticket panel to suggest auto-applied
+          // licence points (see computeSuggestedLicencePoints()).
+          const licPts = (r.LicencePoints ?? r.licencePoints);
 
           if (!code && !title) continue;
 
@@ -1775,6 +1819,7 @@
           opt.dataset.who = who;
           opt.dataset.code = code;
           opt.dataset.title = title;
+          opt.dataset.licpts = Number.isFinite(Number(licPts)) ? String(Number(licPts)) : "";
 
           sel.appendChild(opt);
           added++;
@@ -2172,6 +2217,93 @@
       box.style.display = "block";
     }
 
+    // =======================================================
+    // ✅ ADDED: Licence Points (auto-applied on finalise). Suggests a
+    // points value from the selected code's LicencePoints field in
+    // steward_rules.json: NFA -> 0 (nobody found at fault), mild -> 1,
+    // standard -> 2, severe -> the JSON's default (Head Steward judgement,
+    // meant to be adjusted within 3-6). A final penalty of DQ always wins
+    // and suggests 9, regardless of which code was picked, since a code's
+    // listed penalty can be discretionarily upgraded to DQ at finalisation
+    // ("HS can enforce a DQ if requested by stewards" in several rules).
+    // The value is always editable and can be skipped entirely - this is a
+    // suggestion, not an enforced rule.
+    // =======================================================
+    function computeSuggestedLicencePoints() {
+      const opt = getFinalPenaltyOption();
+      if (!opt || !opt.value) return null;
+      const codeVal = (opt.dataset.code || "").trim().toUpperCase();
+      const timeVal = normalisePenaltyTimeValue($("finalPenaltyTime")?.value || "");
+
+      if (codeVal === "NFA" || timeVal === "NFA") {
+        return { points: 0, reason: "NFA — no driver found at fault, so no licence points apply." };
+      }
+      if (timeVal === "DQ") {
+        return { points: 9, reason: "Final penalty is a DQ — suggested 9 licence points." };
+      }
+      const base = Number(opt.dataset.licpts);
+      const hasBase = Number.isFinite(base);
+      const suffix = codeVal.slice(-2);
+      if (suffix === "SE") {
+        return { points: hasBase ? base : 4, reason: "Severe-tier code — Head Steward judgement, typically 3-6 points. Adjust as needed." };
+      }
+      if (suffix === "ST") {
+        return { points: hasBase ? base : 2, reason: "Standard-tier code — suggested 2 points." };
+      }
+      if (suffix === "MI") {
+        return { points: hasBase ? base : 1, reason: "Mild-tier code — suggested 1 point." };
+      }
+      return { points: hasBase ? base : 0, reason: "" };
+    }
+
+    function updateFinalLicencePointsSuggestion() {
+      const input = $("finalLicencePoints");
+      const hint = $("finalLicencePointsHint");
+      if (!input || !hint) return;
+      const sug = computeSuggestedLicencePoints();
+      if (!sug) return;
+      // Don't clobber a value the Head Steward has already hand-edited
+      // since the last code/time change (that flag is reset on change).
+      if (!input.dataset.userEdited) input.value = sug.points;
+      hint.textContent = sug.reason;
+    }
+
+    // Shows either the live editable suggestion (not-yet-finalised ticket)
+    // or, for an already-finalised ticket, whatever actually happened:
+    // points applied, points still pending a licence link, or nothing.
+    function renderLicencePointsFinaliseState(t) {
+      const box = $("finalLicencePointsBox");
+      const input = $("finalLicencePoints");
+      const hint = $("finalLicencePointsHint");
+      const skipChk = $("finalSkipLicencePoints");
+      if (!box || !input || !hint || !skipChk) return;
+
+      const alreadyFinal = t && isFinalised(t.status);
+      if (alreadyFinal) {
+        input.disabled = true;
+        skipChk.disabled = true;
+        skipChk.checked = false;
+        box.style.display = "block";
+        if (t.licencePointsApplied) {
+          input.value = t.licencePointsApplied.points;
+          hint.textContent = `Applied ${t.licencePointsApplied.points} point(s) to ${t.licencePointsApplied.driverName || "the linked licence"} at finalisation.`;
+        } else if (t.licencePointsPending) {
+          input.value = t.licencePointsPending.points;
+          hint.textContent = `⚠ ${t.licencePointsPending.points} point(s) still pending — no licence was linked when this ticket was finalised. Link a licence in the panel above, then use "Apply pending points".`;
+        } else {
+          input.value = 0;
+          hint.textContent = "No licence points were applied for this ticket.";
+        }
+      } else {
+        input.disabled = false;
+        skipChk.disabled = false;
+        delete input.dataset.userEdited;
+        const codeSel = $("finalPenaltyCode");
+        box.style.display = (codeSel && codeSel.value) ? "block" : "none";
+        updateFinalLicencePointsSuggestion();
+      }
+    }
+
     function prefillFinalisationFromTicket() {
       const t = getSelectedTicketData();
       const badge = $("finaliseStatusBadge");
@@ -2213,6 +2345,7 @@
         if (match) finalSel.value = match.value;
       }
       setFinalPenaltyPreviewFromSelected();
+      renderLicencePointsFinaliseState(t);
       updateFinalDiscordPreview();
     }
 
@@ -2322,9 +2455,58 @@ This will not change Firestore status.`);
 
         await ref.update(updatePayload);
 
+        // ✅ ADDED: auto-apply licence points on finalisation. Reads the
+        // (editable, skippable) points value the Head Steward saw in the
+        // finalise panel; if a licence is already linked to the accused
+        // driver, posts it straight to applyLicencePoints() same as a
+        // manual entry would. If nothing is linked yet, stashes it on the
+        // ticket as licencePointsPending so it can be applied later from
+        // the Linked Driver Licence panel once a licence is linked.
+        let licencePointsNote = "";
+        try {
+          const skipPoints = !!$("finalSkipLicencePoints")?.checked;
+          const rawPoints = Number($("finalLicencePoints")?.value);
+          const pointsToApply = Number.isFinite(rawPoints) ? Math.max(0, Math.round(rawPoints)) : 0;
+
+          if (!skipPoints && pointsToApply > 0) {
+            const profiles = await loadAllLicenceProfiles();
+            const linked = findLinkedLicenceForTicket(t, profiles);
+            const pointsReason = `Ticket ${selectedTicketId} — ${finalCode} (auto-applied at finalisation)`;
+
+            if (linked) {
+              await applyLicencePoints(linked.id, pointsToApply, pointsReason);
+              await ref.update({
+                licencePointsApplied: {
+                  points: pointsToApply,
+                  licenceId: linked.id,
+                  driverName: linked.name || "",
+                  reason: pointsReason,
+                  appliedAtMs: Date.now()
+                }
+              });
+            } else {
+              await ref.update({
+                licencePointsPending: {
+                  points: pointsToApply,
+                  reason: pointsReason,
+                  createdAtMs: Date.now()
+                }
+              });
+              licencePointsNote = ` ⚠ No licence linked yet — ${pointsToApply} point(s) pending.`;
+            }
+          }
+        } catch (licErr) {
+          console.error("Licence points auto-apply failed:", licErr);
+          licencePointsNote = " ⚠ Licence points could not be auto-applied: " + (licErr?.message || licErr);
+        }
+
         selectedTicketSnap = await ref.get();
         prefillFinalisationFromTicket();
-        toast("Ticket finalised and posted ✅");
+        // Refresh the Linked Driver Licence panel too, so a freshly-set
+        // licencePointsPending flag (no licence linked yet) shows up in
+        // its hint text immediately rather than only after reselecting.
+        renderLicenceLinkPanel(getSelectedTicketData());
+        toast("Ticket finalised and posted ✅" + licencePointsNote);
         await loadTickets();
         await loadDiscussion();
       } catch (e) {
@@ -3014,6 +3196,51 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
         banBanner.classList.add("hidden");
       }
 
+      // ✅ ADDED: pending auto licence-points, left over from a ticket that
+      // was finalised with an at-fault outcome before a licence was linked
+      // for the accused driver. Only relevant for the currently-selected
+      // ticket, so re-check it fresh each render rather than trusting a
+      // stale closure value.
+      const pendingBanner = $("licPendingPointsBanner");
+      const pendingText = $("licPendingPointsText");
+      const pendingBtn = $("licApplyPendingPointsBtn");
+      const selTicket = getSelectedTicketData();
+      if (pendingBanner && selTicket && selTicket.licencePointsPending) {
+        const pending = selTicket.licencePointsPending;
+        pendingBanner.classList.remove("hidden");
+        pendingText.textContent = `${pending.points} licence point(s) from this ticket are still pending — no licence was linked when it was finalised.`;
+        pendingBtn.disabled = false;
+        pendingBtn.textContent = "Apply pending points";
+        pendingBtn.onclick = async () => {
+          pendingBtn.disabled = true;
+          pendingBtn.textContent = "Applying...";
+          try {
+            await applyLicencePoints(profile.id, pending.points, pending.reason || `Pending licence points from ticket ${selectedTicketId}`);
+            await db.collection("tickets").doc(selectedTicketId).update({
+              licencePointsApplied: {
+                points: pending.points,
+                licenceId: profile.id,
+                driverName: profile.name || "",
+                reason: pending.reason || "",
+                appliedAtMs: Date.now()
+              },
+              licencePointsPending: firebase.firestore.FieldValue.delete()
+            });
+            selectedTicketSnap = await db.collection("tickets").doc(selectedTicketId).get();
+            const fresh = (await loadAllLicenceProfiles(true)).find(p => p.id === profile.id);
+            if (fresh) renderLicenceLinkedView(fresh);
+            prefillFinalisationFromTicket();
+            toast("Pending licence points applied ✅");
+          } catch(e) {
+            pendingBtn.disabled = false;
+            pendingBtn.textContent = "Apply pending points";
+            toast("Could not apply pending points: " + (e?.message || e));
+          }
+        };
+      } else if (pendingBanner) {
+        pendingBanner.classList.add("hidden");
+      }
+
       $("licApplyPointsBtn").onclick = async () => {
         const delta = Number($("licPointsDelta").value);
         const reason = ($("licPointsReason").value || "").trim();
@@ -3089,9 +3316,12 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
         renderLicenceLinkedView(match);
         return;
       }
-      $("licSearchHint").textContent = accusedNames.length
+      const pendingSuffix = t && t.licencePointsPending
+        ? ` ⚠ ${t.licencePointsPending.points} licence point(s) from this ticket's finalisation are waiting for a licence to be linked.`
+        : "";
+      $("licSearchHint").textContent = (accusedNames.length
         ? `No licence linked yet for "${accusedNames.join(', ')}". Search to link one.`
-        : "This ticket has no accused driver recorded.";
+        : "This ticket has no accused driver recorded.") + pendingSuffix;
 
       $("licenceSearchInput").oninput = () => {
         renderLicenceSearchResults($("licenceSearchInput").value.trim().toLowerCase(), accusedNames);
@@ -4343,7 +4573,17 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           setDiscussionPenaltyPreviewFromSelected();
 
           const fSel = $("finalPenaltyCode");
-          if (fSel) fSel.onchange = () => { setFinalPenaltyPreviewFromSelected(); updateFinalDiscordPreview(); };
+          if (fSel) fSel.onchange = () => {
+            setFinalPenaltyPreviewFromSelected();
+            const licInput = $("finalLicencePoints");
+            if (licInput) delete licInput.dataset.userEdited;
+            const licBox = $("finalLicencePointsBox");
+            if (licBox) licBox.style.display = fSel.value ? "block" : "none";
+            updateFinalLicencePointsSuggestion();
+            updateFinalDiscordPreview();
+          };
+          const finalLicPointsInput = $("finalLicencePoints");
+          if (finalLicPointsInput) finalLicPointsInput.addEventListener("input", () => { finalLicPointsInput.dataset.userEdited = "1"; });
           const linkedOutcomeCodeSel = $("linkedOutcomePenaltyCode");
           if (linkedOutcomeCodeSel) linkedOutcomeCodeSel.onchange = () => updateLinkedOutcomePreview();
           const linkedOutcomeTimeSel = $("linkedOutcomePenaltyTime");
@@ -4351,7 +4591,12 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           const linkedOutcomeDecisionEl = $("linkedOutcomeDecision");
           if (linkedOutcomeDecisionEl) linkedOutcomeDecisionEl.addEventListener("input", () => updateLinkedOutcomePreview());
           const finalTimeSel = $("finalPenaltyTime");
-          if (finalTimeSel) finalTimeSel.onchange = () => syncFinalPenaltyTextFromTime();
+          if (finalTimeSel) finalTimeSel.onchange = () => {
+            syncFinalPenaltyTextFromTime();
+            const licInput = $("finalLicencePoints");
+            if (licInput) delete licInput.dataset.userEdited;
+            updateFinalLicencePointsSuggestion();
+          };
           for (const id of ["finalPenaltyText", "finalStewardTag", "finalDecisionText"]) {
             const el = $(id);
             if (el) el.addEventListener("input", () => updateFinalDiscordPreview());
