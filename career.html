@@ -1193,6 +1193,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <button class="team-tab" data-career-view="marketplace" type="button">Marketplace</button>
         <button class="team-tab" data-career-view="myshop" type="button">🏪 My Shop</button>
         <button class="team-tab" data-career-view="backing" type="button">🤝 Driver Backing</button>
+        <button class="team-tab" data-career-view="titlesponsor" type="button">🏆 Main Sponsor</button>
       </div>
 
       <div id="seasonProgressionBody" style="background:rgba(13,17,22,.82);border-radius:14px;padding:16px;overflow:hidden">
@@ -1227,6 +1228,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
              loss). See renderDriverBackingSection(). -->
         <div class="team-view" data-career-view="backing">
           <div id="spBackingBody"><div class="empty">Loading Driver Backing&hellip;</div></div>
+        </div>
+        <!-- ✅ ADDED: Main Sponsor Program - season-start / mid-season
+             negotiated sponsor deal, separate from the random Sponsorship
+             Lottery. See renderTitleSponsorSection(). -->
+        <div class="team-view" data-career-view="titlesponsor">
+          <div id="spTitleSponsorBody"><div class="empty">Loading Main Sponsor Program&hellip;</div></div>
         </div>
       </div>
 
@@ -3280,6 +3287,110 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     }
   }
 
+  // ✅ ADDED: Main Sponsor Program - a season-start / mid-season sponsor
+  // negotiation the driver does for themselves, separate from the random
+  // Sponsorship Lottery (staff-run, chance-based). Deliberately doesn't
+  // show the driver each answer's % before they pick - only the chosen
+  // sponsor's overall min/max range - so this stays a real negotiation
+  // with real downside risk, not an obvious "pick the biggest number"
+  // exercise. Once locked, a deal can't be changed until the driver's next
+  // open negotiation window.
+  async function renderTitleSponsorSection(){
+    const box = q('spTitleSponsorBody');
+    if(!box) return;
+    box.innerHTML = '<div class="empty">Loading Main Sponsor Program&hellip;</div>';
+
+    let status;
+    try{ status = await window.IFWL_Api.apiGet('myTitleSponsorStatus'); }
+    catch(e){ box.innerHTML = `<div class="empty">Could not load Main Sponsor Program: ${e.message}</div>`; return; }
+
+    const windows = status.windows || {};
+    const sponsors = status.sponsors || [];
+    const questions = status.questions || [];
+    const deals = status.deals || {};
+    const WINDOW_LABELS = { seasonStart: 'Season Start', midSeason: 'Mid-Season' };
+
+    const dealCardHtml = (windowId) => {
+      const d = deals[windowId];
+      if(d){
+        return `<div class="backing-card">
+          <strong style="color:var(--ifwl-teal)">${WINDOW_LABELS[windowId]} - locked in</strong>
+          <p style="margin:8px 0 0"><strong>${mktEsc(d.companyName)}</strong></p>
+          <p class="field-hint" style="margin:4px 0 0">${mktEsc(d.dealDescription || '')}</p>
+          <p style="margin:10px 0 0">Your negotiated deal: <strong>${d.multiplierPct > 0 ? '+' : ''}${d.multiplierPct}%</strong> to your race earnings</p>
+          <p class="field-hint" style="margin:4px 0 0">Locked ${new Date(d.lockedAtMs).toLocaleDateString()}</p>
+        </div>`;
+      }
+      if(!windows[windowId]){
+        return `<div class="backing-card"><strong>${WINDOW_LABELS[windowId]}</strong><p class="field-hint" style="margin:6px 0 0">Negotiation isn't open yet - check back once staff open this window.</p></div>`;
+      }
+      if(!sponsors.length || !questions.length){
+        return `<div class="backing-card"><strong>${WINDOW_LABELS[windowId]}</strong><p class="field-hint" style="margin:6px 0 0">The Main Sponsor Program hasn't been set up yet - check back soon.</p></div>`;
+      }
+      return `<div class="backing-card">
+        <strong style="color:var(--ifwl-teal)">${WINDOW_LABELS[windowId]} - negotiate your deal</strong>
+        <p class="field-hint" style="margin:6px 0 12px">Pick a sponsor, then answer every question below. Your final % lands somewhere in that sponsor's stated range, based on how you answer - locked in for this half of the season once you confirm.</p>
+        <form data-tsp-window="${windowId}">
+          <div class="field-group"><label>Sponsor</label>
+            <select class="tsp-sponsor-select" required>
+              <option value="" disabled selected>Choose a sponsor&hellip;</option>
+              ${sponsors.map(s => `<option value="${s.id}">${mktEsc(s.companyName)} (${s.minPct > 0 ? '+' : ''}${s.minPct}% to ${s.maxPct > 0 ? '+' : ''}${s.maxPct}%)</option>`).join('')}
+            </select>
+          </div>
+          <div class="tsp-sponsor-desc field-hint" style="margin:-4px 0 12px"></div>
+          ${questions.map((qq, qi) => `
+            <div class="field-group">
+              <label>${mktEsc(qq.text)}</label>
+              ${qq.answers.map((a, ai) => `
+                <label style="display:flex;align-items:flex-start;gap:8px;margin:4px 0;cursor:pointer;font-weight:normal">
+                  <input type="radio" name="tspq_${qi}" value="${ai}" required style="width:auto;margin-top:3px">
+                  <span>${mktEsc(a.text)}</span>
+                </label>
+              `).join('')}
+            </div>
+          `).join('')}
+          <button class="btn teal" type="submit">Lock in this deal</button>
+          <span class="save-status tsp-submit-status"></span>
+        </form>
+      </div>`;
+    };
+
+    box.innerHTML = `
+      <div class="notice-card">Separate from the random Sponsorship Lottery - this is a deal you negotiate for yourself, once per window, each season. Two windows per season: Season Start and Mid-Season - whichever deal you last locked in applies to your races from that point forward.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:14px">
+        ${dealCardHtml('seasonStart')}
+        ${dealCardHtml('midSeason')}
+      </div>
+    `;
+
+    box.querySelectorAll('form[data-tsp-window]').forEach(form => {
+      const windowId = form.dataset.tspWindow;
+      const select = form.querySelector('.tsp-sponsor-select');
+      const descBox = form.querySelector('.tsp-sponsor-desc');
+      select.addEventListener('change', () => {
+        const s = sponsors.find(x => x.id === select.value);
+        descBox.textContent = s ? (s.dealDescription || '') : '';
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const statusEl = form.querySelector('.tsp-submit-status');
+        const sponsorId = select.value;
+        if(!sponsorId){ statusEl.textContent = 'Choose a sponsor first.'; return; }
+        const answers = questions.map((qq, qi) => {
+          const checked = form.querySelector(`input[name="tspq_${qi}"]:checked`);
+          return checked ? { questionId: qq.id, answerIndex: Number(checked.value) } : null;
+        });
+        if(answers.some(a => !a)){ statusEl.textContent = 'Answer every question first.'; return; }
+        if(!confirm('Lock in this Main Sponsor deal? This cannot be changed until your next negotiation window.')) return;
+        statusEl.textContent = 'Locking in...';
+        try{
+          await window.IFWL_Api.apiPost('titleSponsorChoose', { windowId, sponsorId, answers });
+          await renderTitleSponsorSection();
+        }catch(e){ statusEl.textContent = 'Could not lock in: ' + e.message; }
+      });
+    });
+  }
+
   // ✅ ADDED: leaner Browse-Marketplace-only render function for the
   // Marketplace tab (spMarketplaceBody) - split off from the original
   // combined function so "My Shop" (craft/sell/listings/offers/identity)
@@ -3868,6 +3979,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     renderMyShopSection();
     renderPartsWearDiagram();
     renderDriverBackingSection();
+    renderTitleSponsorSection();
     try{
       const data = await computeSeasonProgression();
       renderSeasonProgression(data);
