@@ -1243,6 +1243,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <summary>Economy</summary>
         <div class="staff-accordion-items">
           <button data-view="staffSponsorships" class="owner-only-tab" type="button">Manage Sponsorships</button>
+          <button data-view="staffTitleSponsor" class="owner-only-tab" type="button">Main Sponsor Program</button>
           <button data-view="staffSeasonalCosts" class="owner-only-tab" type="button">Seasonal Costs</button>
           <button data-view="staffSeasonStartPayments" class="owner-only-tab" type="button">Season Start Payments</button>
           <button data-view="staffWelcomeBonus" class="owner-only-tab" type="button">Welcome Bonus</button>
@@ -2172,6 +2173,56 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn ghost" id="spnPerkSearchBtn" type="button">Search</button>
       </div>
       <div id="spnPerkSearchResults" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <!-- ✅ ADDED: Main Sponsor Program - separate from the random Sponsorship
+       Lottery above. A season-start and mid-season negotiation: a driver
+       picks one sponsor from the pool below (each with a stated min%/max%
+       range), answers the question bank (3 answers per question - staff
+       decide which one is the bonus and which two are downsides, and by
+       how much), and the sum of their chosen answers - clamped into the
+       sponsor's range - becomes a personal % applied to every one of their
+       own race earnings for that half of the season. -->
+  <section class="panel view-panel" data-view="staffTitleSponsor" id="staffTitleSponsorPanel">
+    <div class="panel-head"><div><h3>Staff: Main Sponsor Program</h3><small>Season-start &amp; mid-season sponsor negotiation - a personal earnings % a driver negotiates for themselves, separate from the random Sponsorship Lottery</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+      <div class="notice-card">Each driver picks one sponsor and answers every question below once per negotiation window. The sum of their chosen answers' %s is clamped into that sponsor's min/max range and applied as a personal multiplier to their own race earnings until their next negotiation (or season end). Drivers never see the %s behind each answer - only the answer text - so this stays a real negotiation.</div>
+
+      <h4 style="margin:20px 0 10px">Negotiation Windows</h4>
+      <p class="field-hint" style="margin-bottom:10px">Open a window when you want drivers to be able to negotiate - e.g. open "Season Start" at the beginning of the season, close it, then open "Mid-Season" later. A driver can only lock in one deal per window per season.</p>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="tspWindowSeasonStart" style="width:auto"> Season Start window open</label>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="tspWindowMidSeason" style="width:auto"> Mid-Season window open</label>
+      <button class="btn teal" id="tspSaveWindowsBtn" type="button">Save windows</button>
+      <span class="save-status" id="tspWindowsStatus"></span>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Sponsor Pool</h4>
+      <div id="tspSponsorRows"></div>
+      <button class="btn ghost" id="tspAddSponsorBtn" type="button" style="margin-bottom:14px">+ Add sponsor</button>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Negotiation Questions</h4>
+      <p class="field-hint" style="margin-bottom:10px">Exactly 3 answers per question. By design, set one as the bonus (positive %) and the other two as downsides (negative %) - a real negotiation should carry real risk.</p>
+      <div id="tspQuestionRows"></div>
+      <button class="btn ghost" id="tspAddQuestionBtn" type="button" style="margin-bottom:14px">+ Add question</button>
+
+      <div style="margin-top:10px">
+        <button class="btn teal" id="tspSaveConfigBtn" type="button">Save sponsors &amp; questions</button>
+        <span class="save-status" id="tspConfigStatus"></span>
+      </div>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 10px">Who's Locked In</h4>
+      <p class="field-hint" style="margin-bottom:10px">Search a driver to see their current Main Sponsor deal(s) for this season.</p>
+      <div style="display:flex;gap:10px">
+        <input type="text" id="tspSearchInput" placeholder="Search driver by name or licence number..." style="flex:1">
+        <button class="btn ghost" id="tspSearchBtn" type="button">Search</button>
+      </div>
+      <div id="tspSearchResults" style="margin-top:10px"></div>
     </div>
   </section>
 
@@ -11238,6 +11289,154 @@ Flashing Headlights:
     };
   }
 
+  // ✅ ADDED: Main Sponsor Program staff panel - sponsor pool, question
+  // bank, negotiation window toggles, and a per-driver deal lookup. Mirrors
+  // the Sponsorship Pool panel's row-builder pattern above.
+  let tspSponsorRowCount = 0;
+  let tspQuestionRowCount = 0;
+
+  function tspSponsorRowHtml(idx, s){
+    s = s || {};
+    return `<div class="se-event-row" data-tsp-sponsor-idx="${idx}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h5 style="margin:0">Sponsor ${idx+1}</h5>
+        <button class="btn ghost" data-remove-tsp-sponsor="${idx}" type="button">✕ Remove</button>
+      </div>
+      <div class="field-group"><label>Company name</label><input type="text" class="tsp-sponsor-company" value="${(s.companyName||'').replace(/"/g,'&quot;')}" placeholder="e.g. Velocity Surge Energy"></div>
+      <div class="field-group"><label>Deal description (shown to the driver)</label><textarea class="tsp-sponsor-desc" style="width:100%;min-height:60px">${s.dealDescription||''}</textarea></div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1"><label>Min % (can be negative)</label><input type="number" class="tsp-sponsor-min" value="${s.minPct ?? ''}" step="1"></div>
+        <div class="field-group" style="flex:1"><label>Max %</label><input type="number" class="tsp-sponsor-max" value="${s.maxPct ?? ''}" step="1"></div>
+      </div>
+    </div>`;
+  }
+
+  function tspAddSponsorRow(s){
+    const idx = tspSponsorRowCount++;
+    q('tspSponsorRows').insertAdjacentHTML('beforeend', tspSponsorRowHtml(idx, s));
+    document.querySelector(`[data-remove-tsp-sponsor="${idx}"]`)?.addEventListener('click', (e) => e.target.closest('[data-tsp-sponsor-idx]').remove());
+  }
+
+  function tspQuestionRowHtml(idx, qq){
+    qq = qq || {};
+    const answers = (qq.answers && qq.answers.length === 3) ? qq.answers : [{},{},{}];
+    return `<div class="se-event-row" data-tsp-question-idx="${idx}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h5 style="margin:0">Question ${idx+1}</h5>
+        <button class="btn ghost" data-remove-tsp-question="${idx}" type="button">✕ Remove</button>
+      </div>
+      <div class="field-group"><label>Question text</label><input type="text" class="tsp-q-text" value="${(qq.text||'').replace(/"/g,'&quot;')}" placeholder="e.g. How do you handle a tight budget mid-season?"></div>
+      ${answers.map((a, ai) => `
+        <div style="display:flex;gap:10px;align-items:flex-end;margin-top:6px">
+          <div class="field-group" style="flex:2"><label>Answer ${ai+1}</label><input type="text" class="tsp-a-text" value="${(a.text||'').replace(/"/g,'&quot;')}"></div>
+          <div class="field-group" style="flex:1"><label>%</label><input type="number" class="tsp-a-delta" value="${a.deltaPct ?? ''}" step="1"></div>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  function tspAddQuestionRow(qq){
+    const idx = tspQuestionRowCount++;
+    q('tspQuestionRows').insertAdjacentHTML('beforeend', tspQuestionRowHtml(idx, qq));
+    document.querySelector(`[data-remove-tsp-question="${idx}"]`)?.addEventListener('click', (e) => e.target.closest('[data-tsp-question-idx]').remove());
+  }
+
+  async function initTitleSponsorPanel(){
+    if(!q('staffTitleSponsorPanel')) return;
+
+    try{
+      const windows = await window.IFWL_Api.apiGet('titleSponsorWindows');
+      q('tspWindowSeasonStart').checked = !!windows.seasonStart;
+      q('tspWindowMidSeason').checked = !!windows.midSeason;
+    }catch(e){ console.warn('Could not load Main Sponsor windows', e); }
+
+    q('tspSaveWindowsBtn').onclick = async () => {
+      const status = q('tspWindowsStatus');
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_Api.apiPost('staffTitleSponsorWindowsSave', {
+          seasonStart: q('tspWindowSeasonStart').checked,
+          midSeason: q('tspWindowMidSeason').checked
+        });
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('tspWindowsStatus')) q('tspWindowsStatus').textContent = ''; }, 2000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+
+    try{
+      const { sponsors, questions } = await window.IFWL_Api.apiGet('staffTitleSponsorConfigGet');
+      q('tspSponsorRows').innerHTML = ''; tspSponsorRowCount = 0;
+      sponsors.forEach(s => tspAddSponsorRow(s));
+      if(!sponsors.length) tspAddSponsorRow();
+
+      q('tspQuestionRows').innerHTML = ''; tspQuestionRowCount = 0;
+      questions.forEach(qq => tspAddQuestionRow(qq));
+      if(!questions.length) tspAddQuestionRow();
+    }catch(e){ console.warn('Could not load Main Sponsor config', e); }
+
+    q('tspAddSponsorBtn').onclick = () => tspAddSponsorRow();
+    q('tspAddQuestionBtn').onclick = () => tspAddQuestionRow();
+
+    q('tspSaveConfigBtn').onclick = async () => {
+      const status = q('tspConfigStatus');
+      const sponsors = [...q('tspSponsorRows').querySelectorAll('[data-tsp-sponsor-idx]')].map(row => ({
+        companyName: row.querySelector('.tsp-sponsor-company').value.trim(),
+        dealDescription: row.querySelector('.tsp-sponsor-desc').value.trim(),
+        minPct: Number(row.querySelector('.tsp-sponsor-min').value) || 0,
+        maxPct: Number(row.querySelector('.tsp-sponsor-max').value) || 0
+      })).filter(s => s.companyName);
+
+      const questions = [...q('tspQuestionRows').querySelectorAll('[data-tsp-question-idx]')].map(row => {
+        const text = row.querySelector('.tsp-q-text').value.trim();
+        const answerRows = [...row.querySelectorAll('.tsp-a-text')];
+        const deltaRows = [...row.querySelectorAll('.tsp-a-delta')];
+        const answers = answerRows.map((el, i) => ({ text: el.value.trim(), deltaPct: Number(deltaRows[i].value) || 0 }));
+        return { text, answers };
+      }).filter(qq => qq.text && qq.answers.every(a => a.text));
+
+      if(questions.some(qq => qq.answers.length !== 3)){
+        status.textContent = 'Every question needs exactly 3 answers.';
+        return;
+      }
+
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_Api.apiPost('staffTitleSponsorConfigSave', { sponsors, questions });
+        status.textContent = 'Saved.';
+        setTimeout(() => { if(q('tspConfigStatus')) q('tspConfigStatus').textContent = ''; }, 2000);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    };
+
+    q('tspSearchBtn').onclick = async () => {
+      const term = q('tspSearchInput').value.trim().toLowerCase();
+      const resultsBox = q('tspSearchResults');
+      resultsBox.innerHTML = '<div class="empty">Searching&hellip;</div>';
+      try{
+        const drivers = await staffSearch(term);
+        if(!drivers.length){ resultsBox.innerHTML = '<div class="empty">No drivers found.</div>'; return; }
+        resultsBox.innerHTML = drivers.slice(0, 20).map(d => `
+          <div class="note-item" data-tsp-driver="${d.discordId}">
+            <strong>${d.name}</strong>
+            <div class="note-meta">${d.licenceNumber}</div>
+            <div class="tsp-driver-deals" style="margin-top:8px"><button class="btn ghost" data-tsp-view-deals="${d.discordId}">View Main Sponsor deal(s)</button></div>
+          </div>
+        `).join('');
+        resultsBox.querySelectorAll('[data-tsp-view-deals]').forEach(btn => btn.addEventListener('click', async () => {
+          const box = btn.closest('.tsp-driver-deals');
+          box.innerHTML = 'Loading&hellip;';
+          try{
+            const { profile } = await window.IFWL_Api.apiGet('staffLicenceGet', `&driverId=${encodeURIComponent(btn.dataset.tspViewDeals)}`);
+            const deals = profile?.titleSponsorDeals || {};
+            const rows = ['seasonStart', 'midSeason'].map(k => deals[k] ? `<div style="margin-top:4px"><strong>${k === 'seasonStart' ? 'Season Start' : 'Mid-Season'}:</strong> ${deals[k].companyName} &middot; ${deals[k].multiplierPct > 0 ? '+' : ''}${deals[k].multiplierPct}% &middot; ${new Date(deals[k].lockedAtMs).toLocaleDateString()}</div>` : '').filter(Boolean);
+            box.innerHTML = rows.length ? rows.join('') : '<div class="field-hint">No Main Sponsor deal locked in this season.</div>';
+          }catch(e){ box.innerHTML = `Could not load: ${e.message}`; }
+        }));
+      }catch(e){
+        resultsBox.innerHTML = `<div class="empty">Search failed: ${e.message}</div>`;
+      }
+    };
+  }
+
   const SPN_PAGE_SIZE = 25;
   let spnAllSponsorships = [];
   let spnCurrentPage = 0;
@@ -12457,6 +12656,7 @@ Flashing Headlights:
     initEntrylistCrossRefPanel();
     window.initOpsRaceTeamsPanel?.();
     initSponsorshipsPanel();
+    initTitleSponsorPanel();
     initSeasonalCostsPanel();
     initSeasonStartPaymentsPanel();
     initWelcomeBonusPanel();
