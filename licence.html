@@ -11421,15 +11421,33 @@ Flashing Headlights:
             <div class="tsp-driver-deals" style="margin-top:8px"><button class="btn ghost" data-tsp-view-deals="${d.discordId}">View Main Sponsor deal(s)</button></div>
           </div>
         `).join('');
-        resultsBox.querySelectorAll('[data-tsp-view-deals]').forEach(btn => btn.addEventListener('click', async () => {
-          const box = btn.closest('.tsp-driver-deals');
+        // Shared renderer so "Clear" can redraw the same box after removing
+        // a deal, without re-running the whole search.
+        async function tspRenderDeals(driverId, box){
           box.innerHTML = 'Loading&hellip;';
           try{
-            const { profile } = await window.IFWL_Api.apiGet('staffLicenceGet', `&driverId=${encodeURIComponent(btn.dataset.tspViewDeals)}`);
+            const { profile } = await window.IFWL_Api.apiGet('staffLicenceGet', `&driverId=${encodeURIComponent(driverId)}`);
             const deals = profile?.titleSponsorDeals || {};
-            const rows = ['seasonStart', 'midSeason'].map(k => deals[k] ? `<div style="margin-top:4px"><strong>${k === 'seasonStart' ? 'Season Start' : 'Mid-Season'}:</strong> ${deals[k].companyName} &middot; ${deals[k].multiplierPct > 0 ? '+' : ''}${deals[k].multiplierPct}% &middot; ${new Date(deals[k].lockedAtMs).toLocaleDateString()}</div>` : '').filter(Boolean);
+            const rows = ['seasonStart', 'midSeason'].filter(k => deals[k]).map(k => `
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px">
+                <span><strong>${k === 'seasonStart' ? 'Season Start' : 'Mid-Season'}:</strong> ${deals[k].companyName} &middot; ${deals[k].multiplierPct > 0 ? '+' : ''}${deals[k].multiplierPct}% &middot; ${new Date(deals[k].lockedAtMs).toLocaleDateString()}</span>
+                <button class="btn ghost" data-tsp-clear-window="${k}" data-tsp-clear-driver="${driverId}" type="button">Clear</button>
+              </div>
+            `);
             box.innerHTML = rows.length ? rows.join('') : '<div class="field-hint">No Main Sponsor deal locked in this season.</div>';
+            box.querySelectorAll('[data-tsp-clear-window]').forEach(clearBtn => clearBtn.addEventListener('click', async () => {
+              if(!confirm(`Clear this driver's ${clearBtn.dataset.tspClearWindow === 'seasonStart' ? 'Season Start' : 'Mid-Season'} Main Sponsor deal? They'll be able to negotiate again if that window is (re)opened.`)) return;
+              clearBtn.disabled = true; clearBtn.textContent = 'Clearing...';
+              try{
+                await window.IFWL_Api.apiPost('staffTitleSponsorClearDeal', { driverId: clearBtn.dataset.tspClearDriver, windowId: clearBtn.dataset.tspClearWindow });
+                await tspRenderDeals(driverId, box);
+              }catch(e){ alert('Could not clear: ' + e.message); clearBtn.disabled = false; clearBtn.textContent = 'Clear'; }
+            }));
           }catch(e){ box.innerHTML = `Could not load: ${e.message}`; }
+        }
+
+        resultsBox.querySelectorAll('[data-tsp-view-deals]').forEach(btn => btn.addEventListener('click', () => {
+          tspRenderDeals(btn.dataset.tspViewDeals, btn.closest('.tsp-driver-deals'));
         }));
       }catch(e){
         resultsBox.innerHTML = `<div class="empty">Search failed: ${e.message}</div>`;
