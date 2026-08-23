@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>IFWL Season Planner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin:0;
+    background:
+      linear-gradient(rgba(2,6,23,0.72), rgba(2,6,23,0.72)),
+      url("./ifwl_bg.webp");
+    background-size:cover;
+    background-position:center;
+    background-attachment:fixed;
+    color:#111827;
+  }
+  header {
+    padding:14px 18px;
+    background:#111827;
+    color:#fff;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:12px;
+  }
+  .brand { display:flex; gap:12px; align-items:flex-start; min-width:0; }
+  .brand img { width:38px; height:38px; object-fit:contain; margin-top:2px; flex:0 0 auto; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25)); }
+  .brandText { min-width:0; }
+  header .small { font-size:12px; opacity:0.85; margin-top:4px; line-height:1.2; word-break:break-word; }
+  .welcomeLine { font-size:12px; opacity:0.95; margin-top:6px; line-height:1.25; }
+
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button { padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; background:#fff; cursor:pointer; font-size:14px; }
+  button.primary { background:#111827; color:#fff; border-color:#111827; }
+  button.danger { background:#991b1b; color:#fff; border-color:#991b1b; }
+  button.ghost { background:transparent; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  button.small { padding:6px 9px; font-size:12px; border-radius:9px; }
+
+  select, input[type=text], input[type=date], input[type=number], textarea {
+    padding:9px 10px; border:1px solid #d1d5db; border-radius:10px; width:100%; box-sizing:border-box; font-size:14px; background:#fff;
+  }
+  textarea { min-height:56px; resize:vertical; }
+  input:disabled, select:disabled, textarea:disabled { background:#f3f4f6; color:#6b7280; }
+
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
+  .card { background:rgba(255,255,255,0.95); border:1px solid rgba(229,231,235,0.95); border-radius:14px; padding:16px; box-shadow:0 10px 28px rgba(0,0,0,0.18); }
+  .title { font-weight:800; font-size:16px; margin:0 0 4px; }
+  .muted { color:#6b7280; font-size:12.5px; line-height:1.4; }
+  .sectionHead { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+
+  .badge { display:inline-block; padding:4px 10px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; font-weight:700; color:#3730a3; }
+  .badge.locked { background:#ecfdf5; border-color:#86efac; color:#065f46; }
+  .badge.draft { background:#fffbeb; border-color:#fde68a; color:#92400e; }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; background:#111827; color:#fff; padding:8px 9px; font-size:11.5px; text-transform:uppercase; letter-spacing:.02em; }
+  td { padding:6px 7px; border-bottom:1px solid #e5e7eb; vertical-align:middle; }
+  tr:nth-child(even) td { background:#f9fafb; }
+  .tblWrap { overflow-x:auto; border:1px solid #e5e7eb; border-radius:10px; }
+  #scheduleTable { min-width:1650px; }
+  #scheduleTable th, #scheduleTable td { white-space:nowrap; }
+  #scheduleTable td input, #scheduleTable td select { min-width:110px; }
+  td input, td select { font-size:13px; padding:7px 8px; border-radius:8px; }
+  .rowActions { display:flex; gap:6px; white-space:nowrap; }
+  .colTight { width:1%; white-space:nowrap; }
+
+  .infoBox { border:1px solid #c7d2fe; background:#eef2ff; color:#3730a3; border-radius:12px; padding:10px 12px; font-size:12.5px; line-height:1.4; font-weight:600; }
+  .warnBox { border:1px solid #fde68a; background:#fffbeb; color:#92400e; border-radius:12px; padding:10px 12px; font-size:12.5px; line-height:1.4; font-weight:700; }
+  .lockedBox { border:1px solid #86efac; background:#ecfdf5; color:#065f46; border-radius:12px; padding:10px 12px; font-size:12.5px; line-height:1.4; font-weight:700; }
+
+  .heroPreview {
+    border-radius:14px; padding:22px 18px; text-align:center;
+    background: linear-gradient(180deg, rgba(15,20,28,.92), rgba(15,20,28,.97)), url("./ifwl_bg.webp");
+    background-size:cover; background-position:center; color:#fff;
+  }
+  .heroPreview .seasonName { font-weight:900; font-size:26px; letter-spacing:.03em; }
+  .heroPreview .seasonDates { font-weight:700; font-size:14px; margin-top:6px; color:#e5e7eb; }
+  .heroPreview .breakLine { font-size:12.5px; margin-top:8px; color:#facc15; font-weight:700; }
+  .heroPreview .breakLine.warn { color:#f87171; }
+
+  .trackChip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#f3f4f6; border:1px solid #e5e7eb; font-size:12.5px; margin:3px; }
+  .trackChip.custom { background:#eef2ff; border-color:#c7d2fe; color:#3730a3; font-weight:700; }
+
+  .changeItem { border:1px solid #e5e7eb; border-radius:10px; padding:9px 11px; margin-bottom:8px; background:#fff; }
+  .changeItem .who { font-weight:800; font-size:12.5px; }
+  .changeItem .when { color:#6b7280; font-size:11.5px; margin-left:6px; }
+  .changeItem pre { white-space:pre-wrap; font-family:inherit; font-size:12.5px; margin:6px 0 0; line-height:1.5; }
+  .changeItem.kind-lock { border-color:#86efac; background:#ecfdf5; }
+  .changeItem.kind-unlock { border-color:#fde68a; background:#fffbeb; }
+  .changeItem.kind-reset { border-color:#c7d2fe; background:#eef2ff; }
+
+  .toast { position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 12px; border-radius:12px; opacity:0; transform: translateY(8px); transition: all .18s ease; z-index:9999; max-width: min(520px, calc(100vw - 32px)); white-space: pre-wrap; }
+  .toast.show { opacity:1; transform: translateY(0); }
+
+  .stickySave { position:sticky; bottom:0; z-index:50; background:rgba(255,255,255,.97); border:1px solid #e5e7eb; border-radius:14px; padding:12px 16px; box-shadow:0 -8px 24px rgba(0,0,0,.18); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .unsavedDot { display:inline-block; width:8px; height:8px; border-radius:999px; background:#f59e0b; margin-right:6px; }
+
+  @media (max-width: 720px) { .wrap { padding:10px; } .card { padding:12px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <img src="./ifwl_logo.png" alt="IFWL logo" onerror="this.style.display='none'">
+    <div class="brandText">
+      <div style="font-weight:800; font-size:18px;">IFWL Season Planner</div>
+      <div class="welcomeLine" id="welcomeLine">Welcome — loading your profile…</div>
+      <div class="small" id="who">Loading…</div>
+    </div>
+  </div>
+  <div class="row">
+    <button id="backBtn">Back to Classifier</button>
+    <button id="logoutBtn">Sign out</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- Status / Lock banner -->
+  <div class="card" id="statusCard">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Season status</div>
+        <div class="muted">This is the shared workspace for planning the next season. Anyone on staff can propose edits here — nothing is final until it's locked in.</div>
+      </div>
+      <span class="badge draft" id="statusBadge">Loading…</span>
+    </div>
+    <div id="statusMessage" style="margin-top:8px;"></div>
+    <div class="row" style="margin-top:12px;">
+      <div style="flex:1; min-width:220px;">
+        <label class="muted">Season name</label>
+        <input type="text" id="seasonName" placeholder="e.g. SEASON 4">
+      </div>
+      <div style="flex:1; min-width:160px;">
+        <label class="muted">Start date</label>
+        <input type="date" id="seasonStart">
+      </div>
+      <div style="flex:1; min-width:160px;">
+        <label class="muted">End date</label>
+        <input type="date" id="seasonEnd">
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px; justify-content:flex-end;">
+      <button id="startNewSeasonBtn" class="ghost" style="display:none;">Start New Season…</button>
+      <button id="unlockBtn" class="ghost" style="display:none;">Unlock to Edit</button>
+      <button id="lockBtn" class="primary" style="display:none;">Lock In Season</button>
+    </div>
+  </div>
+
+  <!-- Auto-generated preview banner -->
+  <div class="card">
+    <div class="title">Announcement preview</div>
+    <div class="muted" style="margin-bottom:10px;">A ready-to-screenshot preview, generated live from what's below — the same kind of graphic you'd normally build by hand once the season's confirmed.</div>
+    <div class="heroPreview" id="heroPreview"></div>
+  </div>
+
+  <!-- Season breaks -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Season breaks</div>
+        <div class="muted">Post-season breaks, training weeks, holiday breaks — anything that pauses the schedule.</div>
+      </div>
+      <button class="small" id="addBreakBtn">+ Add break</button>
+    </div>
+    <div class="tblWrap"><table id="breaksTable">
+      <thead><tr><th>Label</th><th>Start</th><th>End</th><th class="colTight"></th></tr></thead>
+      <tbody id="breaksBody"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Rules & settings -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Rules &amp; settings</div>
+        <div class="muted">Assists, damage model, tyre wear, and every other league-wide setting for the season.</div>
+      </div>
+      <div class="row">
+        <button class="small" id="loadDefaultRulesBtn">Insert IFWL default template</button>
+        <button class="small" id="addRuleBtn">+ Add rule</button>
+      </div>
+    </div>
+    <div class="tblWrap"><table id="rulesTable">
+      <thead><tr><th>Rule</th><th>Setting</th><th class="colTight"></th></tr></thead>
+      <tbody id="rulesBody"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Points layout -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Points layout</div>
+        <div class="muted">Championship points by finishing position.</div>
+      </div>
+      <div class="row">
+        <button class="small" id="autoFillPointsBtn">Auto-fill next 5 (−3 each)</button>
+        <button class="small" id="addPointsRowBtn">+ Add position</button>
+      </div>
+    </div>
+    <div class="tblWrap"><table id="pointsTable">
+      <thead><tr><th style="width:120px;">Position</th><th>Points</th><th class="colTight"></th></tr></thead>
+      <tbody id="pointsBody"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Platform -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Platform</div>
+        <div class="muted">Tick every platform this season runs on.</div>
+      </div>
+      <button class="small" id="addPlatformBtn">+ Add platform</button>
+    </div>
+    <div class="tblWrap"><table id="platformsTable">
+      <thead><tr><th>Platform</th><th style="width:120px;">Required</th><th class="colTight"></th></tr></thead>
+      <tbody id="platformsBody"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Mods / DLC -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Mods or required DLC packs</div>
+        <div class="muted">Anything drivers need to own or install to race this season.</div>
+      </div>
+      <button class="small" id="addModBtn">+ Add mod / DLC</button>
+    </div>
+    <div class="tblWrap"><table id="modsTable">
+      <thead><tr><th>Name</th><th>Link (for sales push)</th><th class="colTight"></th></tr></thead>
+      <tbody id="modsBody"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Track library -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Track library</div>
+        <div class="muted">The full list the Schedule below can pick a track from. Not every track lives in the base ACC list — add anything missing (RaceRoom-only circuits, etc.) here and it becomes selectable straight away, for everyone.</div>
+      </div>
+    </div>
+    <div id="trackChips" style="margin-bottom:10px;"></div>
+    <div class="row">
+      <input type="text" id="newTrackInput" placeholder="e.g. Zolder (RaceRoom)" style="flex:1; min-width:220px;">
+      <button id="addTrackBtn">+ Add track to library</button>
+    </div>
+  </div>
+
+  <!-- Schedule -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Schedule</div>
+        <div class="muted">One row per race week. Track is picked from the Track Library above.</div>
+      </div>
+      <button class="small" id="addWeekBtn">+ Add week</button>
+    </div>
+    <div class="tblWrap"><table id="scheduleTable">
+      <thead><tr>
+        <th style="width:70px;">Week</th><th style="width:140px;">Date</th><th style="width:170px;">Round name</th><th style="width:140px;">DLC</th><th style="width:170px;">Track</th>
+        <th style="width:110px;">Practice</th><th style="width:110px;">Qually</th><th style="width:120px;">Race 1</th><th style="width:120px;">Race 2</th><th style="width:190px;">Conditions</th><th style="width:170px;">Misc</th><th class="colTight" style="width:80px;">Remove</th>
+      </tr></thead>
+      <tbody id="scheduleBody"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Save bar -->
+  <div class="stickySave">
+    <div class="muted" id="saveStatusLine"><span class="unsavedDot" id="unsavedDot" style="display:none;"></span>No unsaved changes.</div>
+    <div class="row">
+      <button id="discardBtn" class="ghost">Discard my changes</button>
+      <button id="saveBtn" class="primary">Save Changes</button>
+    </div>
+  </div>
+
+  <!-- Change log -->
+  <div class="card">
+    <div class="sectionHead">
+      <div>
+        <div class="title">Activity &amp; proposed changes</div>
+        <div class="muted">Every save is logged here with who made it and exactly what changed, so nothing gets locked in by surprise.</div>
+      </div>
+      <button class="small" id="refreshLogBtn">Refresh</button>
+    </div>
+    <div id="changeLogList"><div class="muted">Loading…</div></div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Firebase (real deployment: swap in the shared init script used by
+     steward.html / headsteward.html) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="./firebase-init.js"></script>
+
+<script>
+  function $(id) { return document.getElementById(id); }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+  }
+  const toastEl = $("toast");
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => toastEl.classList.remove("show"), 2600);
+  }
+  window.addEventListener("error", (e) => {
+    console.error("JS error:", e);
+    toast("JS ERROR:\n" + (e?.message || "Unknown error"));
+  });
+
+  // ---------- constants ----------
+  const PRESET_TRACKS = [
+    "Monza", "Spa-Francorchamps", "Paul Ricard", "Barcelona", "Misano",
+    "Nürburgring GP", "Hungaroring", "Zolder", "Brands Hatch", "Silverstone",
+    "Zandvoort", "Kyalami", "Mount Panorama (Bathurst)", "Laguna Seca",
+    "Suzuka", "Imola", "Watkins Glen", "Oulton Park", "Donington Park", "Snetterton"
+  ];
+
+  const DEFAULT_RULES = [
+    ["ASSISTS", "ON"], ["PIT LIMITERS", "OFF"], ["DAMAGE MODEL", "FULL"],
+    ["LIVERIES", "YES"], ["PENS", "FULL"], ["STEWARDED", "LIMITED"],
+    ["TYRE WEAR", "ON"], ["TUNES", "N/A"], ["UPGRADES", "N/A"]
+  ];
+  const DEFAULT_POINTS = [66, 60, 55, 51, 48, 45, 42, 39, 36, 33, 30];
+  const DEFAULT_PLATFORMS = [["PC", false], ["CONSOLE", true]];
+
+  function newId(prefix) { return prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8); }
+
+  function blankState() {
+    return {
+      seasonName: "", seasonStart: "", seasonEnd: "",
+      breaks: [], rules: [], points: [], platforms: [], mods: [],
+      customTracks: [], schedule: [],
+      locked: false, lockedBy: "", lockedAt: null, unlockedBy: "", unlockedAt: null,
+      version: 0
+    };
+  }
+
+  // ---------- state ----------
+  let currentEmail = "";
+  let isOwner = false;
+  let isStaff = false;
+  let liveState = blankState();      // what's actually saved server-side
+  let editState = blankState();      // what's currently in the DOM / being edited
+  let dirty = false;
+
+  function markDirty() {
+    dirty = true;
+    $("saveStatusLine").innerHTML = '<span class="unsavedDot"></span>You have unsaved changes.';
+  }
+  function markClean() {
+    dirty = false;
+    $("saveStatusLine").innerHTML = 'No unsaved changes.';
+  }
+
+  // ---------- row builders ----------
+  function td(el) { const d = document.createElement("td"); d.appendChild(el); return d; }
+  function inputCell(value, oninput, type = "text", placeholder = "") {
+    const i = document.createElement("input");
+    i.type = type; i.value = value == null ? "" : value; i.placeholder = placeholder;
+    i.addEventListener("input", () => { oninput(i.value); markDirty(); });
+    return td(i);
+  }
+  function removeBtnCell(onclick) {
+    const b = document.createElement("button");
+    b.className = "small ghost"; b.textContent = "Remove"; b.type = "button";
+    b.addEventListener("click", onclick);
+    const d = document.createElement("td");
+    d.appendChild(b);
+    return d;
+  }
+  // A locked season is read-only for everyone, including the Owner, until
+  // "Unlock to Edit" flips editState.locked back to false server-side (see
+  // unlockSeason()) — there's no separate "owner bypass" mode, unlocking
+  // reopens editing for all staff, which is the whole point of the button.
+  function setEditable(root) {
+    const locked = editState.locked;
+    root.querySelectorAll("input, select, textarea, button.small.ghost").forEach(el => {
+      if (!isStaff) { el.disabled = true; return; }
+      el.disabled = locked;
+    });
+  }
+
+  // ---------- renderers ----------
+  function renderBreaks() {
+    const body = $("breaksBody"); body.innerHTML = "";
+    editState.breaks.forEach(row => {
+      const tr = document.createElement("tr");
+      tr.dataset.rowId = row.id;
+      tr.appendChild(inputCell(row.label, v => row.label = v, "text", "e.g. Xmas Break"));
+      tr.appendChild(inputCell(row.start, v => row.start = v, "date"));
+      tr.appendChild(inputCell(row.end, v => row.end = v, "date"));
+      tr.appendChild(removeBtnCell(() => { editState.breaks = editState.breaks.filter(r => r.id !== row.id); markDirty(); renderBreaks(); renderHeroPreview(); }));
+      body.appendChild(tr);
+    });
+    if (!editState.breaks.length) body.innerHTML = '<tr><td colspan="4" class="muted">No breaks added yet.</td></tr>';
+    setEditable(body);
+    renderHeroPreview();
+  }
+
+  function renderRules() {
+    const body = $("rulesBody"); body.innerHTML = "";
+    editState.rules.forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.rule, v => row.rule = v, "text", "e.g. TYRE WEAR"));
+      tr.appendChild(inputCell(row.setting, v => row.setting = v, "text", "e.g. ON"));
+      tr.appendChild(removeBtnCell(() => { editState.rules = editState.rules.filter(r => r.id !== row.id); markDirty(); renderRules(); }));
+      body.appendChild(tr);
+    });
+    if (!editState.rules.length) body.innerHTML = '<tr><td colspan="3" class="muted">No rules added yet.</td></tr>';
+    setEditable(body);
+  }
+
+  function renderPoints() {
+    const body = $("pointsBody"); body.innerHTML = "";
+    editState.points.forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.position, v => row.position = v, "number"));
+      tr.appendChild(inputCell(row.points, v => row.points = v, "number"));
+      tr.appendChild(removeBtnCell(() => { editState.points = editState.points.filter(r => r.id !== row.id); markDirty(); renderPoints(); }));
+      body.appendChild(tr);
+    });
+    if (!editState.points.length) body.innerHTML = '<tr><td colspan="3" class="muted">No points positions added yet.</td></tr>';
+    setEditable(body);
+  }
+
+  function renderPlatforms() {
+    const body = $("platformsBody"); body.innerHTML = "";
+    editState.platforms.forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.platform, v => row.platform = v, "text"));
+      const chk = document.createElement("input");
+      chk.type = "checkbox"; chk.checked = !!row.required; chk.style.width = "18px"; chk.style.cursor = "pointer";
+      chk.addEventListener("change", () => { row.required = chk.checked; markDirty(); });
+      const chkTd = document.createElement("td"); chkTd.style.textAlign = "center"; chkTd.appendChild(chk);
+      tr.appendChild(chkTd);
+      tr.appendChild(removeBtnCell(() => { editState.platforms = editState.platforms.filter(r => r.id !== row.id); markDirty(); renderPlatforms(); }));
+      body.appendChild(tr);
+    });
+    if (!editState.platforms.length) body.innerHTML = '<tr><td colspan="3" class="muted">No platforms added yet.</td></tr>';
+    setEditable(body);
+  }
+
+  function renderMods() {
+    const body = $("modsBody"); body.innerHTML = "";
+    editState.mods.forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.name, v => row.name = v, "text", "e.g. Nordschleife Pack"));
+      tr.appendChild(inputCell(row.link, v => row.link = v, "text", "https://…"));
+      tr.appendChild(removeBtnCell(() => { editState.mods = editState.mods.filter(r => r.id !== row.id); markDirty(); renderMods(); }));
+      body.appendChild(tr);
+    });
+    if (!editState.mods.length) body.innerHTML = '<tr><td colspan="3" class="muted">No mods/DLC required yet.</td></tr>';
+    setEditable(body);
+  }
+
+  function allTracks() {
+    const set = new Set(PRESET_TRACKS);
+    (editState.customTracks || []).forEach(t => set.add(t));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }
+
+  function renderTrackChips() {
+    const box = $("trackChips"); box.innerHTML = "";
+    PRESET_TRACKS.forEach(t => {
+      const c = document.createElement("span"); c.className = "trackChip"; c.textContent = t; box.appendChild(c);
+    });
+    (editState.customTracks || []).forEach(t => {
+      const c = document.createElement("span"); c.className = "trackChip custom"; c.textContent = t + " (added)"; box.appendChild(c);
+    });
+    const addBtn = $("addTrackBtn");
+    addBtn.disabled = !isStaff || editState.locked;
+    $("newTrackInput").disabled = addBtn.disabled;
+  }
+
+  function trackSelect(value) {
+    const sel = document.createElement("select");
+    const blank = document.createElement("option"); blank.value = ""; blank.textContent = "— Select track —"; sel.appendChild(blank);
+    allTracks().forEach(t => {
+      const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === value) o.selected = true; sel.appendChild(o);
+    });
+    if (value && !allTracks().includes(value)) {
+      const o = document.createElement("option"); o.value = value; o.textContent = value + " (not in library)"; o.selected = true; sel.appendChild(o);
+    }
+    return sel;
+  }
+
+  function renderSchedule() {
+    const body = $("scheduleBody"); body.innerHTML = "";
+    editState.schedule.forEach((row, idx) => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.week, v => row.week = v, "text", `Week ${idx + 1}`));
+      tr.appendChild(inputCell(row.date, v => row.date = v, "date"));
+      tr.appendChild(inputCell(row.name, v => row.name = v, "text", "Round name"));
+      tr.appendChild(inputCell(row.dlcName, v => row.dlcName = v, "text", "DLC name"));
+
+      const trackSel = trackSelect(row.track);
+      trackSel.addEventListener("change", () => { row.track = trackSel.value; markDirty(); });
+      tr.appendChild(td(trackSel));
+
+      tr.appendChild(inputCell(row.practiceTime, v => row.practiceTime = v, "text"));
+      tr.appendChild(inputCell(row.quallyTime, v => row.quallyTime = v, "text"));
+      tr.appendChild(inputCell(row.race1, v => row.race1 = v, "text", "time or laps"));
+      tr.appendChild(inputCell(row.race2, v => row.race2 = v, "text", "time or laps"));
+      tr.appendChild(inputCell(row.conditions, v => row.conditions = v, "text"));
+      tr.appendChild(inputCell(row.misc, v => row.misc = v, "text"));
+      tr.appendChild(removeBtnCell(() => { editState.schedule = editState.schedule.filter(r => r.id !== row.id); markDirty(); renderSchedule(); }));
+      body.appendChild(tr);
+    });
+    if (!editState.schedule.length) body.innerHTML = '<tr><td colspan="12" class="muted">No weeks added yet.</td></tr>';
+    setEditable(body);
+  }
+
+  function renderHeroPreview() {
+    const el = $("heroPreview");
+    const name = editState.seasonName || "SEASON NAME TBC";
+    const start = editState.seasonStart ? formatDate(editState.seasonStart) : "TBC";
+    const end = editState.seasonEnd ? formatDate(editState.seasonEnd) : "TBC";
+    const breakLines = (editState.breaks || []).map(b => {
+      const label = b.label || "Break";
+      const range = (b.start && b.end) ? `${formatDate(b.start)} – ${formatDate(b.end)}` : "dates TBC";
+      const cls = /xmas|christmas|holiday/i.test(label) ? "warn" : "";
+      return `<div class="breakLine ${cls}">${escapeHtml(label)} | ${escapeHtml(range)}</div>`;
+    }).join("");
+    el.innerHTML = `
+      <div class="seasonName">${escapeHtml(name)}</div>
+      <div class="seasonDates">${escapeHtml(start)} — ${escapeHtml(end)}</div>
+      ${breakLines}
+    `;
+  }
+  function formatDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso + "T00:00:00");
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  }
+
+  function renderStatus() {
+    const badge = $("statusBadge");
+    const msg = $("statusMessage");
+    const lockBtn = $("lockBtn"), unlockBtn = $("unlockBtn"), newSeasonBtn = $("startNewSeasonBtn");
+
+    if (editState.locked) {
+      badge.textContent = "🔒 Locked in"; badge.className = "badge locked";
+      msg.innerHTML = `<div class="lockedBox">This season is locked in and confirmed${editState.lockedBy ? ` by ${escapeHtml(editState.lockedBy)}` : ""}${editState.lockedAt ? ` on ${new Date(editState.lockedAt).toLocaleString()}` : ""}. Editing is disabled${isOwner ? " — unlock it if something still needs to change." : " until the Owner unlocks it."}</div>`;
+    } else {
+      badge.textContent = "✏️ Draft — being planned"; badge.className = "badge draft";
+      msg.innerHTML = `<div class="warnBox">Still a draft. Anyone on staff can edit anything below — nothing is official until it's locked in.</div>`;
+    }
+
+    lockBtn.style.display = (isOwner && !editState.locked) ? "inline-block" : "none";
+    unlockBtn.style.display = (isOwner && editState.locked) ? "inline-block" : "none";
+    newSeasonBtn.style.display = isOwner ? "inline-block" : "none";
+
+    $("seasonName").disabled = !isStaff || editState.locked;
+    $("seasonStart").disabled = !isStaff || editState.locked;
+    $("seasonEnd").disabled = !isStaff || editState.locked;
+  }
+
+  function renderAll() {
+    renderStatus();
+    $("seasonName").value = editState.seasonName || "";
+    $("seasonStart").value = editState.seasonStart || "";
+    $("seasonEnd").value = editState.seasonEnd || "";
+    renderBreaks(); renderRules(); renderPoints(); renderPlatforms(); renderMods();
+    renderTrackChips(); renderSchedule(); renderHeroPreview();
+  }
+
+  // ---------- diff engine ----------
+  function diffKeyedArray(oldArr, newArr, fields, labelFn, sectionLabel) {
+    const lines = [];
+    const oldMap = new Map((oldArr || []).map(r => [r.id, r]));
+    const newMap = new Map((newArr || []).map(r => [r.id, r]));
+    for (const [id, row] of newMap) {
+      if (!oldMap.has(id)) lines.push(`Added ${sectionLabel}: ${labelFn(row)}`);
+    }
+    for (const [id, row] of oldMap) {
+      if (!newMap.has(id)) lines.push(`Removed ${sectionLabel}: ${labelFn(row)}`);
+    }
+    for (const [id, newRow] of newMap) {
+      const oldRow = oldMap.get(id);
+      if (!oldRow) continue;
+      for (const f of fields) {
+        const ov = oldRow[f.key], nv = newRow[f.key];
+        if (String(ov ?? "") !== String(nv ?? "")) {
+          lines.push(`${labelFn(newRow)} — ${f.label}: "${ov ?? "—"}" → "${nv ?? "—"}"`);
+        }
+      }
+    }
+    return lines;
+  }
+  function diffStringArray(oldArr, newArr, sectionLabel) {
+    const lines = [];
+    const oldSet = new Set(oldArr || []), newSet = new Set(newArr || []);
+    for (const v of newSet) if (!oldSet.has(v)) lines.push(`Added ${sectionLabel}: "${v}"`);
+    for (const v of oldSet) if (!newSet.has(v)) lines.push(`Removed ${sectionLabel}: "${v}"`);
+    return lines;
+  }
+  function computeDiff(oldS, newS) {
+    let lines = [];
+    if ((oldS.seasonName || "") !== (newS.seasonName || "")) lines.push(`Season name: "${oldS.seasonName || "—"}" → "${newS.seasonName || "—"}"`);
+    if ((oldS.seasonStart || "") !== (newS.seasonStart || "")) lines.push(`Season start: "${oldS.seasonStart || "—"}" → "${newS.seasonStart || "—"}"`);
+    if ((oldS.seasonEnd || "") !== (newS.seasonEnd || "")) lines.push(`Season end: "${oldS.seasonEnd || "—"}" → "${newS.seasonEnd || "—"}"`);
+
+    lines = lines.concat(diffKeyedArray(oldS.breaks, newS.breaks,
+      [{ key: "label", label: "label" }, { key: "start", label: "start" }, { key: "end", label: "end" }],
+      r => `break "${r.label || "(unnamed)"}"`, "break"));
+
+    lines = lines.concat(diffKeyedArray(oldS.rules, newS.rules,
+      [{ key: "rule", label: "rule name" }, { key: "setting", label: "setting" }],
+      r => `rule "${r.rule || "(unnamed)"}"`, "rule"));
+
+    lines = lines.concat(diffKeyedArray(oldS.points, newS.points,
+      [{ key: "position", label: "position" }, { key: "points", label: "points" }],
+      r => `points position ${r.position ?? "?"}`, "points row"));
+
+    lines = lines.concat(diffKeyedArray(oldS.platforms, newS.platforms,
+      [{ key: "platform", label: "platform" }, { key: "required", label: "required" }],
+      r => `platform "${r.platform || "(unnamed)"}"`, "platform"));
+
+    lines = lines.concat(diffKeyedArray(oldS.mods, newS.mods,
+      [{ key: "name", label: "name" }, { key: "link", label: "link" }],
+      r => `mod/DLC "${r.name || "(unnamed)"}"`, "mod/DLC"));
+
+    lines = lines.concat(diffStringArray(oldS.customTracks, newS.customTracks, "track in library"));
+
+    lines = lines.concat(diffKeyedArray(oldS.schedule, newS.schedule,
+      [{ key: "week", label: "week" }, { key: "date", label: "date" }, { key: "name", label: "round name" },
+       { key: "dlcName", label: "DLC" }, { key: "track", label: "track" }, { key: "practiceTime", label: "practice" },
+       { key: "quallyTime", label: "qually" }, { key: "race1", label: "race 1" }, { key: "race2", label: "race 2" },
+       { key: "conditions", label: "conditions" }, { key: "misc", label: "misc" }],
+      r => `Week ${r.week ?? "?"} (${r.name || "unnamed round"})`, "schedule week"));
+
+    return lines;
+  }
+
+  // ---------- collect DOM -> state (state is already live-bound via closures,
+  // so collecting just means cloning the in-memory editState) ----------
+  function cloneState(s) { return JSON.parse(JSON.stringify(s)); }
+
+  // ---------- Firestore I/O ----------
+  const PLAN_REF = () => db.collection("season_plan").doc("current");
+  const CHANGES_REF = () => PLAN_REF().collection("changes");
+
+  async function loadPlan() {
+    const snap = await PLAN_REF().get();
+    if (!snap.exists) {
+      liveState = blankState();
+    } else {
+      const d = snap.data() || {};
+      liveState = Object.assign(blankState(), d, {
+        lockedAt: tsToMs(d.lockedAt), unlockedAt: tsToMs(d.unlockedAt)
+      });
+    }
+    editState = cloneState(liveState);
+    markClean();
+    renderAll();
+  }
+  function tsToMs(ts) {
+    if (!ts) return null;
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts === "number") return ts;
+    return null;
+  }
+
+  async function loadChangeLog() {
+    const box = $("changeLogList");
+    box.innerHTML = '<div class="muted">Loading…</div>';
+    try {
+      const snap = await CHANGES_REF().orderBy("createdAtMs", "desc").limit(50).get();
+      if (snap.empty) { box.innerHTML = '<div class="muted">No activity yet.</div>'; return; }
+      const items = [];
+      snap.forEach(doc => items.push(doc.data()));
+      box.innerHTML = items.map(c => {
+        const kindCls = c.kind && c.kind !== "edit" ? ` kind-${c.kind}` : "";
+        const when = c.createdAtMs ? new Date(c.createdAtMs).toLocaleString() : "";
+        const lines = (c.text || "").trim();
+        return `<div class="changeItem${kindCls}">
+          <span class="who">${escapeHtml(c.who || "unknown")}</span><span class="when">${escapeHtml(when)}</span>
+          <pre>${escapeHtml(lines || "(no field changes — metadata only)")}</pre>
+        </div>`;
+      }).join("");
+    } catch (e) {
+      box.innerHTML = `<div class="muted">Could not load activity: ${escapeHtml(e?.message || e)}</div>`;
+    }
+  }
+
+  async function saveChanges() {
+    if (!isStaff) { toast("You don't have permission to edit this."); return; }
+    if (editState.locked) { toast("Season is locked — unlock it first."); return; }
+
+    const diffLines = computeDiff(liveState, editState);
+    if (!diffLines.length) { toast("No changes to save."); return; }
+
+    const btn = $("saveBtn"); const original = btn.textContent;
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      const expectedVersion = liveState.version || 0;
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(PLAN_REF());
+        const serverVersion = snap.exists ? (snap.data().version || 0) : 0;
+        if (serverVersion !== expectedVersion) {
+          throw new Error("VERSION_CONFLICT");
+        }
+        const payload = cloneState(editState);
+        delete payload.lockedAt; delete payload.unlockedAt;
+        payload.version = serverVersion + 1;
+        payload.updatedBy = currentEmail;
+        payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+        if (editState.lockedAt) payload.lockedAt = firebase.firestore.Timestamp.fromMillis(editState.lockedAt);
+        if (editState.unlockedAt) payload.unlockedAt = firebase.firestore.Timestamp.fromMillis(editState.unlockedAt);
+        tx.set(PLAN_REF(), payload, { merge: false });
+      });
+
+      const nowMs = Date.now();
+      await CHANGES_REF().add({
+        who: currentEmail, kind: "edit",
+        text: diffLines.join("\n"),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        createdAtMs: nowMs
+      });
+
+      await loadPlan();
+      await loadChangeLog();
+      toast("Saved ✅ — " + diffLines.length + " change(s) logged.");
+    } catch (e) {
+      if (String(e?.message).includes("VERSION_CONFLICT")) {
+        toast("Someone else saved changes while you were editing. Reloading the latest version — please redo your edit.");
+        await loadPlan();
+      } else {
+        toast("Save failed: " + (e?.message || e));
+      }
+    } finally {
+      btn.disabled = false; btn.textContent = original;
+    }
+  }
+
+  async function discardMyChanges() {
+    if (!dirty) { toast("Nothing to discard."); return; }
+    if (!confirm("Discard your unsaved changes and reload the last saved version?")) return;
+    editState = cloneState(liveState);
+    markClean();
+    renderAll();
+    toast("Discarded.");
+  }
+
+  async function lockSeason() {
+    if (!isOwner) return;
+    const counts = `${editState.schedule.length} week(s), ${editState.rules.length} rule(s), ${editState.points.length} points row(s)`;
+    if (!confirm(`Lock in "${editState.seasonName || "this season"}"?\n\nCurrently: ${counts}.\n\nThis freezes the plan for everyone except you until it's unlocked again.`)) return;
+    if (dirty && !confirm("You have unsaved changes. Save them first, then lock? Click OK to save+lock, Cancel to stop.")) return;
+
+    try {
+      if (dirty) await saveChanges();
+      const nowMs = Date.now();
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(PLAN_REF());
+        const serverVersion = snap.exists ? (snap.data().version || 0) : 0;
+        tx.update(PLAN_REF(), {
+          locked: true, lockedBy: currentEmail,
+          lockedAt: firebase.firestore.Timestamp.fromMillis(nowMs),
+          version: serverVersion + 1,
+          updatedBy: currentEmail, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      await CHANGES_REF().add({
+        who: currentEmail, kind: "lock",
+        text: `🔒 Season locked in by ${currentEmail}.`,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdAtMs: nowMs
+      });
+      await loadPlan(); await loadChangeLog();
+      toast("Season locked in 🔒");
+    } catch (e) { toast("Could not lock: " + (e?.message || e)); }
+  }
+
+  async function unlockSeason() {
+    if (!isOwner) return;
+    if (!confirm("Unlock this season for editing again? Staff will be able to change everything until you lock it back in.")) return;
+    try {
+      const nowMs = Date.now();
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(PLAN_REF());
+        const serverVersion = snap.exists ? (snap.data().version || 0) : 0;
+        tx.update(PLAN_REF(), {
+          locked: false, unlockedBy: currentEmail,
+          unlockedAt: firebase.firestore.Timestamp.fromMillis(nowMs),
+          version: serverVersion + 1,
+          updatedBy: currentEmail, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      await CHANGES_REF().add({
+        who: currentEmail, kind: "unlock",
+        text: `🔓 Season reopened for editing by ${currentEmail}.`,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdAtMs: nowMs
+      });
+      await loadPlan(); await loadChangeLog();
+      toast("Unlocked for editing.");
+    } catch (e) { toast("Could not unlock: " + (e?.message || e)); }
+  }
+
+  async function startNewSeason() {
+    if (!isOwner) return;
+    const name = editState.seasonName || "(unnamed season)";
+    if (!confirm(`Start a new season workspace?\n\nThe current plan ("${name}") will be archived, and this page will reset to a blank draft. The track library carries over. This can't be undone from here.`)) return;
+    if (!confirm(`Really sure? This replaces "${name}" with a blank workspace right now.`)) return;
+
+    try {
+      const archiveDoc = cloneState(editState);
+      await db.collection("season_plan_archive").add(Object.assign({}, archiveDoc, {
+        archivedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        archivedAtMs: Date.now(),
+        archivedBy: currentEmail,
+        seasonNameAtArchive: name
+      }));
+
+      const fresh = blankState();
+      fresh.customTracks = editState.customTracks || []; // keep the shared track library
+      fresh.version = (liveState.version || 0) + 1;
+      fresh.updatedBy = currentEmail;
+      fresh.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+      await PLAN_REF().set(fresh, { merge: false });
+
+      await CHANGES_REF().add({
+        who: currentEmail, kind: "reset",
+        text: `🆕 New season workspace started by ${currentEmail}, replacing "${name}" (archived).`,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdAtMs: Date.now()
+      });
+
+      await loadPlan(); await loadChangeLog();
+      toast("New season workspace ready.");
+    } catch (e) { toast("Could not start new season: " + (e?.message || e)); }
+  }
+
+  // ---------- add-row handlers ----------
+  $("addBreakBtn").onclick = () => { editState.breaks.push({ id: newId("brk"), label: "", start: "", end: "" }); markDirty(); renderBreaks(); };
+  $("addRuleBtn").onclick = () => { editState.rules.push({ id: newId("rul"), rule: "", setting: "" }); markDirty(); renderRules(); };
+  $("addPointsRowBtn").onclick = () => {
+    const nextPos = editState.points.length ? Math.max(...editState.points.map(p => Number(p.position) || 0)) + 1 : 1;
+    editState.points.push({ id: newId("pts"), position: nextPos, points: 0 }); markDirty(); renderPoints();
+  };
+  $("autoFillPointsBtn").onclick = () => {
+    if (!editState.points.length) { toast("Add at least one points row first."); return; }
+    const sorted = [...editState.points].sort((a, b) => Number(a.position) - Number(b.position));
+    const last = sorted[sorted.length - 1];
+    let pos = Number(last.position), pts = Number(last.points);
+    for (let i = 0; i < 5; i++) { pos += 1; pts = Math.max(0, pts - 3); editState.points.push({ id: newId("pts"), position: pos, points: pts }); }
+    markDirty(); renderPoints();
+  };
+  $("addPlatformBtn").onclick = () => { editState.platforms.push({ id: newId("plt"), platform: "", required: false }); markDirty(); renderPlatforms(); };
+  $("addModBtn").onclick = () => { editState.mods.push({ id: newId("mod"), name: "", link: "" }); markDirty(); renderMods(); };
+  $("addWeekBtn").onclick = () => {
+    const nextWeek = editState.schedule.length ? editState.schedule.length + 1 : 1;
+    editState.schedule.push({ id: newId("wk"), week: "Week " + nextWeek, date: "", name: "", dlcName: "", track: "", practiceTime: "", quallyTime: "", race1: "", race2: "", conditions: "", misc: "" });
+    markDirty(); renderSchedule();
+  };
+  $("addTrackBtn").onclick = () => {
+    const v = $("newTrackInput").value.trim();
+    if (!v) { toast("Type a track name first."); return; }
+    if (allTracks().some(t => t.toLowerCase() === v.toLowerCase())) { toast("That track's already in the library."); return; }
+    editState.customTracks = editState.customTracks || [];
+    editState.customTracks.push(v);
+    $("newTrackInput").value = "";
+    markDirty(); renderTrackChips(); renderSchedule();
+  };
+  $("loadDefaultRulesBtn").onclick = () => {
+    if (editState.rules.length || editState.points.length || editState.platforms.length) {
+      if (!confirm("This adds the standard IFWL defaults for Rules, Points, and Platform. Existing rows are kept — continue?")) return;
+    }
+    DEFAULT_RULES.forEach(([rule, setting]) => editState.rules.push({ id: newId("rul"), rule, setting }));
+    DEFAULT_POINTS.forEach((pts, i) => editState.points.push({ id: newId("pts"), position: i + 1, points: pts }));
+    DEFAULT_PLATFORMS.forEach(([platform, required]) => editState.platforms.push({ id: newId("plt"), platform, required }));
+    markDirty(); renderRules(); renderPoints(); renderPlatforms();
+    toast("Default template inserted.");
+  };
+
+  ["seasonName", "seasonStart", "seasonEnd"].forEach(id => {
+    $(id).addEventListener("input", () => {
+      editState[id] = $(id).value;
+      markDirty(); renderHeroPreview();
+    });
+  });
+
+  $("saveBtn").onclick = saveChanges;
+  $("discardBtn").onclick = discardMyChanges;
+  $("lockBtn").onclick = lockSeason;
+  $("unlockBtn").onclick = unlockSeason;
+  $("startNewSeasonBtn").onclick = startNewSeason;
+  $("refreshLogBtn").onclick = loadChangeLog;
+
+  $("backBtn").onclick = () => window.location.href = "index.html";
+  $("logoutBtn").onclick = async () => { await auth.signOut(); window.location.href = "admin.html"; };
+
+  window.addEventListener("beforeunload", (e) => {
+    if (dirty) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  // ---------- boot ----------
+  async function waitForFirebaseReady(maxMs = 8000) {
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+      if (typeof auth !== "undefined" && typeof db !== "undefined" && auth && db) return true;
+      await new Promise(r => setTimeout(r, 80));
+    }
+    return false;
+  }
+
+  (async () => {
+    const ok = await waitForFirebaseReady();
+    if (!ok) { toast("Firebase not ready.\nCheck firebase-init.js path + console."); return; }
+
+    auth.onAuthStateChanged(async (user) => {
+      try {
+        if (!user) { window.location.href = "admin.html"; return; }
+        currentEmail = (user.email || "").toLowerCase().trim();
+
+        const adminSnap = await db.collection("admins").doc(currentEmail).get();
+        if (!adminSnap.exists) { await auth.signOut(); window.location.href = "admin.html"; return; }
+
+        const data = adminSnap.data() || {};
+        isOwner = data.owner === true;
+        isStaff = true; // any signed-in admin account can propose changes
+
+        const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
+        const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Staff";
+        $("welcomeLine").textContent = isOwner
+          ? `Welcome, ${niceName}. You can lock in the season once staff are happy with the plan.`
+          : `Welcome, ${niceName}. Propose changes freely — the Owner locks the season in once it's confirmed.`;
+        $("who").textContent = `Signed in as: ${currentEmail}${isOwner ? " | Owner" : ""}`;
+
+        await loadPlan();
+        await loadChangeLog();
+      } catch (e) {
+        toast("Auth/load error: " + (e?.message || e));
+      }
+    });
+  })();
+</script>
+</body>
+</html>
