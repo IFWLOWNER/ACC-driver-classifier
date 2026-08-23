@@ -98,7 +98,45 @@
   .stickySave { position:sticky; bottom:0; z-index:50; background:rgba(255,255,255,.97); border:1px solid #e5e7eb; border-radius:14px; padding:12px 16px; box-shadow:0 -8px 24px rgba(0,0,0,.18); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
   .unsavedDot { display:inline-block; width:8px; height:8px; border-radius:999px; background:#f59e0b; margin-right:6px; }
 
-  @media (max-width: 720px) { .wrap { padding:10px; } .card { padding:12px; } }
+  /* ---------- collapsible season breaks ---------- */
+  details.card > summary { cursor:pointer; font-weight:800; font-size:16px; list-style:none; }
+  details.card > summary::-webkit-details-marker { display:none; }
+  details.card > summary::before { content:"▸ "; color:#6b7280; }
+  details[open].card > summary::before { content:"▾ "; }
+
+  /* ---------- events grid ---------- */
+  .eventsGrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+  .eventCard { border:1px solid #e5e7eb; border-radius:12px; padding:14px; cursor:pointer; background:#fff; transition: box-shadow .15s, border-color .15s; }
+  .eventCard:hover { box-shadow:0 6px 18px rgba(0,0,0,.14); border-color:#c7d2fe; }
+  .eventCard .evName { font-weight:800; font-size:15px; }
+  .eventCard .evMeta { font-size:12px; color:#6b7280; margin-top:6px; }
+  .addEventCard { border:2px dashed #d1d5db; display:flex; align-items:center; justify-content:center; color:#4b5563; font-weight:700; cursor:pointer; min-height:90px; background:transparent; box-shadow:none; }
+  .addEventCard:hover { border-color:#9ca3af; color:#111827; }
+
+  /* ---------- event slide-over panel ---------- */
+  .panelBackdrop { position:fixed; inset:0; background:rgba(2,6,23,0.55); z-index:100; opacity:0; pointer-events:none; transition:opacity .18s ease; }
+  .panelBackdrop.show { opacity:1; pointer-events:auto; }
+  .eventPanel {
+    position:fixed; top:0; right:0; bottom:0; width:min(960px, 96vw);
+    background:#f3f4f6; z-index:101; transform: translateX(102%);
+    transition: transform .22s ease; overflow-y:auto; box-shadow:-14px 0 34px rgba(0,0,0,.3);
+  }
+  .eventPanel.show { transform: translateX(0); }
+  .eventPanelHead { position:sticky; top:0; background:#111827; color:#fff; padding:14px 18px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; z-index:2; }
+  .eventPanelHead input[type=text], .eventPanelHead input[type=date] { background:rgba(255,255,255,0.95); }
+  .eventPanelHead label.small { font-size:12px; color:#d1d5db; }
+  /* Buttons don't inherit ancestor color by default, so on this dark header
+     they'd otherwise render with the browser's default (near-black) text —
+     invisible against the dark background. Force light text + a visible border. */
+  .eventPanelHead button.ghost { color:#fff; border-color: rgba(255,255,255,0.5); }
+  .eventPanelHead button.ghost:hover { background: rgba(255,255,255,0.1); }
+  .eventPanelHead button.primary { border-color: rgba(255,255,255,0.5); }
+  .eventPanelBody { padding:16px; display:flex; flex-direction:column; gap:14px; }
+
+  @media (max-width: 720px) {
+    .wrap { padding:10px; } .card { padding:12px; }
+    .eventPanel { width:100vw; }
+  }
 </style>
 </head>
 <body>
@@ -120,16 +158,14 @@
 
 <div class="wrap">
 
-  <!-- Status / Lock banner -->
+  <!-- Season card -->
   <div class="card" id="statusCard">
     <div class="sectionHead">
       <div>
-        <div class="title">Season status</div>
-        <div class="muted">This is the shared workspace for planning the next season. Anyone on staff can propose edits here — nothing is final until it's locked in.</div>
+        <div class="title">Season</div>
+        <div class="muted">This is the shared workspace — any staff member can add or edit events below. Nothing is official until an event is locked in by the Owner.</div>
       </div>
-      <span class="badge draft" id="statusBadge">Loading…</span>
     </div>
-    <div id="statusMessage" style="margin-top:8px;"></div>
     <div class="row" style="margin-top:12px;">
       <div style="flex:1; min-width:220px;">
         <label class="muted">Season name</label>
@@ -146,107 +182,33 @@
     </div>
     <div class="row" style="margin-top:14px; justify-content:flex-end;">
       <button id="startNewSeasonBtn" class="ghost" style="display:none;">Start New Season…</button>
-      <button id="unlockBtn" class="ghost" style="display:none;">Unlock to Edit</button>
-      <button id="lockBtn" class="primary" style="display:none;">Lock In Season</button>
     </div>
   </div>
 
   <!-- Auto-generated preview banner -->
   <div class="card">
     <div class="title">Announcement preview</div>
-    <div class="muted" style="margin-bottom:10px;">A ready-to-screenshot preview, generated live from what's below — the same kind of graphic you'd normally build by hand once the season's confirmed.</div>
+    <div class="muted" style="margin-bottom:10px;">A ready-to-screenshot preview, generated live from the season info + breaks below.</div>
     <div class="heroPreview" id="heroPreview"></div>
   </div>
 
-  <!-- Season breaks -->
-  <div class="card">
-    <div class="sectionHead">
-      <div>
-        <div class="title">Season breaks</div>
-        <div class="muted">Post-season breaks, training weeks, holiday breaks — anything that pauses the schedule.</div>
-      </div>
+  <!-- Season breaks (collapsed by default to keep the page short) -->
+  <details class="card" id="breaksDetails">
+    <summary>Season breaks <span class="muted" id="breaksCountLabel"></span></summary>
+    <div class="muted" style="margin:10px 0 10px;">Post-season breaks, training weeks, holiday breaks — anything that pauses the schedule. Shared across every event.</div>
+    <div class="row" style="justify-content:flex-end; margin-bottom:8px;">
       <button class="small" id="addBreakBtn">+ Add break</button>
     </div>
     <div class="tblWrap"><table id="breaksTable">
       <thead><tr><th>Label</th><th>Start</th><th>End</th><th class="colTight"></th></tr></thead>
       <tbody id="breaksBody"></tbody>
     </table></div>
-  </div>
+  </details>
 
-  <!-- Rules & settings -->
+  <!-- Track library (shared across events) -->
   <div class="card">
-    <div class="sectionHead">
-      <div>
-        <div class="title">Rules &amp; settings</div>
-        <div class="muted">Assists, damage model, tyre wear, and every other league-wide setting for the season.</div>
-      </div>
-      <div class="row">
-        <button class="small" id="loadDefaultRulesBtn">Insert IFWL default template</button>
-        <button class="small" id="addRuleBtn">+ Add rule</button>
-      </div>
-    </div>
-    <div class="tblWrap"><table id="rulesTable">
-      <thead><tr><th>Rule</th><th>Setting</th><th class="colTight"></th></tr></thead>
-      <tbody id="rulesBody"></tbody>
-    </table></div>
-  </div>
-
-  <!-- Points layout -->
-  <div class="card">
-    <div class="sectionHead">
-      <div>
-        <div class="title">Points layout</div>
-        <div class="muted">Championship points by finishing position.</div>
-      </div>
-      <div class="row">
-        <button class="small" id="autoFillPointsBtn">Auto-fill next 5 (−3 each)</button>
-        <button class="small" id="addPointsRowBtn">+ Add position</button>
-      </div>
-    </div>
-    <div class="tblWrap"><table id="pointsTable">
-      <thead><tr><th style="width:120px;">Position</th><th>Points</th><th class="colTight"></th></tr></thead>
-      <tbody id="pointsBody"></tbody>
-    </table></div>
-  </div>
-
-  <!-- Platform -->
-  <div class="card">
-    <div class="sectionHead">
-      <div>
-        <div class="title">Platform</div>
-        <div class="muted">Tick every platform this season runs on.</div>
-      </div>
-      <button class="small" id="addPlatformBtn">+ Add platform</button>
-    </div>
-    <div class="tblWrap"><table id="platformsTable">
-      <thead><tr><th>Platform</th><th style="width:120px;">Required</th><th class="colTight"></th></tr></thead>
-      <tbody id="platformsBody"></tbody>
-    </table></div>
-  </div>
-
-  <!-- Mods / DLC -->
-  <div class="card">
-    <div class="sectionHead">
-      <div>
-        <div class="title">Mods or required DLC packs</div>
-        <div class="muted">Anything drivers need to own or install to race this season.</div>
-      </div>
-      <button class="small" id="addModBtn">+ Add mod / DLC</button>
-    </div>
-    <div class="tblWrap"><table id="modsTable">
-      <thead><tr><th>Name</th><th>Link (for sales push)</th><th class="colTight"></th></tr></thead>
-      <tbody id="modsBody"></tbody>
-    </table></div>
-  </div>
-
-  <!-- Track library -->
-  <div class="card">
-    <div class="sectionHead">
-      <div>
-        <div class="title">Track library</div>
-        <div class="muted">The full list the Schedule below can pick a track from. Not every track lives in the base ACC list — add anything missing (RaceRoom-only circuits, etc.) here and it becomes selectable straight away, for everyone.</div>
-      </div>
-    </div>
+    <div class="title">Track library</div>
+    <div class="muted" style="margin-bottom:10px;">Shared across every event below. Not every track lives in the base ACC list — add anything missing (RaceRoom-only circuits, etc.) here and it becomes selectable straight away, for everyone.</div>
     <div id="trackChips" style="margin-bottom:10px;"></div>
     <div class="row">
       <input type="text" id="newTrackInput" placeholder="e.g. Zolder (RaceRoom)" style="flex:1; min-width:220px;">
@@ -254,27 +216,20 @@
     </div>
   </div>
 
-  <!-- Schedule -->
+  <!-- Events -->
   <div class="card">
     <div class="sectionHead">
       <div>
-        <div class="title">Schedule</div>
-        <div class="muted">One row per race week. Track is picked from the Track Library above.</div>
+        <div class="title">Events</div>
+        <div class="muted">Each event is its own race series/class (e.g. "Console Beginners") with its own rules, points and weekly round schedule, running on dates inside the season above. Click one to open it.</div>
       </div>
-      <button class="small" id="addWeekBtn">+ Add week</button>
     </div>
-    <div class="tblWrap"><table id="scheduleTable">
-      <thead><tr>
-        <th style="width:70px;">Week</th><th style="width:140px;">Date</th><th style="width:170px;">Round name</th><th style="width:140px;">DLC</th><th style="width:170px;">Track</th>
-        <th style="width:110px;">Practice</th><th style="width:110px;">Qually</th><th style="width:120px;">Race 1</th><th style="width:120px;">Race 2</th><th style="width:190px;">Conditions</th><th style="width:170px;">Misc</th><th class="colTight" style="width:80px;">Remove</th>
-      </tr></thead>
-      <tbody id="scheduleBody"></tbody>
-    </table></div>
+    <div class="eventsGrid" id="eventsGrid"></div>
   </div>
 
   <!-- Save bar -->
   <div class="stickySave">
-    <div class="muted" id="saveStatusLine"><span class="unsavedDot" id="unsavedDot" style="display:none;"></span>No unsaved changes.</div>
+    <div class="muted" id="saveStatusLine">No unsaved changes.</div>
     <div class="row">
       <button id="discardBtn" class="ghost">Discard my changes</button>
       <button id="saveBtn" class="primary">Save Changes</button>
@@ -293,6 +248,122 @@
     <div id="changeLogList"><div class="muted">Loading…</div></div>
   </div>
 
+</div>
+
+<!-- Event slide-over panel -->
+<div class="panelBackdrop" id="panelBackdrop"></div>
+<div class="eventPanel" id="eventPanel">
+  <div class="eventPanelHead">
+    <div style="flex:1; min-width:0;">
+      <input type="text" id="eventNameInput" placeholder="Event name, e.g. Console Beginners" style="font-weight:800; font-size:16px;">
+      <div class="row" style="margin-top:10px; gap:8px; align-items:center;">
+        <label class="small" for="eventStartInput">Starts</label>
+        <input type="date" id="eventStartInput" style="width:auto; flex:0 0 auto;">
+        <span class="muted" style="color:#d1d5db; font-size:11.5px;">New rounds default to weekly from this date</span>
+        <span class="badge" id="eventBadge" style="margin-left:auto;">Draft</span>
+      </div>
+      <div id="eventPanelMsg" style="margin-top:10px;"></div>
+    </div>
+    <div class="row" style="flex-wrap:nowrap; flex:0 0 auto;">
+      <button id="eventLockBtn" class="primary small" style="display:none;">Lock In</button>
+      <button id="eventUnlockBtn" class="ghost small" style="display:none;">Unlock</button>
+      <button id="closePanelBtn" class="ghost small">✕ Close</button>
+    </div>
+  </div>
+  <div class="eventPanelBody" id="eventPanelBody">
+
+    <!-- Rules & settings -->
+    <div class="card">
+      <div class="sectionHead">
+        <div>
+          <div class="title">Rules &amp; settings</div>
+          <div class="muted">Assists, damage model, tyre wear, and every other setting for this event.</div>
+        </div>
+        <div class="row">
+          <button class="small" id="loadDefaultRulesBtn">Insert IFWL default template</button>
+          <button class="small" id="addRuleBtn">+ Add rule</button>
+        </div>
+      </div>
+      <div class="tblWrap"><table id="rulesTable">
+        <thead><tr><th>Rule</th><th>Setting</th><th class="colTight"></th></tr></thead>
+        <tbody id="rulesBody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- Points layout -->
+    <div class="card">
+      <div class="sectionHead">
+        <div>
+          <div class="title">Points layout</div>
+          <div class="muted">Championship points by finishing position.</div>
+        </div>
+        <div class="row">
+          <button class="small" id="autoFillPointsBtn">Auto-fill next 5 (−3 each)</button>
+          <button class="small" id="addPointsRowBtn">+ Add position</button>
+        </div>
+      </div>
+      <div class="tblWrap"><table id="pointsTable">
+        <thead><tr><th style="width:120px;">Position</th><th>Points</th><th class="colTight"></th></tr></thead>
+        <tbody id="pointsBody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- Platform -->
+    <div class="card">
+      <div class="sectionHead">
+        <div>
+          <div class="title">Platform</div>
+          <div class="muted">Tick every platform this event runs on.</div>
+        </div>
+        <button class="small" id="addPlatformBtn">+ Add platform</button>
+      </div>
+      <div class="tblWrap"><table id="platformsTable">
+        <thead><tr><th>Platform</th><th style="width:120px;">Required</th><th class="colTight"></th></tr></thead>
+        <tbody id="platformsBody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- Mods / DLC -->
+    <div class="card">
+      <div class="sectionHead">
+        <div>
+          <div class="title">Mods or required DLC packs</div>
+          <div class="muted">Anything drivers need to own or install to race this event.</div>
+        </div>
+        <button class="small" id="addModBtn">+ Add mod / DLC</button>
+      </div>
+      <div class="tblWrap"><table id="modsTable">
+        <thead><tr><th>Name</th><th>Link (for sales push)</th><th class="colTight"></th></tr></thead>
+        <tbody id="modsBody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- Round schedule -->
+    <div class="card">
+      <div class="sectionHead">
+        <div>
+          <div class="title">Round schedule</div>
+          <div class="muted">One row per round (10 or fewer is typical). Track is picked from the shared Track Library. New rounds default to 7 days after the last one — edit any date freely.</div>
+        </div>
+        <button class="small" id="addRoundBtn">+ Add round</button>
+      </div>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="eventNewTrackInput" placeholder="Track missing? Type it here, e.g. Zolder (RaceRoom)" style="flex:1; min-width:220px;">
+        <button class="small" id="eventAddTrackBtn">+ Add to track library</button>
+      </div>
+      <div class="tblWrap"><table id="scheduleTable">
+        <thead><tr>
+          <th style="width:80px;">Round</th><th style="width:140px;">Date</th><th style="width:170px;">Round name</th><th style="width:140px;">DLC</th><th style="width:170px;">Track</th>
+          <th style="width:110px;">Practice</th><th style="width:110px;">Qually</th><th style="width:120px;">Race 1</th><th style="width:120px;">Race 2</th><th style="width:190px;">Conditions</th><th style="width:170px;">Misc</th><th class="colTight" style="width:80px;">Remove</th>
+        </tr></thead>
+        <tbody id="scheduleBody"></tbody>
+      </table></div>
+    </div>
+
+    <div class="row" style="justify-content:flex-end;">
+      <button id="removeEventBtn" class="small ghost" style="color:#991b1b;">Remove this event…</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -339,12 +410,17 @@
 
   function newId(prefix) { return prefix + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8); }
 
+  function blankEvent() {
+    return {
+      id: newId("evt"), name: "", startDate: "",
+      locked: false, lockedBy: "", lockedAt: null, unlockedBy: "", unlockedAt: null,
+      rules: [], points: [], platforms: [], mods: [], schedule: []
+    };
+  }
   function blankState() {
     return {
       seasonName: "", seasonStart: "", seasonEnd: "",
-      breaks: [], rules: [], points: [], platforms: [], mods: [],
-      customTracks: [], schedule: [],
-      locked: false, lockedBy: "", lockedAt: null, unlockedBy: "", unlockedAt: null,
+      breaks: [], customTracks: [], events: [],
       version: 0
     };
   }
@@ -356,6 +432,7 @@
   let liveState = blankState();      // what's actually saved server-side
   let editState = blankState();      // what's currently in the DOM / being edited
   let dirty = false;
+  let currentEventId = null;         // which event's panel is open, if any
 
   function markDirty() {
     dirty = true;
@@ -365,6 +442,8 @@
     dirty = false;
     $("saveStatusLine").innerHTML = 'No unsaved changes.';
   }
+
+  function currentEvent() { return (editState.events || []).find(e => e.id === currentEventId) || null; }
 
   // ---------- row builders ----------
   function td(el) { const d = document.createElement("td"); d.appendChild(el); return d; }
@@ -382,89 +461,39 @@
     d.appendChild(b);
     return d;
   }
-  // A locked season is read-only for everyone, including the Owner, until
-  // "Unlock to Edit" flips editState.locked back to false server-side (see
-  // unlockSeason()) — there's no separate "owner bypass" mode, unlocking
-  // reopens editing for all staff, which is the whole point of the button.
-  function setEditable(root) {
-    const locked = editState.locked;
+  // Season-level fields (name/dates/breaks/track library) are never "locked" —
+  // only individual events can be. They're only ever gated by staff status.
+  function setStaffEditable(root) {
+    root.querySelectorAll("input, select, textarea, button.small.ghost").forEach(el => { el.disabled = !isStaff; });
+  }
+  // An event's own fields are gated by staff status AND that event's own
+  // locked flag — a locked event is read-only for everyone, including the
+  // Owner, until "Unlock" flips it back (see unlockEvent()). Other events
+  // are unaffected.
+  function setEventEditable(root, locked) {
     root.querySelectorAll("input, select, textarea, button.small.ghost").forEach(el => {
       if (!isStaff) { el.disabled = true; return; }
-      el.disabled = locked;
+      el.disabled = !!locked;
     });
   }
 
-  // ---------- renderers ----------
+  // ---------- season-level renderers ----------
   function renderBreaks() {
     const body = $("breaksBody"); body.innerHTML = "";
-    editState.breaks.forEach(row => {
+    (editState.breaks || []).forEach(row => {
       const tr = document.createElement("tr");
       tr.dataset.rowId = row.id;
       tr.appendChild(inputCell(row.label, v => row.label = v, "text", "e.g. Xmas Break"));
       tr.appendChild(inputCell(row.start, v => row.start = v, "date"));
       tr.appendChild(inputCell(row.end, v => row.end = v, "date"));
-      tr.appendChild(removeBtnCell(() => { editState.breaks = editState.breaks.filter(r => r.id !== row.id); markDirty(); renderBreaks(); renderHeroPreview(); }));
+      tr.appendChild(removeBtnCell(() => { editState.breaks = editState.breaks.filter(r => r.id !== row.id); markDirty(); renderBreaks(); }));
       body.appendChild(tr);
     });
-    if (!editState.breaks.length) body.innerHTML = '<tr><td colspan="4" class="muted">No breaks added yet.</td></tr>';
-    setEditable(body);
+    if (!editState.breaks || !editState.breaks.length) body.innerHTML = '<tr><td colspan="4" class="muted">No breaks added yet.</td></tr>';
+    setStaffEditable(body);
+    $("addBreakBtn").disabled = !isStaff;
+    $("breaksCountLabel").textContent = (editState.breaks && editState.breaks.length) ? `(${editState.breaks.length} added)` : "";
     renderHeroPreview();
-  }
-
-  function renderRules() {
-    const body = $("rulesBody"); body.innerHTML = "";
-    editState.rules.forEach(row => {
-      const tr = document.createElement("tr");
-      tr.appendChild(inputCell(row.rule, v => row.rule = v, "text", "e.g. TYRE WEAR"));
-      tr.appendChild(inputCell(row.setting, v => row.setting = v, "text", "e.g. ON"));
-      tr.appendChild(removeBtnCell(() => { editState.rules = editState.rules.filter(r => r.id !== row.id); markDirty(); renderRules(); }));
-      body.appendChild(tr);
-    });
-    if (!editState.rules.length) body.innerHTML = '<tr><td colspan="3" class="muted">No rules added yet.</td></tr>';
-    setEditable(body);
-  }
-
-  function renderPoints() {
-    const body = $("pointsBody"); body.innerHTML = "";
-    editState.points.forEach(row => {
-      const tr = document.createElement("tr");
-      tr.appendChild(inputCell(row.position, v => row.position = v, "number"));
-      tr.appendChild(inputCell(row.points, v => row.points = v, "number"));
-      tr.appendChild(removeBtnCell(() => { editState.points = editState.points.filter(r => r.id !== row.id); markDirty(); renderPoints(); }));
-      body.appendChild(tr);
-    });
-    if (!editState.points.length) body.innerHTML = '<tr><td colspan="3" class="muted">No points positions added yet.</td></tr>';
-    setEditable(body);
-  }
-
-  function renderPlatforms() {
-    const body = $("platformsBody"); body.innerHTML = "";
-    editState.platforms.forEach(row => {
-      const tr = document.createElement("tr");
-      tr.appendChild(inputCell(row.platform, v => row.platform = v, "text"));
-      const chk = document.createElement("input");
-      chk.type = "checkbox"; chk.checked = !!row.required; chk.style.width = "18px"; chk.style.cursor = "pointer";
-      chk.addEventListener("change", () => { row.required = chk.checked; markDirty(); });
-      const chkTd = document.createElement("td"); chkTd.style.textAlign = "center"; chkTd.appendChild(chk);
-      tr.appendChild(chkTd);
-      tr.appendChild(removeBtnCell(() => { editState.platforms = editState.platforms.filter(r => r.id !== row.id); markDirty(); renderPlatforms(); }));
-      body.appendChild(tr);
-    });
-    if (!editState.platforms.length) body.innerHTML = '<tr><td colspan="3" class="muted">No platforms added yet.</td></tr>';
-    setEditable(body);
-  }
-
-  function renderMods() {
-    const body = $("modsBody"); body.innerHTML = "";
-    editState.mods.forEach(row => {
-      const tr = document.createElement("tr");
-      tr.appendChild(inputCell(row.name, v => row.name = v, "text", "e.g. Nordschleife Pack"));
-      tr.appendChild(inputCell(row.link, v => row.link = v, "text", "https://…"));
-      tr.appendChild(removeBtnCell(() => { editState.mods = editState.mods.filter(r => r.id !== row.id); markDirty(); renderMods(); }));
-      body.appendChild(tr);
-    });
-    if (!editState.mods.length) body.innerHTML = '<tr><td colspan="3" class="muted">No mods/DLC required yet.</td></tr>';
-    setEditable(body);
   }
 
   function allTracks() {
@@ -481,9 +510,8 @@
     (editState.customTracks || []).forEach(t => {
       const c = document.createElement("span"); c.className = "trackChip custom"; c.textContent = t + " (added)"; box.appendChild(c);
     });
-    const addBtn = $("addTrackBtn");
-    addBtn.disabled = !isStaff || editState.locked;
-    $("newTrackInput").disabled = addBtn.disabled;
+    $("addTrackBtn").disabled = !isStaff;
+    $("newTrackInput").disabled = !isStaff;
   }
 
   function trackSelect(value) {
@@ -496,32 +524,6 @@
       const o = document.createElement("option"); o.value = value; o.textContent = value + " (not in library)"; o.selected = true; sel.appendChild(o);
     }
     return sel;
-  }
-
-  function renderSchedule() {
-    const body = $("scheduleBody"); body.innerHTML = "";
-    editState.schedule.forEach((row, idx) => {
-      const tr = document.createElement("tr");
-      tr.appendChild(inputCell(row.week, v => row.week = v, "text", `Week ${idx + 1}`));
-      tr.appendChild(inputCell(row.date, v => row.date = v, "date"));
-      tr.appendChild(inputCell(row.name, v => row.name = v, "text", "Round name"));
-      tr.appendChild(inputCell(row.dlcName, v => row.dlcName = v, "text", "DLC name"));
-
-      const trackSel = trackSelect(row.track);
-      trackSel.addEventListener("change", () => { row.track = trackSel.value; markDirty(); });
-      tr.appendChild(td(trackSel));
-
-      tr.appendChild(inputCell(row.practiceTime, v => row.practiceTime = v, "text"));
-      tr.appendChild(inputCell(row.quallyTime, v => row.quallyTime = v, "text"));
-      tr.appendChild(inputCell(row.race1, v => row.race1 = v, "text", "time or laps"));
-      tr.appendChild(inputCell(row.race2, v => row.race2 = v, "text", "time or laps"));
-      tr.appendChild(inputCell(row.conditions, v => row.conditions = v, "text"));
-      tr.appendChild(inputCell(row.misc, v => row.misc = v, "text"));
-      tr.appendChild(removeBtnCell(() => { editState.schedule = editState.schedule.filter(r => r.id !== row.id); markDirty(); renderSchedule(); }));
-      body.appendChild(tr);
-    });
-    if (!editState.schedule.length) body.innerHTML = '<tr><td colspan="12" class="muted">No weeks added yet.</td></tr>';
-    setEditable(body);
   }
 
   function renderHeroPreview() {
@@ -548,35 +550,200 @@
     return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
   }
 
-  function renderStatus() {
-    const badge = $("statusBadge");
-    const msg = $("statusMessage");
-    const lockBtn = $("lockBtn"), unlockBtn = $("unlockBtn"), newSeasonBtn = $("startNewSeasonBtn");
+  // ---------- events list ----------
+  function renderEventsList() {
+    const grid = $("eventsGrid"); grid.innerHTML = "";
+    (editState.events || []).forEach(ev => {
+      const card = document.createElement("div");
+      card.className = "eventCard";
+      const roundCount = (ev.schedule || []).length;
+      const lockedBadge = ev.locked ? '<span class="badge locked">🔒 Locked</span>' : '<span class="badge draft">✏️ Draft</span>';
+      card.innerHTML = `
+        <div class="row" style="justify-content:space-between; align-items:flex-start; flex-wrap:nowrap;">
+          <div class="evName">${escapeHtml(ev.name || "(untitled event)")}</div>
+        </div>
+        <div style="margin-top:6px;">${lockedBadge}</div>
+        <div class="evMeta">${ev.startDate ? "Starts " + escapeHtml(formatDate(ev.startDate)) : "Start date TBC"} · ${roundCount} round${roundCount === 1 ? "" : "s"}</div>
+      `;
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "small ghost"; removeBtn.textContent = "Remove"; removeBtn.type = "button";
+      removeBtn.style.marginTop = "10px";
+      removeBtn.disabled = !isStaff;
+      removeBtn.addEventListener("click", (e) => { e.stopPropagation(); removeEvent(ev.id); });
+      card.appendChild(removeBtn);
+      card.addEventListener("click", () => openEventPanel(ev.id));
+      grid.appendChild(card);
+    });
+    const addCard = document.createElement("div");
+    addCard.className = "eventCard addEventCard";
+    addCard.textContent = "+ Add event";
+    if (!isStaff) { addCard.style.opacity = "0.5"; addCard.style.cursor = "not-allowed"; }
+    else addCard.addEventListener("click", addEvent);
+    grid.appendChild(addCard);
+  }
 
-    if (editState.locked) {
-      badge.textContent = "🔒 Locked in"; badge.className = "badge locked";
-      msg.innerHTML = `<div class="lockedBox">This season is locked in and confirmed${editState.lockedBy ? ` by ${escapeHtml(editState.lockedBy)}` : ""}${editState.lockedAt ? ` on ${new Date(editState.lockedAt).toLocaleString()}` : ""}. Editing is disabled${isOwner ? " — unlock it if something still needs to change." : " until the Owner unlocks it."}</div>`;
+  function addEvent() {
+    if (!isStaff) return;
+    const ev = blankEvent();
+    editState.events = editState.events || [];
+    editState.events.push(ev);
+    markDirty();
+    renderEventsList();
+    openEventPanel(ev.id);
+  }
+
+  function removeEvent(id) {
+    if (!isStaff) return;
+    const ev = (editState.events || []).find(e => e.id === id);
+    if (!confirm(`Remove event "${(ev && ev.name) || "(untitled event)"}"? This deletes its rules, points, and round schedule too.`)) return;
+    editState.events = editState.events.filter(e => e.id !== id);
+    markDirty();
+    if (currentEventId === id) closeEventPanel(); else renderEventsList();
+  }
+
+  // ---------- event panel ----------
+  function openEventPanel(id) {
+    currentEventId = id;
+    renderEventPanel();
+    $("panelBackdrop").classList.add("show");
+    $("eventPanel").classList.add("show");
+    $("eventPanel").scrollTop = 0;
+  }
+  function closeEventPanel() {
+    $("panelBackdrop").classList.remove("show");
+    $("eventPanel").classList.remove("show");
+    currentEventId = null;
+    renderEventsList();
+  }
+
+  function renderEventPanel() {
+    const ev = currentEvent();
+    if (!ev) { closeEventPanel(); return; }
+
+    $("eventNameInput").value = ev.name || "";
+    $("eventStartInput").value = ev.startDate || "";
+    $("eventNameInput").disabled = !isStaff || ev.locked;
+    $("eventStartInput").disabled = !isStaff || ev.locked;
+
+    const badge = $("eventBadge");
+    if (ev.locked) { badge.textContent = "🔒 Locked in"; badge.className = "badge locked"; }
+    else { badge.textContent = "✏️ Draft"; badge.className = "badge draft"; }
+
+    const msg = $("eventPanelMsg");
+    if (ev.locked) {
+      msg.innerHTML = `<div class="lockedBox" style="margin:0;">Locked in${ev.lockedBy ? ` by ${escapeHtml(ev.lockedBy)}` : ""}${ev.lockedAt ? ` on ${new Date(ev.lockedAt).toLocaleString()}` : ""}. ${isOwner ? "Unlock it if something still needs to change." : "Ask the Owner to unlock it if something needs to change."}</div>`;
     } else {
-      badge.textContent = "✏️ Draft — being planned"; badge.className = "badge draft";
-      msg.innerHTML = `<div class="warnBox">Still a draft. Anyone on staff can edit anything below — nothing is official until it's locked in.</div>`;
+      msg.innerHTML = `<div class="warnBox" style="margin:0;">Still a draft. Anyone on staff can edit this event — nothing is official until it's locked in.</div>`;
     }
 
-    lockBtn.style.display = (isOwner && !editState.locked) ? "inline-block" : "none";
-    unlockBtn.style.display = (isOwner && editState.locked) ? "inline-block" : "none";
-    newSeasonBtn.style.display = isOwner ? "inline-block" : "none";
+    $("eventLockBtn").style.display = (isOwner && !ev.locked) ? "inline-block" : "none";
+    $("eventUnlockBtn").style.display = (isOwner && ev.locked) ? "inline-block" : "none";
 
-    $("seasonName").disabled = !isStaff || editState.locked;
-    $("seasonStart").disabled = !isStaff || editState.locked;
-    $("seasonEnd").disabled = !isStaff || editState.locked;
+    renderEventRules(); renderEventPoints(); renderEventPlatforms(); renderEventMods(); renderEventSchedule();
+    setEventEditable($("eventPanelBody"), ev.locked);
+    $("removeEventBtn").disabled = !isStaff || ev.locked;
+    $("eventAddTrackBtn").disabled = !isStaff || ev.locked;
+    $("eventNewTrackInput").disabled = !isStaff || ev.locked;
+  }
+
+  function renderEventRules() {
+    const ev = currentEvent(); if (!ev) return;
+    const body = $("rulesBody"); body.innerHTML = "";
+    (ev.rules || []).forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.rule, v => row.rule = v, "text", "e.g. TYRE WEAR"));
+      tr.appendChild(inputCell(row.setting, v => row.setting = v, "text", "e.g. ON"));
+      tr.appendChild(removeBtnCell(() => { ev.rules = ev.rules.filter(r => r.id !== row.id); markDirty(); renderEventRules(); }));
+      body.appendChild(tr);
+    });
+    if (!ev.rules || !ev.rules.length) body.innerHTML = '<tr><td colspan="3" class="muted">No rules added yet.</td></tr>';
+  }
+
+  function renderEventPoints() {
+    const ev = currentEvent(); if (!ev) return;
+    const body = $("pointsBody"); body.innerHTML = "";
+    (ev.points || []).forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.position, v => row.position = v, "number"));
+      tr.appendChild(inputCell(row.points, v => row.points = v, "number"));
+      tr.appendChild(removeBtnCell(() => { ev.points = ev.points.filter(r => r.id !== row.id); markDirty(); renderEventPoints(); }));
+      body.appendChild(tr);
+    });
+    if (!ev.points || !ev.points.length) body.innerHTML = '<tr><td colspan="3" class="muted">No points positions added yet.</td></tr>';
+  }
+
+  function renderEventPlatforms() {
+    const ev = currentEvent(); if (!ev) return;
+    const body = $("platformsBody"); body.innerHTML = "";
+    (ev.platforms || []).forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.platform, v => row.platform = v, "text"));
+      const chk = document.createElement("input");
+      chk.type = "checkbox"; chk.checked = !!row.required; chk.style.width = "18px"; chk.style.cursor = "pointer";
+      chk.addEventListener("change", () => { row.required = chk.checked; markDirty(); });
+      const chkTd = document.createElement("td"); chkTd.style.textAlign = "center"; chkTd.appendChild(chk);
+      tr.appendChild(chkTd);
+      tr.appendChild(removeBtnCell(() => { ev.platforms = ev.platforms.filter(r => r.id !== row.id); markDirty(); renderEventPlatforms(); }));
+      body.appendChild(tr);
+    });
+    if (!ev.platforms || !ev.platforms.length) body.innerHTML = '<tr><td colspan="3" class="muted">No platforms added yet.</td></tr>';
+  }
+
+  function renderEventMods() {
+    const ev = currentEvent(); if (!ev) return;
+    const body = $("modsBody"); body.innerHTML = "";
+    (ev.mods || []).forEach(row => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.name, v => row.name = v, "text", "e.g. Nordschleife Pack"));
+      tr.appendChild(inputCell(row.link, v => row.link = v, "text", "https://…"));
+      tr.appendChild(removeBtnCell(() => { ev.mods = ev.mods.filter(r => r.id !== row.id); markDirty(); renderEventMods(); }));
+      body.appendChild(tr);
+    });
+    if (!ev.mods || !ev.mods.length) body.innerHTML = '<tr><td colspan="3" class="muted">No mods/DLC required yet.</td></tr>';
+  }
+
+  function renderEventSchedule() {
+    const ev = currentEvent(); if (!ev) return;
+    const body = $("scheduleBody"); body.innerHTML = "";
+    (ev.schedule || []).forEach((row, idx) => {
+      const tr = document.createElement("tr");
+      tr.appendChild(inputCell(row.week, v => row.week = v, "text", `Round ${idx + 1}`));
+      tr.appendChild(inputCell(row.date, v => row.date = v, "date"));
+      tr.appendChild(inputCell(row.name, v => row.name = v, "text", "Round name"));
+      tr.appendChild(inputCell(row.dlcName, v => row.dlcName = v, "text", "DLC name"));
+
+      const trackSel = trackSelect(row.track);
+      trackSel.addEventListener("change", () => { row.track = trackSel.value; markDirty(); });
+      tr.appendChild(td(trackSel));
+
+      tr.appendChild(inputCell(row.practiceTime, v => row.practiceTime = v, "text"));
+      tr.appendChild(inputCell(row.quallyTime, v => row.quallyTime = v, "text"));
+      tr.appendChild(inputCell(row.race1, v => row.race1 = v, "text", "time or laps"));
+      tr.appendChild(inputCell(row.race2, v => row.race2 = v, "text", "time or laps"));
+      tr.appendChild(inputCell(row.conditions, v => row.conditions = v, "text"));
+      tr.appendChild(inputCell(row.misc, v => row.misc = v, "text"));
+      tr.appendChild(removeBtnCell(() => { ev.schedule = ev.schedule.filter(r => r.id !== row.id); markDirty(); renderEventSchedule(); }));
+      body.appendChild(tr);
+    });
+    if (!ev.schedule || !ev.schedule.length) body.innerHTML = '<tr><td colspan="12" class="muted">No rounds added yet.</td></tr>';
   }
 
   function renderAll() {
-    renderStatus();
     $("seasonName").value = editState.seasonName || "";
     $("seasonStart").value = editState.seasonStart || "";
     $("seasonEnd").value = editState.seasonEnd || "";
-    renderBreaks(); renderRules(); renderPoints(); renderPlatforms(); renderMods();
-    renderTrackChips(); renderSchedule(); renderHeroPreview();
+    $("seasonName").disabled = !isStaff;
+    $("seasonStart").disabled = !isStaff;
+    $("seasonEnd").disabled = !isStaff;
+    $("startNewSeasonBtn").style.display = isOwner ? "inline-block" : "none";
+
+    renderBreaks(); renderTrackChips(); renderHeroPreview(); renderEventsList();
+
+    if (currentEventId && (editState.events || []).some(e => e.id === currentEventId)) {
+      renderEventPanel();
+    } else if (currentEventId) {
+      closeEventPanel();
+    }
   }
 
   // ---------- diff engine ----------
@@ -609,6 +776,37 @@
     for (const v of oldSet) if (!newSet.has(v)) lines.push(`Removed ${sectionLabel}: "${v}"`);
     return lines;
   }
+  function diffEvent(oldEv, newEv) {
+    const label = newEv.name || oldEv.name || "(untitled event)";
+    let lines = [];
+    if ((oldEv.name || "") !== (newEv.name || "")) lines.push(`Event renamed: "${oldEv.name || "—"}" → "${newEv.name || "—"}"`);
+    if ((oldEv.startDate || "") !== (newEv.startDate || "")) lines.push(`${label} — start date: "${oldEv.startDate || "—"}" → "${newEv.startDate || "—"}"`);
+
+    lines = lines.concat(diffKeyedArray(oldEv.rules, newEv.rules,
+      [{ key: "rule", label: "rule name" }, { key: "setting", label: "setting" }],
+      r => `${label} — rule "${r.rule || "(unnamed)"}"`, "rule"));
+
+    lines = lines.concat(diffKeyedArray(oldEv.points, newEv.points,
+      [{ key: "position", label: "position" }, { key: "points", label: "points" }],
+      r => `${label} — points position ${r.position ?? "?"}`, "points row"));
+
+    lines = lines.concat(diffKeyedArray(oldEv.platforms, newEv.platforms,
+      [{ key: "platform", label: "platform" }, { key: "required", label: "required" }],
+      r => `${label} — platform "${r.platform || "(unnamed)"}"`, "platform"));
+
+    lines = lines.concat(diffKeyedArray(oldEv.mods, newEv.mods,
+      [{ key: "name", label: "name" }, { key: "link", label: "link" }],
+      r => `${label} — mod/DLC "${r.name || "(unnamed)"}"`, "mod/DLC"));
+
+    lines = lines.concat(diffKeyedArray(oldEv.schedule, newEv.schedule,
+      [{ key: "week", label: "round" }, { key: "date", label: "date" }, { key: "name", label: "round name" },
+       { key: "dlcName", label: "DLC" }, { key: "track", label: "track" }, { key: "practiceTime", label: "practice" },
+       { key: "quallyTime", label: "qually" }, { key: "race1", label: "race 1" }, { key: "race2", label: "race 2" },
+       { key: "conditions", label: "conditions" }, { key: "misc", label: "misc" }],
+      r => `${label} — Round ${r.week ?? "?"} (${r.name || "unnamed round"})`, "round"));
+
+    return lines;
+  }
   function computeDiff(oldS, newS) {
     let lines = [];
     if ((oldS.seasonName || "") !== (newS.seasonName || "")) lines.push(`Season name: "${oldS.seasonName || "—"}" → "${newS.seasonName || "—"}"`);
@@ -619,36 +817,20 @@
       [{ key: "label", label: "label" }, { key: "start", label: "start" }, { key: "end", label: "end" }],
       r => `break "${r.label || "(unnamed)"}"`, "break"));
 
-    lines = lines.concat(diffKeyedArray(oldS.rules, newS.rules,
-      [{ key: "rule", label: "rule name" }, { key: "setting", label: "setting" }],
-      r => `rule "${r.rule || "(unnamed)"}"`, "rule"));
-
-    lines = lines.concat(diffKeyedArray(oldS.points, newS.points,
-      [{ key: "position", label: "position" }, { key: "points", label: "points" }],
-      r => `points position ${r.position ?? "?"}`, "points row"));
-
-    lines = lines.concat(diffKeyedArray(oldS.platforms, newS.platforms,
-      [{ key: "platform", label: "platform" }, { key: "required", label: "required" }],
-      r => `platform "${r.platform || "(unnamed)"}"`, "platform"));
-
-    lines = lines.concat(diffKeyedArray(oldS.mods, newS.mods,
-      [{ key: "name", label: "name" }, { key: "link", label: "link" }],
-      r => `mod/DLC "${r.name || "(unnamed)"}"`, "mod/DLC"));
-
     lines = lines.concat(diffStringArray(oldS.customTracks, newS.customTracks, "track in library"));
 
-    lines = lines.concat(diffKeyedArray(oldS.schedule, newS.schedule,
-      [{ key: "week", label: "week" }, { key: "date", label: "date" }, { key: "name", label: "round name" },
-       { key: "dlcName", label: "DLC" }, { key: "track", label: "track" }, { key: "practiceTime", label: "practice" },
-       { key: "quallyTime", label: "qually" }, { key: "race1", label: "race 1" }, { key: "race2", label: "race 2" },
-       { key: "conditions", label: "conditions" }, { key: "misc", label: "misc" }],
-      r => `Week ${r.week ?? "?"} (${r.name || "unnamed round"})`, "schedule week"));
-
+    const oldEvMap = new Map((oldS.events || []).map(e => [e.id, e]));
+    const newEvMap = new Map((newS.events || []).map(e => [e.id, e]));
+    for (const [id, ev] of newEvMap) if (!oldEvMap.has(id)) lines.push(`Added event: "${ev.name || "(untitled event)"}"`);
+    for (const [id, ev] of oldEvMap) if (!newEvMap.has(id)) lines.push(`Removed event: "${ev.name || "(untitled event)"}"`);
+    for (const [id, newEv] of newEvMap) {
+      const oldEv = oldEvMap.get(id);
+      if (!oldEv) continue;
+      lines = lines.concat(diffEvent(oldEv, newEv));
+    }
     return lines;
   }
 
-  // ---------- collect DOM -> state (state is already live-bound via closures,
-  // so collecting just means cloning the in-memory editState) ----------
   function cloneState(s) { return JSON.parse(JSON.stringify(s)); }
 
   // ---------- Firestore I/O ----------
@@ -661,11 +843,13 @@
       liveState = blankState();
     } else {
       const d = snap.data() || {};
-      liveState = Object.assign(blankState(), d, {
-        lockedAt: tsToMs(d.lockedAt), unlockedAt: tsToMs(d.unlockedAt)
-      });
+      const events = (d.events || []).map(e => Object.assign({}, e, {
+        lockedAt: tsToMs(e.lockedAt), unlockedAt: tsToMs(e.unlockedAt)
+      }));
+      liveState = Object.assign(blankState(), d, { events });
     }
     editState = cloneState(liveState);
+    currentEventId = null;
     markClean();
     renderAll();
   }
@@ -698,9 +882,32 @@
     }
   }
 
+  // A locked event is read-only for non-owners even if the DOM was somehow
+  // forced back open (devtools, a stale render) — this is the function-level
+  // enforcement layer, independent of setEventEditable()'s UI-level disabling.
+  // Compares every field except the lock bookkeeping itself (locked/lockedBy/
+  // lockedAt/unlockedBy/unlockedAt), which only lockEvent()/unlockEvent() touch.
+  function findLockedEventViolation() {
+    if (isOwner) return null;
+    const oldMap = new Map((liveState.events || []).map(e => [e.id, e]));
+    for (const ev of (editState.events || [])) {
+      const old = oldMap.get(ev.id);
+      if (!old || !old.locked) continue;
+      const strip = (e) => JSON.stringify(Object.assign({}, e, { locked: null, lockedBy: null, lockedAt: null, unlockedBy: null, unlockedAt: null }));
+      if (strip(old) !== strip(ev)) return ev.name || old.name || "(untitled event)";
+    }
+    return null;
+  }
+
   async function saveChanges() {
     if (!isStaff) { toast("You don't have permission to edit this."); return; }
-    if (editState.locked) { toast("Season is locked — unlock it first."); return; }
+
+    const lockedViolation = findLockedEventViolation();
+    if (lockedViolation) {
+      toast(`"${lockedViolation}" is locked — that change can't be saved. Reloading the latest version.`);
+      await loadPlan();
+      return;
+    }
 
     const diffLines = computeDiff(liveState, editState);
     if (!diffLines.length) { toast("No changes to save."); return; }
@@ -716,12 +923,15 @@
           throw new Error("VERSION_CONFLICT");
         }
         const payload = cloneState(editState);
-        delete payload.lockedAt; delete payload.unlockedAt;
+        payload.events = (payload.events || []).map(e => {
+          const ev = Object.assign({}, e);
+          if (ev.lockedAt) ev.lockedAt = firebase.firestore.Timestamp.fromMillis(ev.lockedAt); else delete ev.lockedAt;
+          if (ev.unlockedAt) ev.unlockedAt = firebase.firestore.Timestamp.fromMillis(ev.unlockedAt); else delete ev.unlockedAt;
+          return ev;
+        });
         payload.version = serverVersion + 1;
         payload.updatedBy = currentEmail;
         payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
-        if (editState.lockedAt) payload.lockedAt = firebase.firestore.Timestamp.fromMillis(editState.lockedAt);
-        if (editState.unlockedAt) payload.unlockedAt = firebase.firestore.Timestamp.fromMillis(editState.unlockedAt);
         tx.set(PLAN_REF(), payload, { merge: false });
       });
 
@@ -733,8 +943,10 @@
         createdAtMs: nowMs
       });
 
+      const keepEventId = currentEventId;
       await loadPlan();
       await loadChangeLog();
+      if (keepEventId && (editState.events || []).some(e => e.id === keepEventId)) openEventPanel(keepEventId);
       toast("Saved ✅ — " + diffLines.length + " change(s) logged.");
     } catch (e) {
       if (String(e?.message).includes("VERSION_CONFLICT")) {
@@ -757,10 +969,12 @@
     toast("Discarded.");
   }
 
-  async function lockSeason() {
-    if (!isOwner) return;
-    const counts = `${editState.schedule.length} week(s), ${editState.rules.length} rule(s), ${editState.points.length} points row(s)`;
-    if (!confirm(`Lock in "${editState.seasonName || "this season"}"?\n\nCurrently: ${counts}.\n\nThis freezes the plan for everyone except you until it's unlocked again.`)) return;
+  async function lockEvent(eventId) {
+    if (!isOwner || !eventId) return;
+    const ref = (editState.events || []).find(e => e.id === eventId) || (liveState.events || []).find(e => e.id === eventId);
+    const label = (ref && ref.name) || "this event";
+    const roundCount = (ref && ref.schedule && ref.schedule.length) || 0;
+    if (!confirm(`Lock in "${label}"?\n\nCurrently: ${roundCount} round(s) scheduled.\n\nThis freezes it for everyone except you until it's unlocked again.`)) return;
     if (dirty && !confirm("You have unsaved changes. Save them first, then lock? Click OK to save+lock, Cancel to stop.")) return;
 
     try {
@@ -768,45 +982,47 @@
       const nowMs = Date.now();
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(PLAN_REF());
-        const serverVersion = snap.exists ? (snap.data().version || 0) : 0;
-        tx.update(PLAN_REF(), {
-          locked: true, lockedBy: currentEmail,
-          lockedAt: firebase.firestore.Timestamp.fromMillis(nowMs),
-          version: serverVersion + 1,
-          updatedBy: currentEmail, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        const serverDoc = snap.exists ? snap.data() : blankState();
+        const serverVersion = serverDoc.version || 0;
+        const events = (serverDoc.events || []).map(e => e.id === eventId ? Object.assign({}, e, {
+          locked: true, lockedBy: currentEmail, lockedAt: firebase.firestore.Timestamp.fromMillis(nowMs)
+        }) : e);
+        tx.update(PLAN_REF(), { events, version: serverVersion + 1, updatedBy: currentEmail, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
       });
       await CHANGES_REF().add({
         who: currentEmail, kind: "lock",
-        text: `🔒 Season locked in by ${currentEmail}.`,
+        text: `🔒 "${label}" locked in by ${currentEmail}.`,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdAtMs: nowMs
       });
       await loadPlan(); await loadChangeLog();
-      toast("Season locked in 🔒");
+      if ((editState.events || []).some(e => e.id === eventId)) openEventPanel(eventId);
+      toast(`"${label}" locked in 🔒`);
     } catch (e) { toast("Could not lock: " + (e?.message || e)); }
   }
 
-  async function unlockSeason() {
-    if (!isOwner) return;
-    if (!confirm("Unlock this season for editing again? Staff will be able to change everything until you lock it back in.")) return;
+  async function unlockEvent(eventId) {
+    if (!isOwner || !eventId) return;
+    const ref = (editState.events || []).find(e => e.id === eventId) || (liveState.events || []).find(e => e.id === eventId);
+    const label = (ref && ref.name) || "this event";
+    if (!confirm(`Unlock "${label}" for editing again? Staff will be able to change it until you lock it back in.`)) return;
     try {
       const nowMs = Date.now();
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(PLAN_REF());
-        const serverVersion = snap.exists ? (snap.data().version || 0) : 0;
-        tx.update(PLAN_REF(), {
-          locked: false, unlockedBy: currentEmail,
-          unlockedAt: firebase.firestore.Timestamp.fromMillis(nowMs),
-          version: serverVersion + 1,
-          updatedBy: currentEmail, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        const serverDoc = snap.exists ? snap.data() : blankState();
+        const serverVersion = serverDoc.version || 0;
+        const events = (serverDoc.events || []).map(e => e.id === eventId ? Object.assign({}, e, {
+          locked: false, unlockedBy: currentEmail, unlockedAt: firebase.firestore.Timestamp.fromMillis(nowMs)
+        }) : e);
+        tx.update(PLAN_REF(), { events, version: serverVersion + 1, updatedBy: currentEmail, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
       });
       await CHANGES_REF().add({
         who: currentEmail, kind: "unlock",
-        text: `🔓 Season reopened for editing by ${currentEmail}.`,
+        text: `🔓 "${label}" reopened for editing by ${currentEmail}.`,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdAtMs: nowMs
       });
       await loadPlan(); await loadChangeLog();
+      if ((editState.events || []).some(e => e.id === eventId)) openEventPanel(eventId);
       toast("Unlocked for editing.");
     } catch (e) { toast("Could not unlock: " + (e?.message || e)); }
   }
@@ -814,7 +1030,8 @@
   async function startNewSeason() {
     if (!isOwner) return;
     const name = editState.seasonName || "(unnamed season)";
-    if (!confirm(`Start a new season workspace?\n\nThe current plan ("${name}") will be archived, and this page will reset to a blank draft. The track library carries over. This can't be undone from here.`)) return;
+    const eventCount = (editState.events || []).length;
+    if (!confirm(`Start a new season workspace?\n\nThe current plan ("${name}", ${eventCount} event(s)) will be archived, and this page will reset to a blank draft with no events. The track library carries over. This can't be undone from here.`)) return;
     if (!confirm(`Really sure? This replaces "${name}" with a blank workspace right now.`)) return;
 
     try {
@@ -835,7 +1052,7 @@
 
       await CHANGES_REF().add({
         who: currentEmail, kind: "reset",
-        text: `🆕 New season workspace started by ${currentEmail}, replacing "${name}" (archived).`,
+        text: `🆕 New season workspace started by ${currentEmail}, replacing "${name}" (archived, ${eventCount} event(s)).`,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdAtMs: Date.now()
       });
 
@@ -844,46 +1061,18 @@
     } catch (e) { toast("Could not start new season: " + (e?.message || e)); }
   }
 
-  // ---------- add-row handlers ----------
-  $("addBreakBtn").onclick = () => { editState.breaks.push({ id: newId("brk"), label: "", start: "", end: "" }); markDirty(); renderBreaks(); };
-  $("addRuleBtn").onclick = () => { editState.rules.push({ id: newId("rul"), rule: "", setting: "" }); markDirty(); renderRules(); };
-  $("addPointsRowBtn").onclick = () => {
-    const nextPos = editState.points.length ? Math.max(...editState.points.map(p => Number(p.position) || 0)) + 1 : 1;
-    editState.points.push({ id: newId("pts"), position: nextPos, points: 0 }); markDirty(); renderPoints();
-  };
-  $("autoFillPointsBtn").onclick = () => {
-    if (!editState.points.length) { toast("Add at least one points row first."); return; }
-    const sorted = [...editState.points].sort((a, b) => Number(a.position) - Number(b.position));
-    const last = sorted[sorted.length - 1];
-    let pos = Number(last.position), pts = Number(last.points);
-    for (let i = 0; i < 5; i++) { pos += 1; pts = Math.max(0, pts - 3); editState.points.push({ id: newId("pts"), position: pos, points: pts }); }
-    markDirty(); renderPoints();
-  };
-  $("addPlatformBtn").onclick = () => { editState.platforms.push({ id: newId("plt"), platform: "", required: false }); markDirty(); renderPlatforms(); };
-  $("addModBtn").onclick = () => { editState.mods.push({ id: newId("mod"), name: "", link: "" }); markDirty(); renderMods(); };
-  $("addWeekBtn").onclick = () => {
-    const nextWeek = editState.schedule.length ? editState.schedule.length + 1 : 1;
-    editState.schedule.push({ id: newId("wk"), week: "Week " + nextWeek, date: "", name: "", dlcName: "", track: "", practiceTime: "", quallyTime: "", race1: "", race2: "", conditions: "", misc: "" });
-    markDirty(); renderSchedule();
-  };
+  // ---------- season-level add-row handlers ----------
+  $("addBreakBtn").onclick = () => { if (!isStaff) return; editState.breaks = editState.breaks || []; editState.breaks.push({ id: newId("brk"), label: "", start: "", end: "" }); markDirty(); renderBreaks(); };
   $("addTrackBtn").onclick = () => {
+    if (!isStaff) return;
     const v = $("newTrackInput").value.trim();
     if (!v) { toast("Type a track name first."); return; }
     if (allTracks().some(t => t.toLowerCase() === v.toLowerCase())) { toast("That track's already in the library."); return; }
     editState.customTracks = editState.customTracks || [];
     editState.customTracks.push(v);
     $("newTrackInput").value = "";
-    markDirty(); renderTrackChips(); renderSchedule();
-  };
-  $("loadDefaultRulesBtn").onclick = () => {
-    if (editState.rules.length || editState.points.length || editState.platforms.length) {
-      if (!confirm("This adds the standard IFWL defaults for Rules, Points, and Platform. Existing rows are kept — continue?")) return;
-    }
-    DEFAULT_RULES.forEach(([rule, setting]) => editState.rules.push({ id: newId("rul"), rule, setting }));
-    DEFAULT_POINTS.forEach((pts, i) => editState.points.push({ id: newId("pts"), position: i + 1, points: pts }));
-    DEFAULT_PLATFORMS.forEach(([platform, required]) => editState.platforms.push({ id: newId("plt"), platform, required }));
-    markDirty(); renderRules(); renderPoints(); renderPlatforms();
-    toast("Default template inserted.");
+    markDirty(); renderTrackChips();
+    if (currentEventId) renderEventSchedule();
   };
 
   ["seasonName", "seasonStart", "seasonEnd"].forEach(id => {
@@ -893,10 +1082,73 @@
     });
   });
 
+  // ---------- event panel add-row handlers ----------
+  $("addRuleBtn").onclick = () => { const ev = currentEvent(); if (!ev) return; ev.rules = ev.rules || []; ev.rules.push({ id: newId("rul"), rule: "", setting: "" }); markDirty(); renderEventRules(); };
+  $("addPointsRowBtn").onclick = () => {
+    const ev = currentEvent(); if (!ev) return;
+    ev.points = ev.points || [];
+    const nextPos = ev.points.length ? Math.max(...ev.points.map(p => Number(p.position) || 0)) + 1 : 1;
+    ev.points.push({ id: newId("pts"), position: nextPos, points: 0 }); markDirty(); renderEventPoints();
+  };
+  $("autoFillPointsBtn").onclick = () => {
+    const ev = currentEvent(); if (!ev) return;
+    if (!ev.points || !ev.points.length) { toast("Add at least one points row first."); return; }
+    const sorted = [...ev.points].sort((a, b) => Number(a.position) - Number(b.position));
+    const last = sorted[sorted.length - 1];
+    let pos = Number(last.position), pts = Number(last.points);
+    for (let i = 0; i < 5; i++) { pos += 1; pts = Math.max(0, pts - 3); ev.points.push({ id: newId("pts"), position: pos, points: pts }); }
+    markDirty(); renderEventPoints();
+  };
+  $("addPlatformBtn").onclick = () => { const ev = currentEvent(); if (!ev) return; ev.platforms = ev.platforms || []; ev.platforms.push({ id: newId("plt"), platform: "", required: false }); markDirty(); renderEventPlatforms(); };
+  $("addModBtn").onclick = () => { const ev = currentEvent(); if (!ev) return; ev.mods = ev.mods || []; ev.mods.push({ id: newId("mod"), name: "", link: "" }); markDirty(); renderEventMods(); };
+  $("addRoundBtn").onclick = () => {
+    const ev = currentEvent(); if (!ev) return;
+    ev.schedule = ev.schedule || [];
+    const idx = ev.schedule.length;
+    let date = "";
+    if (ev.startDate) {
+      const d = new Date(ev.startDate + "T00:00:00");
+      if (!isNaN(d.getTime())) { d.setDate(d.getDate() + idx * 7); date = d.toISOString().slice(0, 10); }
+    }
+    ev.schedule.push({ id: newId("rnd"), week: "Round " + (idx + 1), date, name: "", dlcName: "", track: "", practiceTime: "", quallyTime: "", race1: "", race2: "", conditions: "", misc: "" });
+    markDirty(); renderEventSchedule();
+  };
+  $("loadDefaultRulesBtn").onclick = () => {
+    const ev = currentEvent(); if (!ev) return;
+    if ((ev.rules && ev.rules.length) || (ev.points && ev.points.length) || (ev.platforms && ev.platforms.length)) {
+      if (!confirm("This adds the standard IFWL defaults for Rules, Points, and Platform to this event. Existing rows are kept — continue?")) return;
+    }
+    ev.rules = ev.rules || []; ev.points = ev.points || []; ev.platforms = ev.platforms || [];
+    DEFAULT_RULES.forEach(([rule, setting]) => ev.rules.push({ id: newId("rul"), rule, setting }));
+    DEFAULT_POINTS.forEach((pts, i) => ev.points.push({ id: newId("pts"), position: i + 1, points: pts }));
+    DEFAULT_PLATFORMS.forEach(([platform, required]) => ev.platforms.push({ id: newId("plt"), platform, required }));
+    markDirty(); renderEventRules(); renderEventPoints(); renderEventPlatforms();
+    toast("Default template inserted.");
+  };
+
+  $("eventAddTrackBtn").onclick = () => {
+    if (!isStaff) return;
+    const v = $("eventNewTrackInput").value.trim();
+    if (!v) { toast("Type a track name first."); return; }
+    if (allTracks().some(t => t.toLowerCase() === v.toLowerCase())) { toast("That track's already in the library."); return; }
+    editState.customTracks = editState.customTracks || [];
+    editState.customTracks.push(v);
+    $("eventNewTrackInput").value = "";
+    markDirty(); renderTrackChips(); renderEventSchedule();
+    toast(`"${v}" added to the track library.`);
+  };
+
+  $("eventNameInput").addEventListener("input", () => { const ev = currentEvent(); if (!ev) return; ev.name = $("eventNameInput").value; markDirty(); });
+  $("eventStartInput").addEventListener("input", () => { const ev = currentEvent(); if (!ev) return; ev.startDate = $("eventStartInput").value; markDirty(); });
+
+  $("eventLockBtn").onclick = () => lockEvent(currentEventId);
+  $("eventUnlockBtn").onclick = () => unlockEvent(currentEventId);
+  $("removeEventBtn").onclick = () => removeEvent(currentEventId);
+  $("closePanelBtn").onclick = closeEventPanel;
+  $("panelBackdrop").onclick = closeEventPanel;
+
   $("saveBtn").onclick = saveChanges;
   $("discardBtn").onclick = discardMyChanges;
-  $("lockBtn").onclick = lockSeason;
-  $("unlockBtn").onclick = unlockSeason;
   $("startNewSeasonBtn").onclick = startNewSeason;
   $("refreshLogBtn").onclick = loadChangeLog;
 
@@ -936,8 +1188,8 @@
         const nameGuess = (currentEmail.split("@")[0] || "").replace(/[._-]+/g, " ").trim();
         const niceName = nameGuess ? nameGuess.replace(/\b\w/g, c => c.toUpperCase()) : "Staff";
         $("welcomeLine").textContent = isOwner
-          ? `Welcome, ${niceName}. You can lock in the season once staff are happy with the plan.`
-          : `Welcome, ${niceName}. Propose changes freely — the Owner locks the season in once it's confirmed.`;
+          ? `Welcome, ${niceName}. You can lock each event in once staff are happy with it.`
+          : `Welcome, ${niceName}. Propose changes freely — the Owner locks each event in once it's confirmed.`;
         $("who").textContent = `Signed in as: ${currentEmail}${isOwner ? " | Owner" : ""}`;
 
         await loadPlan();
