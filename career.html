@@ -858,6 +858,12 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .sp-bar-track-fill{height:100%;background:linear-gradient(90deg,var(--ifwl-teal),var(--ifwl-purple));border-radius:6px}
 .sp-bar-points{text-align:right;font-family:var(--font-mono);color:var(--text-primary);font-weight:700}
 .sp-clean-tag{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(51,217,155,.15);color:#33d99b;font-weight:800}
+.sp-race-detail{display:inline-block}
+.sp-race-detail summary{cursor:pointer;color:var(--ifwl-teal,#1fd6bd);font-weight:700;font-size:12px;list-style:none}
+.sp-race-detail summary::-webkit-details-marker{display:none}
+.sp-race-detail-body{position:relative;margin-top:8px;padding:10px 12px;border:1px solid var(--ifwl-line);border-radius:10px;background:#0d1116;min-width:220px}
+.sp-race-detail-line{display:flex;justify-content:space-between;gap:16px;font-size:12px;padding:2px 0;color:var(--text-muted)}
+.sp-race-detail-line span:last-child{color:var(--text-primary);font-family:var(--font-mono)}
 .fc-stint-table th{text-align:left;padding:8px 12px;color:var(--ifwl-teal,#1fd6bd);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--ifwl-line)}
 .fc-stint-table td{padding:9px 12px;border-bottom:1px solid var(--ifwl-line-soft)}
 .fc-stint-table .fc-wet-tag{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(90,169,255,.15);color:#5aa9ff;font-weight:800;margin-left:6px}
@@ -1672,11 +1678,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     let shopTyreCostReductionPct = 0;
     let shopEntryFeeReductionPct = 0;
     let shopFuelCostReductionPct = 0;
+    // ✅ ADDED: per-race cost breakdown lookup, keyed by dateMs - reuses the
+    // real server-side settlement receipts (careerShopTransactions) rather
+    // than re-deriving costs a second time client-side, so the breakdown
+    // shown here can never silently drift from what was actually charged.
+    // dateMs is a reliable join key: both client race.dateMs and server
+    // tx.dateMs are set from the same race-file timestamp (raceTs).
+    const costBreakdownByDateMs = new Map();
     try{
       const [catalog, ledger] = await Promise.all([
         window.IFWL_CareerShopAPI.fetchCareerShopCatalog(),
         window.IFWL_CareerShopAPI.fetchMyCareerShopLedger()
       ]);
+      (ledger.transactions || []).forEach(tx => {
+        if(tx && tx.type === 'race' && tx.dateMs) costBreakdownByDateMs.set(tx.dateMs, tx);
+      });
       const ownedIds = new Set(ledger.ownedItemIds || []);
       shopRaceIncomeBonusPct = catalog
         .filter(c => c.category === 'teamGear' && ownedIds.has(c.id))
@@ -1761,7 +1777,10 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       races.push({
         source, track: myRow.track, dateMs: raceTs, position, points, cleanBonus, totalPoints,
         lapCount, mileageKm, pitCount, bestLapMs, raceEarnings,
-        consistencyPct: Number.isFinite(consistencyPct) ? consistencyPct : null
+        consistencyPct: Number.isFinite(consistencyPct) ? consistencyPct : null,
+        // ✅ ADDED: real per-race cost breakdown (or null if this race's
+        // settlement receipt has aged out of the 200-entry ledger cap).
+        costBreakdown: costBreakdownByDateMs.get(raceTs) || null
       });
     }
 
@@ -1896,6 +1915,41 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     </div>`;
   }
 
+  // ✅ ADDED: per-race consumables/cost breakdown, expandable via a native
+  // <details> element (matches this page's existing collapsible pattern
+  // elsewhere, e.g. the payout table right above this). Sourced entirely
+  // from the driver's own real settlement receipt (careerShopTransactions)
+  // - never a second, independently-estimated figure - so it can't drift
+  // from what was actually charged. A £0 line for engine/suspension/
+  // damper/aero means that weekend's wear was covered by an owned part
+  // from stock rather than a cash charge, not that there was no cost at all.
+  function spRaceCostBreakdownHtml(cb){
+    if(!cb){
+      return `<span class="sp-detail-na" style="color:var(--text-muted);font-size:12px" title="This race's settlement receipt has aged out of your recent transaction history and is no longer available.">Not available</span>`;
+    }
+    const line = (label, amount, isCharge) => {
+      const val = Number(amount) || 0;
+      return `<div class="sp-race-detail-line"><span>${label}</span><span>${isCharge ? (val ? '-&pound;'+val.toLocaleString() : '&pound;0 (from stock)') : '&pound;'+val.toLocaleString()}</span></div>`;
+    };
+    const net = Number(cb.amount) || 0;
+    return `
+      <details class="sp-race-detail">
+        <summary>View</summary>
+        <div class="sp-race-detail-body">
+          ${line('Gross race earnings', cb.raceEarningsGross)}
+          ${line('Entry fee', cb.entryFee, true)}
+          ${line('Tyres', cb.tyreSpend, true)}
+          ${line('Fuel', cb.fuelSpend, true)}
+          ${line('Engine maintenance', cb.engineSpend, true)}
+          ${line('Suspension maintenance', cb.suspensionSpend, true)}
+          ${line('Damper maintenance', cb.damperSpend, true)}
+          ${line('Aero maintenance', cb.aeroSpend, true)}
+          <div class="sp-race-detail-line" style="border-top:1px solid var(--ifwl-line);margin-top:4px;padding-top:4px"><span><strong>Net event earnings</strong></span><span><strong style="color:${net<0?'var(--ifwl-red)':'var(--ifwl-teal,#1fd6bd)'}">${net<0?'-':''}&pound;${Math.abs(net).toLocaleString()}</strong></span></div>
+        </div>
+      </details>
+    `;
+  }
+
   function renderSeasonProgression(data){
     const body = q('spBody');
     if(!body) return;
@@ -1993,7 +2047,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
       <h4 style="margin:20px 0 10px">Race-by-Race Breakdown</h4>
       <table class="fc-stint-table">
-        <thead><tr><th>Date</th><th>Track</th><th>Finish</th><th>Points</th><th>Clean Bonus</th><th>Total</th><th>Earnings</th></tr></thead>
+        <thead><tr><th>Date</th><th>Track</th><th>Finish</th><th>Points</th><th>Clean Bonus</th><th>Total</th><th>Earnings</th><th>Cost Breakdown</th></tr></thead>
         <tbody>${data.races.map(r => `
           <tr>
             <td>${new Date(r.dateMs).toLocaleDateString()}</td>
@@ -2003,6 +2057,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
             <td>${r.cleanBonus ? '<span class="sp-clean-tag">+10 Clean</span>' : '-'}</td>
             <td><strong>${r.totalPoints}</strong></td>
             <td>&pound;${r.raceEarnings.toLocaleString()}</td>
+            <td>${spRaceCostBreakdownHtml(r.costBreakdown)}</td>
           </tr>
         `).join('')}</tbody>
       </table>
