@@ -3791,6 +3791,27 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       return Number.isFinite(n) ? n : null;
     }
 
+    // ✅ CHANGED: agreement between two stewards' opinions used to be scored
+    // as suspicious on its own (same code = 50pts, matching time penalty =
+    // up to another 50pts) - but with only a handful of valid penalty
+    // codes and a time-penalty dropdown that steps in 5s increments, two
+    // genuinely independent, competent stewards land on the same call for
+    // a clear-cut incident constantly. That's the system working, not
+    // collusion - which is exactly why "no one could see one another's
+    // inputs, yet they still scored HIGH" kept happening. Opinion
+    // agreement alone can no longer cross even the "moderate" bar (max
+    // 40/100, see opinionScore below). What actually distinguishes real
+    // collusion/copying from two people independently reaching the same
+    // right answer is HOW they got there in time: genuinely separate
+    // review of a replay naturally staggers submissions by several
+    // minutes, even on an obvious incident, whereas a live call/DM while
+    // filling the form out together lands submissions within a minute or
+    // two of each other. So agreement is now only a signal when it's
+    // ALSO paired with suspiciously-close submission timing - modelled as
+    // a multiplier on the opinion score, not a separate additive score.
+    // Disagreeing stewards who happen to submit close together are NOT
+    // flagged (0 opinion score x anything = 0) - closeness alone proves
+    // nothing.
     function analyseStewardCollusion(commentRows){
       const opinions = (commentRows || []).filter(r => r && r.kind === "penalty_opinion" && r.author && r.penaltyCode);
 
@@ -3812,31 +3833,42 @@ All listed drivers are part of this linked steward ticket group. Each ticket rem
       for (let i = 0; i < list.length; i++){
         for (let j = i + 1; j < list.length; j++){
           const a = list[i], b = list[j];
-          let score = 0;
+          let opinionScore = 0;
           const signals = [];
 
           const sameCode = a.penaltyCode === b.penaltyCode;
-          if (sameCode) { score += 50; signals.push("same penalty code"); }
+          if (sameCode) { opinionScore += 20; signals.push("same penalty code"); }
 
           const secA = penaltyTimeSeconds(a.penaltyTime);
           const secB = penaltyTimeSeconds(b.penaltyTime);
           if (secA !== null && secB !== null){
             const diff = Math.abs(secA - secB);
-            if (diff === 0) { score += 50; signals.push("identical time penalty"); }
-            else if (diff <= 5) { score += 35; signals.push(`time penalties only ${diff}s apart`); }
+            if (diff === 0) { opinionScore += 20; signals.push("identical time penalty"); }
+            else if (diff <= 5) { opinionScore += 10; signals.push(`time penalties only ${diff}s apart`); }
           } else if (a.penaltyTime && a.penaltyTime === b.penaltyTime) {
             // both categorical and matching, e.g. both "DQ" or both "NFA"
-            score += 50; signals.push(`same "${a.penaltyTime}" call`);
+            opinionScore += 20; signals.push(`same "${a.penaltyTime}" call`);
           }
 
-          score = Math.min(100, score);
-          if (score > bestScore){ bestScore = score; bestPair = { a: a.author, b: b.author, signals }; }
+          // Submission-timing proximity - the actual amplifier. No
+          // timestamp data on either side leaves the multiplier at 1x, so
+          // agreement alone still tops out at 40 ("appears independent").
+          let multiplier = 1;
+          if (a.tsMs && b.tsMs){
+            const gapMs = Math.abs(a.tsMs - b.tsMs);
+            if (gapMs <= 60000){ multiplier = 2.5; signals.push(`submitted only ${Math.round(gapMs/1000)}s apart`); }
+            else if (gapMs <= 180000){ multiplier = 1.75; signals.push(`submitted ${Math.round(gapMs/60000)}m apart`); }
+            else if (gapMs <= 300000){ multiplier = 1.25; signals.push(`submitted ${Math.round(gapMs/60000)}m apart`); }
+          }
+
+          const score = Math.round(Math.min(100, opinionScore * multiplier));
+          if (score > bestScore){ bestScore = score; bestPair = { a: a.author, b: b.author, signals: opinionScore ? signals : [] }; }
         }
       }
 
       let verdict;
       if (bestScore >= 70) verdict = "high";
-      else if (bestScore >= 40) verdict = "moderate";
+      else if (bestScore >= 45) verdict = "moderate";
       else verdict = "low";
 
       return { verdict, score: bestScore, stewardCount: list.length, bestPair };
