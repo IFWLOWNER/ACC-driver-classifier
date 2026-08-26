@@ -1509,7 +1509,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </section>
 
   <section class="panel view-panel" data-view="availableRaces" id="availableRacesPanel">
-    <div class="panel-head"><div><h3>Available Races</h3><small>Invite-only SimGrid events open to your current licence tier</small></div></div>
+    <div class="panel-head">
+      <div><h3>Available Races</h3><small id="availableRacesSubtitle">Invite-only SimGrid events open to your current licence tier</small></div>
+      <button type="button" id="availableRacesStaffToggle" class="btn ghost staff-only-tab" style="font-size:11px">Show ALL races (staff)</button>
+    </div>
     <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
   </section>
 
@@ -3448,12 +3451,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   //   ?staffSimgridEventDelete=1&token=... {eventId}      (POST, staff - soft delete)
   // The og:image preview is fetched server-side from SimGrid's own page, same
   // trick already used for Race Team Events - browsers can't do this directly (CORS).
-  async function fetchAvailableRaces(){
+  // ✅ ADDED: staffAll (only ever honoured server-side when the session is
+  // genuinely staff) asks for every active race across every tier instead
+  // of just the ones gated to the caller's own licence - powers the "Show
+  // ALL races (staff)" toggle on the Available Races panel.
+  async function fetchAvailableRaces(staffAll){
     if(USE_DEMO_FALLBACK){
+      if(staffAll && window.IFWL_STAFF) return demoGet('simgridEvents', []).filter(e => e.active !== false);
       const tier = currentProfile?.tier || 'No Licence';
       return demoGet('simgridEvents', []).filter(e => e.active !== false && (e.tiers||[]).includes(tier));
     }
-    return (await apiGet('myAvailableRaces')).events || [];
+    return (await apiGet('myAvailableRaces', (staffAll && window.IFWL_STAFF) ? '&staffAll=1' : '')).events || [];
   }
   async function fetchAllSimgridEvents(){
     if(USE_DEMO_FALLBACK) return demoGet('simgridEvents', []).filter(e => e.active !== false);
@@ -3966,22 +3974,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const stripHtml = window.rdiQuickFactsStripHtml ? window.rdiQuickFactsStripHtml(n.quickFacts || {}) : '';
       body.innerHTML = `<h3 style="margin-top:0">${n.title}</h3>` + stripHtml + renderRacedayMarkdown(n.content) + renderVideoEmbeds(n.videoLinks || []);
       modal.classList.remove('hidden');
-      btn.disabled = true;
-      let remaining = 60;
-      btn.textContent = `Read for ${remaining}s to continue…`;
-      const timer = setInterval(() => {
-        remaining--;
-        if(remaining <= 0){
-          clearInterval(timer);
-          btn.disabled = false;
-          btn.textContent = queue.length ? 'Got it - next briefing' : 'Got it - close';
-        }else{
-          btn.textContent = `Read for ${remaining}s to continue…`;
-        }
-      }, 1000);
+      let timer = null;
+      // ✅ ADDED: staff (and only staff) skip the 60s forced-read timer - they
+      // still see the exact same briefing content and it's still acknowledged
+      // server-side via myRacedayAcknowledge (so it stops reappearing and
+      // stays in the same audit trail as everyone else's), they just aren't
+      // held to the same read timer regular drivers are.
+      if(window.IFWL_STAFF){
+        btn.disabled = false;
+        btn.textContent = queue.length ? `Skip (staff) - next briefing (${queue.length} more)` : 'Skip (staff) - close';
+      }else{
+        btn.disabled = true;
+        let remaining = 60;
+        btn.textContent = `Read for ${remaining}s to continue…`;
+        timer = setInterval(() => {
+          remaining--;
+          if(remaining <= 0){
+            clearInterval(timer);
+            btn.disabled = false;
+            btn.textContent = queue.length ? 'Got it - next briefing' : 'Got it - close';
+          }else{
+            btn.textContent = `Read for ${remaining}s to continue…`;
+          }
+        }, 1000);
+      }
       btn.onclick = async () => {
         if(btn.disabled) return;
-        clearInterval(timer);
+        if(timer) clearInterval(timer);
         try{ await apiPost('myRacedayAcknowledge', { infoId: n.id }); }catch(e){ console.warn('Could not acknowledge raceday info', e); }
         modal.classList.add('hidden');
         if(queue.length) showNext();
@@ -4967,20 +4986,43 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }).join('')}</div>`;
   }
 
-  function renderAvailableRaces(events){
+  let availableRacesStaffAllMode = false;
+  function renderAvailableRaces(events, staffAll){
+    availableRacesStaffAllMode = !!staffAll;
     const body = q('availableRacesBody');
-    if(!events.length){ body.innerHTML = '<div class="empty">No invite-only races available for your current tier yet.</div>'; return; }
+    const subtitle = q('availableRacesSubtitle');
+    if(subtitle){
+      subtitle.textContent = staffAll
+        ? 'Staff view - every active race across every tier, including any past their normal 4h drop-off window'
+        : 'Invite-only SimGrid events open to your current licence tier';
+    }
+    const toggle = q('availableRacesStaffToggle');
+    if(toggle) toggle.textContent = staffAll ? 'Show only my tier' : 'Show ALL races (staff)';
+    if(!events.length){ body.innerHTML = `<div class="empty">${staffAll ? 'No active SimGrid events at all.' : 'No invite-only races available for your current tier yet.'}</div>`; return; }
     const placeholder = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><rect width="120" height="68" fill="#1a2027"/></svg>');
     body.innerHTML = events.map(e => {
       const platformLabel = e.platform === 'console' ? 'Console' : e.platform === 'pc' ? 'PC' : 'Console + PC';
       const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : (e.eventDateLabel || '');
       const rosterCount = (e.roster || []).length;
+      // ✅ ADDED: staff-all mode carries a `tiers` array and an `ended` flag
+      // per event (never present in the normal driver-filtered response) -
+      // shown here so staff can confirm at a glance which licence tier(s)
+      // a race is actually gated to, and whether it's currently hidden from
+      // drivers because its date has passed the usual 4h grace window.
+      const tierBadges = staffAll && Array.isArray(e.tiers)
+        ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">🎫 ${e.tiers.length ? e.tiers.join(', ') : '<em>No tiers set - not visible to anyone</em>'}</p>`
+        : '';
+      const endedBadge = staffAll && e.ended
+        ? `<p style="color:var(--ifwl-red);font-size:12.5px;margin:4px 0 0;font-weight:700">⚠️ Past its drop-off window - not currently shown to drivers</p>`
+        : '';
       return `<div class="race-event-card">
         <img src="${e.simgridImageUrl || placeholder}" alt="">
         <div>
           <span class="platform-badge">${platformLabel}</span>
           <strong style="display:block;margin-top:6px">${e.title}</strong>
           ${dateStr ? `<p style="color:var(--ifwl-teal);font-size:12.5px;margin:4px 0 0;font-weight:700">📅 ${dateStr}</p>` : ''}
+          ${tierBadges}
+          ${endedBadge}
           ${e.password ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">🔒 Password: <code style="background:#12161c;padding:2px 6px;border-radius:5px;color:var(--text-primary)">${e.password}</code></p>` : ''}
           ${e.notes ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${e.notes}</p>` : ''}
           ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="margin-top:8px;font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
@@ -6543,6 +6585,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderTicketData(ticketInfo);
     renderCardStats(perfStats);
     renderAvailableRaces(availableRaces);
+    // ✅ ADDED: "Show ALL races (staff)" toggle - only ever visible via the
+    // .staff-only-tab CSS class, but wired unconditionally since it's a
+    // no-op for anyone who can't see the button anyway. Assigned via
+    // .onclick (not addEventListener) because init() can re-run (rules-gate
+    // re-check, auth refresh) and this avoids stacking duplicate handlers.
+    const availableRacesStaffToggleBtn = q('availableRacesStaffToggle');
+    if(availableRacesStaffToggleBtn){
+      availableRacesStaffToggleBtn.onclick = async () => {
+        const nextMode = !availableRacesStaffAllMode;
+        availableRacesStaffToggleBtn.disabled = true;
+        try{
+          renderAvailableRaces(await fetchAvailableRaces(nextMode), nextMode);
+        }catch(e){
+          console.warn('Could not load all races for staff view', e);
+        }finally{
+          availableRacesStaffToggleBtn.disabled = false;
+        }
+      };
+    }
     renderClaimLapsPanel('PC', 'pc-licence');
     renderClaimLapsPanel('Console', 'console-licence');
     renderRaceResultsPanel();
@@ -12598,7 +12659,16 @@ Flashing Headlights:
       astatus.textContent = 'Assigning...';
       try{
         const result = await window.IFWL_Api.apiPost('staffBulkAssignTierToDrivers', { driverIds, toTier, note: 'Entrylist cross-reference' });
-        astatus.textContent = `Done - ${result.updated} driver(s) updated.`;
+        // ✅ FIXED: this used to only ever show "Done - N driver(s) updated",
+        // even when N was 0 because everyone selected was already on that
+        // tier (or, rarely, no longer had a licence doc) - indistinguishable
+        // from the request silently doing nothing. Now spells out exactly
+        // what happened to every selected driver, plus whether a Discord
+        // announcement actually went out for this assignment.
+        const parts = [`${result.updated} updated`];
+        if(result.alreadyOnTier?.length) parts.push(`${result.alreadyOnTier.length} already on ${toTier}`);
+        if(result.skipped?.length) parts.push(`${result.skipped.length} not found (no licence record)`);
+        astatus.textContent = `Done - ${parts.join(', ')}. ${result.discordPosted ? 'Posted to Discord.' : 'No Discord post (no tier upgrades in this batch).'}`;
       }catch(e){ astatus.textContent = 'Could not assign: ' + e.message; }
     });
 
