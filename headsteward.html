@@ -801,6 +801,29 @@
       </div>
     </div>
 
+    <!-- ✅ ADDED: Senior Steward Mode toggle. Head-Steward-controlled (not
+         Owner-only) league-wide switch that seniorsteward.html reads on
+         load via league_meta/seniorStewardMode. While OFF, every account
+         with the "seniorsteward" role is sent to steward.html and only has
+         standard Steward access. While ON, those same accounts get this
+         exact Head Steward dashboard (same permissions, same Firestore
+         reads/writes) on seniorsteward.html - see the auth gate near the
+         top of that file's script for how it consumes this flag. -->
+    <div class="card" id="seniorStewardCard" style="grid-column: 1 / -1;">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div class="title" style="margin:0;">Senior Steward Mode</div>
+          <div class="muted">Any Head Steward can toggle this. Controls whether accounts with the Senior Steward role get full Head Steward permissions on seniorsteward.html, or standard Steward access only.</div>
+        </div>
+      </div>
+      <div id="seniorStewardBanner" style="margin-top:10px;"></div>
+      <div class="row" style="margin-top:12px;">
+        <button class="primary" id="seniorStewardEnableBtn">Enable Senior Steward</button>
+        <button id="seniorStewardDisableBtn">Disable Senior Steward</button>
+      </div>
+      <div class="muted" id="seniorStewardStatus" style="margin-top:8px;">Loading…</div>
+    </div>
+
     <!-- NEW: Live Ticket Queue (Race 1 sheet -> TLS) -->
     <div class="card" id="liveQueueCard" style="grid-column: 1 / -1;">
       <div class="row" style="justify-content:space-between;">
@@ -1625,6 +1648,95 @@
       };
 
       return refreshOwnerClauseCard();
+    }
+
+    // ✅ ADDED: Senior Steward Mode - league_meta/seniorStewardMode is the
+    // single source of truth that seniorsteward.html's auth gate reads.
+    // Unlike the Owner's Emergency Standards Clause above, any Head
+    // Steward (not just Owner) can flip this - it only changes which
+    // dashboard the Senior Steward role sees, it doesn't touch penalties
+    // or drivers, so it isn't gated behind isOwner.
+    async function refreshSeniorStewardCard() {
+      const banner = $("seniorStewardBanner");
+      const statusEl = $("seniorStewardStatus");
+      let d = null;
+      let loadError = null;
+      try {
+        const snap = await db.collection("league_meta").doc("seniorStewardMode").get();
+        d = snap.exists ? snap.data() : null;
+      } catch (e) {
+        console.error("refreshSeniorStewardCard failed:", e);
+        loadError = e?.message || String(e);
+      }
+
+      if (loadError) {
+        if (banner) banner.innerHTML = `<div class="redBox">Could not load Senior Steward Mode status: ${escapeHtml(loadError)}. This usually means a Firestore rules/permissions issue - the mode itself has NOT been changed.</div>`;
+        if (statusEl) statusEl.textContent = "Load failed - see message above.";
+        return { active: false, d: null, loadError };
+      }
+
+      const active = !!(d && d.enabled === true);
+
+      if (banner) {
+        banner.innerHTML = active
+          ? `<div class="bannerBox bannerGreen">Senior Steward Mode is <strong>ON</strong> — Senior Stewards currently have full Head Steward permissions on seniorsteward.html.</div>`
+          : `<div class="bannerBox bannerAmber">Senior Steward Mode is <strong>OFF</strong> — Senior Stewards currently have standard Steward access only.</div>`;
+      }
+
+      if (statusEl) {
+        if (active) {
+          statusEl.textContent = `Enabled ${d.enabledAtMs ? new Date(Number(d.enabledAtMs)).toLocaleString() : "—"} by ${d.updatedBy || "a Head Steward"}.`;
+        } else if (d && d.updatedAtMs) {
+          statusEl.textContent = `Disabled ${new Date(Number(d.updatedAtMs)).toLocaleString()} by ${d.updatedBy || "a Head Steward"}.`;
+        } else {
+          statusEl.textContent = "Never enabled.";
+        }
+      }
+
+      return { active, d };
+    }
+
+    function initSeniorStewardUI() {
+      const enableBtn = $("seniorStewardEnableBtn");
+      if (enableBtn) enableBtn.onclick = async () => {
+        if (!confirm("Enable Senior Steward Mode? Every account with the Senior Steward role will immediately get full Head Steward permissions on seniorsteward.html.")) return;
+        enableBtn.disabled = true;
+        try {
+          await db.collection("league_meta").doc("seniorStewardMode").set({
+            enabled: true,
+            updatedBy: currentEmail,
+            enabledAtMs: Date.now(),
+            updatedAtMs: Date.now()
+          }, { merge: true });
+          toast("Senior Steward Mode enabled.");
+          await refreshSeniorStewardCard();
+        } catch (e) {
+          toast("Could not enable: " + (e?.message || e));
+        } finally {
+          enableBtn.disabled = false;
+        }
+      };
+
+      const disableBtn = $("seniorStewardDisableBtn");
+      if (disableBtn) disableBtn.onclick = async () => {
+        if (!confirm("Disable Senior Steward Mode now? Senior Stewards will drop back to standard Steward access on their next page load.")) return;
+        disableBtn.disabled = true;
+        try {
+          await db.collection("league_meta").doc("seniorStewardMode").set({
+            enabled: false,
+            updatedBy: currentEmail,
+            updatedAtMs: Date.now()
+          }, { merge: true });
+          toast("Senior Steward Mode disabled.");
+          await refreshSeniorStewardCard();
+        } catch (e) {
+          toast("Could not disable: " + (e?.message || e));
+        } finally {
+          disableBtn.disabled = false;
+        }
+      };
+
+      return refreshSeniorStewardCard();
     }
 
     function isFinalised(status) {
@@ -4616,6 +4728,7 @@ This status was changed from the Head Steward web dashboard so the ticket can be
           $("who").textContent = `Signed in as: ${currentEmail} | role: ${data.role || "headsteward"}`;
 
           initOwnerClauseUI();
+          initSeniorStewardUI();
 
           // Load penalty codes for the discussion / finalisation dropdowns
           await loadPenaltyCodes();
