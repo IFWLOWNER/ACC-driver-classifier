@@ -372,6 +372,33 @@
   // concurrent caller rides the same single fetch pass instead of starting
   // their own.
   let allRowsInFlight = null;
+
+  // ✅ ADDED: the loop below used to fetch every session file ONE AT A TIME,
+  // awaited sequentially - the promise-sharing fix above (allRowsInFlight)
+  // only stopped multiple full passes running concurrently, it never sped up
+  // the one pass that does run. With a season's worth of FP/Q/R files across
+  // every server, that's potentially hundreds of sequential round-trips on
+  // every visitor's first (cold cache) load - on a slow mobile connection,
+  // that easily adds up to minutes, or an outright timeout/failure. Files
+  // are independent of each other (each is parsed into its own rows, order
+  // doesn't matter - everything downstream sorts/groups by content, not by
+  // fetch order), so there's no correctness reason they need to be
+  // sequential. This runs a bounded number at once instead of either the
+  // extremes of "one at a time" (too slow) or "all several hundred at once"
+  // (risks swamping a low-power mobile device parsing that many JSON
+  // payloads simultaneously, or the connection limit) - a modest concurrency
+  // cap gets nearly all of the speedup with none of that risk.
+  async function mapWithConcurrency(items, limit, worker){
+    let nextIndex = 0;
+    async function runNext(){
+      while(nextIndex < items.length){
+        const idx = nextIndex++;
+        await worker(items[idx], idx);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runNext));
+  }
+
   async function buildAllRows(force){
     if(allRowsCache && !force) return allRowsCache;
     if(allRowsInFlight && !force) return allRowsInFlight;
@@ -390,7 +417,7 @@
       }).filter(x => x.file && x.name && /_(FP|FP1|FP2|Q|R)\.json$/i.test(x.name)).sort(newestFirst);
 
       const allRows = [];
-      for(const item of manifestItems){
+      await mapWithConcurrency(manifestItems, 8, async (item) => {
         try{
           const data = await fetchJsonFile(item.file, {force});
           const session = normaliseSession(data, item.file, item);
@@ -398,7 +425,7 @@
         }catch(e){
           console.warn('IFWLStats: skipped unreadable session file', item.file, e.message);
         }
-      }
+      });
       allRowsCache = allRows;
       return allRows;
     })();
@@ -628,8 +655,15 @@
       return ts >= startMs && ts <= endMs;
     });
 
+    // ✅ FIXED: same one-at-a-time fetch loop as buildAllRows used to have -
+    // this one's called directly from the Licence Centre's Race Results tab
+    // on every normal page load (renderRaceResultsPanel), so it was adding
+    // its own separate stack of sequential round-trips on top of everything
+    // else. Same bounded-concurrency fix, same reasoning: files are
+    // independent, and the final sort below is by tsMs regardless of the
+    // order they were fetched/pushed in.
     const races = [];
-    for(const item of candidates){
+    await mapWithConcurrency(candidates, 8, async (item) => {
       try{
         const data = await fetchJsonFile(item.file, {force: !!opts.force});
         const serverId = item.serverId || serverIdFromPath(item.file) || 'unknown';
@@ -648,7 +682,7 @@
       }catch(e){
         console.warn('IFWLStats: skipped unreadable race file', item.file, e.message);
       }
-    }
+    });
 
     races.sort((a,b) => b.tsMs - a.tsMs);
     return races;
