@@ -607,23 +607,15 @@
 
   <div class="setupWrap">
 
-    <!-- Sign in / create account (shown until the user is authenticated) -->
+    <!-- Sign in (shown until the user is authenticated) - Google sign-in
+         only, matching the rest of IFWL/ITS; no passwords stored here. -->
     <div class="card authPanel" id="authPanel">
       <div class="title" style="margin:0;">Sign in to set up your league</div>
-      <div class="muted">Use the email you subscribed to ITS with.</div>
-      <div style="margin-top:14px;">
-        <label class="muted">Email</label>
-        <input type="email" id="authEmail" placeholder="you@example.com">
+      <div class="muted">Use the Google account you'll manage your league with. First time here signs you up automatically.</div>
+      <div class="row" style="justify-content:center; margin-top:16px;">
+        <button class="primary" id="authGoogleBtn">Continue with Google</button>
       </div>
-      <div style="margin-top:10px;">
-        <label class="muted">Password</label>
-        <input type="password" id="authPassword" placeholder="••••••••">
-      </div>
-      <div class="row" style="justify-content:flex-end; margin-top:14px;">
-        <button id="authSignInBtn">Sign In</button>
-        <button class="primary" id="authCreateBtn">Create Account</button>
-      </div>
-      <div class="muted" id="authError" style="margin-top:10px; color:var(--red-dark);"></div>
+      <div class="muted" id="authError" style="margin-top:10px; color:var(--red-dark); text-align:center;"></div>
     </div>
 
     <!-- Shown once signed in, if this email already has a role in the system -->
@@ -785,25 +777,17 @@
 
     function showAuthError(msg) { $("authError").textContent = msg || ""; }
 
-    $("authSignInBtn").onclick = async () => {
+    // Google sign-in only - IFWL deliberately doesn't store passwords
+    // anywhere, so this matches admin.html's approach rather than
+    // introducing a second, weaker auth path just for league owners.
+    // signInWithPopup handles first-time sign-up and returning sign-in
+    // through the same button - Firebase creates the user record
+    // automatically the first time a given Google account signs in.
+    $("authGoogleBtn").onclick = async () => {
       showAuthError("");
-      const email = ($("authEmail").value || "").trim();
-      const password = $("authPassword").value || "";
-      if (!email || !password) { showAuthError("Enter your email and password."); return; }
       try {
-        await auth.signInWithEmailAndPassword(email, password);
-      } catch (e) {
-        showAuthError(e?.message || String(e));
-      }
-    };
-
-    $("authCreateBtn").onclick = async () => {
-      showAuthError("");
-      const email = ($("authEmail").value || "").trim();
-      const password = $("authPassword").value || "";
-      if (!email || !password) { showAuthError("Enter an email and a password (6+ characters)."); return; }
-      try {
-        await auth.createUserWithEmailAndPassword(email, password);
+        const provider = new firebase.auth.GoogleAuthProvider();
+        await auth.signInWithPopup(provider);
       } catch (e) {
         showAuthError(e?.message || String(e));
       }
