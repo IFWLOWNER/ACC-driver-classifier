@@ -3650,6 +3650,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return serverId === 'console-licence' ? cs.console : cs.pc;
   };
 
+  // ✅ ADDED: window.IFWLStats.computeLicenceServerStandings (ifwl-stats-engine.js)
+  // reads every session file for a server and is the single most expensive
+  // call this page makes - and a normal driver's page load independently
+  // asks it for the EXACT same (serverId, minLaps:15) standings from three
+  // unrelated places (the Qualification Standing card, the qualification-
+  // laps progress box, and Claim Your Laps), none of them aware the others
+  // are asking for the same thing, doing it per-platform so that's up to 6
+  // full recomputes for what should be 2. On a slow mobile connection that's
+  // very plausibly why the whole page can take minutes or fail to load at
+  // all. Same in-flight-Promise-cache pattern as fetchQualWindowMs/
+  // fetchClassStructureConfig just above - lives for one page load only,
+  // never persisted, and concurrent callers asking for the same key share
+  // the same in-flight request instead of each starting their own. A
+  // `force:true` call (the staff "Recalculate" action) always bypasses this
+  // and hits the real engine directly, same as before.
+  const __standingsCache = new Map(); // key: `${serverId}|${minLaps}` -> Promise<standings[]>
+  function cachedLicenceServerStandings(params){
+    if(params.force) return window.IFWLStats.computeLicenceServerStandings(params);
+    const key = `${params.serverId}|${params.minLaps}`;
+    if(!__standingsCache.has(key)){
+      const p = window.IFWLStats.computeLicenceServerStandings(params).catch(e => { __standingsCache.delete(key); throw e; });
+      __standingsCache.set(key, p);
+    }
+    return __standingsCache.get(key);
+  }
+  window.cachedLicenceServerStandings = cachedLicenceServerStandings;
+
   // ✅ ADDED: seasonal costs (entry fee, tyre make/model/price, race
   // earnings payout table, track km-per-lap list) - staff-editable via
   // Staff > Economy > Seasonal Costs. Cached per page load, same pattern as
@@ -4641,7 +4668,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings, roster, directory;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: cwPlatform, classStructure: await window.classStructureForServer(cwPlatform) , qualWindow: await window.fetchQualWindowMs()});
+      standings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId: cwPlatform, classStructure: await window.classStructureForServer(cwPlatform) , qualWindow: await window.fetchQualWindowMs()});
       [roster, directory] = await Promise.all([ fetchLicenceRosterPublic(), fetchDirectory() ]);
       // ✅ ADDED: name pronunciation guides - fetched from a separate,
       // properly access-controlled endpoint (not the public roster above),
@@ -5299,7 +5326,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
+      standings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
     }catch(e){
       body.innerHTML = `<div class="empty">Could not load the server list: ${e.message}</div>`;
       return;
@@ -6203,13 +6230,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     let pcIndex = -1, consoleIndex = -1;
     let pcStandings = [], consoleStandings = [];
     try{
-      pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()});
+      pcStandings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()});
       pcIndex = findMyStandingRow(pcStandings, accDriverNames);
       if(pcIndex >= 0) html += await buildQualStandingCard('PC', pcIndex, pcStandings, 'pc-licence', accDriverNames);
     }catch(e){ /* one platform failing shouldn't block the other */ }
 
     try{
-      consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()});
+      consoleStandings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()});
       consoleIndex = findMyStandingRow(consoleStandings, accDriverNames);
       if(consoleIndex >= 0) html += await buildQualStandingCard('Console', consoleIndex, consoleStandings, 'console-licence', accDriverNames);
     }catch(e){ /* as above */ }
@@ -6383,7 +6410,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const platformResults = [];
     for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
       try{
-        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
+        const standings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
         const idx = findMyStandingRow(standings, accDriverNames);
         if(idx >= 0) platformResults.push({ label, totalLaps: standings[idx].totalLaps });
       }catch(e){ /* one platform failing shouldn't block the other */ }
@@ -6497,7 +6524,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   async function init(){
     renderInboxPanel(); // fire-and-forget - also sets the nav unread badge
-    currentTiers = await window.IFWL_TierAPI.fetchTierList();
+
+    // ✅ FIXED: the tier ladder and "am I logged in, what's my profile" reads
+    // don't depend on each other at all, but were awaited one after another -
+    // a whole extra network round-trip added to EVERY visitor's load before
+    // the page has done anything else. Same "stacked vs parallel" issue as
+    // the five-way Promise.all further down in this function, just further
+    // upstream where it's easy to miss since there's only two of them.
+    const [tiersResult, profileResult] = await Promise.all([
+      window.IFWL_TierAPI.fetchTierList(),
+      fetchMyProfile().then(p => ({ ok: true, profile: p })).catch(e => ({ ok: false, error: e }))
+    ]);
+    currentTiers = tiersResult;
     renderTierLegend();
     initRacingRulesPage();
     populateTierSelect(q('dirTierFilter'), { includeBlank: true });
@@ -6505,9 +6543,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     applySeasonalOverlays();
     applyAffiliateAds();
 
-    try{
-      currentProfile = await fetchMyProfile();
-    }catch(e){
+    if(profileResult.ok){
+      currentProfile = profileResult.profile;
+    }else{
+      const e = profileResult.error;
       if(e.body?.refused){
         hideDriverLinkGate();
         showLicenceRefusedGate();
@@ -8329,7 +8368,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const lines = [];
     for(const [label, serverId] of [['PC','pc-licence'], ['Console','console-licence']]){
       try{
-        const standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
+        const standings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
         const row = findQualRowForNames(standings, accDriverNames);
         if(row) lines.push({ label, laps: row.totalLaps, done: row.totalLaps >= 15 });
       }catch(e){ /* one platform failing shouldn't block the other */ }
@@ -9119,7 +9158,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     let standings, profiles, tiers;
     try{
-      standings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
+      standings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId) , qualWindow: await window.fetchQualWindowMs()});
       profiles = await staffSearch('');
       tiers = await window.IFWL_TierAPI.fetchTierList();
     }catch(e){
@@ -9663,8 +9702,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     try{
       profiles = await staffSearch('');
       tiers = await window.IFWL_TierAPI.fetchTierList();
-      pcStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()}).catch(() => []);
-      consoleStandings = await window.IFWLStats.computeLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()}).catch(() => []);
+      pcStandings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence') , qualWindow: await window.fetchQualWindowMs()}).catch(() => []);
+      consoleStandings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence') , qualWindow: await window.fetchQualWindowMs()}).catch(() => []);
     }catch(e){
       overviewBox.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`;
       body.innerHTML = '';
