@@ -137,6 +137,49 @@
     .wrap { padding:10px; } .card { padding:12px; }
     .eventPanel { width:100vw; }
   }
+
+  /* ---------- one-page event PDF (print) ----------
+     .printScale is measured (at a fixed 190mm width, unscaled) against one
+     A4 page's printable height (277mm, with @page margin:10mm below taking
+     the other 10mm off each edge) - if the real content is taller than
+     that, downloadEventPdf() shrinks it with a CSS transform: scale() and
+     widens it by the inverse amount first, so it still spans the full
+     190mm width after shrinking. This is what guarantees one page
+     regardless of how many rounds/rules an event ends up with. */
+  /* Kept in normal layout flow (not display:none) so its real height can be
+     measured for the shrink-to-fit calculation - just pushed far off-screen
+     so nobody sees it while editing. @media print below un-offsets it. */
+  #eventPrintSheet { position:fixed; left:-99999px; top:0; }
+  .printPage { background:#fff; color:#111827; font-family: Arial, sans-serif; }
+  .printScale { width:190mm; transform-origin: top left; }
+  .printHead {
+    background:#111827; color:#fff; padding:12mm 10mm 6mm; display:flex; justify-content:space-between; align-items:flex-start; gap:8mm;
+  }
+  .printHead .pBrand { font-weight:900; font-size:11px; letter-spacing:.08em; color:#9ca3af; text-transform:uppercase; }
+  .printHead .pEvName { font-weight:900; font-size:22px; margin-top:2mm; }
+  .printHead .pMeta { font-size:11px; color:#d1d5db; margin-top:2mm; }
+  .printHead .pBadge { display:inline-block; padding:3mm 4mm; border-radius:999px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
+  .printHead .pBadge.locked { background:#ecfdf5; color:#065f46; }
+  .printHead .pBadge.draft { background:#fffbeb; color:#92400e; }
+  .printBody { padding:6mm 10mm 8mm; }
+  .printGrid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5mm; margin-bottom:5mm; }
+  .printCard { border:1px solid #e5e7eb; border-radius:3mm; padding:4mm 5mm; }
+  .printCard .pTitle { font-weight:800; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#374151; margin-bottom:2mm; border-bottom:1px solid #e5e7eb; padding-bottom:1.5mm; }
+  .printCard .pLine { font-size:11.5px; line-height:1.6; display:flex; justify-content:space-between; gap:4mm; }
+  .printCard .pLine b { font-weight:700; }
+  .printCard .pEmpty { font-size:11px; color:#9ca3af; font-style:italic; }
+  .printSectionTitle { font-weight:800; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#374151; margin:0 0 2mm; }
+  .printSchedule { width:100%; border-collapse:collapse; font-size:10.5px; }
+  .printSchedule th { text-align:left; background:#111827; color:#fff; padding:2mm 2.5mm; font-size:9px; text-transform:uppercase; letter-spacing:.02em; }
+  .printSchedule td { padding:2mm 2.5mm; border-bottom:1px solid #e5e7eb; vertical-align:top; }
+  .printSchedule tr:nth-child(even) td { background:#f9fafb; }
+  .printFoot { margin-top:5mm; font-size:9px; color:#9ca3af; border-top:1px solid #e5e7eb; padding-top:3mm; display:flex; justify-content:space-between; }
+
+  @media print {
+    body > *:not(#eventPrintSheet) { display:none !important; }
+    #eventPrintSheet { position:static; left:auto; top:auto; }
+    @page { size: A4 portrait; margin:10mm; }
+  }
 </style>
 </head>
 <body>
@@ -265,6 +308,7 @@
       <div id="eventPanelMsg" style="margin-top:10px;"></div>
     </div>
     <div class="row" style="flex-wrap:nowrap; flex:0 0 auto;">
+      <button id="eventPdfBtn" class="ghost small">📄 Download PDF</button>
       <button id="eventLockBtn" class="primary small" style="display:none;">Lock In</button>
       <button id="eventUnlockBtn" class="ghost small" style="display:none;">Unlock</button>
       <button id="closePanelBtn" class="ghost small">✕ Close</button>
@@ -367,6 +411,11 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- One-page event PDF - populated by downloadEventPdf(), printed via
+     window.print(). Hidden on screen; @media print above hides everything
+     else and shows only this. -->
+<div id="eventPrintSheet"><div class="printPage"><div class="printScale" id="printScale"></div></div></div>
 
 <!-- Firebase (real deployment: swap in the shared init script used by
      steward.html / headsteward.html) -->
@@ -726,6 +775,110 @@
       body.appendChild(tr);
     });
     if (!ev.schedule || !ev.schedule.length) body.innerHTML = '<tr><td colspan="12" class="muted">No rounds added yet.</td></tr>';
+  }
+
+  // ---------- one-page event PDF ----------
+  function buildEventPrintHTML(ev) {
+    const seasonLabel = editState.seasonName || "IFWL Season";
+    const badgeCls = ev.locked ? "locked" : "draft";
+    const badgeText = ev.locked ? "🔒 Locked in" : "✏️ Draft";
+    const lockLine = ev.locked
+      ? `Locked in${ev.lockedBy ? " by " + escapeHtml(ev.lockedBy) : ""}${ev.lockedAt ? " on " + new Date(ev.lockedAt).toLocaleDateString() : ""}`
+      : "Still a draft &mdash; not yet official";
+    const roundCount = (ev.schedule || []).length;
+
+    const rulesHtml = (ev.rules && ev.rules.length)
+      ? ev.rules.map(r => `<div class="pLine"><span>${escapeHtml(r.rule || "(unnamed)")}</span><b>${escapeHtml(r.setting || "—")}</b></div>`).join("")
+      : `<div class="pEmpty">No rules added yet.</div>`;
+
+    const pointsHtml = (ev.points && ev.points.length)
+      ? `<div style="font-size:11.5px; line-height:1.9;">${ev.points.slice()
+          .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
+          .map(p => `<b>P${escapeHtml(p.position ?? "?")}</b> ${escapeHtml(p.points ?? "0")}`).join(" &nbsp;&middot;&nbsp; ")}</div>`
+      : `<div class="pEmpty">No points positions added yet.</div>`;
+
+    const platformsHtml = (ev.platforms && ev.platforms.length)
+      ? ev.platforms.map(p => `<div class="pLine"><span>${escapeHtml(p.platform || "(unnamed)")}</span><b>${p.required ? "Required" : "Optional"}</b></div>`).join("")
+      : `<div class="pEmpty">No platforms set.</div>`;
+
+    const modsHtml = (ev.mods && ev.mods.length)
+      ? ev.mods.map(m => `<div class="pLine"><span>${escapeHtml(m.name || "(unnamed)")}</span>${m.link ? `<b style="font-weight:600;color:#3730a3;">${escapeHtml(m.link.replace(/^https?:\/\//, "").slice(0, 26))}</b>` : ""}</div>`).join("")
+      : `<div class="pEmpty">None required.</div>`;
+
+    const scheduleRows = (ev.schedule && ev.schedule.length)
+      ? ev.schedule.map((r, idx) => {
+          const roundLabel = escapeHtml(r.week || `Round ${idx + 1}`) + (r.name ? ` — ${escapeHtml(r.name)}` : "");
+          const trackCell = [escapeHtml(r.track || "—"), r.dlcName ? `(${escapeHtml(r.dlcName)})` : ""].filter(Boolean).join(" ");
+          const sessions = [
+            r.practiceTime ? `P ${escapeHtml(r.practiceTime)}` : "",
+            r.quallyTime ? `Q ${escapeHtml(r.quallyTime)}` : "",
+            r.race1 ? `R1 ${escapeHtml(r.race1)}` : "",
+            r.race2 ? `R2 ${escapeHtml(r.race2)}` : ""
+          ].filter(Boolean).join(" &middot; ") || "—";
+          const notes = [r.conditions, r.misc].filter(Boolean).map(escapeHtml).join(" &middot; ") || "—";
+          return `<tr><td><b>${roundLabel}</b></td><td>${r.date ? escapeHtml(formatDate(r.date)) : "TBC"}</td><td>${trackCell}</td><td>${sessions}</td><td>${notes}</td></tr>`;
+        }).join("")
+      : `<tr><td colspan="5" style="color:#9ca3af;font-style:italic;">No rounds added yet.</td></tr>`;
+
+    return `
+      <div class="printHead">
+        <div>
+          <div class="pBrand">IFWL &middot; ${escapeHtml(seasonLabel)}</div>
+          <div class="pEvName">${escapeHtml(ev.name || "(untitled event)")}</div>
+          <div class="pMeta">${ev.startDate ? "Starts " + escapeHtml(formatDate(ev.startDate)) : "Start date TBC"} &middot; ${roundCount} round${roundCount === 1 ? "" : "s"}</div>
+          <div class="pMeta" style="margin-top:1mm;">${lockLine}</div>
+        </div>
+        <span class="pBadge ${badgeCls}">${badgeText}</span>
+      </div>
+      <div class="printBody">
+        <div class="printGrid">
+          <div class="printCard"><div class="pTitle">Rules &amp; settings</div>${rulesHtml}</div>
+          <div class="printCard"><div class="pTitle">Points layout</div>${pointsHtml}</div>
+          <div class="printCard">
+            <div class="pTitle">Platform</div>${platformsHtml}
+            <div class="pTitle" style="margin-top:3mm;">Mods / DLC</div>${modsHtml}
+          </div>
+        </div>
+        <div class="printSectionTitle">Round schedule</div>
+        <table class="printSchedule">
+          <thead><tr><th>Round</th><th>Date</th><th>Track</th><th>Sessions</th><th>Notes</th></tr></thead>
+          <tbody>${scheduleRows}</tbody>
+        </table>
+        <div class="printFoot">
+          <span>IFWL Season Planner &mdash; ${ev.locked ? "official once locked in" : "draft, not yet official"}</span>
+          <span>Generated ${escapeHtml(new Date().toLocaleString())}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // Renders the event into #printScale at its natural (unscaled) size,
+  // measures it, and - only if it's actually taller than one A4 page's
+  // printable area - shrinks it with a CSS transform (widening it by the
+  // inverse factor first so it still spans the full page width once
+  // shrunk). This is what guarantees the PDF is always exactly one page,
+  // whether the event has 3 rounds or 15.
+  function downloadEventPdf() {
+    const ev = currentEvent();
+    if (!ev) return;
+    const scaleBox = $("printScale");
+    scaleBox.style.transform = "none";
+    scaleBox.style.width = "190mm";
+    scaleBox.innerHTML = buildEventPrintHTML(ev);
+
+    const mmToPx = 96 / 25.4;
+    const maxHeightPx = 277 * mmToPx; // A4 (297mm) minus the 10mm @page margin above, both edges
+    const naturalHeightPx = scaleBox.getBoundingClientRect().height;
+    if (naturalHeightPx > maxHeightPx) {
+      const factor = Math.max(0.55, maxHeightPx / naturalHeightPx);
+      scaleBox.style.width = (190 / factor) + "mm";
+      scaleBox.style.transform = `scale(${factor})`;
+    }
+
+    const prevTitle = document.title;
+    document.title = `IFWL - ${ev.name || "Event"} (${ev.locked ? "Locked" : "Draft"})`;
+    window.print();
+    setTimeout(() => { document.title = prevTitle; }, 500);
   }
 
   function renderAll() {
@@ -1143,6 +1296,7 @@
 
   $("eventLockBtn").onclick = () => lockEvent(currentEventId);
   $("eventUnlockBtn").onclick = () => unlockEvent(currentEventId);
+  $("eventPdfBtn").onclick = downloadEventPdf;
   $("removeEventBtn").onclick = () => removeEvent(currentEventId);
   $("closePanelBtn").onclick = closeEventPanel;
   $("panelBackdrop").onclick = closeEventPanel;
