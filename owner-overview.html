@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IFWL &middot; League Owners Overview</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="ifwl-stats-engine.js"></script>
+<style>
+:root{
+  --bg:#f4f6f9; --panel:#ffffff; --panel-alt:#fafbfc; --line:#e3e7ed; --line-strong:#cfd6e0;
+  --text:#1a2230; --text-dim:#5b6576; --text-mute:#8b93a2;
+  --brand:#1f6fd6; --brand-dark:#164f9c; --brand-tint:#eaf2fe;
+  --green:#12875a; --green-tint:#e6f6ee;
+  --amber:#b5750a; --amber-tint:#fdf1de;
+  --red:#c2352a; --red-tint:#fbe9e7;
+  --purple:#6b3fc2; --purple-tint:#f1ecfc;
+  --radius:12px; --radius-sm:8px;
+  --shadow:0 1px 2px rgba(20,30,50,.04), 0 8px 24px rgba(20,30,50,.06);
+  --shadow-lg:0 20px 60px rgba(20,30,50,.16);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+.hidden{display:none!important}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+a{color:var(--brand)}
+::-webkit-scrollbar{height:10px;width:10px}
+::-webkit-scrollbar-thumb{background:#c7cedb;border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- login wall ---------- */
+html.login-wall-open,body.login-wall-open{overflow:hidden!important}
+#ifwlLoginWall{position:fixed;inset:0;z-index:200000;background:linear-gradient(180deg,rgba(244,246,249,.97),rgba(234,238,244,.99));display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(6px)}
+#ifwlLoginWall.hidden{display:none!important}
+.login-wall-card{width:min(460px,94vw);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:36px 32px;box-shadow:var(--shadow-lg);text-align:center}
+.login-wall-card .org{font-size:12px;font-weight:800;letter-spacing:.12em;color:var(--text-mute);text-transform:uppercase}
+.login-wall-card h1{margin:8px 0 6px;font-size:24px;font-weight:800;letter-spacing:-.01em}
+.login-wall-card p{margin:0 0 22px;color:var(--text-dim);font-weight:500}
+.login-wall-actions{display:flex;flex-direction:column;gap:10px}
+.login-wall-actions button{border:0;border-radius:10px;padding:13px 18px;font-size:13px;font-weight:700;cursor:pointer}
+.login-wall-discord{background:#5865f2;color:#fff}
+.login-wall-logout{background:#eef1f5;color:var(--text-dim)}
+#loginWallError{display:none;margin-top:16px;background:var(--red-tint);border:1px solid rgba(194,53,42,.25);color:var(--red);border-radius:10px;padding:11px;font-weight:600;font-size:13px;text-align:left}
+#ownerDeniedWall{display:none;margin-top:16px;background:var(--amber-tint);border:1px solid rgba(181,117,10,.25);color:var(--amber);border-radius:10px;padding:11px;font-weight:600;font-size:13px;text-align:left}
+
+/* ---------- shell ---------- */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 28px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:500}
+.topbar-brand{display:flex;align-items:center;gap:10px}
+.topbar-brand .mark{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,var(--brand),var(--purple));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:14px}
+.topbar-brand .title{font-weight:800;font-size:15px;letter-spacing:-.01em}
+.topbar-brand .subtitle{font-size:11px;color:var(--text-mute);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.topbar-account{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-dim);font-weight:600}
+.topbar-account button{border:1px solid var(--line-strong);background:var(--panel);color:var(--text-dim);border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.topbar-account button:hover{background:var(--panel-alt)}
+
+.tabbar{display:flex;gap:2px;padding:0 28px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+.tab-btn{border:0;background:none;padding:13px 16px;font-size:13px;font-weight:700;color:var(--text-mute);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;display:flex;align-items:center;gap:7px}
+.tab-btn:hover{color:var(--text)}
+.tab-btn.active{color:var(--brand);border-bottom-color:var(--brand)}
+.tab-btn .count{background:var(--brand-tint);color:var(--brand);border-radius:999px;padding:1px 7px;font-size:11px;font-weight:800}
+
+main{max-width:1520px;margin:0 auto;padding:22px 28px 60px}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.panel-head h2{margin:0;font-size:19px;font-weight:800;letter-spacing:-.01em}
+.panel-head .sub{margin:2px 0 0;font-size:12.5px;color:var(--text-mute);font-weight:600}
+.panel-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+.btn{border:1px solid var(--line-strong);background:var(--panel);color:var(--text);border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--panel-alt);border-color:var(--text-mute)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.primary:hover{background:var(--brand-dark)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--text-dim)}
+.btn.ghost:hover{background:var(--panel-alt)}
+.btn:disabled{opacity:.5;cursor:default;pointer-events:none}
+.search-input{border:1px solid var(--line-strong);border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:600;min-width:220px;background:var(--panel);color:var(--text)}
+.search-input:focus{outline:2px solid var(--brand-tint);border-color:var(--brand)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.stat-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.stat-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-sm);padding:13px 15px}
+.stat-card .label{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-mute)}
+.stat-card .value{font-size:21px;font-weight:800;margin-top:3px;letter-spacing:-.02em}
+.stat-card .value.green{color:var(--green)}
+.stat-card .value.red{color:var(--red)}
+.stat-card .value.amber{color:var(--amber)}
+
+/* ---------- "modern excel" data grid ---------- */
+.grid-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);max-height:74vh}
+table.datagrid{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;min-width:900px}
+table.datagrid thead th{position:sticky;top:0;background:#eef1f6;color:var(--text-dim);text-align:left;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:10px 12px;border-bottom:1px solid var(--line-strong);border-right:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none;z-index:2}
+table.datagrid thead th:hover{background:#e5e9f0}
+table.datagrid thead th.sorted{color:var(--brand)}
+table.datagrid thead th .arrow{opacity:.5;margin-left:3px}
+table.datagrid thead th:last-child{border-right:0}
+table.datagrid tbody td{padding:9px 12px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+table.datagrid tbody td:last-child{border-right:0}
+table.datagrid tbody tr:nth-child(even){background:var(--panel-alt)}
+table.datagrid tbody tr:hover{background:var(--brand-tint)}
+table.datagrid td.wrap{white-space:normal;max-width:260px}
+table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;font-weight:600}
+.grid-empty{padding:40px;text-align:center;color:var(--text-mute);font-weight:600}
+
+.pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 9px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
+.pill.tier-owner,.pill.role-owner{background:var(--purple-tint);color:var(--purple)}
+.pill.tier-gold{background:#fdf3d8;color:#9a6b00}
+.pill.tier-silver{background:#eef0f3;color:#5b6576}
+.pill.tier-bronze{background:#f6e6da;color:#94502c}
+.pill.tier-pro{background:var(--red-tint);color:var(--red)}
+.pill.tier-am{background:var(--amber-tint);color:var(--amber)}
+.pill.tier-none{background:#eef1f5;color:var(--text-mute)}
+.pill.green{background:var(--green-tint);color:var(--green)}
+.pill.red{background:var(--red-tint);color:var(--red)}
+.pill.blue{background:var(--brand-tint);color:var(--brand)}
+.pill.grey{background:#eef1f5;color:var(--text-dim)}
+
+.bio-cell{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.avatar-name{display:flex;align-items:center;gap:9px}
+.avatar-ph{width:26px;height:26px;border-radius:8px;background:var(--brand-tint);color:var(--brand);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0}
+
+.loading-row{padding:36px;text-align:center;color:var(--text-mute);font-weight:700}
+.spin{display:inline-block;width:15px;height:15px;border:2px solid var(--line-strong);border-top-color:var(--brand);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-3px;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.toast-stack{position:fixed;bottom:20px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px}
+.toast{background:var(--text);color:#fff;padding:11px 16px;border-radius:10px;font-size:12.5px;font-weight:600;box-shadow:var(--shadow-lg);max-width:360px}
+.toast.err{background:var(--red)}
+
+.modal-backdrop{position:fixed;inset:0;background:rgba(20,30,50,.45);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+.modal-backdrop.hidden{display:none}
+.modal-card{width:min(760px,96vw);background:var(--panel);border-radius:16px;box-shadow:var(--shadow-lg);padding:24px}
+.modal-card .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.modal-card h3{margin:0;font-size:16px;font-weight:800}
+.modal-close{border:0;background:var(--panel-alt);width:30px;height:30px;border-radius:9px;cursor:pointer;font-size:15px;color:var(--text-dim)}
+
+.sub-tabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.sub-tab-btn{border:0;background:none;padding:9px 4px;margin-right:14px;font-size:12.5px;font-weight:700;color:var(--text-mute);cursor:pointer;border-bottom:2px solid transparent}
+.sub-tab-btn.active{color:var(--brand);border-bottom-color:var(--brand)}
+
+.season-banner{display:flex;align-items:center;gap:14px;background:linear-gradient(120deg,var(--brand-tint),#fff);border:1px solid var(--line);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;flex-wrap:wrap}
+.season-banner strong{font-size:14px}
+.season-banner span{color:var(--text-dim);font-size:12.5px;font-weight:600}
+
+.event-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px;background:var(--panel);display:flex;flex-direction:column;gap:8px}
+.event-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.event-card .ev-title{font-weight:800;font-size:13.5px}
+.event-card .ev-meta{font-size:11.5px;color:var(--text-mute);font-weight:600}
+
+.access-denied-wrap{max-width:520px;margin:80px auto;text-align:center}
+.access-denied-wrap h1{font-size:20px;margin-bottom:8px}
+.access-denied-wrap p{color:var(--text-dim)}
+
+@media (max-width:760px){
+  main{padding:16px}
+  .topbar{padding:12px 16px}
+  .tabbar{padding:0 10px}
+}
+</style>
+</head>
+<body class="login-wall-open">
+
+<div id="ifwlLoginWall">
+  <div class="login-wall-card">
+    <div class="org">IFWL.NET</div>
+    <h1>League Owners Overview</h1>
+    <p id="loginWallMessage">Login with your IFWL Discord account. This dashboard is restricted to the League Owner.</p>
+    <div class="login-wall-actions">
+      <button class="login-wall-discord" id="loginWallDiscordBtn" type="button">Login with Discord</button>
+      <button class="login-wall-logout hidden" id="loginWallLogoutBtn" type="button">Logout</button>
+    </div>
+    <div id="loginWallError"></div>
+    <div id="ownerDeniedWall"></div>
+  </div>
+</div>
+
+<div id="ownerAccessDenied" class="access-denied-wrap hidden">
+  <h1>Access restricted</h1>
+  <p>The League Owners Overview is only available to the Owner role. If you believe this is a mistake, contact IFWL Ops.</p>
+  <p style="margin-top:18px"><button class="btn" id="deniedLogoutBtn" type="button">Logout</button></p>
+</div>
+
+<div id="ownerApp" class="hidden">
+
+<header class="topbar">
+  <div class="topbar-brand">
+    <div class="mark">IF</div>
+    <div>
+      <div class="title">League Owners Overview</div>
+      <div class="subtitle">IFWL.NET internal</div>
+    </div>
+  </div>
+  <div class="topbar-account">
+    <span id="ownerAccountText">&nbsp;</span>
+    <button id="topbarLogoutBtn" type="button">Logout</button>
+  </div>
+</header>
+
+<nav class="tabbar" id="tabBar">
+  <button class="tab-btn active" data-tab="drivers" type="button">Drivers <span class="count" id="countDrivers">&hellip;</span></button>
+  <button class="tab-btn" data-tab="events" type="button">Events <span class="count" id="countEvents">&hellip;</span></button>
+  <button class="tab-btn" data-tab="career" type="button">Career Progression</button>
+  <button class="tab-btn" data-tab="season" type="button">Season In Progress</button>
+  <button class="tab-btn" data-tab="staff" type="button">Staff <span class="count" id="countStaff">&hellip;</span></button>
+</nav>
+
+<main>
+
+  <!-- ============ DRIVERS TAB ============ -->
+  <section class="tab-panel active" id="tab-drivers">
+    <div class="panel-head">
+      <div>
+        <h2>Drivers</h2>
+        <p class="sub">Full data spread for every issued IFWL licence.</p>
+      </div>
+      <div class="panel-toolbar">
+        <input type="text" class="search-input" id="driverSearch" placeholder="Search name, licence #, Discord, ACC name&hellip;">
+        <select class="search-input" id="driverTierFilter" style="min-width:140px">
+          <option value="">All tiers</option>
+        </select>
+        <button class="btn" id="driverRefreshBtn" type="button">Refresh</button>
+        <button class="btn primary" id="driverExportBtn" type="button">Export CSV</button>
+      </div>
+    </div>
+    <div class="stat-strip" id="driverStatStrip"></div>
+    <div class="grid-wrap"><div class="loading-row"><span class="spin"></span>Loading drivers&hellip;</div></div>
+  </section>
+
+  <!-- ============ EVENTS TAB ============ -->
+  <section class="tab-panel" id="tab-events">
+    <div class="panel-head">
+      <div>
+        <h2>Events</h2>
+        <p class="sub">Current &amp; upcoming SimGrid rounds, and the active season window.</p>
+      </div>
+      <div class="panel-toolbar">
+        <button class="btn" id="eventsRefreshBtn" type="button">Refresh</button>
+      </div>
+    </div>
+    <div id="seasonBannerWrap"></div>
+    <div id="eventsListWrap"><div class="loading-row"><span class="spin"></span>Loading events&hellip;</div></div>
+  </section>
+
+  <!-- ============ CAREER PROGRESSION TAB ============ -->
+  <section class="tab-panel" id="tab-career">
+    <div class="panel-head">
+      <div>
+        <h2>Career Progression</h2>
+        <p class="sub">Career-shop economy (this season), tier history, and race performance per driver.</p>
+      </div>
+      <div class="panel-toolbar">
+        <input type="text" class="search-input" id="careerSearch" placeholder="Search driver&hellip;">
+        <button class="btn" id="careerRefreshBtn" type="button">Refresh</button>
+      </div>
+    </div>
+    <div id="careerListWrap"><div class="loading-row"><span class="spin"></span>Loading career data&hellip;</div></div>
+  </section>
+
+  <!-- ============ SEASON IN PROGRESS TAB ============ -->
+  <section class="tab-panel" id="tab-season">
+    <div class="panel-head">
+      <div>
+        <h2>Season In Progress &mdash; Qualification Standings</h2>
+        <p class="sub" id="qualWindowSub">Loading qualification window&hellip;</p>
+      </div>
+      <div class="panel-toolbar">
+        <button class="btn" id="seasonRefreshBtn" type="button">Recalculate</button>
+      </div>
+    </div>
+    <div class="sub-tabs">
+      <button class="sub-tab-btn active" data-platform="pc" type="button">PC</button>
+      <button class="sub-tab-btn" data-platform="console" type="button">Console</button>
+    </div>
+    <div id="seasonStandingsWrap"><div class="loading-row"><span class="spin"></span>Loading standings&hellip;</div></div>
+  </section>
+
+  <!-- ============ STAFF TAB ============ -->
+  <section class="tab-panel" id="tab-staff">
+    <div class="panel-head">
+      <div>
+        <h2>Staff</h2>
+        <p class="sub">Everyone currently holding an IFWL staff role in Discord.</p>
+      </div>
+      <div class="panel-toolbar">
+        <input type="text" class="search-input" id="staffSearch" placeholder="Search staff&hellip;">
+        <button class="btn" id="staffRefreshBtn" type="button">Refresh</button>
+      </div>
+    </div>
+    <div id="staffListWrap"><div class="loading-row"><span class="spin"></span>Loading staff roster&hellip;</div></div>
+  </section>
+
+</main>
+</div>
+
+<div class="modal-backdrop hidden" id="driverModalBackdrop">
+  <div class="modal-card">
+    <div class="modal-head"><h3 id="driverModalTitle">Driver</h3><button class="modal-close" id="driverModalClose" type="button">&times;</button></div>
+    <div id="driverModalBody"></div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script>
+/* ============================================================
+   AUTH LAYER
+   Same contract and same localStorage keys as licence.html /
+   career.html's rtGate integration, so a driver already logged in
+   there is already logged in here. This page additionally requires
+   the Owner role client-side (every real enforcement point is
+   still server-side, per-endpoint, via canManageLicencesOwnerOnly
+   in rtgate.js - this is purely a UI gate).
+   ============================================================ */
+(() => {
+  const AUTH={FUNCTION:'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate',REDIRECT_URI:location.origin+location.pathname,SESSION_KEY:'IFWL_PATREON_SESSION',META_KEY:'IFWL_PATREON_META'};
+  const q=id=>document.getElementById(id);
+  const wall=q('ifwlLoginWall'),wallMsg=q('loginWallMessage'),wallErr=q('loginWallError'),wallLogin=q('loginWallDiscordBtn'),wallLogout=q('loginWallLogoutBtn');
+  const deniedWrap=q('ownerAccessDenied'),deniedLogoutBtn=q('deniedLogoutBtn');
+  const appWrap=q('ownerApp'),accountText=q('ownerAccountText'),topbarLogoutBtn=q('topbarLogoutBtn');
+  let meta=null;
+  function safeStore(k,v){try{localStorage.setItem(k,v);return true}catch(_){try{sessionStorage.setItem(k,v);return true}catch(__){return false}}}
+  function readStore(k){try{return localStorage.getItem(k)||sessionStorage.getItem(k)||''}catch(_){return ''}}
+  function removeStore(k){try{localStorage.removeItem(k)}catch(_){} try{sessionStorage.removeItem(k)}catch(_){}}
+  function userName(m){return m?.nick||m?.globalName||m?.global_name||m?.username||'Discord user'}
+  function userId(m){return String(m?.userId||m?.discordId||m?.discord_id||m?.id||'guest')}
+  function tierStr(m){return String(m?.patreonTier||m?.tier||m?.role||'').toLowerCase()}
+  function isOwnerTier(m){if(!m)return false;return tierStr(m).includes('owner')}
+  function anyLogin(m){return !!(m&&(m.sessionToken||m.userId||m.discordId||m.username||m.activeRacer||m.patreonGranted||m.staffBypass))}
+  function hideWall(){wall.classList.add('hidden');document.body.classList.remove('login-wall-open');document.documentElement.classList.remove('login-wall-open')}
+  function showWall(message,error){document.body.classList.add('login-wall-open');document.documentElement.classList.add('login-wall-open');wall.classList.remove('hidden');wallMsg.textContent=message||'Login with your IFWL Discord account. This dashboard is restricted to the League Owner.';wallErr.textContent=error||'';wallErr.style.display=error?'block':'none';wallLogout.classList.toggle('hidden',!meta)}
+
+  function apply(m){
+    meta=m||null; window.IFWL_META=meta;
+    window.IFWL_OWNER=isOwnerTier(meta);
+    if(meta && window.IFWL_OWNER){
+      hideWall();
+      deniedWrap.classList.add('hidden');
+      appWrap.classList.remove('hidden');
+      accountText.textContent=`${userName(meta)} · Owner`;
+      window.dispatchEvent(new CustomEvent('ifwl-owner-ready'));
+    } else if(meta && !window.IFWL_OWNER){
+      hideWall();
+      appWrap.classList.add('hidden');
+      deniedWrap.classList.remove('hidden');
+    } else {
+      appWrap.classList.add('hidden');
+      deniedWrap.classList.add('hidden');
+      showWall();
+    }
+  }
+  async function json(url,opts){const r=await fetch(url,{cache:'no-store',...(opts||{})});const t=await r.text();let d;try{d=JSON.parse(t)}catch{throw new Error('Authentication service returned an invalid response.')}if(!r.ok)throw new Error(d?.error||`Request failed (${r.status})`);return d}
+  async function start(){try{const d=await json(AUTH.FUNCTION+`?start=1&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}`);if(!d.url)throw new Error(d.error||'No Discord login URL returned.');location.href=d.url}catch(e){showWall(null,e.message)}}
+  async function callback(){const p=new URLSearchParams(location.search),code=p.get('code'),error=p.get('error');if(error){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,error);return true}if(!code)return false;showWall('Checking your IFWL Discord roles...');try{const d=await json(AUTH.FUNCTION+`?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}&issue=1&patreon=1`);history.replaceState({},document.title,AUTH.REDIRECT_URI);if(d.sessionToken)safeStore(AUTH.SESSION_KEY,d.sessionToken);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch(e){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,e.message)}return true}
+  async function verify(){const token=readStore(AUTH.SESSION_KEY);if(!token){apply(null);return}try{const d=await json(AUTH.FUNCTION+`?patreonStatus=1&token=${encodeURIComponent(token)}`);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch{removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}}
+  function signout(){removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}
+  [wallLogin].forEach(b=>b?.addEventListener('click',start));
+  [wallLogout,deniedLogoutBtn,topbarLogoutBtn].forEach(b=>b?.addEventListener('click',signout));
+  window.IFWL_AUTH={sessionToken:()=>readStore(AUTH.SESSION_KEY),userId,userName,FUNCTION:AUTH.FUNCTION,signout};
+  (async()=>{const handled=await callback();if(!handled)await verify()})();
+})();
+</script>
+
+<script>
+/* ============================================================
+   DATA LAYER - talks to the SAME rtGate Cloud Function as
+   licence.html, via new Owner-only actions:
+     ?ownerOverviewDrivers=1&token=...      (GET, Owner-only)
+     ?ownerOverviewStaffRoster=1&token=...  (GET, Owner-only)
+   plus existing actions already used elsewhere on IFWL.NET:
+     ?staffSimgridEventList=1&token=...     (GET, Ops/Owner)
+     ?seasonWindow=1&token=...              (GET, any session)
+     ?qualificationWindow=1&token=...       (GET, any session)
+     ?seasonClassStructure=1&token=...      (GET, any session)
+   ============================================================ */
+const FN = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
+
+function toast(msg, isErr){
+  const stack = document.getElementById('toastStack');
+  const el = document.createElement('div');
+  el.className = 'toast' + (isErr ? ' err' : '');
+  el.textContent = msg;
+  stack.appendChild(el);
+  setTimeout(() => el.remove(), isErr ? 6000 : 3500);
+}
+
+async function apiGet(action, extra){
+  const token = window.IFWL_AUTH?.sessionToken() || '';
+  const url = `${FN}?${action}=1&token=${encodeURIComponent(token)}${extra||''}`;
+  const r = await fetch(url, {cache:'no-store'});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
+  return d;
+}
+async function apiPost(action, body){
+  const token = window.IFWL_AUTH?.sessionToken() || '';
+  const r = await fetch(`${FN}?${action}=1&token=${encodeURIComponent(token)}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
+  return d;
+}
+
+let __qualWindowMsCache = null;
+async function fetchQualWindowMs(){
+  if(__qualWindowMsCache) return __qualWindowMsCache;
+  try{
+    const w = await apiGet('qualificationWindow');
+    __qualWindowMsCache = (w.enabled === false) ? { startMs: 0, endMs: Date.now(), label: '' } : {
+      startMs: w.startDate ? Date.parse(w.startDate + 'T00:00:00Z') : 0,
+      endMs: w.endDate ? Date.parse(w.endDate + 'T23:59:59Z') : Date.now(),
+      label: w.label || ''
+    };
+  }catch(e){
+    console.warn('Could not load qualification window', e);
+    __qualWindowMsCache = { startMs: 0, endMs: Date.now(), label: '' };
+  }
+  return __qualWindowMsCache;
+}
+
+let __classStructureCache = null;
+async function fetchClassStructureConfig(){
+  if(__classStructureCache) return __classStructureCache;
+  try{
+    const data = await apiGet('seasonClassStructure');
+    __classStructureCache = { pc: data.pc, console: data.console };
+  }catch(e){
+    console.warn('Could not load season class structure, using defaults', e);
+    const fallback = { proPct: 2, proMax: null, amPct: 5, amMax: null, cutoffMode: 'auto', cutoffPct: 15 };
+    __classStructureCache = { pc: fallback, console: { ...fallback } };
+  }
+  return __classStructureCache;
+}
+async function classStructureForServer(serverId){
+  const cs = await fetchClassStructureConfig();
+  return serverId === 'console-licence' ? cs.console : cs.pc;
+}
+
+const __standingsCache = new Map();
+function cachedStandings(params){
+  if(params.force) { __standingsCache.delete(`${params.serverId}|${params.minLaps}`); }
+  const key = `${params.serverId}|${params.minLaps}`;
+  if(!__standingsCache.has(key)){
+    const p = window.IFWLStats.computeLicenceServerStandings(params).catch(e => { __standingsCache.delete(key); throw e; });
+    __standingsCache.set(key, p);
+  }
+  return __standingsCache.get(key);
+}
+
+async function fetchOwnerOverviewDrivers(){ return (await apiGet('ownerOverviewDrivers')).drivers || []; }
+async function fetchOwnerOverviewStaffRoster(){ return (await apiGet('ownerOverviewStaffRoster')).staff || []; }
+async function fetchStaffSimgridEvents(){ return (await apiGet('staffSimgridEventList')).events || []; }
+async function fetchSeasonWindow(){
+  try{ return await apiGet('seasonWindow'); }
+  catch(e){ return { label:'', startDate:'', endDate:'' }; }
+}
+</script>
+
+<script>
+/* ============================================================
+   SHARED HELPERS
+   ============================================================ */
+const q = id => document.getElementById(id);
+function escHtml(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function parseCarNumber(name){ const m = String(name||'').match(/^\s*\[\s*(\d+)\s*\]/); return m ? m[1] : ''; }
+function driverDisplayName(name){ return String(name||'').replace(/^\s*\[\s*\d+\s*\]\s*-?\s*/, '').trim() || name || 'Unknown'; }
+function initialsOf(name){ const n = driverDisplayName(name); return (n[0]||'?').toUpperCase(); }
+function relTime(ms){
+  if(!ms) return 'Never';
+  const diff = Date.now() - Number(ms);
+  if(diff < 0) return 'Just now';
+  const mins = diff/60000;
+  if(mins < 1) return 'Just now';
+  if(mins < 60) return `${Math.round(mins)}m ago`;
+  const hrs = mins/60;
+  if(hrs < 24) return `${Math.round(hrs)}h ago`;
+  const days = hrs/24;
+  if(days < 30) return `${Math.round(days)}d ago`;
+  const months = days/30.4;
+  if(months < 12) return `${Math.round(months)}mo ago`;
+  return `${(months/12).toFixed(1)}y ago`;
+}
+function fullDate(ms){ if(!ms) return ''; try{ return new Date(Number(ms)).toLocaleString(); }catch(e){ return ''; } }
+function tierPillClass(tier){
+  const t = String(tier||'').toLowerCase();
+  if(t.includes('owner')) return 'tier-owner';
+  if(t.includes('gold')) return 'tier-gold';
+  if(t.includes('silver')) return 'tier-silver';
+  if(t.includes('bronze')) return 'tier-bronze';
+  if(t.includes('pro')) return 'tier-pro';
+  if(t.includes('am')) return 'tier-am';
+  if(!tier || t.includes('no licence')) return 'tier-none';
+  return 'blue';
+}
+function csvEscape(v){
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+}
+function downloadCsv(filename, headers, rows){
+  const lines = [headers.map(csvEscape).join(',')].concat(rows.map(r => r.map(csvEscape).join(',')));
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/* Generic sortable "modern-excel" data grid. columns: [{key,label,type,value(row),render(row),cls}] */
+function makeSortableGrid(containerEl, { columns, getRows, initialSort, emptyMessage, onRowClick }){
+  let sortKey = initialSort?.key || columns[0].key;
+  let sortDir = initialSort?.dir || 'asc';
+  function valueOf(col, row){ return col.value ? col.value(row) : row[col.key]; }
+  function render(){
+    const rows = getRows();
+    if(!rows.length){
+      containerEl.innerHTML = `<div class="grid-wrap"><div class="grid-empty">${emptyMessage || 'No rows match.'}</div></div>`;
+      return;
+    }
+    const col = columns.find(c => c.key === sortKey) || columns[0];
+    const sorted = rows.slice().sort((a,b) => {
+      let av = valueOf(col,a), bv = valueOf(col,b);
+      if(typeof av === 'string') av = av.toLowerCase();
+      if(typeof bv === 'string') bv = bv.toLowerCase();
+      if(av == null || av === '') av = col.type === 'number' ? -Infinity : '';
+      if(bv == null || bv === '') bv = col.type === 'number' ? -Infinity : '';
+      if(av < bv) return sortDir === 'asc' ? -1 : 1;
+      if(av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    const thead = `<thead><tr>${columns.map(c => `<th data-key="${c.key}" class="${c.key===sortKey?'sorted':''}">${escHtml(c.label)}${c.key===sortKey?`<span class="arrow">${sortDir==='asc'?'▲':'▼'}</span>`:''}</th>`).join('')}</tr></thead>`;
+    const tbody = `<tbody>${sorted.map((row,i) => `<tr data-row-idx="${i}">${columns.map(c => `<td class="${c.cls||''}">${c.render(row)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+    containerEl.innerHTML = `<div class="grid-wrap"><table class="datagrid">${thead}${tbody}</table></div>`;
+    containerEl.querySelectorAll('thead th').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if(sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc'; else { sortKey = key; sortDir = 'asc'; }
+        render();
+      });
+    });
+    if(onRowClick){
+      containerEl.querySelectorAll('tbody tr').forEach(tr => {
+        tr.addEventListener('click', () => onRowClick(sorted[Number(tr.dataset.rowIdx)]));
+      });
+    }
+  }
+  render();
+  return { render };
+}
+
+function openModal(title, bodyHtml){
+  q('driverModalTitle').textContent = title;
+  q('driverModalBody').innerHTML = bodyHtml;
+  q('driverModalBackdrop').classList.remove('hidden');
+}
+q('driverModalClose').addEventListener('click', () => q('driverModalBackdrop').classList.add('hidden'));
+q('driverModalBackdrop').addEventListener('click', e => { if(e.target === q('driverModalBackdrop')) q('driverModalBackdrop').classList.add('hidden'); });
+</script>
+
+<script>
+/* ============================================================
+   TAB SWITCHING
+   ============================================================ */
+const loadedTabs = new Set();
+const tabLoaders = {}; // filled in below by each tab's module
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+    if(!loadedTabs.has(tab) && tabLoaders[tab]){
+      loadedTabs.add(tab);
+      tabLoaders[tab]();
+    }
+  });
+});
+
+window.addEventListener('ifwl-owner-ready', () => {
+  // Drivers tab loads immediately since it's the default active tab.
+  loadedTabs.add('drivers');
+  tabLoaders.drivers && tabLoaders.drivers();
+}, { once: true });
+</script>
+
+<script>
+/* ============================================================
+   DRIVERS TAB
+   ============================================================ */
+(() => {
+  let allDrivers = [];
+  const wrap = document.querySelector('#tab-drivers .grid-wrap') || document.createElement('div');
+  const gridHost = document.createElement('div');
+  document.querySelector('#tab-drivers').replaceChild(gridHost, document.querySelector('#tab-drivers .grid-wrap'));
+
+  function filtered(){
+    const term = (q('driverSearch').value || '').trim().toLowerCase();
+    const tier = q('driverTierFilter').value;
+    return allDrivers.filter(d => {
+      if(tier && d.tier !== tier) return false;
+      if(!term) return true;
+      return (d.name||'').toLowerCase().includes(term)
+        || (d.licenceNumber||'').toLowerCase().includes(term)
+        || (d.discordUsername||'').toLowerCase().includes(term)
+        || (d.discordId||'').includes(term)
+        || (d.accDriverNames||[]).some(n => n.toLowerCase().includes(term));
+    });
+  }
+
+  const columns = [
+    { key:'name', label:'Driver', value:r=>driverDisplayName(r.name), render: r => `<div class="avatar-name"><div class="avatar-ph">${escHtml(initialsOf(r.name))}</div><div><div>${escHtml(driverDisplayName(r.name))}</div><div style="font-size:10.5px;color:var(--text-mute);font-weight:600">${escHtml(r.licenceNumber||'')}</div></div></div>` },
+    { key:'number', label:'#', type:'number', value:r=>Number(parseCarNumber(r.name))||0, render:r=>`<span class="mono">${escHtml(parseCarNumber(r.name)||'—')}</span>` },
+    { key:'tier', label:'Tier', render:r=>`<span class="pill ${tierPillClass(r.tier)}">${escHtml(r.tier||'No Licence')}</span>` },
+    { key:'lastLoginMs', label:'Last Login', type:'number', render:r=>`<span title="${escHtml(fullDate(r.lastLoginMs))}">${escHtml(relTime(r.lastLoginMs))}</span>`, cls:'' },
+    { key:'platform', label:'Platform', render:r=>escHtml(r.platform || '—') },
+    { key:'licencePoints', label:'Licence Pts', type:'number', value:r=>Number(r.licencePoints||0), render:r=>`<span class="mono">${Number(r.licencePoints||0)}</span>`, cls:'num' },
+    { key:'discordUsername', label:'Discord', render:r=>escHtml(r.discordUsername||'—') },
+    { key:'bio', label:'Bio', render:r=>`<div class="bio-cell">${escHtml(r.bio || '—')}</div>`, cls:'wrap' }
+  ];
+
+  const grid = makeSortableGrid(gridHost, {
+    columns, getRows: filtered, initialSort:{key:'name',dir:'asc'},
+    emptyMessage:'No drivers match your search.',
+    onRowClick: openDriverModal
+  });
+
+  function openDriverModal(d){
+    const carNum = parseCarNumber(d.name);
+    const tierHistory = (d.tierHistory||[]).slice().reverse();
+    const historyHtml = tierHistory.length
+      ? `<table class="datagrid" style="width:100%"><thead><tr><th>Date</th><th>Tier</th><th>Reason</th><th>Set by</th></tr></thead><tbody>${
+          tierHistory.map(h => `<tr><td>${escHtml(h.date||fullDate(h.dateMs))}</td><td><span class="pill ${tierPillClass(h.tier)}">${escHtml(h.tier||'')}</span></td><td>${escHtml(h.reason||'')}</td><td>${escHtml(h.setBy||'')}</td></tr>`).join('')
+        }</tbody></table>`
+      : `<p style="color:var(--text-mute)">No tier changes recorded.</p>`;
+    openModal(`${driverDisplayName(d.name)}${carNum?` · #${carNum}`:''}`, `
+      <div class="stat-strip">
+        <div class="stat-card"><div class="label">Tier</div><div class="value"><span class="pill ${tierPillClass(d.tier)}">${escHtml(d.tier||'No Licence')}</span></div></div>
+        <div class="stat-card"><div class="label">Licence Points</div><div class="value">${Number(d.licencePoints||0)}</div></div>
+        <div class="stat-card"><div class="label">Platform</div><div class="value" style="font-size:15px">${escHtml(d.platform||'—')}</div></div>
+        <div class="stat-card"><div class="label">Last Login</div><div class="value" style="font-size:14px" title="${escHtml(fullDate(d.lastLoginMs))}">${escHtml(relTime(d.lastLoginMs))}</div></div>
+      </div>
+      <p><strong>Licence #</strong> ${escHtml(d.licenceNumber||'—')} &nbsp;·&nbsp; <strong>Discord</strong> ${escHtml(d.discordUsername||'—')} (${escHtml(d.discordId||'')}) &nbsp;·&nbsp; <strong>Race team</strong> ${escHtml(d.raceTeam||'—')}</p>
+      <p><strong>ACC / linked names</strong> ${(d.accDriverNames||[]).map(n=>`<span class="pill grey" style="margin-right:4px">${escHtml(n)}</span>`).join('') || '—'}</p>
+      <p><strong>Bio</strong><br>${escHtml(d.bio||'—')}</p>
+      <h4 style="margin:16px 0 8px">Tier history</h4>
+      ${historyHtml}
+    `);
+  }
+
+  function renderStats(){
+    const total = allDrivers.length;
+    const active7d = allDrivers.filter(d => d.lastLoginMs && (Date.now()-d.lastLoginMs) < 7*86400000).length;
+    const banned = allDrivers.filter(d => d.banActive).length;
+    const byTier = {};
+    allDrivers.forEach(d => { const t = d.tier || 'No Licence'; byTier[t] = (byTier[t]||0)+1; });
+    const topTier = Object.entries(byTier).sort((a,b)=>b[1]-a[1])[0];
+    q('driverStatStrip').innerHTML = `
+      <div class="stat-card"><div class="label">Total Drivers</div><div class="value">${total}</div></div>
+      <div class="stat-card"><div class="label">Active (7d)</div><div class="value green">${active7d}</div></div>
+      <div class="stat-card"><div class="label">Banned</div><div class="value ${banned?'red':''}">${banned}</div></div>
+      <div class="stat-card"><div class="label">Most common tier</div><div class="value" style="font-size:15px">${topTier?escHtml(topTier[0]):'—'}</div></div>
+    `;
+    const tierSelect = q('driverTierFilter');
+    const current = tierSelect.value;
+    tierSelect.innerHTML = '<option value="">All tiers</option>' + Object.keys(byTier).sort().map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+    tierSelect.value = current;
+    q('countDrivers').textContent = total;
+  }
+
+  async function load(){
+    gridHost.innerHTML = `<div class="grid-wrap"><div class="loading-row"><span class="spin"></span>Loading drivers&hellip;</div></div>`;
+    try{
+      allDrivers = await fetchOwnerOverviewDrivers();
+      renderStats();
+      grid.render();
+    }catch(e){
+      gridHost.innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load drivers: ${escHtml(e.message)}</div></div>`;
+      toast(`Drivers load failed: ${e.message}`, true);
+    }
+  }
+
+  q('driverSearch').addEventListener('input', () => grid.render());
+  q('driverTierFilter').addEventListener('change', () => grid.render());
+  q('driverRefreshBtn').addEventListener('click', load);
+  q('driverExportBtn').addEventListener('click', () => {
+    const headers = ['Name','Number','LicenceNumber','Tier','LicencePoints','Platform','Bio','DiscordUsername','DiscordId','LastLogin','LastLoginRelative','RaceTeam','AccDriverNames','BanActive','CareerSeasonBalance','CareerSeasonEarned','CareerSeasonSpent','CreatedAt'];
+    const rows = filtered().map(d => [
+      driverDisplayName(d.name), parseCarNumber(d.name), d.licenceNumber, d.tier, d.licencePoints, d.platform, d.bio,
+      d.discordUsername, d.discordId, fullDate(d.lastLoginMs), relTime(d.lastLoginMs), d.raceTeam,
+      (d.accDriverNames||[]).join('; '), d.banActive ? 'Yes' : 'No',
+      d.careerShopBalance, d.careerSeasonEarned, d.careerSeasonSpent, fullDate(d.createdAtMs)
+    ]);
+    downloadCsv(`ifwl-drivers-${new Date().toISOString().slice(0,10)}.csv`, headers, rows);
+    toast(`Exported ${rows.length} drivers to CSV.`);
+  });
+
+  tabLoaders.drivers = load;
+})();
+</script>
+
+<script>
+/* ============================================================
+   EVENTS TAB
+   ============================================================ */
+(() => {
+  async function load(){
+    q('eventsListWrap').innerHTML = `<div class="loading-row"><span class="spin"></span>Loading events&hellip;</div>`;
+    q('seasonBannerWrap').innerHTML = '';
+    try{
+      const [events, season] = await Promise.all([ fetchStaffSimgridEvents(), fetchSeasonWindow() ]);
+      q('countEvents').textContent = events.length;
+
+      if(season.label || season.startDate){
+        q('seasonBannerWrap').innerHTML = `<div class="season-banner">
+          <strong>${escHtml(season.label || 'Current season')}</strong>
+          <span>${escHtml(season.startDate||'?')} &rarr; ${escHtml(season.endDate||'?')}</span>
+        </div>`;
+      }
+
+      if(!events.length){
+        q('eventsListWrap').innerHTML = `<div class="grid-wrap"><div class="grid-empty">No SimGrid events found.</div></div>`;
+        return;
+      }
+
+      const sorted = events.slice().sort((a,b) => (a.eventDateMs||0) - (b.eventDateMs||0));
+      q('eventsListWrap').innerHTML = `<div class="event-grid">${sorted.map(e => `
+        <div class="event-card">
+          <div class="ev-title">${escHtml(e.title || 'Untitled event')}</div>
+          <div class="ev-meta">${escHtml(e.eventDateLabel || (e.eventDateMs ? fullDate(e.eventDateMs) : 'No date set'))}</div>
+          <div class="ev-meta">Platform: ${escHtml(e.platform || 'both')} &middot; Roster: ${Number(e.rosterCount||0)}</div>
+          <div>${(e.tiers||[]).map(t => `<span class="pill blue" style="margin-right:4px">${escHtml(t)}</span>`).join('') || '<span class="pill grey">No tiers set</span>'}</div>
+          ${e.simgridLink ? `<div><a href="${escHtml(e.simgridLink)}" target="_blank" rel="noopener">SimGrid link &rarr;</a></div>` : ''}
+          ${e.notes ? `<div class="ev-meta">${escHtml(e.notes)}</div>` : ''}
+        </div>`).join('')}</div>`;
+    }catch(e){
+      q('eventsListWrap').innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load events: ${escHtml(e.message)}</div></div>`;
+      toast(`Events load failed: ${e.message}`, true);
+    }
+  }
+  q('eventsRefreshBtn').addEventListener('click', load);
+  tabLoaders.events = load;
+})();
+</script>
+
+<script>
+/* ============================================================
+   CAREER PROGRESSION TAB
+   Career-shop economy (this season - see note in the panel),
+   tier history, and race performance/results history (lazy,
+   loaded per-driver on demand via ifwl-stats-engine.js so a
+   full page load never has to crunch every session file for
+   every driver up front).
+   ============================================================ */
+(() => {
+  let driversCache = [];
+
+  function filtered(){
+    const term = (q('careerSearch').value || '').trim().toLowerCase();
+    if(!term) return driversCache;
+    return driversCache.filter(d => (d.name||'').toLowerCase().includes(term) || (d.licenceNumber||'').toLowerCase().includes(term));
+  }
+
+  const columns = [
+    { key:'name', label:'Driver', value:r=>driverDisplayName(r.name), render:r=>`<div class="avatar-name"><div class="avatar-ph">${escHtml(initialsOf(r.name))}</div><div>${escHtml(driverDisplayName(r.name))}</div></div>` },
+    { key:'tier', label:'Current Tier', render:r=>`<span class="pill ${tierPillClass(r.tier)}">${escHtml(r.tier||'No Licence')}</span>` },
+    { key:'tierChanges', label:'Tier Changes', type:'number', value:r=>(r.tierHistory||[]).length, render:r=>`<span class="mono">${(r.tierHistory||[]).length}</span>` },
+    { key:'careerShopBalance', label:'Balance (season)', type:'number', value:r=>Number(r.careerShopBalance||0), render:r=>`<span class="mono">${Number(r.careerShopBalance||0).toLocaleString()}</span>`, cls:'num' },
+    { key:'careerSeasonEarned', label:'Earned (season)', type:'number', value:r=>Number(r.careerSeasonEarned||0), render:r=>`<span class="mono">${Number(r.careerSeasonEarned||0).toLocaleString()}</span>`, cls:'num' },
+    { key:'careerSeasonSpent', label:'Spent (season)', type:'number', value:r=>Number(r.careerSeasonSpent||0), render:r=>`<span class="mono">${Number(r.careerSeasonSpent||0).toLocaleString()}</span>`, cls:'num' },
+    { key:'careerTxCount', label:'Transactions', type:'number', value:r=>Number(r.careerTxCount||0), render:r=>`<span class="mono">${Number(r.careerTxCount||0)}</span>`, cls:'num' },
+    { key:'perf', label:'Performance', render:r=>`<button class="btn ghost" data-perf-driver="${escHtml(r.discordId)}" type="button">View history &rarr;</button>` }
+  ];
+
+  let grid;
+
+  async function openPerformanceModal(d){
+    openModal(`${driverDisplayName(d.name)} · Performance`, `<div class="loading-row"><span class="spin"></span>Crunching session history&hellip;</div>`);
+    try{
+      const names = (d.accDriverNames && d.accDriverNames.length) ? d.accDriverNames : [d.name];
+      const overall = await window.IFWLStats.computeForDriver(names);
+      let historyHtml = '<p style="color:var(--text-mute)">No linked ACC driver names, so no session history could be matched.</p>';
+      if(d.accDriverNames && d.accDriverNames.length){
+        const [pcHist, consoleHist] = await Promise.all([
+          window.IFWLStats.getDriverSessionHistory('pc-licence', d.accDriverNames).catch(()=>[]),
+          window.IFWLStats.getDriverSessionHistory('console-licence', d.accDriverNames).catch(()=>[])
+        ]);
+        const allHist = pcHist.concat(consoleHist).sort((a,b)=>b.tsMs-a.tsMs).slice(0,25);
+        historyHtml = allHist.length
+          ? `<table class="datagrid" style="width:100%"><thead><tr><th>Date</th><th>Track</th><th>Session</th><th>Laps</th><th>Best</th><th>Avg</th><th>Car</th></tr></thead><tbody>${
+              allHist.map(h => `<tr><td>${escHtml(h.dateLabel||'')}</td><td>${escHtml(h.track||'')}</td><td>${escHtml(h.sessionLabel||h.sessionType||'')}</td><td class="mono">${h.lapCount||0}</td><td class="mono">${h.bestLap ? window.IFWLStats.msTime(h.bestLap) : '—'}</td><td class="mono">${h.avgLap ? window.IFWLStats.msTime(h.avgLap) : '—'}</td><td>${escHtml(h.carModel||'')}</td></tr>`).join('')
+            }</tbody></table>`
+          : '<p style="color:var(--text-mute)">No recorded sessions found for this driver\'s linked names.</p>';
+      }
+      const statsHtml = overall ? `
+        <div class="stat-strip">
+          <div class="stat-card"><div class="label">Overall Score</div><div class="value">${Math.round(overall.overallScore ?? overall.score ?? 0)}</div></div>
+          <div class="stat-card"><div class="label">Consistency</div><div class="value">${overall.avgConsistency!=null?Math.round(overall.avgConsistency):(overall.consistency!=null?Math.round(overall.consistency):'—')}%</div></div>
+          <div class="stat-card"><div class="label">Race Risk</div><div class="value">${overall.avgRisk!=null?Math.round(overall.avgRisk):(overall.risk!=null?Math.round(overall.risk):'—')}%</div></div>
+        </div>` : `<p style="color:var(--text-mute)">No session data found to compute an overall score.</p>`;
+      openModal(`${driverDisplayName(d.name)} · Performance`, `
+        ${statsHtml}
+        <h4 style="margin:16px 0 8px">Recent sessions (all servers, latest 25)</h4>
+        ${historyHtml}
+      `);
+    }catch(e){
+      openModal(`${driverDisplayName(d.name)} · Performance`, `<p style="color:var(--red)">Could not load performance data: ${escHtml(e.message)}</p>`);
+    }
+  }
+
+  async function load(){
+    q('careerListWrap').innerHTML = `<div class="loading-row"><span class="spin"></span>Loading career data&hellip;</div>`;
+    try{
+      driversCache = await fetchOwnerOverviewDrivers();
+      const host = document.createElement('div');
+      q('careerListWrap').innerHTML = '';
+      q('careerListWrap').appendChild(host);
+      grid = makeSortableGrid(host, {
+        columns, getRows: filtered, initialSort:{key:'careerShopBalance',dir:'desc'},
+        emptyMessage:'No drivers match your search.'
+      });
+      host.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-perf-driver]');
+        if(!btn) return;
+        const d = driversCache.find(x => x.discordId === btn.dataset.perfDriver);
+        if(d) openPerformanceModal(d);
+      });
+    }catch(e){
+      q('careerListWrap').innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load career data: ${escHtml(e.message)}</div></div>`;
+      toast(`Career data load failed: ${e.message}`, true);
+    }
+  }
+  q('careerSearch').addEventListener('input', () => grid && grid.render());
+  q('careerRefreshBtn').addEventListener('click', load);
+  tabLoaders.career = load;
+})();
+</script>
+
+<script>
+/* ============================================================
+   SEASON IN PROGRESS TAB - Qualification Standings (PC/Console)
+   Read-only view: reuses the same ifwl-stats-engine.js standings
+   computation as licence.html's staff Qualification Grid, minus
+   the driver-linking / tier-assignment management controls -
+   this page is for oversight, not day-to-day admin.
+   ============================================================ */
+(() => {
+  let currentPlatform = 'pc';
+
+  async function renderPlatform(platform, force){
+    const serverId = platform === 'console' ? 'console-licence' : 'pc-licence';
+    const wrap = q('seasonStandingsWrap');
+    wrap.innerHTML = `<div class="loading-row"><span class="spin"></span>Loading ${platform.toUpperCase()} standings&hellip;</div>`;
+    try{
+      const [classStructure, qualWindow] = await Promise.all([ classStructureForServer(serverId), fetchQualWindowMs() ]);
+      q('qualWindowSub').textContent = qualWindow.label ? `Qualification window: ${qualWindow.label}` : 'Qualification window: all recorded sessions';
+      const standings = await cachedStandings({ minLaps: 15, serverId, force: !!force, classStructure, qualWindow });
+      if(!standings.length){
+        wrap.innerHTML = `<div class="grid-wrap"><div class="grid-empty">No sessions recorded on the IFWL ${platform.toUpperCase()} Licence server yet.</div></div>`;
+        return;
+      }
+      const host = document.createElement('div');
+      wrap.innerHTML = '';
+      wrap.appendChild(host);
+      makeSortableGrid(host, {
+        columns: [
+          { key:'driver', label:'Driver', render:r=>escHtml(r.driver) },
+          { key:'qualified', label:'Status', value:r=>r.qualified?1:0, render:r=>r.qualified ? `<span class="pill green">Qualified</span>` : `<span class="pill amber">${r.totalLaps}/15</span>` },
+          { key:'avgGapPct', label:'Avg Gap', type:'number', value:r=>Number(r.avgGapPct??999), render:r=>`<span class="mono">${r.avgGapPct!=null?'+'+r.avgGapPct+'%':'—'}</span>`, cls:'num' },
+          { key:'consistencyAvg', label:'Consistency', type:'number', value:r=>Number(r.consistencyAvg??0), render:r=>`<span class="mono">${r.consistencyAvg!=null?r.consistencyAvg+'%':'—'}</span>`, cls:'num' },
+          { key:'recommendedTier', label:'Recommended Tier', render:r=>`<span class="pill ${tierPillClass(r.recommendedTier)}">${escHtml(r.recommendedTier||'')}</span>` }
+        ],
+        getRows: () => standings, initialSort:{key:'avgGapPct',dir:'asc'},
+        emptyMessage:'No standings.'
+      });
+    }catch(e){
+      wrap.innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load standings: ${escHtml(e.message)}</div></div>`;
+      toast(`Standings load failed: ${e.message}`, true);
+    }
+  }
+
+  document.querySelectorAll('#tab-season .sub-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#tab-season .sub-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      currentPlatform = btn.dataset.platform;
+      renderPlatform(currentPlatform, false);
+    });
+  });
+  q('seasonRefreshBtn').addEventListener('click', () => renderPlatform(currentPlatform, true));
+
+  tabLoaders.season = () => renderPlatform(currentPlatform, false);
+})();
+</script>
+
+<script>
+/* ============================================================
+   STAFF TAB
+   ============================================================ */
+(() => {
+  let staffCache = [];
+
+  function filtered(){
+    const term = (q('staffSearch').value || '').trim().toLowerCase();
+    if(!term) return staffCache;
+    return staffCache.filter(s => (s.nick||'').toLowerCase().includes(term) || (s.username||'').toLowerCase().includes(term) || (s.globalName||'').toLowerCase().includes(term) || (s.discordId||'').includes(term));
+  }
+
+  const columns = [
+    { key:'name', label:'Name', value:r=>r.nick||r.globalName||r.username, render:r=>`<div class="avatar-name"><div class="avatar-ph">${escHtml((r.nick||r.globalName||r.username||'?')[0]?.toUpperCase()||'?')}</div><div><div>${escHtml(r.nick||r.globalName||r.username||'Unknown')}</div><div style="font-size:10.5px;color:var(--text-mute);font-weight:600">${escHtml(r.username||'')}</div></div></div>` },
+    { key:'roles', label:'Roles', value:r=>(r.roles||[]).map(x=>x.label).join(', '), render:r=>(r.roles||[]).map(x=>`<span class="pill role-owner" style="margin-right:4px">${escHtml(x.label)}</span>`).join('') || '—' },
+    { key:'discordId', label:'Discord ID', render:r=>`<span class="mono">${escHtml(r.discordId||'')}</span>` },
+    { key:'joinedAtMs', label:'Joined Discord', type:'number', render:r=>`<span title="${escHtml(fullDate(r.joinedAtMs))}">${escHtml(relTime(r.joinedAtMs))}</span>` }
+  ];
+
+  let grid;
+
+  async function load(){
+    q('staffListWrap').innerHTML = `<div class="loading-row"><span class="spin"></span>Loading staff roster from Discord&hellip;</div>`;
+    try{
+      staffCache = await fetchOwnerOverviewStaffRoster();
+      q('countStaff').textContent = staffCache.length;
+      const host = document.createElement('div');
+      q('staffListWrap').innerHTML = '';
+      q('staffListWrap').appendChild(host);
+      grid = makeSortableGrid(host, {
+        columns, getRows: filtered, initialSort:{key:'name',dir:'asc'},
+        emptyMessage:'No staff match your search.'
+      });
+    }catch(e){
+      q('staffListWrap').innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load the staff roster: ${escHtml(e.message)}</div></div>`;
+      toast(`Staff roster load failed: ${e.message}`, true);
+    }
+  }
+  q('staffSearch').addEventListener('input', () => grid && grid.render());
+  q('staffRefreshBtn').addEventListener('click', load);
+  tabLoaders.staff = load;
+})();
+</script>
+
+</body>
+</html>
