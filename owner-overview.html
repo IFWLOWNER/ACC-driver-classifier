@@ -509,6 +509,8 @@ async function importPlannerEvents(eventIds){ return await apiPost('ownerOvervie
 async function resyncOwnerEvent(id){ return await apiPost('ownerOverviewEventResync', { id }); }
 async function saveOwnerEvent(id, fields){ return await apiPost('ownerOverviewEventSave', Object.assign({ id }, fields)); }
 async function deleteOwnerEvent(id){ return await apiPost('ownerOverviewEventDelete', { id }); }
+async function pushOwnerEventRounds(id, roundIds){ return await apiPost('ownerOverviewPushRounds', { id, roundIds }); }
+async function unpushOwnerEventRound(id, roundId){ return await apiPost('ownerOverviewUnpushRound', { id, roundId }); }
 </script>
 
 <script>
@@ -928,8 +930,21 @@ window.addEventListener('ifwl-owner-ready', () => {
         <td><input type="text" data-round-field="quallyTime" value="${escHtml(r.quallyTime||'')}" placeholder="19:30"></td>
         <td><input type="text" data-round-field="race1" value="${escHtml(r.race1||'')}" placeholder="20:00"></td>
         <td><input type="text" data-round-field="race2" value="${escHtml(r.race2||'')}" placeholder=""></td>
+        <td><input type="text" data-round-field="password" value="${escHtml(r.password||'')}" placeholder="e.g. ifwl2026" style="min-width:100px"></td>
         <td><button class="btn ghost" data-remove-round="${i}" type="button" style="padding:4px 8px">&times;</button></td>
       </tr>`).join('');
+
+    const pushRows = (draft.schedule||[]).map((r, i) => {
+      const isPushed = !!r.pushedSimgridEventId;
+      return `<div class="import-pick-row">
+        <input type="checkbox" data-push-round="${escHtml(r.id)}" ${isPushed ? '' : 'checked'} style="margin-top:3px">
+        <div class="info" style="flex:1">
+          <strong>${escHtml(r.week || `Round ${i+1}`)}${r.track ? ' - ' + escHtml(r.track) : ''}</strong>
+          <span>${r.date ? escHtml(formatIsoDate(r.date)) : 'No date set'} ${isPushed ? `&middot; <span class="pill green">Live${r.pushedAtMs ? ' since '+escHtml(fullDate(r.pushedAtMs)) : ''}</span>` : '&middot; <span class="pill grey">Not pushed</span>'}</span>
+        </div>
+        ${isPushed ? `<button class="btn ghost" data-unpush-round="${escHtml(r.id)}" type="button">Unpublish</button>` : ''}
+      </div>`;
+    }).join('');
 
     const rulesHtml = (draft.rules||[]).length
       ? `<table class="mini-table"><thead><tr><th>Rule</th><th>Setting</th></tr></thead><tbody>${(draft.rules||[]).map(r=>`<tr><td>${escHtml(r.rule||'')}</td><td>${escHtml(r.setting||'')}</td></tr>`).join('')}</tbody></table>`
@@ -955,10 +970,18 @@ window.addEventListener('ifwl-owner-ready', () => {
       <div class="form-row">
         <label>Round schedule</label>
         <div style="overflow-x:auto"><table class="mini-table" id="scheduleTable">
-          <thead><tr><th>Week</th><th>Date</th><th>Track</th><th>Practice</th><th>Qually</th><th>Race 1</th><th>Race 2</th><th></th></tr></thead>
-          <tbody id="scheduleBody">${scheduleRows || '<tr><td colspan="8" class="sub">No rounds yet.</td></tr>'}</tbody>
+          <thead><tr><th>Week</th><th>Date</th><th>Track</th><th>Practice</th><th>Qually</th><th>Race 1</th><th>Race 2</th><th>Password</th><th></th></tr></thead>
+          <tbody id="scheduleBody">${scheduleRows || '<tr><td colspan="9" class="sub">No rounds yet.</td></tr>'}</tbody>
         </table></div>
         <button class="btn ghost" id="addRoundBtn" type="button">+ Add round</button>
+      </div>
+
+      <div class="form-row card" style="padding:14px 16px">
+        <label style="margin-bottom:2px">Push to licence system</label>
+        <p class="sub" style="margin:0 0 10px">Publishes selected rounds into the same driver-facing "Available Races" list SimGrid events use, gated to the licence tier(s) checked above.</p>
+        <p id="pushTierWarning" style="color:var(--red);font-weight:700;font-size:12.5px;margin:0 0 10px" class="${(draft.visibleTiers||[]).length ? 'hidden' : ''}">Assign at least one licence tier above first &mdash; pushing is disabled until then.</p>
+        <div id="pushRoundsList">${pushRows || '<p class="sub">No rounds to push yet.</p>'}</div>
+        ${(draft.schedule||[]).length ? `<button class="btn primary" id="pushRoundsBtn" type="button" style="margin-top:10px" ${(draft.visibleTiers||[]).length ? '' : 'disabled'}>Push selected rounds</button>` : ''}
       </div>
 
       <div class="sub-tabs" style="margin-top:6px">
@@ -998,6 +1021,11 @@ window.addEventListener('ifwl-owner-ready', () => {
         if(cb.checked){ if(!draft.visibleTiers.includes(name)) draft.visibleTiers.push(name); }
         else { draft.visibleTiers = draft.visibleTiers.filter(t => t !== name); }
         cb.closest('.tier-check').classList.toggle('checked', cb.checked);
+        const hasTiers = draft.visibleTiers.length > 0;
+        const pushBtn = q('pushRoundsBtn');
+        if(pushBtn) pushBtn.disabled = !hasTiers;
+        const warn = q('pushTierWarning');
+        if(warn) warn.classList.toggle('hidden', hasTiers);
       });
     });
 
@@ -1023,7 +1051,7 @@ window.addEventListener('ifwl-owner-ready', () => {
     q('addRoundBtn').addEventListener('click', () => {
       readScheduleFromDom();
       draft.schedule = draft.schedule || [];
-      draft.schedule.push({ id:'rnd_'+Date.now(), week:`Round ${draft.schedule.length+1}`, date:'', name:'', dlcName:'', track:'', practiceTime:'', quallyTime:'', race1:'', race2:'', conditions:'', misc:'' });
+      draft.schedule.push({ id:'rnd_'+Date.now(), week:`Round ${draft.schedule.length+1}`, date:'', name:'', dlcName:'', track:'', practiceTime:'', quallyTime:'', race1:'', race2:'', conditions:'', misc:'', password:'', pushedSimgridEventId:'', pushedAtMs:0 });
       renderEventEditor(draft);
     });
 
@@ -1054,6 +1082,51 @@ window.addEventListener('ifwl-owner-ready', () => {
         }
       });
     }
+
+    const pushBtn = q('pushRoundsBtn');
+    if(pushBtn){
+      pushBtn.addEventListener('click', async () => {
+        const roundIds = Array.from(body.querySelectorAll('[data-push-round]:checked')).map(cb => cb.dataset.pushRound);
+        if(!roundIds.length){ toast('Tick at least one round to push.', true); return; }
+        // Push acts on the currently SAVED event, not unsaved edits still
+        // sitting in the form - saving first keeps what gets published in
+        // sync with what the Owner is looking at, and means a re-push after
+        // an edit always publishes the latest name/date/track, not a stale copy.
+        readScheduleFromDom();
+        pushBtn.disabled = true; pushBtn.textContent = 'Saving changes first…';
+        try{
+          const saved = await saveOwnerEvent(draft.id, { name: q('fldName').value, startDate: q('fldStartDate').value, notes: q('fldNotes').value, visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+          Object.assign(draft, saved.event);
+          pushBtn.textContent = 'Pushing…';
+          const result = await pushOwnerEventRounds(draft.id, roundIds);
+          Object.assign(draft, result.event);
+          const idx = ownerEventsCache.findIndex(x => x.id === draft.id);
+          if(idx >= 0) ownerEventsCache[idx] = result.event;
+          toast(`Pushed ${result.pushed.length} round(s) to the licence system${result.skipped.length ? `, ${result.skipped.length} skipped` : ''}.`);
+          renderEventEditor(JSON.parse(JSON.stringify(result.event)));
+        }catch(e){
+          toast(`Push failed: ${e.message}`, true);
+          pushBtn.disabled = false; pushBtn.textContent = 'Push selected rounds';
+        }
+      });
+    }
+    body.querySelectorAll('[data-unpush-round]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if(!confirm('Remove this round from the licence system? Drivers will no longer see it in Available Races.')) return;
+        btn.disabled = true; btn.textContent = 'Unpublishing…';
+        try{
+          const result = await unpushOwnerEventRound(draft.id, btn.dataset.unpushRound);
+          Object.assign(draft, result.event);
+          const idx = ownerEventsCache.findIndex(x => x.id === draft.id);
+          if(idx >= 0) ownerEventsCache[idx] = result.event;
+          toast('Unpublished.');
+          renderEventEditor(JSON.parse(JSON.stringify(result.event)));
+        }catch(e){
+          toast(`Unpublish failed: ${e.message}`, true);
+          btn.disabled = false; btn.textContent = 'Unpublish';
+        }
+      });
+    });
 
     q('saveEventBtn').addEventListener('click', async () => {
       readScheduleFromDom();
