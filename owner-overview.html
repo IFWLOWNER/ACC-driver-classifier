@@ -142,6 +142,26 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
 .modal-card .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .modal-card h3{margin:0;font-size:16px;font-weight:800}
 .modal-close{border:0;background:var(--panel-alt);width:30px;height:30px;border-radius:9px;cursor:pointer;font-size:15px;color:var(--text-dim)}
+.modal-card.wide{width:min(980px,97vw)}
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-mute);margin-bottom:5px}
+.form-row input[type=text],.form-row input[type=date],.form-row textarea,.form-row select{width:100%;border:1px solid var(--line-strong);border-radius:8px;padding:9px 10px;font-size:13px;font-family:inherit;background:var(--panel);color:var(--text)}
+.form-row textarea{resize:vertical;min-height:60px}
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.tier-check-list{display:flex;flex-wrap:wrap;gap:8px}
+.tier-check{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-strong);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:var(--panel)}
+.tier-check input{margin:0}
+.tier-check.checked{background:var(--brand-tint);border-color:var(--brand);color:var(--brand)}
+.mini-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:10px}
+.mini-table th{text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-mute);padding:6px 6px;border-bottom:1px solid var(--line-strong)}
+.mini-table td{padding:5px 6px;border-bottom:1px solid var(--line)}
+.mini-table input{width:100%;border:1px solid var(--line);border-radius:6px;padding:5px 6px;font-size:11.5px;font-family:inherit}
+.import-pick-row{display:flex;align-items:flex-start;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line)}
+.import-pick-row:last-child{border-bottom:0}
+.import-pick-row.disabled{opacity:.5}
+.import-pick-row .info strong{display:block;font-size:13px}
+.import-pick-row .info span{font-size:11.5px;color:var(--text-mute)}
+.modal-footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
 
 .sub-tabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 .sub-tab-btn{border:0;background:none;padding:9px 4px;margin-right:14px;font-size:12.5px;font-weight:700;color:var(--text-mute);cursor:pointer;border-bottom:2px solid transparent}
@@ -240,14 +260,30 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
     <div class="panel-head">
       <div>
         <h2>Events</h2>
-        <p class="sub">Current &amp; upcoming SimGrid rounds, and the active season window.</p>
+        <p class="sub">Current &amp; upcoming SimGrid rounds, the season planner import, and the active season window.</p>
       </div>
       <div class="panel-toolbar">
         <button class="btn" id="eventsRefreshBtn" type="button">Refresh</button>
       </div>
     </div>
     <div id="seasonBannerWrap"></div>
-    <div id="eventsListWrap"><div class="loading-row"><span class="spin"></span>Loading events&hellip;</div></div>
+
+    <div class="sub-tabs" id="eventsSubTabs">
+      <button class="sub-tab-btn active" data-events-sub="simgrid" type="button">SimGrid Rounds</button>
+      <button class="sub-tab-btn" data-events-sub="planner" type="button">Season Planner Events <span class="count" id="countPlannerEvents" style="margin-left:4px"></span></button>
+    </div>
+
+    <div id="eventsSubPanel-simgrid" class="events-sub-panel">
+      <div id="eventsListWrap"><div class="loading-row"><span class="spin"></span>Loading events&hellip;</div></div>
+    </div>
+
+    <div id="eventsSubPanel-planner" class="events-sub-panel hidden">
+      <div class="panel-toolbar" style="margin-bottom:14px">
+        <button class="btn primary" id="importPlannerBtn" type="button">Import from Season Planner&hellip;</button>
+        <span class="sub" id="plannerSourceNote" style="margin-left:4px"></span>
+      </div>
+      <div id="plannerEventsWrap"><div class="loading-row"><span class="spin"></span>Loading imported events&hellip;</div></div>
+    </div>
   </section>
 
   <!-- ============ CAREER PROGRESSION TAB ============ -->
@@ -302,7 +338,7 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
 </div>
 
 <div class="modal-backdrop hidden" id="driverModalBackdrop">
-  <div class="modal-card">
+  <div class="modal-card" id="driverModalCard">
     <div class="modal-head"><h3 id="driverModalTitle">Driver</h3><button class="modal-close" id="driverModalClose" type="button">&times;</button></div>
     <div id="driverModalBody"></div>
   </div>
@@ -461,6 +497,18 @@ async function fetchSeasonWindow(){
   try{ return await apiGet('seasonWindow'); }
   catch(e){ return { label:'', startDate:'', endDate:'' }; }
 }
+async function fetchLicenceTierList(){
+  try{ const d = await apiGet('licenceTierList'); return d.tiers || []; }
+  catch(e){ return []; }
+}
+
+/* ---- Season Planner import ---- */
+async function fetchPlannerDraft(){ return await apiGet('ownerOverviewPlannerDraft'); }
+async function fetchOwnerEvents(){ return (await apiGet('ownerOverviewEvents')).events || []; }
+async function importPlannerEvents(eventIds){ return await apiPost('ownerOverviewImportPlannerEvents', { eventIds }); }
+async function resyncOwnerEvent(id){ return await apiPost('ownerOverviewEventResync', { id }); }
+async function saveOwnerEvent(id, fields){ return await apiPost('ownerOverviewEventSave', Object.assign({ id }, fields)); }
+async function deleteOwnerEvent(id){ return await apiPost('ownerOverviewEventDelete', { id }); }
 </script>
 
 <script>
@@ -555,13 +603,15 @@ function makeSortableGrid(containerEl, { columns, getRows, initialSort, emptyMes
   return { render };
 }
 
-function openModal(title, bodyHtml){
+function openModal(title, bodyHtml, opts){
   q('driverModalTitle').textContent = title;
   q('driverModalBody').innerHTML = bodyHtml;
+  q('driverModalCard').classList.toggle('wide', !!(opts && opts.wide));
   q('driverModalBackdrop').classList.remove('hidden');
 }
-q('driverModalClose').addEventListener('click', () => q('driverModalBackdrop').classList.add('hidden'));
-q('driverModalBackdrop').addEventListener('click', e => { if(e.target === q('driverModalBackdrop')) q('driverModalBackdrop').classList.add('hidden'); });
+function closeModal(){ q('driverModalBackdrop').classList.add('hidden'); }
+q('driverModalClose').addEventListener('click', closeModal);
+q('driverModalBackdrop').addEventListener('click', e => { if(e.target === q('driverModalBackdrop')) closeModal(); });
 </script>
 
 <script>
@@ -707,10 +757,25 @@ window.addEventListener('ifwl-owner-ready', () => {
 
 <script>
 /* ============================================================
-   EVENTS TAB
+   EVENTS TAB - SimGrid Rounds sub-tab, and the Season Planner
+   import / amend sub-tab.
    ============================================================ */
 (() => {
-  async function load(){
+  let tierList = [];
+  let ownerEventsCache = [];
+
+  /* ---- sub-tab switching ---- */
+  document.querySelectorAll('#eventsSubTabs .sub-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sub = btn.dataset.eventsSub;
+      document.querySelectorAll('#eventsSubTabs .sub-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.events-sub-panel').forEach(p => p.classList.toggle('hidden', p.id !== `eventsSubPanel-${sub}`));
+      if(sub === 'planner' && !ownerEventsCache.__loaded) loadOwnerEvents();
+    });
+  });
+
+  /* ---- SimGrid Rounds (unchanged) ---- */
+  async function loadSimgrid(){
     q('eventsListWrap').innerHTML = `<div class="loading-row"><span class="spin"></span>Loading events&hellip;</div>`;
     q('seasonBannerWrap').innerHTML = '';
     try{
@@ -744,8 +809,277 @@ window.addEventListener('ifwl-owner-ready', () => {
       toast(`Events load failed: ${e.message}`, true);
     }
   }
-  q('eventsRefreshBtn').addEventListener('click', load);
-  tabLoaders.events = load;
+
+  /* ---- Season Planner: imported events list ---- */
+  async function loadOwnerEvents(){
+    q('plannerEventsWrap').innerHTML = `<div class="loading-row"><span class="spin"></span>Loading imported events&hellip;</div>`;
+    try{
+      if(!tierList.length) tierList = await fetchLicenceTierList();
+      ownerEventsCache = await fetchOwnerEvents();
+      ownerEventsCache.__loaded = true;
+      q('countPlannerEvents').textContent = ownerEventsCache.length || '';
+      renderOwnerEvents();
+    }catch(e){
+      q('plannerEventsWrap').innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load imported events: ${escHtml(e.message)}</div></div>`;
+      toast(`Imported events load failed: ${e.message}`, true);
+    }
+  }
+
+  function renderOwnerEvents(){
+    if(!ownerEventsCache.length){
+      q('plannerEventsWrap').innerHTML = `<div class="grid-wrap"><div class="grid-empty">Nothing imported yet. Use "Import from Season Planner" above once events are locked in.</div></div>`;
+      return;
+    }
+    const sorted = ownerEventsCache.slice().sort((a,b) => String(a.startDate||'9999').localeCompare(String(b.startDate||'9999')));
+    q('plannerEventsWrap').innerHTML = `<div class="event-grid">${sorted.map(ev => `
+      <div class="event-card" data-edit-event="${escHtml(ev.id)}" style="cursor:pointer">
+        <div class="ev-title">${escHtml(ev.name || '(untitled event)')}</div>
+        <div class="ev-meta">${ev.startDate ? 'Starts ' + escHtml(formatIsoDate(ev.startDate)) : 'Start date TBC'} &middot; ${(ev.schedule||[]).length} round${(ev.schedule||[]).length===1?'':'s'}</div>
+        <div>${(ev.visibleTiers||[]).map(t => `<span class="pill blue" style="margin-right:4px">${escHtml(t)}</span>`).join('') || '<span class="pill grey">No licence assigned yet</span>'}</div>
+        ${ev.notes ? `<div class="ev-meta">${escHtml(ev.notes)}</div>` : ''}
+        <div class="ev-meta" style="margin-top:2px">Imported from Season Planner</div>
+      </div>`).join('')}</div>`;
+    q('plannerEventsWrap').querySelectorAll('[data-edit-event]').forEach(card => {
+      card.addEventListener('click', () => openEventEditor(card.dataset.editEvent));
+    });
+  }
+
+  function formatIsoDate(iso){
+    if(!iso) return '';
+    const d = new Date(iso + 'T00:00:00');
+    if(isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+  }
+
+  /* ---- Import picker modal ---- */
+  q('importPlannerBtn').addEventListener('click', async () => {
+    openModal('Import from Season Planner', `<div class="loading-row"><span class="spin"></span>Loading the season plan&hellip;</div>`, {wide:true});
+    try{
+      const plan = await fetchPlannerDraft();
+      const header = (plan.seasonName || plan.seasonStart)
+        ? `<p class="sub" style="margin-top:-4px">${escHtml(plan.seasonName||'Untitled season')} &middot; ${escHtml(plan.seasonStart||'?')} &rarr; ${escHtml(plan.seasonEnd||'?')}</p>` : '';
+      if(!plan.events || !plan.events.length){
+        openModal('Import from Season Planner', `${header}<p style="color:var(--text-mute)">No events found in the season planner yet.</p>`, {wide:true});
+        return;
+      }
+      const rows = plan.events.map(e => {
+        const disabled = !e.locked || e.alreadyImported;
+        const reason = e.alreadyImported ? 'Already imported' : (!e.locked ? 'Not locked in yet' : '');
+        return `<label class="import-pick-row ${disabled?'disabled':''}">
+          <input type="checkbox" data-import-id="${escHtml(e.id)}" ${disabled?'disabled':''} style="margin-top:3px">
+          <div class="info">
+            <strong>${escHtml(e.name || '(untitled event)')}</strong>
+            <span>${e.startDate ? 'Starts '+escHtml(formatIsoDate(e.startDate)) : 'Start date TBC'} &middot; ${Number(e.roundCount||0)} round(s) ${reason ? '&middot; <strong>'+escHtml(reason)+'</strong>' : ''}</span>
+          </div>
+        </label>`;
+      }).join('');
+      openModal('Import from Season Planner', `
+        ${header}
+        <div style="max-height:50vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:4px 10px">${rows}</div>
+        <div class="modal-footer">
+          <span class="sub" id="importSelectedCount">0 selected</span>
+          <button class="btn primary" id="doImportBtn" type="button" disabled>Import selected</button>
+        </div>
+      `, {wide:true});
+      const checkboxes = () => Array.from(q('driverModalBody').querySelectorAll('[data-import-id]:not(:disabled)'));
+      const updateCount = () => {
+        const n = checkboxes().filter(c => c.checked).length;
+        q('importSelectedCount').textContent = `${n} selected`;
+        q('doImportBtn').disabled = n === 0;
+      };
+      checkboxes().forEach(c => c.addEventListener('change', updateCount));
+      q('doImportBtn').addEventListener('click', async () => {
+        const ids = checkboxes().filter(c => c.checked).map(c => c.dataset.importId);
+        q('doImportBtn').disabled = true; q('doImportBtn').textContent = 'Importing…';
+        try{
+          const result = await importPlannerEvents(ids);
+          closeModal();
+          toast(`Imported ${result.imported.length} event(s)${result.skipped.length ? `, skipped ${result.skipped.length}` : ''}.`);
+          await loadOwnerEvents();
+        }catch(err){
+          toast(`Import failed: ${err.message}`, true);
+          q('doImportBtn').disabled = false; q('doImportBtn').textContent = 'Import selected';
+        }
+      });
+    }catch(e){
+      openModal('Import from Season Planner', `<p style="color:var(--red)">Could not load the season planner: ${escHtml(e.message)}</p>`, {wide:true});
+    }
+  });
+
+  /* ---- Event editor modal (full editing: name/date/notes/tiers/schedule; rules/points/platforms/mods view-only) ---- */
+  function openEventEditor(id){
+    const ev = ownerEventsCache.find(x => x.id === id);
+    if(!ev) return;
+    const draft = JSON.parse(JSON.stringify(ev));
+    renderEventEditor(draft);
+  }
+
+  function renderEventEditor(draft){
+    const tierChecks = tierList.length
+      ? tierList.map(t => `<label class="tier-check ${((draft.visibleTiers||[]).includes(t.name))?'checked':''}"><input type="checkbox" data-tier-check="${escHtml(t.name)}" ${((draft.visibleTiers||[]).includes(t.name))?'checked':''}> ${escHtml(t.name)}</label>`).join('')
+      : `<span class="sub">No licence tiers configured.</span>`;
+
+    const scheduleRows = (draft.schedule||[]).map((r, i) => `
+      <tr data-round-idx="${i}">
+        <td><input type="text" data-round-field="week" value="${escHtml(r.week||'')}" placeholder="Round 1"></td>
+        <td><input type="date" data-round-field="date" value="${escHtml(r.date||'')}"></td>
+        <td><input type="text" data-round-field="track" value="${escHtml(r.track||'')}" placeholder="Track"></td>
+        <td><input type="text" data-round-field="practiceTime" value="${escHtml(r.practiceTime||'')}" placeholder="19:00"></td>
+        <td><input type="text" data-round-field="quallyTime" value="${escHtml(r.quallyTime||'')}" placeholder="19:30"></td>
+        <td><input type="text" data-round-field="race1" value="${escHtml(r.race1||'')}" placeholder="20:00"></td>
+        <td><input type="text" data-round-field="race2" value="${escHtml(r.race2||'')}" placeholder=""></td>
+        <td><button class="btn ghost" data-remove-round="${i}" type="button" style="padding:4px 8px">&times;</button></td>
+      </tr>`).join('');
+
+    const rulesHtml = (draft.rules||[]).length
+      ? `<table class="mini-table"><thead><tr><th>Rule</th><th>Setting</th></tr></thead><tbody>${(draft.rules||[]).map(r=>`<tr><td>${escHtml(r.rule||'')}</td><td>${escHtml(r.setting||'')}</td></tr>`).join('')}</tbody></table>`
+      : `<p class="sub">No rules set.</p>`;
+    const pointsHtml = (draft.points||[]).length
+      ? `<table class="mini-table"><thead><tr><th>Position</th><th>Points</th></tr></thead><tbody>${(draft.points||[]).map(p=>`<tr><td>${escHtml(p.position)}</td><td>${escHtml(p.points)}</td></tr>`).join('')}</tbody></table>`
+      : `<p class="sub">No points structure set.</p>`;
+    const platformsHtml = (draft.platforms||[]).length
+      ? (draft.platforms||[]).map(p => `<span class="pill grey" style="margin-right:4px">${escHtml(p.platform||'')}${p.required?' (required)':''}</span>`).join('')
+      : `<span class="sub">No platforms listed.</span>`;
+    const modsHtml = (draft.mods||[]).length
+      ? (draft.mods||[]).map(m => `<div class="ev-meta">${escHtml(m.name||'')}${m.link ? ` &mdash; <a href="${escHtml(m.link)}" target="_blank" rel="noopener">link</a>` : ''}</div>`).join('')
+      : `<p class="sub">No mods listed.</p>`;
+
+    openModal(draft.name || '(untitled event)', `
+      <div class="form-grid-2">
+        <div class="form-row"><label>Event name</label><input type="text" id="fldName" value="${escHtml(draft.name||'')}"></div>
+        <div class="form-row"><label>Start date</label><input type="date" id="fldStartDate" value="${escHtml(draft.startDate||'')}"></div>
+      </div>
+      <div class="form-row"><label>Visible to licence tier(s)</label><div class="tier-check-list" id="tierCheckList">${tierChecks}</div></div>
+      <div class="form-row"><label>Notes (Owner Overview only)</label><textarea id="fldNotes">${escHtml(draft.notes||'')}</textarea></div>
+
+      <div class="form-row">
+        <label>Round schedule</label>
+        <div style="overflow-x:auto"><table class="mini-table" id="scheduleTable">
+          <thead><tr><th>Week</th><th>Date</th><th>Track</th><th>Practice</th><th>Qually</th><th>Race 1</th><th>Race 2</th><th></th></tr></thead>
+          <tbody id="scheduleBody">${scheduleRows || '<tr><td colspan="8" class="sub">No rounds yet.</td></tr>'}</tbody>
+        </table></div>
+        <button class="btn ghost" id="addRoundBtn" type="button">+ Add round</button>
+      </div>
+
+      <div class="sub-tabs" style="margin-top:6px">
+        <button class="sub-tab-btn active" data-editor-sub="rules" type="button">Rules</button>
+        <button class="sub-tab-btn" data-editor-sub="points" type="button">Points</button>
+        <button class="sub-tab-btn" data-editor-sub="platforms" type="button">Platforms</button>
+        <button class="sub-tab-btn" data-editor-sub="mods" type="button">Mods</button>
+      </div>
+      <p class="sub" style="margin-top:-4px">View-only here &mdash; edited back in the Season Planner tool, then pulled in with Re-sync.</p>
+      <div id="editorSub-rules" class="editor-sub-panel">${rulesHtml}</div>
+      <div id="editorSub-points" class="editor-sub-panel hidden">${pointsHtml}</div>
+      <div id="editorSub-platforms" class="editor-sub-panel hidden">${platformsHtml}</div>
+      <div id="editorSub-mods" class="editor-sub-panel hidden">${modsHtml}</div>
+
+      <div class="modal-footer">
+        <div style="display:flex;gap:8px">
+          <button class="btn" id="deleteEventBtn" type="button">Delete</button>
+          ${draft.importedFromPlannerId ? `<button class="btn" id="resyncEventBtn" type="button">Re-sync from planner</button>` : ''}
+        </div>
+        <button class="btn primary" id="saveEventBtn" type="button">Save changes</button>
+      </div>
+    `, {wide:true});
+
+    const body = q('driverModalBody');
+
+    body.querySelectorAll('[data-editor-sub]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        body.querySelectorAll('[data-editor-sub]').forEach(b => b.classList.toggle('active', b === btn));
+        body.querySelectorAll('.editor-sub-panel').forEach(p => p.classList.toggle('hidden', p.id !== `editorSub-${btn.dataset.editorSub}`));
+      });
+    });
+
+    body.querySelectorAll('[data-tier-check]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const name = cb.dataset.tierCheck;
+        draft.visibleTiers = draft.visibleTiers || [];
+        if(cb.checked){ if(!draft.visibleTiers.includes(name)) draft.visibleTiers.push(name); }
+        else { draft.visibleTiers = draft.visibleTiers.filter(t => t !== name); }
+        cb.closest('.tier-check').classList.toggle('checked', cb.checked);
+      });
+    });
+
+    function readScheduleFromDom(){
+      draft.schedule = Array.from(body.querySelectorAll('#scheduleBody tr[data-round-idx]')).map(tr => {
+        const idx = Number(tr.dataset.roundIdx);
+        const existing = draft.schedule[idx] || {};
+        const out = Object.assign({}, existing);
+        tr.querySelectorAll('[data-round-field]').forEach(inp => { out[inp.dataset.roundField] = inp.value; });
+        return out;
+      });
+    }
+    body.querySelectorAll('#scheduleBody [data-round-field]').forEach(inp => {
+      inp.addEventListener('input', readScheduleFromDom);
+    });
+    body.querySelectorAll('[data-remove-round]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        readScheduleFromDom();
+        draft.schedule.splice(Number(btn.dataset.removeRound), 1);
+        renderEventEditor(draft);
+      });
+    });
+    q('addRoundBtn').addEventListener('click', () => {
+      readScheduleFromDom();
+      draft.schedule = draft.schedule || [];
+      draft.schedule.push({ id:'rnd_'+Date.now(), week:`Round ${draft.schedule.length+1}`, date:'', name:'', dlcName:'', track:'', practiceTime:'', quallyTime:'', race1:'', race2:'', conditions:'', misc:'' });
+      renderEventEditor(draft);
+    });
+
+    q('deleteEventBtn').addEventListener('click', async () => {
+      if(!confirm(`Delete "${draft.name || '(untitled event)'}" from the League Owners Overview? This does not affect the Season Planner.`)) return;
+      try{
+        await deleteOwnerEvent(draft.id);
+        closeModal();
+        toast('Event deleted.');
+        await loadOwnerEvents();
+      }catch(e){ toast(`Delete failed: ${e.message}`, true); }
+    });
+
+    const resyncBtn = q('resyncEventBtn');
+    if(resyncBtn){
+      resyncBtn.addEventListener('click', async () => {
+        if(!confirm('Pull the latest name/date/schedule/rules/points/platforms/mods from the Season Planner? Your licence-visibility tags and notes will be kept.')) return;
+        resyncBtn.disabled = true; resyncBtn.textContent = 'Re-syncing…';
+        try{
+          const result = await resyncOwnerEvent(draft.id);
+          toast('Re-synced from Season Planner.');
+          const idx = ownerEventsCache.findIndex(x => x.id === draft.id);
+          if(idx >= 0) ownerEventsCache[idx] = result.event;
+          renderEventEditor(JSON.parse(JSON.stringify(result.event)));
+        }catch(e){
+          toast(`Re-sync failed: ${e.message}`, true);
+          resyncBtn.disabled = false; resyncBtn.textContent = 'Re-sync from planner';
+        }
+      });
+    }
+
+    q('saveEventBtn').addEventListener('click', async () => {
+      readScheduleFromDom();
+      draft.name = q('fldName').value;
+      draft.startDate = q('fldStartDate').value;
+      draft.notes = q('fldNotes').value;
+      q('saveEventBtn').disabled = true; q('saveEventBtn').textContent = 'Saving…';
+      try{
+        const result = await saveOwnerEvent(draft.id, { name: draft.name, startDate: draft.startDate, notes: draft.notes, visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+        const idx = ownerEventsCache.findIndex(x => x.id === draft.id);
+        if(idx >= 0) ownerEventsCache[idx] = result.event;
+        closeModal();
+        toast('Saved.');
+        renderOwnerEvents();
+      }catch(e){
+        toast(`Save failed: ${e.message}`, true);
+        q('saveEventBtn').disabled = false; q('saveEventBtn').textContent = 'Save changes';
+      }
+    });
+  }
+
+  q('eventsRefreshBtn').addEventListener('click', () => {
+    loadSimgrid();
+    if(ownerEventsCache.__loaded) loadOwnerEvents();
+  });
+  tabLoaders.events = loadSimgrid;
 })();
 </script>
 
