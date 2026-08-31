@@ -316,6 +316,9 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .qual-grid-driver .qgd-stats{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text-muted);margin:4px 0 8px}
 .qual-grid-driver select{width:100%;margin-bottom:6px}
 .qual-grid-empty{padding:14px;color:var(--text-muted);font-size:12.5px}
+/* ✅ ADDED: Download Grid PDF toolbar - sits above the qualification grid columns once populated */
+.qual-grid-toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
+.qual-grid-toolbar .field-hint{margin-right:auto;align-self:center}
 /* ✅ ADDED: session drill-down for sandbagging checks */
 .session-drilldown{margin:14px 18px;padding:16px;border:1px solid var(--ifwl-line);border-radius:14px;background:#0d1116}
 .session-drilldown h4{margin:0 0 4px}
@@ -9451,6 +9454,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const byAccName = new Map();
     profiles.forEach(p => (p.accDriverNames || []).forEach(n => byAccName.set(window.IFWLStats.driverNameKey(n), p)));
     qualGridCache[platform].profiles = profiles;
+    // ✅ ADDED: kept alongside profiles so "Download Grid PDF" can reuse the
+    // exact same grouping/data the staff member is looking at, with no re-fetch.
+    qualGridCache[platform].standings = standings;
     const sortedTiers = mainLadderTiers(tiers).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
     const tierOptions = sortedTiers.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
 
@@ -9515,7 +9521,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       }).join('') : '<div class="qual-grid-empty">Everyone with any laps has reached 15.</div>'}
     </div>`;
 
-    grid.innerHTML = `<div class="qual-grid">${gridHtml}${notYetHtml}</div>`;
+    const qualifiedCount = qualified.length;
+    grid.innerHTML = `
+      <div class="qual-grid-toolbar">
+        <span class="field-hint">${qualifiedCount} driver${qualifiedCount===1?'':'s'} currently on the grid - download once you're happy with it.</span>
+        <button class="btn purple" type="button" data-download-pdf="${platform}">📄 Download Grid PDF</button>
+      </div>
+      <div class="qual-grid">${gridHtml}${notYetHtml}</div>`;
 
     // Search-to-link, same pattern as the flat table
     grid.querySelectorAll('.grid-unlink-search').forEach(input => {
@@ -9562,8 +9574,247 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         if(sessionsBtn){
           await renderSessionDrilldown(platform, serverId, sessionsBtn.dataset.driverLabel, sessionsBtn.dataset.accNames.split('|'));
         }
+        const pdfBtn = e.target.closest('[data-download-pdf]');
+        if(pdfBtn){
+          downloadQualGridPdf(pdfBtn.dataset.downloadPdf);
+        }
       });
     }
+  }
+
+  // ✅ ADDED: "Download Grid PDF" - staff: update this line each season, it's
+  // the only place the season number/label needs to change for this export.
+  const GRID_PDF_SEASON_LABEL = 'Season 4';
+
+  // Same tier grouping Populate the Grid uses, minus the "Not Yet Qualified"
+  // column and any tier with nobody in it - nothing to congratulate there.
+  function buildGridPdfGroups(standings){
+    const qualified = (standings || []).filter(s => s.qualified);
+    return TIER_GRID_ORDER
+      .map(tierName => ({ tierName, rows: qualified.filter(s => s.recommendedTier === tierName) }))
+      .filter(g => g.rows.length);
+  }
+
+  const GRID_PDF_TIER_COLORS = {
+    'GT3 Pro': [31, 138, 122],
+    'GT3 Amateur': [108, 63, 166],
+    'GT3 Beginner': [184, 121, 26],
+    'Rookie Class': [91, 101, 112]
+  };
+
+  // ✅ ADDED: TinyPDF - a minimal, dependency-free PDF writer, purpose-built
+  // for this one export. Deliberately NOT pulling in a CDN-hosted PDF library
+  // for one button - keeps this page fully self-contained (same as
+  // everywhere else in it: no third-party JS runtime dependency, just this
+  // file + ifwl-stats-engine.js), with nothing that can fail to load if a
+  // CDN is slow, blocked, or offline. Only supports what this export needs:
+  // filled rectangles and left-aligned single-line text in Helvetica.
+  function createTinyPdf(){
+    const PAGE_W = 595.28, PAGE_H = 841.89; // A4, points (matches the layout maths below)
+    const pages = [{ ops: [] }];
+    let cur = 0;
+    let fillColor = [0, 0, 0], textColor = [0, 0, 0], bold = false, fontSize = 11;
+
+    // Base-14 Helvetica/Helvetica-Bold only cover Latin-1 (WinAnsiEncoding).
+    // Map the couple of typographic characters this export used to try to
+    // use into their WinAnsi byte, everything else outside 0-255 becomes
+    // "?" rather than corrupting the file - safer than assuming every
+    // driver's linked name is plain ASCII.
+    const CHAR_MAP = { '—': '\x97', '‘': '\x91', '’': '\x92', '“': '\x93', '”': '\x94' };
+    function toWinAnsi(str){
+      return String(str).split('').map(ch => {
+        const code = ch.charCodeAt(0);
+        if(code <= 255) return ch;
+        return CHAR_MAP[ch] || '?';
+      }).join('');
+    }
+    function pdfEscape(str){
+      return toWinAnsi(str).replace(/[\\()]/g, m => '\\' + m);
+    }
+
+    function op(s){ pages[cur].ops.push(s); }
+
+    function setFillColor(r,g,b){ fillColor = [r,g,b]; }
+    function setTextColor(r,g,b){ textColor = [r,g,b]; }
+    function setFont(_family, style){ bold = style === 'bold'; }
+    function setFontSize(size){ fontSize = size; }
+
+    function rect(x, y, w, h, mode){
+      if(mode !== 'F') return; // fill-only, this export never strokes
+      const [r,g,b] = fillColor;
+      op(`${(r/255).toFixed(3)} ${(g/255).toFixed(3)} ${(b/255).toFixed(3)} rg`);
+      op(`${x.toFixed(2)} ${(PAGE_H - y - h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);
+    }
+
+    // Rough average-character-width wrap, same purpose as jsPDF's
+    // splitTextToSize - not metrically exact, but plenty for this one
+    // congratulations paragraph, and errs toward wrapping a little early
+    // rather than overflowing the page margin.
+    function splitTextToSize(text, maxWidth){
+      const avgCharW = (bold ? 0.62 : 0.52) * fontSize;
+      const maxChars = Math.max(10, Math.floor(maxWidth / avgCharW));
+      const words = String(text).split(/\s+/);
+      const lines = [];
+      let line = '';
+      words.forEach(w => {
+        const candidate = line ? line + ' ' + w : w;
+        if(candidate.length > maxChars && line){ lines.push(line); line = w; }
+        else line = candidate;
+      });
+      if(line) lines.push(line);
+      return lines;
+    }
+
+    // Single line, or an array of lines drawn top-down from (x,y) - same
+    // calling convention used throughout downloadQualGridPdf below.
+    function text(strOrLines, x, y){
+      const lines = Array.isArray(strOrLines) ? strOrLines : [strOrLines];
+      const [r,g,b] = textColor;
+      const fontRef = bold ? '/F2' : '/F1';
+      lines.forEach((line, i) => {
+        const ly = y + i * (fontSize * 1.15);
+        op(`${(r/255).toFixed(3)} ${(g/255).toFixed(3)} ${(b/255).toFixed(3)} rg`);
+        op(`BT ${fontRef} ${fontSize} Tf 1 0 0 1 ${x.toFixed(2)} ${(PAGE_H - ly).toFixed(2)} Tm (${pdfEscape(line)}) Tj ET`);
+      });
+    }
+
+    function addPage(){ pages.push({ ops: [] }); cur = pages.length - 1; }
+
+    function save(filename){
+      const objects = [];
+      objects[1] = `<< /Type /Catalog /Pages 2 0 R >>`;
+      const fontObjNum = 3, fontBoldObjNum = 4;
+      objects[fontObjNum] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`;
+      objects[fontBoldObjNum] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`;
+
+      let next = 5;
+      const kids = [];
+      pages.forEach(p => {
+        const pageNum = next++, contentNum = next++;
+        kids.push(pageNum);
+        const stream = p.ops.join('\n');
+        objects[contentNum] = { stream };
+        objects[pageNum] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W.toFixed(2)} ${PAGE_H.toFixed(2)}] /Resources << /Font << /F1 ${fontObjNum} 0 R /F2 ${fontBoldObjNum} 0 R >> >> /Contents ${contentNum} 0 R >>`;
+      });
+      objects[2] = `<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
+
+      let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+      const offsets = [0]; // object 0 is the free-list head, never used directly
+      for(let i = 1; i < objects.length; i++){
+        offsets[i] = out.length;
+        const body = objects[i];
+        if(typeof body === 'string'){
+          out += `${i} 0 obj\n${body}\nendobj\n`;
+        } else {
+          out += `${i} 0 obj\n<< /Length ${body.stream.length} >>\nstream\n${body.stream}\nendstream\nendobj\n`;
+        }
+      }
+      const xrefStart = out.length;
+      out += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+      for(let i = 1; i < objects.length; i++){
+        out += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+      }
+      out += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+      // Build as raw bytes (every char above is guaranteed <=255 by
+      // pdfEscape/toWinAnsi) so the Blob is a byte-for-byte valid PDF.
+      const bytes = new Uint8Array(out.length);
+      for(let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 0xFF;
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    }
+
+    return {
+      setFillColor, setTextColor, setFont, setFontSize, rect, text, addPage, splitTextToSize, save,
+      internal: { pageSize: { getWidth: () => PAGE_W, getHeight: () => PAGE_H } }
+    };
+  }
+
+  function downloadQualGridPdf(platform){
+    const standings = qualGridCache[platform]?.standings || [];
+    const groups = buildGridPdfGroups(standings);
+    if(!groups.length){ alert('No qualified drivers on this grid yet - click Populate the Grid first.'); return; }
+
+    const byAccName = new Map();
+    (qualGridCache[platform]?.profiles || []).forEach(p => (p.accDriverNames || []).forEach(n => byAccName.set(window.IFWLStats.driverNameKey(n), p)));
+
+    const doc = createTinyPdf();
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const marginX = 48;
+    let y = 0;
+
+    const drawHeader = () => {
+      doc.setFillColor(20, 99, 87);
+      doc.rect(0, 0, pageW, 82, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('IFWL', marginX, 30);
+      doc.setFontSize(18);
+      doc.text(`${platform.toUpperCase()} LICENCE GRID - ${GRID_PDF_SEASON_LABEL.toUpperCase()}`, marginX, 58);
+      return 82 + 30;
+    };
+
+    y = drawHeader();
+
+    doc.setTextColor(27, 36, 48);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text("Congratulations - you've qualified and been placed on the grid!", marginX, y);
+    y += 20;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    const introLines = doc.splitTextToSize(
+      `Please now ensure you sign up to the SimGrid event found under Available Races - this will be your allocated race series for ${GRID_PDF_SEASON_LABEL}.`,
+      pageW - marginX * 2
+    );
+    doc.text(introLines, marginX, y);
+    y += introLines.length * 14 + 24;
+
+    const ensureSpace = (needed) => {
+      if(y + needed > pageH - 50){
+        doc.addPage();
+        y = 50;
+      }
+    };
+
+    groups.forEach(g => {
+      ensureSpace(22 + 10 + Math.min(g.rows.length, 1) * 16);
+      const color = GRID_PDF_TIER_COLORS[g.tierName] || [27, 36, 48];
+      doc.setFillColor(color[0], color[1], color[2]);
+      doc.rect(marginX, y, pageW - marginX * 2, 22, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(`${g.tierName}  (${g.rows.length} driver${g.rows.length === 1 ? '' : 's'})`, marginX + 8, y + 15);
+      y += 22 + 10;
+
+      doc.setTextColor(27, 36, 48);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      g.rows.forEach((s, idx) => {
+        ensureSpace(16);
+        const profile = byAccName.get(window.IFWLStats.driverNameKey(s.driver));
+        const displayName = profile ? profile.name : s.driver;
+        doc.text(`${idx + 1}. ${displayName}`, marginX + 10, y);
+        y += 16;
+      });
+      y += 16;
+    });
+
+    doc.setFontSize(9);
+    doc.setTextColor(91, 101, 112);
+    doc.text(`Generated ${new Date().toLocaleDateString('en-GB')} - IFWL Licence Centre`, marginX, pageH - 30);
+
+    doc.save(`IFWL_${platform}_Grid_${GRID_PDF_SEASON_LABEL.replace(/\s+/g, '')}.pdf`);
   }
 
   /* ---- Bulk-Link from SimGrid ---- */
