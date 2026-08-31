@@ -1217,6 +1217,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <button data-view="staffBulkSimgrid" class="owner-only-tab" type="button">Staff Bulk SimGrid</button>
           <button data-view="staffRacedayInfo" class="ops-only-tab" type="button">Raceday Info</button>
           <button data-view="staffSeasonalEvents" class="owner-only-tab" type="button">Seasonal Events</button>
+          <button data-view="staffEnduranceEvent" class="ops-only-tab" type="button">Endurance Event</button>
         </div>
       </details>
 
@@ -2978,6 +2979,54 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffEnduranceEvent" id="enduranceEventPanel">
+    <div class="panel-head"><div><h3>Staff: Endurance Event</h3><small>Teams, race schedule and entry fee for the endurance team racing series - feeds the public endurance.html overview and its team/race lists</small></div><span class="badge purple">Staff only</span></div>
+    <div class="panel-body">
+
+      <h4 style="margin:0 0 10px">Entry fee &amp; prize pool</h4>
+      <div class="notice-card">Shown on the public endurance overview page exactly as saved here - nothing recalculates automatically until you hit Save.</div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1"><label>Entry fee (£)</label><input type="number" id="endEntryFee" min="0" step="1" value="20"></div>
+        <div class="field-group" style="flex:1"><label>Refundable?</label><select id="endRefundable"><option value="no">No - non-refundable</option><option value="yes">Yes</option></select></div>
+        <div class="field-group" style="flex:1"><label>Prize pool (% of total paid entry fees)</label><input type="number" id="endPoolPercent" min="0" max="100" step="1" value="30"></div>
+      </div>
+      <label>Payout split of that pool</label>
+      <div style="display:flex;gap:10px;margin-bottom:6px">
+        <div class="field-group" style="flex:1"><label>1st (%)</label><input type="number" id="endSplit1" min="0" max="100" step="1" value="70"></div>
+        <div class="field-group" style="flex:1"><label>2nd (%)</label><input type="number" id="endSplit2" min="0" max="100" step="1" value="30"></div>
+        <div class="field-group" style="flex:1"><label>3rd (%)</label><input type="number" id="endSplit3" min="0" max="100" step="1" value="20"></div>
+      </div>
+      <div class="field-hint" id="endSplitHint" style="margin-bottom:10px"></div>
+      <button class="btn teal" id="endConfigSaveBtn" type="button">Save entry fee &amp; prize pool</button>
+      <span class="save-status" id="endConfigStatus"></span>
+
+      <hr style="border-color:var(--ifwl-line);margin:20px 0">
+
+      <h4 style="margin:0 0 10px">Teams</h4>
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <div class="field-group" style="flex:1"><label>Team name</label><input type="text" id="endTeamName" placeholder="e.g. Midnight Racing"></div>
+        <label style="display:flex;align-items:center;gap:6px;padding-bottom:11px"><input type="checkbox" id="endTeamPaid" style="width:auto"> Paid</label>
+        <label style="display:flex;align-items:center;gap:6px;padding-bottom:11px"><input type="checkbox" id="endTeamRetired" style="width:auto"> Retired</label>
+        <button class="btn teal" id="endTeamAddBtn" type="button" style="margin-bottom:1px">+ Add team</button>
+      </div>
+      <span class="save-status" id="endTeamStatus"></span>
+      <div id="endTeamList" style="margin-top:12px"></div>
+
+      <hr style="border-color:var(--ifwl-line);margin:20px 0">
+
+      <h4 style="margin:0 0 10px">Races</h4>
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <div class="field-group" style="flex:2"><label>Race name</label><input type="text" id="endRaceName" placeholder="e.g. Round 1 - Spa 12hr"></div>
+        <div class="field-group" style="flex:1"><label>Date</label><input type="date" id="endRaceDate"></div>
+        <label style="display:flex;align-items:center;gap:6px;padding-bottom:11px">🎙️ <input type="checkbox" id="endRaceCommentated" style="width:auto"> Commentated</label>
+        <button class="btn teal" id="endRaceAddBtn" type="button" style="margin-bottom:1px">+ Add race</button>
+      </div>
+      <span class="save-status" id="endRaceStatus"></span>
+      <div id="endRaceList" style="margin-top:12px"></div>
+
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="staffRacedayInfo" id="racedayInfoPanel">
     <div class="panel-head"><div><h3>Staff: Raceday Info</h3><small>Driver briefings shown as a forced-read notification on login, on the day of a linked event</small></div><span class="badge purple">Staff only</span></div>
     <div class="panel-body">
@@ -3493,6 +3542,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return apiPost('staffEventRosterUpload', { eventId, entries });
   }
   window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, uploadEventRoster };
+
+  // Server contract:
+  //   ?enduranceConfigGet=1                        (GET,  public - entry fee + prize pool split)
+  //   ?enduranceConfigSave=1&token=...    {...}     (POST, staff)
+  //   ?enduranceTeamList=1                          (GET,  public)
+  //   ?enduranceTeamSave=1&token=...      {...}     (POST, staff - omit teamId to create)
+  //   ?enduranceTeamDelete=1&token=...    {teamId}  (POST, staff - soft delete)
+  //   ?enduranceRaceList=1                          (GET,  public)
+  //   ?enduranceRaceSave=1&token=...      {...}     (POST, staff - omit raceId to create)
+  //   ?enduranceRaceDelete=1&token=...    {raceId}  (POST, staff - soft delete)
+  async function enduranceFetchConfig(){ return apiGet('enduranceConfigGet'); }
+  async function enduranceSaveConfig(cfg){ return apiPost('enduranceConfigSave', cfg); }
+  async function enduranceFetchTeams(){ return (await apiGet('enduranceTeamList')).teams || []; }
+  async function enduranceSaveTeam(payload){ return apiPost('enduranceTeamSave', payload); }
+  async function enduranceDeleteTeam(teamId){ return apiPost('enduranceTeamDelete', { teamId }); }
+  async function enduranceFetchRaces(){ return (await apiGet('enduranceRaceList')).races || []; }
+  async function enduranceSaveRace(payload){ return apiPost('enduranceRaceSave', payload); }
+  async function enduranceDeleteRace(raceId){ return apiPost('enduranceRaceDelete', { raceId }); }
+  window.IFWL_EnduranceAPI = {
+    fetchConfig: enduranceFetchConfig, saveConfig: enduranceSaveConfig,
+    fetchTeams: enduranceFetchTeams, saveTeam: enduranceSaveTeam, deleteTeam: enduranceDeleteTeam,
+    fetchRaces: enduranceFetchRaces, saveRace: enduranceSaveRace, deleteRace: enduranceDeleteRace
+  };
 
   // Server contract: ?linkedDriverNames=1&token=... -> { ok, names: [lowercased strings] }
   // Returns which ACC names are already claimed, not by whom - claiming itself
@@ -11016,6 +11088,118 @@ Flashing Headlights:
     box.innerHTML = rdiQuickFactsStripHtml(qf) + window.renderRacedayMarkdown(rdiComposeContent()) + window.renderVideoEmbeds(rdiReadVideos());
   });
 
+  /* ---- Staff: Endurance Event (teams, races, entry fee) ---- */
+  async function initEnduranceEventPanel(){
+    const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+    function updateEndSplitHint(){
+      const hint = q('endSplitHint');
+      if(!hint) return;
+      const total = ['endSplit1','endSplit2','endSplit3'].reduce((s, id) => s + (Number(q(id)?.value) || 0), 0);
+      hint.textContent = total === 100 ? 'Splits add up to 100%.' : `⚠ Splits currently add up to ${total}% - doesn't have to be exactly 100, but usually should be.`;
+      hint.style.color = total === 100 ? '' : '#f3c568';
+    }
+    ['endSplit1','endSplit2','endSplit3'].forEach(id => q(id)?.addEventListener('input', updateEndSplitHint));
+
+    try{
+      const cfg = await window.IFWL_EnduranceAPI.fetchConfig();
+      q('endEntryFee').value = cfg.entryFeeGbp;
+      q('endRefundable').value = cfg.refundable ? 'yes' : 'no';
+      q('endPoolPercent').value = cfg.prizePoolPercent;
+      const split = cfg.payoutSplit || [70, 30, 20];
+      q('endSplit1').value = split[0] ?? 70;
+      q('endSplit2').value = split[1] ?? 30;
+      q('endSplit3').value = split[2] ?? 20;
+      updateEndSplitHint();
+    }catch(e){ q('endConfigStatus').textContent = 'Could not load: ' + e.message; }
+
+    q('endConfigSaveBtn')?.addEventListener('click', async () => {
+      const status = q('endConfigStatus');
+      status.textContent = 'Saving...';
+      try{
+        await window.IFWL_EnduranceAPI.saveConfig({
+          entryFeeGbp: Number(q('endEntryFee').value) || 0,
+          refundable: q('endRefundable').value === 'yes',
+          prizePoolPercent: Number(q('endPoolPercent').value) || 0,
+          payoutSplit: [Number(q('endSplit1').value) || 0, Number(q('endSplit2').value) || 0, Number(q('endSplit3').value) || 0]
+        });
+        status.textContent = 'Saved - live on the endurance overview page now.';
+        setTimeout(() => { if(q('endConfigStatus')) q('endConfigStatus').textContent = ''; }, 2500);
+      }catch(e){ status.textContent = 'Could not save: ' + e.message; }
+    });
+
+    async function renderEndTeamList(){
+      let teams = [];
+      try{ teams = await window.IFWL_EnduranceAPI.fetchTeams(); }
+      catch(e){ q('endTeamList').innerHTML = `<div class="empty">Could not load teams: ${escHtml(e.message)}</div>`; return; }
+      q('endTeamList').innerHTML = teams.length ? teams.map(t => `
+        <div class="note-item" data-team="${t.id}">
+          <strong>${escHtml(t.name)}</strong>
+          <div class="note-meta">
+            <label style="margin-right:14px"><input type="checkbox" class="end-team-paid" ${t.paid ? 'checked' : ''} style="width:auto;vertical-align:middle"> Paid</label>
+            <label><input type="checkbox" class="end-team-retired" ${t.retired ? 'checked' : ''} style="width:auto;vertical-align:middle"> Retired</label>
+          </div>
+          <div style="margin-top:8px"><button class="btn ghost" data-remove-team="${t.id}">Remove</button></div>
+        </div>`).join('') : '<div class="empty">No teams registered yet.</div>';
+
+      q('endTeamList').querySelectorAll('.end-team-paid, .end-team-retired').forEach(chk => chk.addEventListener('change', async (e) => {
+        const row = e.target.closest('[data-team]');
+        try{
+          await window.IFWL_EnduranceAPI.saveTeam({
+            teamId: row.dataset.team, name: row.querySelector('strong').textContent,
+            paid: row.querySelector('.end-team-paid').checked, retired: row.querySelector('.end-team-retired').checked
+          });
+        }catch(err){ alert('Could not update: ' + err.message); await renderEndTeamList(); }
+      }));
+      q('endTeamList').querySelectorAll('[data-remove-team]').forEach(btn => btn.addEventListener('click', async () => {
+        if(!confirm('Remove this team? This does not refund an entry fee.')) return;
+        try{ await window.IFWL_EnduranceAPI.deleteTeam(btn.dataset.removeTeam); await renderEndTeamList(); }
+        catch(e){ alert('Could not remove: ' + e.message); }
+      }));
+    }
+    q('endTeamAddBtn')?.addEventListener('click', async () => {
+      const name = q('endTeamName').value.trim();
+      if(!name){ q('endTeamStatus').textContent = 'Team name required.'; return; }
+      try{
+        await window.IFWL_EnduranceAPI.saveTeam({ name, paid: q('endTeamPaid').checked, retired: q('endTeamRetired').checked });
+        q('endTeamName').value = ''; q('endTeamPaid').checked = false; q('endTeamRetired').checked = false;
+        q('endTeamStatus').textContent = 'Added.';
+        setTimeout(() => { if(q('endTeamStatus')) q('endTeamStatus').textContent = ''; }, 2000);
+        await renderEndTeamList();
+      }catch(e){ q('endTeamStatus').textContent = 'Could not add: ' + e.message; }
+    });
+    await renderEndTeamList();
+
+    async function renderEndRaceList(){
+      let races = [];
+      try{ races = await window.IFWL_EnduranceAPI.fetchRaces(); }
+      catch(e){ q('endRaceList').innerHTML = `<div class="empty">Could not load races: ${escHtml(e.message)}</div>`; return; }
+      q('endRaceList').innerHTML = races.length ? races.map(r => `
+        <div class="note-item">
+          <strong>${escHtml(r.name)}</strong>${r.commentated ? ' <span class="field-hint">🎙️ Commentated</span>' : ''}
+          <div class="note-meta">${r.date ? new Date(r.date + 'T00:00:00').toLocaleDateString(undefined, { weekday:'short', day:'numeric', month:'short', year:'numeric' }) : 'Date TBC'}</div>
+          <div style="margin-top:8px"><button class="btn ghost" data-remove-race="${r.id}">Remove</button></div>
+        </div>`).join('') : '<div class="empty">No races added yet.</div>';
+      q('endRaceList').querySelectorAll('[data-remove-race]').forEach(btn => btn.addEventListener('click', async () => {
+        if(!confirm('Remove this race?')) return;
+        try{ await window.IFWL_EnduranceAPI.deleteRace(btn.dataset.removeRace); await renderEndRaceList(); }
+        catch(e){ alert('Could not remove: ' + e.message); }
+      }));
+    }
+    q('endRaceAddBtn')?.addEventListener('click', async () => {
+      const name = q('endRaceName').value.trim();
+      if(!name){ q('endRaceStatus').textContent = 'Race name required.'; return; }
+      try{
+        await window.IFWL_EnduranceAPI.saveRace({ name, date: q('endRaceDate').value, commentated: q('endRaceCommentated').checked });
+        q('endRaceName').value = ''; q('endRaceDate').value = ''; q('endRaceCommentated').checked = false;
+        q('endRaceStatus').textContent = 'Added.';
+        setTimeout(() => { if(q('endRaceStatus')) q('endRaceStatus').textContent = ''; }, 2000);
+        await renderEndRaceList();
+      }catch(e){ q('endRaceStatus').textContent = 'Could not add: ' + e.message; }
+    });
+    await renderEndRaceList();
+  }
+
   // Same icon strip shown in the driver-facing popup, so staff see exactly
   // what drivers will see before saving.
   function rdiQuickFactsStripHtml(qf){
@@ -12764,6 +12948,7 @@ Flashing Headlights:
     renderRequestQueue();
     renderTierCheckboxes();
     renderSimgridEventList();
+    initEnduranceEventPanel();
     initRacedayInfoPanel();
     renderCallingCardList();
     renderLicenceQualPanel('PC', 'pc-licence');
