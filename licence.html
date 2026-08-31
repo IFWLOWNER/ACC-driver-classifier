@@ -200,6 +200,13 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase}
 .badge.purple{background:rgba(198,91,232,.14);color:var(--ifwl-purple);border:1px solid rgba(198,91,232,.32)}
 
+/* ---- Staff SimGrid Events: series tabs ---- */
+.sg-series-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.sg-series-tab{appearance:none;border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-muted);font-family:var(--font-body);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:8px 13px;border-radius:9px;cursor:pointer;white-space:nowrap}
+.sg-series-tab:hover{color:var(--text-primary);border-color:rgba(31,214,189,.4)}
+.sg-series-tab.active{color:#03211c;background:linear-gradient(135deg,var(--ifwl-teal-deep),var(--ifwl-teal));border-color:transparent}
+.sg-series-tab .count{opacity:.75;font-weight:600;margin-left:3px}
+
 /* ---- Tier legend strip ---- */
 .tier-legend{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:18px}
 .tier-chip{border:1px solid var(--ifwl-line);border-radius:14px;padding:14px;background:#0d1116;position:relative;overflow:hidden}
@@ -1457,6 +1464,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-group">
           <label>Requested tier</label>
           <select id="requestTierSelect"></select>
+        </div>
+        <div class="field-group">
+          <label>Which race are you currently racing in - Beginner or Pro-Am?</label>
+          <select id="requestCurrentRaceSelect">
+            <option value="">Not sure / other</option>
+            <option value="beginner">Beginner</option>
+            <option value="pro_am">Pro-Am</option>
+          </select>
         </div>
         <div class="field-group">
           <label>Why should staff review you for this tier?</label>
@@ -2964,17 +2979,37 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-group" style="flex:1"><label>Or a free-text date label (optional)</label><input type="text" id="sgEventDateLabel" placeholder="e.g. Round 3 - TBC"></div>
       </div>
       <div class="field-group"><label>Password (for a single manually-added event, shown to eligible drivers only)</label><input type="text" id="sgPassword" placeholder="e.g. ifwl2026"></div>
-      <div class="field-group"><label>Platform</label><select id="sgPlatform">
-        <option value="both">Console + PC</option>
-        <option value="console">Console only</option>
-        <option value="pc">PC only</option>
-      </select></div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1"><label>Platform</label><select id="sgPlatform">
+          <option value="both">Console + PC</option>
+          <option value="console">Console only</option>
+          <option value="pc">PC only</option>
+        </select></div>
+        <div class="field-group" style="flex:1"><label>Series</label><select id="sgSeries">
+          <option value="">Unassigned / general</option>
+          <option value="pc_pro_am">PC Pro-Am</option>
+          <option value="pc_beginner">PC Beginner</option>
+          <option value="pc_monday_funday">PC Monday Funday</option>
+          <option value="console_pro_am">Console Pro-Am</option>
+          <option value="console_beginner">Console Beginner</option>
+          <option value="console_monday_funday">Console Monday Funday</option>
+        </select></div>
+      </div>
+      <div class="field-hint" style="margin:-8px 0 10px">Series drives the tabs above the event list below - same 6 series as the Entrylist Builder.</div>
       <div class="field-group"><label>Available to which tiers?</label><div id="sgTierChecks"></div></div>
       <div class="field-group"><label>Notes (optional)</label><input type="text" id="sgNotes" placeholder="e.g. Grid limited to 24 cars"></div>
+      <div class="field-group">
+        <label>Event image (optional)</label>
+        <input type="file" id="sgEventImageInput" accept="image/jpeg,image/png">
+        <div class="field-hint">SimGrid's own auto-fetched image doesn't always come through - upload one here and it's used instead, for both this list and the driver-facing Available Races cards.</div>
+        <div id="sgEventImagePreview" style="margin-top:8px"></div>
+      </div>
       <button class="btn teal" id="sgSaveBtn" type="button">Add event</button>
       <button class="btn ghost hidden" id="sgCancelEditBtn" type="button">Cancel edit / new event</button>
       <span class="save-status" id="sgSaveStatus"></span>
       <hr style="border-color:var(--ifwl-line);margin:18px 0">
+      <h4 style="margin:0 0 10px">Events by series</h4>
+      <div id="sgSeriesTabs" class="sg-series-tabs"></div>
       <div id="sgEventList"></div>
     </div>
   </section>
@@ -3417,10 +3452,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   // Server contract:
-  //   ?submitLicenceRequest=1&token=...  {requestedTier, reason}  (POST, driver)
+  //   ?submitLicenceRequest=1&token=...  {requestedTier, reason, currentRace}  (POST, driver)
   //   ?myLicenceRequests=1&token=...                              (GET, driver's own history)
   //   ?staffLicenceRequestList=1&token=...                        (GET, staff-only, all pending)
   //   ?staffLicenceRequestReview=1&token=...  {requestId, decision, staffNote}  (POST, staff-only)
+  // currentRace ('beginner'|'pro_am'|'') is the driver's own self-report of
+  // which race they're actually racing in right now - shown next to the
+  // system's computed recommended tier in the staff queue, so staff have
+  // both a self-report and a data-driven suggestion to weigh up.
   // Approving a request updates the driver's tier + tierHistory server-side,
   // exactly like a manual staff tier override does.
   async function fetchMyRequests(){
@@ -3431,7 +3470,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     return (await apiGet('myLicenceRequests')).requests || [];
   }
-  async function submitLicenceRequest(requestedTier, reason){
+  async function submitLicenceRequest(requestedTier, reason, currentRace){
     const meta = window.IFWL_META; const id = window.IFWL_AUTH.userId(meta);
     if(USE_DEMO_FALLBACK){
       const all = demoGet('requests', {});
@@ -3441,14 +3480,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         driverId: id,
         driverName: window.IFWL_AUTH.userName(meta),
         currentTier: currentProfile?.tier || 'No Licence',
-        requestedTier, reason,
+        requestedTier, reason, currentRace: currentRace || '',
         status: 'pending',
         submittedAt: new Date().toISOString()
       });
       demoSet('requests', all);
       return all[id];
     }
-    return apiPost('submitLicenceRequest', { requestedTier, reason });
+    return apiPost('submitLicenceRequest', { requestedTier, reason, currentRace: currentRace || '' });
   }
 
   async function fetchAllRequests(){
@@ -3496,7 +3535,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // Server contract:
   //   ?myAvailableRaces=1&token=...                      (GET, driver - filtered server-side to their current tier)
   //   ?staffSimgridEventList=1&token=...                 (GET, staff)
-  //   ?staffSimgridEventSave=1&token=... {eventId?,title,simgridLink,platform,tiers[],notes}  (POST, staff)
+  //   ?staffSimgridEventSave=1&token=... {eventId?,title,simgridLink,platform,series,tiers[],notes,imageUrl}  (POST, staff)
   //   ?staffSimgridEventDelete=1&token=... {eventId}      (POST, staff - soft delete)
   // The og:image preview is fetched server-side from SimGrid's own page, same
   // trick already used for Race Team Events - browsers can't do this directly (CORS).
@@ -5115,7 +5154,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         ? `<p style="color:var(--ifwl-red);font-size:12.5px;margin:4px 0 0;font-weight:700">⚠️ Past its drop-off window - not currently shown to drivers</p>`
         : '';
       return `<div class="race-event-card">
-        <img src="${e.simgridImageUrl || placeholder}" alt="">
+        <img src="${e.imageUrl || e.simgridImageUrl || placeholder}" alt="">
         <div>
           <span class="platform-badge">${platformLabel}</span>
           <strong style="display:block;margin-top:6px">${e.title}</strong>
@@ -6732,13 +6771,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     q('submitRequestBtn').addEventListener('click', async () => {
       const requestedTier = q('requestTierSelect').value;
+      const currentRace = q('requestCurrentRaceSelect').value;
       const reason = q('requestReasonInput').value.trim();
       if(!requestedTier){ q('requestStatusBlock').innerHTML = '<div class="error">Choose a tier to request.</div>'; return; }
       if(!reason){ q('requestStatusBlock').innerHTML = '<div class="error">Tell staff why you should be reviewed for this tier.</div>'; return; }
       q('submitRequestBtn').disabled = true; q('submitRequestBtn').textContent = 'Submitting...';
       try{
-        await window.IFWL_RequestAPI.submitLicenceRequest(requestedTier, reason);
+        await window.IFWL_RequestAPI.submitLicenceRequest(requestedTier, reason, currentRace);
         q('requestReasonInput').value = '';
+        q('requestCurrentRaceSelect').value = '';
         await renderMyRequestPanel();
       }catch(e){ q('requestStatusBlock').innerHTML = `<div class="error">Could not submit: ${e.message}</div>`; }
       finally{ q('submitRequestBtn').disabled = false; q('submitRequestBtn').textContent = 'Submit request'; }
@@ -8708,6 +8749,46 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   });
 
   /* ---- Licence Requests queue ---- */
+  function reqCurrentRaceLabel(v){
+    return v === 'beginner' ? 'Beginner' : v === 'pro_am' ? 'Pro-Am' : 'Not stated';
+  }
+
+  // ✅ ADDED: "where the system thinks they should be" - matches each pending
+  // request's driver to their qualification lap standings on both platforms,
+  // via the exact same recommendedTier engine the Qualification Grid and
+  // Licence Database panels already use (cachedLicenceServerStandings is
+  // memoized per page load, so this is cheap if either of those has already
+  // run this session, and only a one-time cost otherwise). Best-effort and
+  // entirely non-fatal: staffSearch requires Ops-level access, so a
+  // Steward-only session (allowed to review requests, but not staffSearch)
+  // simply doesn't get this line - the rest of the queue still renders fine.
+  async function reqBuildSystemSuggestionMap(driverIds){
+    const map = new Map();
+    if(!driverIds.length) return map;
+    try{
+      const [profiles, pcStandings, consoleStandings] = await Promise.all([
+        staffSearch(''),
+        window.cachedLicenceServerStandings({ minLaps: 15, serverId: 'pc-licence', classStructure: await window.classStructureForServer('pc-licence'), qualWindow: await window.fetchQualWindowMs() }).catch(() => []),
+        window.cachedLicenceServerStandings({ minLaps: 15, serverId: 'console-licence', classStructure: await window.classStructureForServer('console-licence'), qualWindow: await window.fetchQualWindowMs() }).catch(() => [])
+      ]);
+      const profileById = new Map(profiles.map(p => [p.discordId, p]));
+      const findRow = (standings, mine) => mine.length ? standings.find(s => {
+        const key = window.IFWLStats.driverNameKey(s.driver);
+        return mine.some(m => m === key || key.includes(m) || m.includes(key));
+      }) : null;
+      driverIds.forEach(id => {
+        const p = profileById.get(id);
+        const mine = (p?.accDriverNames || []).map(n => window.IFWLStats.driverNameKey(n));
+        const pcRow = findRow(pcStandings, mine);
+        const consoleRow = findRow(consoleStandings, mine);
+        // Prefer a qualified row (enough laps for the number to actually mean
+        // something) over an unqualified one, on either platform.
+        map.set(id, (pcRow && pcRow.qualified) ? pcRow : (consoleRow && consoleRow.qualified) ? consoleRow : (pcRow || consoleRow || null));
+      });
+    }catch(e){ console.warn('Could not compute system tier suggestions for the request queue', e); }
+    return map;
+  }
+
   async function renderRequestQueue(){
     const body = q('requestQueueBody');
     if(!body) return;
@@ -8716,18 +8797,33 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const all = await window.IFWL_RequestAPI.fetchAllRequests();
     const pending = all.filter(r => r.status === 'pending');
     if(!pending.length){ body.innerHTML = '<div class="empty">No pending licence requests.</div>'; return; }
-    body.innerHTML = pending.map(r => `
+
+    const suggestionMap = await reqBuildSystemSuggestionMap(pending.map(r => r.driverId));
+
+    body.innerHTML = pending.map(r => {
+      // undefined (key never set) = the whole lookup failed/wasn't permitted -
+      // say nothing rather than falsely claim "no laps on file". null (key
+      // set, no row) = lookup worked, this driver genuinely has none.
+      const row = suggestionMap.get(r.driverId);
+      const suggestion = row === undefined ? '' : !row
+        ? 'System suggests: <strong>no qualifying laps on file yet</strong>'
+        : row.qualified
+          ? `System suggests: <strong style="color:${findColor(row.recommendedTier)}">${row.recommendedTier}</strong> (avg gap ${row.avgGapPct != null ? row.avgGapPct + '%' : '-'}, ${row.totalLaps} lap(s))`
+          : `System suggests: <strong style="color:${findColor(row.recommendedTier)}">${row.recommendedTier}</strong> (not yet qualified - only ${row.totalLaps} lap(s) logged)`;
+      return `
       <div class="request-card" data-driver="${r.driverId}" data-request="${r.id}">
         <span class="request-status-pill pending">Pending</span>
         <strong style="display:block;margin-top:8px">${r.driverName} &mdash; <span style="color:${findColor(r.requestedTier)}">${r.requestedTier}</span></strong>
         <div class="req-meta">Currently: ${r.currentTier} &middot; submitted ${new Date(r.submittedAt).toLocaleString()}</div>
+        <div class="req-meta">🏁 Says they're racing: <strong>${reqCurrentRaceLabel(r.currentRace)}</strong>${suggestion ? ` &middot; ${suggestion}` : ''}</div>
         <p style="color:var(--text-muted);font-size:13px;margin:8px 0 0">${r.reason}</p>
         <div class="req-actions">
           <button class="btn teal" data-decision="approved">Approve</button>
           <button class="btn ghost" data-decision="declined">Decline</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     body.querySelectorAll('[data-decision]').forEach(btn => btn.addEventListener('click', async () => {
       const card = btn.closest('.request-card');
@@ -8754,29 +8850,95 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     ).join('');
   }
 
+  // Mirrors ENTRYLIST_SERIES_CATALOG in rtgate.js - a small fixed constant
+  // duplicated here rather than fetched, since it's not staff-editable data.
+  const SG_SERIES_CATALOG = [
+    { id: 'pc_pro_am',             label: 'PC Pro-Am' },
+    { id: 'pc_beginner',           label: 'PC Beginner' },
+    { id: 'pc_monday_funday',      label: 'PC Monday Funday' },
+    { id: 'console_pro_am',        label: 'Console Pro-Am' },
+    { id: 'console_beginner',      label: 'Console Beginner' },
+    { id: 'console_monday_funday', label: 'Console Monday Funday' }
+  ];
+  function sgSeriesLabel(id){ return SG_SERIES_CATALOG.find(s => s.id === id)?.label || 'Unassigned'; }
+
+  let sgActiveSeriesTab = 'all';
+  let sgLinkedBriefingEventIds = new Set();
+
   async function renderSimgridEventList(){
     const events = await window.IFWL_SimgridAPI.fetchAllSimgridEvents();
     window.__sgEventsCache = events; // used by the Edit button below to load exact per-event data
+
+    // Best-effort: which events already have a raceday briefing linked, so
+    // staff can see at a glance what this planning hub still needs - this
+    // now covers this and other seasons, not just a single link list.
+    sgLinkedBriefingEventIds = new Set();
+    try{
+      const infos = (await window.IFWL_Api.apiGet('staffRacedayInfoList')).infos || [];
+      infos.forEach(info => (info.linkedEventIds || []).forEach(id => sgLinkedBriefingEventIds.add(id)));
+    }catch(e){ console.warn('Could not check raceday briefing links', e); }
+
+    sgRenderSeriesTabs(events);
+    sgRenderEventListBody(events);
+  }
+
+  function sgRenderSeriesTabs(events){
+    const wrap = q('sgSeriesTabs');
+    if(!wrap) return;
+    const counts = { all: events.length, unassigned: 0 };
+    SG_SERIES_CATALOG.forEach(s => { counts[s.id] = 0; });
+    events.forEach(e => {
+      const key = e.series && counts.hasOwnProperty(e.series) ? e.series : 'unassigned';
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    const tabs = [{ id: 'all', label: 'All events' }, ...SG_SERIES_CATALOG, { id: 'unassigned', label: 'Unassigned' }];
+    wrap.innerHTML = tabs.map(t => `<button type="button" class="sg-series-tab ${sgActiveSeriesTab === t.id ? 'active' : ''}" data-series-tab="${t.id}">${t.label}<span class="count">(${counts[t.id] || 0})</span></button>`).join('');
+    wrap.querySelectorAll('[data-series-tab]').forEach(btn => btn.addEventListener('click', () => {
+      sgActiveSeriesTab = btn.dataset.seriesTab;
+      sgRenderSeriesTabs(events);
+      sgRenderEventListBody(events);
+    }));
+  }
+
+  function sgRenderEventListBody(events){
     const wrap = q('sgEventList');
-    if(!events.length){ wrap.innerHTML = '<div class="empty">No SimGrid events yet.</div>'; return; }
+    // Ascending date order within the active tab - the next upcoming event
+    // sits at the top, same as before, just scoped to one series at a time.
+    const filtered = sgActiveSeriesTab === 'all'
+      ? events
+      : sgActiveSeriesTab === 'unassigned'
+        ? events.filter(e => !e.series)
+        : events.filter(e => e.series === sgActiveSeriesTab);
+
+    if(!filtered.length){ wrap.innerHTML = `<div class="empty">${events.length ? 'No events in this series yet.' : 'No SimGrid events yet.'}</div>`; return; }
+
     const cutoffMs = Date.now() - (4 * 60 * 60 * 1000);
-    const sorted = [...events].sort((a,b) => (a.eventDateMs || Infinity) - (b.eventDateMs || Infinity));
+    const sorted = [...filtered].sort((a,b) => (a.eventDateMs || Infinity) - (b.eventDateMs || Infinity));
     wrap.innerHTML = sorted.map(e => {
       const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString() : (e.eventDateLabel || 'No date set');
       // Matches the same grace period myAvailableRaces uses to decide when
       // a round drops off drivers' own list - shown here so staff can see
       // at a glance which of their own events have already rotated out.
       const ended = e.eventDateMs && e.eventDateMs < cutoffMs;
+      const hasBriefing = sgLinkedBriefingEventIds.has(e.id);
+      const imgSrc = e.imageUrl || e.simgridImageUrl || '';
       return `
       <div class="note-item">
-        <strong>${e.title}</strong>${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
-        <div class="note-meta">${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
-        <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 This event's password: ${e.password}` : ' &middot; No password set for this event'}</div>
-        <div class="note-meta">👥 ${e.rosterCount ? `${e.rosterCount} driver(s) signed up (shown as cards under Available Races)` : 'No signup roster uploaded yet'}</div>
+        <div style="display:flex;gap:12px">
+          ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:88px;height:56px;object-fit:cover;border-radius:8px;flex:none">` : ''}
+          <div style="flex:1;min-width:0">
+            <strong>${e.title}</strong>${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
+            <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
+            <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 This event's password: ${e.password}` : ' &middot; No password set for this event'}</div>
+            <div class="note-meta">👥 ${e.rosterCount ? `${e.rosterCount} driver(s) signed up (shown as cards under Available Races)` : 'No signup roster uploaded yet'}</div>
+            <div class="note-meta" style="color:${hasBriefing ? 'var(--ifwl-green)' : 'var(--ifwl-amber)'};font-weight:700">${hasBriefing ? '📋 Raceday briefing attached' : '⚠️ No raceday briefing linked yet'}</div>
+          </div>
+        </div>
         <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn ghost" data-edit-event="${e.id}">Edit</button>
           <button class="btn ghost" data-delete-event="${e.id}">Delete</button>
           <label class="btn ghost" style="cursor:pointer;margin:0">Upload Roster (CSV/JSON)<input type="file" accept=".csv,.json,text/csv,application/json" data-roster-upload="${e.id}" style="display:none"></label>
+          ${hasBriefing ? '' : `<button class="btn ghost" data-goto-briefing="${e.id}">+ Add raceday briefing</button>`}
         </div>
       </div>
     `;
@@ -8801,6 +8963,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       try{ await window.IFWL_SimgridAPI.deleteSimgridEvent(btn.dataset.deleteEvent); await renderSimgridEventList(); }
       catch(e){ alert('Could not delete: ' + e.message); }
     }));
+    wrap.querySelectorAll('[data-goto-briefing]').forEach(btn => btn.addEventListener('click', () => {
+      const eventId = btn.dataset.gotoBriefing;
+      window.switchView('staffRacedayInfo');
+      // Pre-tick this event in the briefing form's event-link checklist, if
+      // it's already rendered (it is, once staff panels have initialised).
+      setTimeout(() => {
+        const chk = document.querySelector(`.rdi-event-check[value="${eventId}"]`);
+        if(chk) chk.checked = true;
+      }, 50);
+    }));
     // ✅ ADDED: loads THIS specific event's own data into the form for
     // editing - directly addresses "no way to tell which password belongs
     // to which round". Editing and saving updates only this one record,
@@ -8812,11 +8984,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('sgTitle').value = ev.title || '';
       q('sgLink').value = ev.simgridLink || '';
       q('sgPlatform').value = ev.platform || 'both';
+      q('sgSeries').value = ev.series || '';
       q('sgNotes').value = ev.notes || '';
       q('sgPassword').value = ev.password || '';
       q('sgEventDate').value = ev.eventDateMs ? new Date(ev.eventDateMs).toISOString().slice(0,16) : '';
       q('sgEventDateLabel').value = ev.eventDateLabel || '';
       document.querySelectorAll('.sg-tier-check').forEach(el => { el.checked = (ev.tiers||[]).includes(el.value); });
+      sgEditingEventImageUrl = ev.imageUrl || '';
+      q('sgEventImageInput').value = '';
+      q('sgEventImagePreview').innerHTML = sgEditingEventImageUrl
+        ? `<img src="${sgEditingEventImageUrl}" alt="" style="width:120px;height:76px;object-fit:cover;border-radius:8px;display:block"><div class="field-hint">Current image - choosing a new file above replaces it.</div>`
+        : `<div class="field-hint">No image set - falls back to SimGrid's own auto-fetch, if any.</div>`;
       q('sgSaveBtn').textContent = `Update "${ev.title}"`;
       q('sgCancelEditBtn').classList.remove('hidden');
       q('sgSaveStatus').textContent = `Editing this one event only - its password is shown above, separate from every other event.`;
@@ -8825,10 +9003,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   let sgEditingEventId = null;
+  let sgEditingEventImageUrl = '';
   function sgResetForm(){
     sgEditingEventId = null;
+    sgEditingEventImageUrl = '';
     q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
     q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
+    q('sgSeries').value = '';
+    q('sgEventImageInput').value = '';
+    q('sgEventImagePreview').innerHTML = '';
     q('sgRoundsPreview').classList.add('hidden');
     document.querySelectorAll('.sg-tier-check').forEach(el => el.checked = false);
     q('sgSaveBtn').textContent = 'Add event';
@@ -8840,15 +9023,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const title = q('sgTitle').value.trim();
     const simgridLink = q('sgLink').value.trim();
     const platform = q('sgPlatform').value;
+    const series = q('sgSeries').value;
     const tiers = [...document.querySelectorAll('.sg-tier-check:checked')].map(el => el.value);
     const notes = q('sgNotes').value.trim();
     const eventDateMs = q('sgEventDate').value ? new Date(q('sgEventDate').value).getTime() : 0;
     const eventDateLabel = q('sgEventDateLabel').value.trim();
     const password = q('sgPassword').value.trim();
     if(!title || !simgridLink || !tiers.length){ q('sgSaveStatus').textContent = 'Title, link and at least one tier are required.'; return; }
+
+    // Keep the existing image on an edit unless a new file was chosen -
+    // saving other fields should never silently wipe out a set image.
+    let imageUrl = sgEditingEventImageUrl;
+    const imageFile = q('sgEventImageInput').files[0];
+    if(imageFile){
+      q('sgSaveStatus').textContent = 'Uploading image...';
+      try{ imageUrl = (await window.IFWL_UploadAPI.uploadLicenceImage(imageFile, 'simgridEvent')).url; }
+      catch(e){ q('sgSaveStatus').textContent = 'Image upload failed: ' + e.message; return; }
+    }
+
     q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, tiers, notes, eventDateMs, eventDateLabel, password });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, imageUrl });
       const wasEditing = !!sgEditingEventId;
       sgResetForm();
       q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
@@ -8952,9 +9147,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         if(!checks.length){ status.innerHTML = '<div class="empty">Tick at least one round first.</div>'; return; }
 
         const platform = q('sgPlatform').value;
+        const series = q('sgSeries').value;
         const tiers = [...document.querySelectorAll('.sg-tier-check:checked')].map(el => el.value);
         const notes = q('sgNotes').value.trim();
         if(!tiers.length){ status.innerHTML = '<div class="empty">Select at least one tier below first - it applies to every round being added.</div>'; return; }
+
+        // One shared image (if chosen) applies to every round in this batch,
+        // same as platform/series/tiers/notes above - uploaded once, reused.
+        let imageUrl = '';
+        const imageFile = q('sgEventImageInput').files[0];
+        if(imageFile){
+          status.innerHTML = '<div class="empty">Uploading shared image&hellip;</div>';
+          try{ imageUrl = (await window.IFWL_UploadAPI.uploadLicenceImage(imageFile, 'simgridEvent')).url; }
+          catch(e){ status.innerHTML = `<div class="empty">Image upload failed: ${e.message}</div>`; return; }
+        }
 
         status.innerHTML = `<div class="empty">Adding 0 of ${checks.length}&hellip;</div>`;
         const created = [];
@@ -8975,7 +9181,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           const password = preview.querySelector(`.sg-round-password[data-round-idx="${idx}"]`).value.trim();
           try{
             await window.IFWL_SimgridAPI.saveSimgridEvent({
-              title, simgridLink: url, platform, tiers, notes, password,
+              title, simgridLink: url, platform, series, tiers, notes, password, imageUrl,
               eventDateMs,
               eventDateLabel: eventDateMs ? '' : (r.dateText || title)
             });
