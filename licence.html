@@ -9814,10 +9814,39 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(91, 101, 112);
-    doc.text('Green = promoted since their last recorded tier. Orange = demoted. No colour = first grid assignment or unchanged.', marginX, y);
+    doc.text('Green = promoted since last recorded tier.  Orange = demoted.  Teal = retained (same tier).  Grey = new grid entry.', marginX, y);
     y += 22;
 
-    const ROW_H = 20;
+    // ✅ ADDED: one place for each status's row tint, pill colour and label -
+    // 'up'/'down' were the only two states before; 'same' and 'unknown' are
+    // new so "stayed at the same tier" and "first time on the grid" both get
+    // their own explicit word too, not just an unlabelled row.
+    const GRID_PDF_STATUS_META = {
+      up:      { rowBg: [214, 245, 222], pill: [26, 122, 68],  label: 'PROMOTED' },
+      down:    { rowBg: [255, 231, 199], pill: [161, 96, 12],  label: 'DEMOTED' },
+      same:    { rowBg: [214, 241, 238], pill: [20, 99, 87],   label: 'RETAINED' },
+      unknown: { rowBg: [237, 238, 241], pill: [91, 101, 112], label: 'NEW ENTRY' }
+    };
+
+    // Shrinks text to fit one line within maxWidth (current font/size/style
+    // on `doc` must already be set), adding an ellipsis if it had to cut -
+    // reuses splitTextToSize's own width estimate rather than a second one,
+    // so a name/tier column can never be long enough to run into its neighbour.
+    function fitOneLine(text, maxWidth){
+      const str = String(text);
+      if(doc.splitTextToSize(str, maxWidth).length <= 1) return str;
+      let cut = str;
+      while(cut.length > 3 && doc.splitTextToSize(cut + '...', maxWidth).length > 1) cut = cut.slice(0, -1);
+      return cut.replace(/\s+$/, '') + '...';
+    }
+
+    const ROW_H = 40;                    // two text lines + padding per driver
+    const NAME_COL_W = 300;              // line 1 left: race-number + nickname
+    const LICENCE_COL_X = pageW - marginX - 168; // line 1 right: licence number
+    const LICENCE_COL_W = 160;
+    const TIER_COL_W = pageW - marginX * 2 - 20 - 96; // line 2 left: current -> new tier
+    const PILL_W = 84, PILL_H = 15;      // line 2 right: status pill
+
     const ensureSpace = (needed) => {
       if(y + needed > pageH - 50){
         doc.addPage();
@@ -9842,35 +9871,52 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         ensureSpace(ROW_H);
         const profile = byAccName.get(window.IFWLStats.driverNameKey(s.driver));
         const displayName = profile ? profile.name : s.driver;
-        const licenceNo = profile ? profile.licenceNumber : '-';
+        const licenceNo = profile ? (profile.licenceNumber || '-') : '-';
         const currentTierMeta = profile ? resolveCurrentTierMeta(tierList, profile.tier) : null;
 
-        let status = null; // 'up' | 'down' | null
+        let status = 'unknown'; // 'up' | 'down' | 'same' | 'unknown'
         if(currentTierMeta && currentTierMeta.order != null && newTierMeta.order != null){
           if(newTierMeta.order > currentTierMeta.order) status = 'up';
           else if(newTierMeta.order < currentTierMeta.order) status = 'down';
+          else status = 'same';
         }
+        const meta = GRID_PDF_STATUS_META[status];
 
-        if(status === 'up') doc.setFillColor(214, 245, 222);
-        else if(status === 'down') doc.setFillColor(255, 231, 199);
-        else doc.setFillColor(255, 255, 255);
-        doc.rect(marginX, y - 2, pageW - marginX * 2, ROW_H - 2, 'F');
+        doc.setFillColor(meta.rowBg[0], meta.rowBg[1], meta.rowBg[2]);
+        doc.rect(marginX, y - 4, pageW - marginX * 2, ROW_H - 6, 'F');
 
+        // Line 1: nickname (left, bold) + licence number (right, muted)
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
         doc.setTextColor(27, 36, 48);
+        doc.text(fitOneLine(displayName, NAME_COL_W), marginX + 10, y + 11);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(91, 101, 112);
+        doc.text(fitOneLine(`Licence ${licenceNo}`, LICENCE_COL_W), LICENCE_COL_X, y + 11);
+
+        // Line 2: current -> new tier (left) + status pill (right)
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
+        doc.setTextColor(27, 36, 48);
         const currentLabel = currentTierMeta ? currentTierMeta.name : 'New entry';
-        doc.text(`${displayName}   |   Licence ${licenceNo}   |   ${currentLabel} -> ${newTierMeta.name}`, marginX + 10, y + 12);
+        doc.text(fitOneLine(`${currentLabel}  ->  ${newTierMeta.name}`, TIER_COL_W), marginX + 10, y + 27);
 
-        if(status){
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9);
-          doc.setTextColor(...(status === 'up' ? [26, 122, 68] : [161, 96, 12]));
-          doc.text(status === 'up' ? 'PROMOTED' : 'DEMOTED', pageW - marginX - 62, y + 12);
-        }
+        const pillX = pageW - marginX - PILL_W - 4, pillY = y + 16;
+        doc.setFillColor(meta.pill[0], meta.pill[1], meta.pill[2]);
+        doc.rect(pillX, pillY, PILL_W, PILL_H, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(255, 255, 255);
+        doc.text(meta.label, pillX + 8, pillY + 10.5);
+
+        // Thin separator so consecutive rows of the same status never blur together
+        doc.setFillColor(255, 255, 255);
+        doc.rect(marginX, y + ROW_H - 6, pageW - marginX * 2, 1, 'F');
+
         y += ROW_H;
       });
-      y += 16;
+      y += 14;
     });
 
     doc.setFontSize(9);
