@@ -241,19 +241,31 @@ jobs:
           # it never reaches the shared manifest.json.
           download_server "console-raceteam" "IFWL | CONSOLE RACE TEAM" "$CONSOLE_RACETEAM_HOST" "$CONSOLE_RACETEAM_PORT" "$CONSOLE_RACETEAM_USER" "$CONSOLE_RACETEAM_PASSWORD" "$CONSOLE_RACETEAM_RESULTS_PATH" || true
 
-          # This server (Assetto Hosting) exports its result JSON
-          # in UTF-16LE, unlike every other server here which produces
-          # standard UTF-8. Browsers always assume UTF-8 when parsing JSON
-          # (fetch()/JSON.parse() have no way to auto-detect otherwise), so
-          # without converting these here, every single file from this
-          # server fails client-side with "Expected property name or '}'
-          # at position 1" - a raw UTF-16 NUL byte landing right after the
-          # opening brace. Detected by checking for that exact NUL byte
-          # rather than converting blindly, so this is safe to re-run even
-          # after some files are already fixed, and won't touch a file
-          # that's already valid UTF-8.
-          echo "Checking console-raceteam files for UTF-16 encoding..."
-          for f in data/results/console-raceteam/*.json; do
+          # ✅ FIXED: this used to only scan console-raceteam, on the
+          # assumption that it was the one oddball server exporting
+          # UTF-16LE instead of standard UTF-8. It isn't the encoding
+          # that's tied to console vs PC though - it's tied to which
+          # hosting company runs the server. G-Portal servers
+          # (console-proam, console-beginner, console-monday-funday,
+          # console-licence) export UTF-8 and are fine. Assetto Hosting
+          # servers export UTF-16LE - and that's pc-proam, pc-beginner,
+          # pc-monday-funday and pc-licence, not just console-raceteam
+          # (which only happens to be Assetto Hosting too, despite the
+          # "console" name). So every PC server has been at risk of the
+          # exact same silent corruption console-raceteam had, and it
+          # would have gone unnoticed the same way: the file downloads
+          # fine and shows up in git history, it just fails client-side
+          # with "Expected property name or '}' at position 1" - a raw
+          # UTF-16 NUL byte landing right after the opening brace - so
+          # nothing ever displays for that session. Scanning every
+          # downloaded file across every server folder instead of one
+          # hardcoded folder closes that gap for good, including for any
+          # server added later. Still detected by checking for that exact
+          # NUL byte rather than converting blindly, so this is safe to
+          # re-run even after some files are already fixed, and won't
+          # touch a file that's already valid UTF-8.
+          echo "Checking all downloaded result files for UTF-16 encoding..."
+          for f in data/results/*/*.json; do
             if [ -f "$f" ]; then
               first_bytes=$(head -c 2 "$f" | xxd -p)
               if [ "$first_bytes" = "7b00" ]; then
