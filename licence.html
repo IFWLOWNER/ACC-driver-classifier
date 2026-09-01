@@ -9457,6 +9457,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // ✅ ADDED: kept alongside profiles so "Download Grid PDF" can reuse the
     // exact same grouping/data the staff member is looking at, with no re-fetch.
     qualGridCache[platform].standings = standings;
+    qualGridCache[platform].tiers = tiers;
     const sortedTiers = mainLadderTiers(tiers).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
     const tierOptions = sortedTiers.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
 
@@ -9736,6 +9737,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     };
   }
 
+  // ✅ ADDED: the engine's recommendedTier is always one of these 4 fixed
+  // English labels (see ifwl-stats-engine.js), but staff can freely rename
+  // every tier on the actual ladder (Staff > Manage Licence Tiers - e.g. this
+  // league currently uses "IFWL-GT-Pro" etc, not "GT3 Pro"). Match by keyword
+  // against the REAL current tier list so the PDF shows the tier names staff
+  // actually use, and so its order (for promoted/demoted) is correct even
+  // after a rename. Falls back to the generic engine label if nothing on the
+  // ladder matches any keyword at all.
+  const GRID_PDF_TIER_KEYWORDS = { 'GT3 Pro': 'pro', 'GT3 Amateur': 'amateur', 'GT3 Beginner': 'beginner', 'Rookie Class': 'rookie' };
+  function resolveNewTierMeta(tierList, recommendedLabel){
+    const list = mainLadderTiers(tierList || []);
+    const kw = GRID_PDF_TIER_KEYWORDS[recommendedLabel];
+    // Match on a WHOLE word, not a substring - "pro" must not match inside
+    // "Provisional". Split each tier name on any non-alphanumeric run so
+    // "IFWL-GT-Pro" -> ["ifwl","gt","pro"] but "IFWL-GT-Provisional" ->
+    // ["ifwl","gt","provisional"], which no longer collides.
+    const byKeyword = kw ? list.find(t => t.name.toLowerCase().split(/[^a-z0-9]+/i).includes(kw)) : null;
+    const exact = list.find(t => t.name === recommendedLabel);
+    const match = byKeyword || exact;
+    return match ? { name: match.name, order: match.order ?? null } : { name: recommendedLabel, order: null };
+  }
+  // A driver's recorded profile.tier is always an exact name from this same
+  // ladder (it's set via this same Assign control, or the tier editor), so
+  // this can just be a direct lookup - no keyword guessing needed here.
+  function resolveCurrentTierMeta(tierList, tierName){
+    if(!tierName) return null;
+    const match = mainLadderTiers(tierList || []).find(t => t.name === tierName);
+    return match ? { name: match.name, order: match.order ?? null } : { name: tierName, order: null };
+  }
+
   function downloadQualGridPdf(platform){
     const standings = qualGridCache[platform]?.standings || [];
     const groups = buildGridPdfGroups(standings);
@@ -9743,6 +9774,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     const byAccName = new Map();
     (qualGridCache[platform]?.profiles || []).forEach(p => (p.accDriverNames || []).forEach(n => byAccName.set(window.IFWLStats.driverNameKey(n), p)));
+    const tierList = qualGridCache[platform]?.tiers || [];
 
     const doc = createTinyPdf();
     const pageW = doc.internal.pageSize.getWidth();
@@ -9777,8 +9809,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       pageW - marginX * 2
     );
     doc.text(introLines, marginX, y);
-    y += introLines.length * 14 + 24;
+    y += introLines.length * 14 + 18;
 
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(91, 101, 112);
+    doc.text('Green = promoted since their last recorded tier. Orange = demoted. No colour = first grid assignment or unchanged.', marginX, y);
+    y += 22;
+
+    const ROW_H = 20;
     const ensureSpace = (needed) => {
       if(y + needed > pageH - 50){
         doc.addPage();
@@ -9787,7 +9826,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     };
 
     groups.forEach(g => {
-      ensureSpace(22 + 10 + Math.min(g.rows.length, 1) * 16);
+      ensureSpace(22 + 10 + Math.min(g.rows.length, 1) * ROW_H);
       const color = GRID_PDF_TIER_COLORS[g.tierName] || [27, 36, 48];
       doc.setFillColor(color[0], color[1], color[2]);
       doc.rect(marginX, y, pageW - marginX * 2, 22, 'F');
@@ -9795,17 +9834,41 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.text(`${g.tierName}  (${g.rows.length} driver${g.rows.length === 1 ? '' : 's'})`, marginX + 8, y + 15);
-      y += 22 + 10;
+      y += 22 + 6;
 
-      doc.setTextColor(27, 36, 48);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
-      g.rows.forEach((s, idx) => {
-        ensureSpace(16);
+      const newTierMeta = resolveNewTierMeta(tierList, g.tierName);
+
+      g.rows.forEach((s) => {
+        ensureSpace(ROW_H);
         const profile = byAccName.get(window.IFWLStats.driverNameKey(s.driver));
         const displayName = profile ? profile.name : s.driver;
-        doc.text(`${idx + 1}. ${displayName}`, marginX + 10, y);
-        y += 16;
+        const licenceNo = profile ? profile.licenceNumber : '-';
+        const currentTierMeta = profile ? resolveCurrentTierMeta(tierList, profile.tier) : null;
+
+        let status = null; // 'up' | 'down' | null
+        if(currentTierMeta && currentTierMeta.order != null && newTierMeta.order != null){
+          if(newTierMeta.order > currentTierMeta.order) status = 'up';
+          else if(newTierMeta.order < currentTierMeta.order) status = 'down';
+        }
+
+        if(status === 'up') doc.setFillColor(214, 245, 222);
+        else if(status === 'down') doc.setFillColor(255, 231, 199);
+        else doc.setFillColor(255, 255, 255);
+        doc.rect(marginX, y - 2, pageW - marginX * 2, ROW_H - 2, 'F');
+
+        doc.setTextColor(27, 36, 48);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        const currentLabel = currentTierMeta ? currentTierMeta.name : 'New entry';
+        doc.text(`${displayName}   |   Licence ${licenceNo}   |   ${currentLabel} -> ${newTierMeta.name}`, marginX + 10, y + 12);
+
+        if(status){
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.setTextColor(...(status === 'up' ? [26, 122, 68] : [161, 96, 12]));
+          doc.text(status === 'up' ? 'PROMOTED' : 'DEMOTED', pageW - marginX - 62, y + 12);
+        }
+        y += ROW_H;
       });
       y += 16;
     });
