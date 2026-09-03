@@ -355,6 +355,16 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 /* ✅ ADDED: Owner's Emergency Standards Clause - driver-facing briefing */
 #ownerClauseModal{position:fixed;inset:0;z-index:199997;background:rgba(4,6,9,.86);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
 #ownerClauseModal.hidden{display:none!important}
+/* ✅ ADDED: Season onboarding checklist - Home-only, dismissible per
+   browser session, reappears next visit while anything's still not done. */
+#seasonChecklistModal{position:fixed;inset:0;z-index:199994;background:rgba(4,6,9,.85);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
+#seasonChecklistModal.hidden{display:none!important}
+.s4-check-item{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:#12161c;border:1px solid var(--ifwl-line)}
+.s4-check-item.done{border-color:rgba(51,217,155,.4);background:rgba(51,217,155,.08)}
+.s4-check-icon{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;background:#1c222a;color:var(--text-muted)}
+.s4-check-item.done .s4-check-icon{background:var(--ifwl-green);color:#03211c}
+.s4-check-text strong{display:block;color:var(--text-primary);font-size:13.5px}
+.s4-check-text span{display:block;color:var(--text-muted);font-size:12px;margin-top:3px;line-height:1.4}
 #ownerClauseBanner{border:1px solid rgba(220,38,38,.5);border-radius:16px;background:linear-gradient(135deg,rgba(220,38,38,.16),rgba(220,38,38,.06));margin-bottom:18px;overflow:hidden}
 #ownerClauseBanner .system-status-inner{border-left-color:var(--ifwl-red)}
 #ownerClauseBanner .system-status-inner strong{color:var(--ifwl-red)}
@@ -1108,6 +1118,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <p id="ownerClauseModalText">Loading&hellip;</p>
     <div class="login-wall-actions" style="margin-top:14px">
       <button class="login-wall-logout" id="ownerClauseDismissBtn" type="button">I Understand</button>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ ADDED: Season onboarding checklist - every item is read live off
+     the driver's own profile/tier/qualifying-lap status (see
+     renderSeasonChecklist), so it needs nothing special to "reset" for a
+     new season - it just starts nagging again on its own once tier and
+     qualifying status get reset for Season 4. Only shown on Home, never
+     to staff, never once every item is done. -->
+<div id="seasonChecklistModal" class="hidden">
+  <div class="login-wall-card" style="text-align:left">
+    <div class="licence-org" style="font-size:13px;color:var(--ifwl-teal);text-align:center">IFWL SEASON 4</div>
+    <h1 style="text-align:center;background:linear-gradient(100deg,#fff,var(--ifwl-teal));-webkit-background-clip:text;background-clip:text;color:transparent">Welcome to IFWL! Let's get you set for Season 4!</h1>
+    <div id="seasonChecklistItems" style="margin-top:18px;display:flex;flex-direction:column;gap:12px"></div>
+    <div class="login-wall-actions" style="margin-top:20px">
+      <button class="login-wall-logout" id="seasonChecklistDismissBtn" type="button">Not now</button>
     </div>
   </div>
 </div>
@@ -4005,6 +4032,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!__seasonalEventsCache) return null;
     return resolveActiveSeasonalOverlay(__seasonalEventsCache, context);
   };
+  // ✅ ADDED: same sync-cache pattern as above, but banned-aware - used by
+  // Driver Directory card rendering, which isn't async.
+  window.getCardOverlaySync = (context, isBanned) => {
+    if(!__seasonalEventsCache) return null;
+    return resolveCardOverlay(__seasonalEventsCache, context, isBanned);
+  };
 
   // Handles ranges that cross the year boundary (e.g. Christmas: Dec 1 -
   // Jan 1) by checking "today is on/after start" OR "today is on/before
@@ -4037,6 +4070,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const event = active.find(e => e[urlField]);
     if(!event) return null;
     return { imageUrl: event[urlField], glow: !!event[glowField] };
+  }
+
+  // ✅ ADDED: banned-driver overlay - reuses the April Fools event's own
+  // uploaded artwork rather than a separate upload flow, matched by name
+  // (case-insensitive, "april" or "fool") so it doesn't depend on that
+  // event's own enabled/date window - a ban shows this art on a banned
+  // driver's card regardless of whether April Fools itself is "active".
+  function resolveBannedOverlay(events, context){
+    const urlField = context === 'directory' ? 'directoryImageUrl' : 'mainImageUrl';
+    const glowField = context === 'directory' ? 'directoryGlow' : 'mainGlow';
+    const event = (events || []).find(e => /april|fool/i.test(e.name || '') && e[urlField]);
+    if(!event) return null;
+    return { imageUrl: event[urlField], glow: !!event[glowField] };
+  }
+
+  // Banned takes priority over any currently-active seasonal event.
+  function resolveCardOverlay(events, context, isBanned){
+    if(isBanned){
+      const banned = resolveBannedOverlay(events, context);
+      if(banned) return banned;
+    }
+    return resolveActiveSeasonalOverlay(events, context);
   }
 
   // ✅ ADDED: Raceday Info - basic markdown-to-HTML renderer. Handles the
@@ -4156,7 +4211,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!cardImg) return;
 
     const events = await fetchSeasonalEventsConfig();
-    const activeEvent = resolveActiveSeasonalOverlay(events, 'main');
+    // ✅ ADDED: banned drivers see the (reused April Fools) banned overlay
+    // on their own card too, regardless of any currently active season.
+    const isBanned = !!(currentProfile && currentProfile.ban && currentProfile.ban.endsAtMs && currentProfile.ban.endsAtMs > Date.now());
+    const activeEvent = resolveCardOverlay(events, 'main', isBanned);
 
     if(activeEvent){
       cardImg.src = activeEvent.imageUrl;
@@ -4674,8 +4732,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           }).join('')}</div>`
         : '';
       // ✅ ADDED: same seasonal overlay artwork as the main licence card,
-      // applied to every Driver Directory card too.
-      const activeSeasonal = window.getActiveSeasonalOverlaySync?.('directory');
+      // applied to every Driver Directory card too - banned drivers get
+      // the (reused April Fools) banned overlay instead, taking priority
+      // over whatever seasonal event might currently be active.
+      const activeSeasonal = window.getCardOverlaySync?.('directory', !!r.banActive);
       const seasonalOverlay = activeSeasonal
         ? `<img class="seasonal-overlay-img dir-card-seasonal${activeSeasonal.glow ? ' glow' : ''}" src="${activeSeasonal.imageUrl}" alt="">`
         : '';
@@ -6547,6 +6607,106 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     box.innerHTML = `<strong>Licence qualification laps</strong>${lines}`;
   }
 
+  // ✅ ADDED: Season 4 onboarding checklist. Every item is computed live
+  // off currentProfile/currentTiers/the same lap-standings engine used by
+  // the lap progress box above and the Discord qualification bot - nothing
+  // is stored specifically for this popup, so a season reset (whatever
+  // process already resets tier/qualifying status for the new season)
+  // makes it start reappearing again automatically, with zero extra work.
+  // Dismiss is sessionStorage, not localStorage, on purpose - "Not now"
+  // should only last this browser session, not forever, while the driver
+  // is still missing something; it's re-checked fresh on the next visit.
+  function seasonChecklistDismissKey(){
+    return 'IFWL_S4_CHECKLIST_DISMISSED:' + window.IFWL_AUTH.userId(window.IFWL_META);
+  }
+  const IFWL_QUAL_MIN_LAPS_UI = 15;
+  async function computeSeasonChecklistItems(){
+    const p = currentProfile || {};
+    const items = [];
+
+    // 1) Profile basics - the exact same fields that gate the whole site
+    // via the Driver Link Gate (see needsProfileBasics in init()), and
+    // what actually earns the Active Racer Discord role in the first
+    // place - so passing that gate once already satisfies this.
+    const hasBasics = !!(p.simgridUsername && p.platform && (p.platform === 'console' || p.steamId) && p.namePronunciation);
+    items.push({
+      title: 'Get your profile set up on IFWL.NET',
+      detail: 'This is what gets you the Active Racer role on Discord and into the Licence Centre - only the website can grant it.',
+      done: hasBasics
+    });
+
+    // 2) 2+ ACC driver names linked - one from the IFWL Live Timings
+    // entrylist, one from Racing > Claim Your Laps, same fields as the
+    // green "no ACC name" nudge elsewhere on My Licence, just requiring 2
+    // here instead of 1.
+    const nameCount = (p.accDriverNames || []).length;
+    items.push({
+      title: 'Add your ACC driver name(s)',
+      detail: 'Under "Your ACC Driver Name" on My Licence - one can be found on IFWL Live Timings (entrylist names), the other under Racing > Claim Your Laps. Should be 2 or more.',
+      done: nameCount >= 2
+    });
+
+    // 3) Platform selected.
+    items.push({
+      title: 'Select your platform',
+      detail: 'PC or Console, set on My Licence.',
+      done: !!p.platform
+    });
+
+    // 4) 15 qualifying laps in, on whichever server(s) they've actually
+    // raced on - same standings engine and 15-lap threshold as the lap
+    // progress box above and the Discord qualification bot.
+    let qualDone = false;
+    try{
+      const platformLaps = [];
+      for(const serverId of ['pc-licence','console-licence']){
+        const standings = await window.cachedLicenceServerStandings({ minLaps: 15, serverId, classStructure: await window.classStructureForServer(serverId), qualWindow: await window.fetchQualWindowMs() });
+        const idx = findMyStandingRow(standings, p.accDriverNames || []);
+        if(idx >= 0) platformLaps.push(standings[idx].totalLaps);
+      }
+      qualDone = platformLaps.length > 0 && platformLaps.every(laps => laps >= 15);
+    }catch(e){ /* one platform failing to load shouldn't wrongly show this as done */ }
+    items.push({
+      title: 'Get your qualifying laps in',
+      detail: `At least ${IFWL_QUAL_MIN_LAPS_UI} laps on the IFWL Licence server for your platform.`,
+      done: qualDone
+    });
+
+    // 5) Await Season 4 placement - not something a driver can tick off
+    // themselves. Reuses the same tier-order check as the lap progress box
+    // (order 0/1 = No Licence/Provisional, i.e. not yet properly placed).
+    const myTier = currentTiers.find(t => t.name === p.tier);
+    const myOrder = myTier ? Number(myTier.order ?? 99) : 0;
+    items.push({
+      title: 'Await your Season 4 placement',
+      detail: 'Once your laps are in, staff will assign your tier based on your pace - just sit tight.',
+      done: myOrder > 1
+    });
+
+    return items;
+  }
+  async function renderSeasonChecklist(){
+    const modal = q('seasonChecklistModal');
+    if(!modal || !currentProfile || window.IFWL_STAFF) return;
+
+    const items = await computeSeasonChecklistItems();
+    if(items.every(i => i.done)){ modal.classList.add('hidden'); return; }
+    if(sessionStorage.getItem(seasonChecklistDismissKey())) return;
+
+    q('seasonChecklistItems').innerHTML = items.map((it, idx) => `
+      <div class="s4-check-item${it.done ? ' done' : ''}">
+        <div class="s4-check-icon">${it.done ? '&#10003;' : (idx + 1)}</div>
+        <div class="s4-check-text"><strong>${it.title}</strong><span>${it.detail}</span></div>
+      </div>
+    `).join('');
+    modal.classList.remove('hidden');
+  }
+  window.renderSeasonChecklist = renderSeasonChecklist;
+  q('seasonChecklistDismissBtn')?.addEventListener('click', () => {
+    sessionStorage.setItem(seasonChecklistDismissKey(), '1');
+    q('seasonChecklistModal').classList.add('hidden');
+  });
+
   async function checkTicketNotice(){
     const notice = await window.IFWL_TicketNoticeAPI.fetchMyPendingTicketNotice();
     if(!notice.count) return;
@@ -6706,8 +6866,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     checkTicketNotice();
     checkInboxNotice();
     checkOwnerClauseNotice();
+    // ✅ ADDED: Season 4 checklist - Home view only (see switchView for the
+    // re-check when navigating back to Home later in the same visit).
+    if(document.querySelector('#viewTabs > .view-tab.active')?.dataset.view === 'home'){
+      renderSeasonChecklist();
+    }
 
-    if(currentProfile) { renderCard(currentProfile); renderStaffNotices(currentProfile); }
+    if(currentProfile) {
+      renderCard(currentProfile);
+      renderStaffNotices(currentProfile);
+      // ✅ ADDED: re-run now that currentProfile (and so ban status) is
+      // actually known - the earlier call above happens before login/profile
+      // resolves, so it can only ever apply the seasonal-only overlay.
+      applySeasonalOverlays();
+    }
     window.applyLicenceBetaNotice?.(); // fire-and-forget - independent of profile state, shown to staff too.
     // ✅ FIXED: this page's inline <script> blocks each have their own closure
     // scope (see the note near window.IFWL_Api above) - applyLicenceBetaNotice
@@ -6993,6 +7165,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     document.querySelectorAll('.view-tab-dropdown').forEach(d => d.classList.remove('open'));
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    // ✅ ADDED: Season 4 checklist re-check - Home only, so navigating away
+    // and back doesn't need a full page reload to see it again.
+    if(view === 'home') window.renderSeasonChecklist?.();
   }
   window.switchView = switchView;
   document.querySelectorAll('#viewTabs [data-view]').forEach(btn => {
