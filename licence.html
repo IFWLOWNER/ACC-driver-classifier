@@ -1114,11 +1114,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   letter-spacing:1px; font-size:11px;
 }
 #secretTerminalClose:hover{background:rgba(61,255,106,.14)}
-#secretPassInput{
+#secretPassInput,#secretLookupInput{
   background:transparent; border:none; border-bottom:1px solid #3dff6a; color:#3dff6a;
   font-family:inherit; font-size:14px; padding:2px 4px; width:240px;
   outline:none; text-shadow:0 0 6px rgba(61,255,106,.65);
 }
+.secret-menu-item{cursor:pointer}
+.secret-menu-item:hover{color:#eafff0;text-shadow:0 0 10px rgba(61,255,106,.9);text-decoration:underline}
 </style>
 </head>
 <body class="login-wall-open">
@@ -13961,7 +13963,19 @@ Flashing Headlights:
   if(window.IFWL_STAFF) initStaffPanels(); // covers an already-resolved session on this load
   if(window.IFWL_COMMENTATOR || window.IFWL_OWNER) { window.initCommentatorPanel?.(); window.initDriverLookupPanel?.(); } // same for Commentator/Owner-preview
 
-
+  // =====================================================================
+  // ✅ ADDED: SECRET TERMINAL EASTER EGG - purely cosmetic, no server call,
+  // no real password anywhere (there's nothing to check the input
+  // against - see secretShowPasswordPrompt below). Owner status is read
+  // live off body.owner-access, the same class the rest of the site
+  // already gates owner-only UI on (see the two .classList.toggle('owner-access', ...)
+  // call sites), so this automatically respects staff "View As" simulation
+  // too - simulate a non-owner and this behaves like a non-owner would see
+  // it. The trigger is the small teal bullet that already sits in front of
+  // "YOUR LICENCE" above the tab bar (see #secretTerminalDot) - it's a
+  // real dot people already see every time they open the site, just not
+  // one anybody would think to click.
+  // =====================================================================
   let secretTerminalRunning = false;
 
   function secretDelay(ms){ return new Promise(r => setTimeout(r, ms)); }
@@ -14032,6 +14046,128 @@ Flashing Headlights:
     }
   }
 
+  // ✅ ADDED: OVERSEER MENU - the real payoff for the owner specifically,
+  // once past the joke boot sequence above. Reuses staffSearch,
+  // window.IFWL_SimgridAPI and window.IFWL_TierAPI exactly as the real
+  // Staff Licence Database / SimGrid Events / Available Races panels
+  // already do elsewhere on this page - no new backend endpoints, this
+  // just surfaces existing data through the terminal for a quick glance
+  // without leaving the easter egg. Never shown to a non-owner - see the
+  // isOwner branch in runSecretTerminalSequence below.
+  function secretMenuLine(html, onClick){
+    const line = secretAppendLine(html);
+    if(line && onClick){
+      line.classList.add('secret-menu-item');
+      line.addEventListener('click', onClick);
+    }
+    return line;
+  }
+
+  function secretClearBody(){
+    const body = q('secretTerminalBody');
+    if(body) body.innerHTML = '';
+  }
+
+  async function secretRenderScreen(title, bodyFn){
+    secretClearBody();
+    secretAppendLine(`IFWL SECURE TERMINAL &mdash; ${title}`);
+    secretAppendLine('&nbsp;');
+    await bodyFn();
+  }
+
+  async function secretGoToMenu(){
+    await secretRenderScreen('OVERSEER MENU', async () => {
+      secretMenuLine('[1] UPCOMING RACES', () => secretGoToUpcomingRaces());
+      secretMenuLine('[2] LICENCE POPULATION', () => secretGoToTierBreakdown());
+      secretMenuLine('[3] LOOKUP A DRIVER', () => secretGoToDriverLookup());
+      secretAppendLine('&nbsp;');
+      secretMenuLine('[0] DISCONNECT', () => closeSecretTerminal());
+    });
+  }
+
+  async function secretGoToUpcomingRaces(){
+    await secretRenderScreen('UPCOMING RACES', async () => {
+      const loading = secretAppendLine('LOADING&hellip;');
+      try{
+        const events = await window.IFWL_SimgridAPI.fetchAvailableRaces(true);
+        loading?.remove();
+        const upcoming = (events || []).filter(e => !e.ended).slice(0, 12);
+        if(!upcoming.length){
+          secretAppendLine('No upcoming races on file.');
+        } else {
+          upcoming.forEach(e => {
+            const when = e.eventDateMs
+              ? new Date(e.eventDateMs).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})
+              : (e.eventDateLabel || 'No date set');
+            const tiers = (e.tiers || []).join(', ') || 'no tiers set';
+            const plat = e.platform === 'console' ? 'CONSOLE' : e.platform === 'pc' ? 'PC' : 'PC+CONSOLE';
+            secretAppendLine(`[${plat}] ${e.title || '(untitled)'} &mdash; ${when}`);
+            secretAppendLine(`&nbsp;&nbsp;&nbsp;&nbsp;tiers: ${tiers}`);
+          });
+        }
+      }catch(err){
+        loading?.remove();
+        secretAppendLine(`<span style="color:#ff6a6a">Could not load: ${err.message}</span>`);
+      }
+      secretAppendLine('&nbsp;');
+      secretMenuLine('&lt; BACK', () => secretGoToMenu());
+    });
+  }
+
+  async function secretGoToTierBreakdown(){
+    await secretRenderScreen('LICENCE POPULATION', async () => {
+      const loading = secretAppendLine('LOADING&hellip;');
+      try{
+        const [profiles, tierList] = await Promise.all([staffSearch(''), window.IFWL_TierAPI.fetchTierList()]);
+        loading?.remove();
+        const orderedNames = tierList.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(t => t.name);
+        const counts = {};
+        profiles.forEach(p => { const t = p.tier || 'No Licence'; counts[t] = (counts[t] || 0) + 1; });
+        const rows = orderedNames.slice();
+        if(counts['No Licence'] && !rows.includes('No Licence')) rows.push('No Licence');
+        const maxCount = Math.max(1, ...rows.map(t => counts[t] || 0));
+        rows.forEach(t => {
+          const c = counts[t] || 0;
+          const barLen = Math.max(0, Math.round((c / maxCount) * 22));
+          secretAppendLine(`${t.padEnd(20).slice(0, 20)} ${'█'.repeat(barLen)} ${c}`);
+        });
+        secretAppendLine('&nbsp;');
+        secretAppendLine(`TOTAL LICENSED DRIVERS: ${profiles.length}`);
+      }catch(err){
+        loading?.remove();
+        secretAppendLine(`<span style="color:#ff6a6a">Could not load: ${err.message}</span>`);
+      }
+      secretAppendLine('&nbsp;');
+      secretMenuLine('&lt; BACK', () => secretGoToMenu());
+    });
+  }
+
+  async function secretGoToDriverLookup(){
+    await secretRenderScreen('DRIVER LOOKUP', async () => {
+      secretAppendLine('Type a name or licence number, press Enter:');
+      const wrap = secretAppendLine('&gt; <input type="text" id="secretLookupInput" autocomplete="off" spellcheck="false">');
+      const resultsWrap = secretAppendLine('');
+      const input = wrap?.querySelector('#secretLookupInput');
+      input?.focus();
+      input?.addEventListener('keydown', async (e) => {
+        if(e.key !== 'Enter') return;
+        const term = input.value.trim();
+        resultsWrap.innerHTML = 'Searching&hellip;';
+        try{
+          const drivers = await staffSearch(term);
+          if(!drivers.length){ resultsWrap.innerHTML = 'No matches.'; return; }
+          resultsWrap.innerHTML = drivers.slice(0, 12).map(d =>
+            `${(d.name || 'Unnamed').padEnd(24).slice(0, 24)} ${(d.tier || 'No Licence').padEnd(20).slice(0, 20)} ${d.licenceNumber || ''}`
+          ).join('<br>');
+        }catch(err){
+          resultsWrap.innerHTML = `<span style="color:#ff6a6a">Search failed: ${err.message}</span>`;
+        }
+      });
+      secretAppendLine('&nbsp;');
+      secretMenuLine('&lt; BACK', () => secretGoToMenu());
+    });
+  }
+
   function secretShowPasswordPrompt(){
     return new Promise(resolve => {
       const wrap = secretAppendLine('&gt; <input type="password" id="secretPassInput" autocomplete="off" spellcheck="false">');
@@ -14089,6 +14225,8 @@ Flashing Headlights:
       await runSecretFakeChecks();
       secretAppendLine('&nbsp;');
       secretAppendLine('<span style="color:#9dffb0;font-weight:700">ALL SYSTEMS NOMINAL. HAVE A GOOD ONE, BOSS.</span>');
+      await secretDelay(600);
+      await secretGoToMenu();
     } else {
       secretAppendLine('<span style="color:#ff6a6a;font-weight:700">CLEARANCE: UNVERIFIED</span>');
       await secretDelay(400);
@@ -14116,7 +14254,12 @@ Flashing Headlights:
 })();
 </script>
 
-
+<!-- ✅ ADDED: secret terminal easter egg overlay - hidden by default (no
+     .active class), toggled purely client-side from the click handler on
+     #secretTerminalDot above. Sits above absolutely everything else on the
+     page (z-index in the secret-terminal CSS block), including the login
+     wall, since it's meant to work as a "found it" moment regardless of
+     what else is on screen. -->
 <div id="secretTerminal" role="dialog" aria-label="Secret terminal">
   <button id="secretTerminalClose" type="button">CLOSE [ESC]</button>
   <div id="secretTerminalBody"></div>
