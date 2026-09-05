@@ -236,10 +236,15 @@
     const sessionLapMap = lapMapForSession(data);
     const serverId = item.serverId || serverIdFromPath(source) || 'unknown';
     const serverName = item.serverName || serverLabels[serverId] || serverId || 'Unknown server';
+    // ✅ ADDED: wet/dry session flag (ACC's only weather field), carried onto
+    // every row - needed by fetchSandbaggingReview's category benchmarks so
+    // a wet lap is never compared against a dry benchmark or vice versa.
+    // Same source field livetimings.html itself reads (data.sessionResult.isWetSession).
+    const wet = !!data.sessionResult?.isWetSession;
     const rows = lines.filter(l => !l.bIsSpectator).map((l) => {
       const lm = sessionLapMap.get(lapKey(l.car?.carId, l.currentDriverIndex)) || {laps:[], validLaps:[], invalid:0, total:0, lapObjects:[]};
       return {
-        source, serverId, serverName,
+        source, serverId, serverName, wet,
         fileName: source.split('/').pop(),
         sessionType: data.sessionType,
         session: sessionLabel(data),
@@ -260,7 +265,7 @@
         missingPit: l.missingMandatoryPitstop
       };
     });
-    return { source, serverId, serverName, fileName: source.split('/').pop(), data, sessionType: data.sessionType || '?', track: data.trackName || data.metaData || 'unknown', rows };
+    return { source, serverId, serverName, wet, fileName: source.split('/').pop(), data, sessionType: data.sessionType || '?', track: data.trackName || data.metaData || 'unknown', rows };
   }
 
   function riskLabel(value){
@@ -1153,4 +1158,232 @@
 
   window.IFWLStats.getDriverSessionHistory = getDriverSessionHistory;
   window.IFWLStats.buildDriverSessionChartHtml = buildDriverSessionChartHtml;
+
+  // =======================================================
+  // ✅ ADDED: Sandbagging Watch lookup - ported from livetimings.html's
+  // staff-only Beginner Review panel (computeCategoryBenchmarks /
+  // renderBeginnerReview) so the exact same detection - category pace
+  // benchmark comparison, same-driver cross-category pace gap, and rapid
+  // pace increase over time - can be looked up for one specific driver
+  // from the Licence Centre's staff Licence Lookup, without staff needing
+  // to separately open Live Timings. Same thresholds, same formulas, same
+  // "not proof, just worth a look" framing as the source panel - this
+  // never bans or flags anyone automatically, it only surfaces the same
+  // live-computed notes staff already see there, filtered to one driver's
+  // linked ACC name(s). Nothing is stored anywhere - it's recomputed
+  // fresh from the same public result files (via buildAllRows above)
+  // every time it's called.
+  // =======================================================
+  function platformOfServer(serverId){
+    return String(serverId || '').startsWith('pc-') ? 'PC' : 'Console';
+  }
+  function categoryOfServer(serverId){
+    const id = String(serverId || '');
+    if(id.includes('beginner')) return 'Beginner';
+    if(id.includes('monday-funday')) return 'Monday Funday';
+    if(id.includes('proam')) return 'Pro-Am';
+    return 'Unknown';
+  }
+  function conditionLabel(row){ return row?.wet ? 'wet' : 'dry'; }
+  function conditionCaution(rowA, rowB){
+    if(!!rowA?.wet === !!rowB?.wet) return '';
+    return ' Note: these two laps were set in different track conditions (one wet, one dry) - that alone can explain some or all of this gap, so weigh it accordingly.';
+  }
+  const trackTitle = s => String(s || '').replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+
+  // Minimum sample size (after outlier trimming) before a category's median
+  // is trusted as a benchmark at all - below this, no flag can fire off it.
+  const SANDBAG_MIN_BENCHMARK_SAMPLE = 8;
+  function trimBenchmarkOutliers(values){
+    if(values.length < 5) return values; // too few to safely detect outliers - leave as-is
+    const med = median(values);
+    const deviations = values.map(v => Math.abs(v - med));
+    const mad = median(deviations) || 1;
+    const modifiedZ = v => (0.6745 * (v - med)) / mad;
+    const clean = values.filter(v => Math.abs(modifiedZ(v)) <= 3.5);
+    return clean.length >= 3 ? clean : values;
+  }
+
+  // Category-wide pace benchmarks: the median best lap for genuine Beginner
+  // and Pro-Am drivers at each track/condition, computed across every
+  // driver currently loaded - not just the one being looked up. This is
+  // what lets a driver be flagged as suspiciously fast for Beginner even
+  // if they've never personally raced Pro-Am.
+  function computeCategoryBenchmarks(allRows){
+    const groups = new Map();
+    for(const r of allRows){
+      if(!isValidLap(r.bestLap)) continue;
+      const cat = categoryOfServer(r.serverId);
+      if(cat !== 'Beginner' && cat !== 'Pro-Am') continue;
+      const condition = r.wet ? 'wet' : 'dry';
+      const key = `${platformOfServer(r.serverId)}|||${r.track}|||${condition}`;
+      if(!groups.has(key)) groups.set(key, { beginner: [], proam: [] });
+      const g = groups.get(key);
+      if(cat === 'Beginner') g.beginner.push(r.bestLap);
+      else g.proam.push(r.bestLap);
+    }
+    const benchmarks = new Map();
+    for(const [key, g] of groups.entries()){
+      const cleanBeginner = trimBenchmarkOutliers(g.beginner);
+      const cleanProam = trimBenchmarkOutliers(g.proam);
+      benchmarks.set(key, {
+        beginnerMedian: cleanBeginner.length >= SANDBAG_MIN_BENCHMARK_SAMPLE ? median(cleanBeginner) : null,
+        proamMedian: cleanProam.length >= SANDBAG_MIN_BENCHMARK_SAMPLE ? median(cleanProam) : null,
+        beginnerCount: cleanBeginner.length,
+        proamCount: cleanProam.length,
+        beginnerRawCount: g.beginner.length,
+        proamRawCount: g.proam.length
+      });
+    }
+    return benchmarks;
+  }
+
+  // Same per-driver note generation as livetimings.html's renderBeginnerReview,
+  // extracted so it can run for just one driver's rows instead of the whole
+  // loaded population.
+  function sandbaggingNotesForDriver(displayName, validRows, categoryBenchmarks){
+    const notes = [];
+    const CATEGORY_PACE_THRESHOLD = 0.05;
+
+    const byPlatformTrack = new Map();
+    for(const r of validRows){
+      const groupKey = `${platformOfServer(r.serverId)}|||${r.track}`;
+      if(!byPlatformTrack.has(groupKey)) byPlatformTrack.set(groupKey, []);
+      byPlatformTrack.get(groupKey).push(r);
+    }
+
+    for(const [groupKey, groupRows] of byPlatformTrack.entries()){
+      const [platform, track] = groupKey.split('|||');
+      const byCategory = new Map();
+      for(const r of groupRows){
+        const cat = categoryOfServer(r.serverId);
+        const existing = byCategory.get(cat);
+        if(!existing || r.bestLap < existing.bestLap) byCategory.set(cat, r);
+      }
+
+      // Is this driver's Beginner pace actually at Pro-Am level? Compared
+      // only against the benchmark for its own wet/dry condition.
+      const beginnerRow = byCategory.get('Beginner');
+      if(beginnerRow){
+        const cond = beginnerRow.wet ? 'wet' : 'dry';
+        const bench = categoryBenchmarks.get(`${platform}|||${track}|||${cond}`);
+        if(bench?.proamMedian && beginnerRow.bestLap <= bench.proamMedian * (1 + CATEGORY_PACE_THRESHOLD)){
+          const gapToProAmPct = ((beginnerRow.bestLap - bench.proamMedian) / bench.proamMedian) * 100;
+          const risk = raceRiskForRow(beginnerRow, null, 0);
+          notes.push({
+            type: 'warn',
+            label: 'Too fast for Beginner',
+            title: `${displayName}'s Beginner best at ${trackTitle(track)} is at Pro-Am pace (${platform}, ${cond})`,
+            detail: `Their best: ${msTimeFull(beginnerRow.bestLap)} in the ${conditionLabel(beginnerRow)} (${esc(beginnerRow.serverName)}). Beginner median here (${cond}): ${msTimeFull(bench.beginnerMedian || 0)} (${bench.beginnerCount} laps). Pro-Am median here (${cond}): ${msTimeFull(bench.proamMedian)} (${bench.proamCount} laps). Gap to Pro-Am median: ${gapToProAmPct >= 0 ? '+' : ''}${gapToProAmPct.toFixed(1)}%. Consistency: ${consistencyText(beginnerRow.consistencyStats?.consistency, beginnerRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(risk.risk) ? risk.risk.toFixed(0)+'%' : '-'} (${risk.label}).`,
+            reason: `This driver's Beginner pace is at or faster than the typical Pro-Am driver at this track in these same conditions - a strong signal worth reviewing, regardless of whether they've ever actually raced Pro-Am themselves.`,
+            timestampMs: fileTimestamp(beginnerRow)
+          });
+        }
+      }
+
+      if(byCategory.size < 2) continue; // need at least two categories for the comparisons below
+
+      const entries = [...byCategory.entries()];
+      const fastest = entries.reduce((a,b) => a[1].bestLap <= b[1].bestLap ? a : b);
+      const slowest = entries.reduce((a,b) => a[1].bestLap >= b[1].bestLap ? a : b);
+      if(fastest[0] === slowest[0]) continue;
+
+      const gapPct = ((slowest[1].bestLap - fastest[1].bestLap) / fastest[1].bestLap) * 100;
+      if(gapPct < 4) continue; // small, expected category variance - not worth flagging
+
+      const slowRow = slowest[1];
+      const fastRow = fastest[1];
+      const slowRisk = raceRiskForRow(slowRow, null, 0);
+      const caution = conditionCaution(slowRow, fastRow);
+
+      if(slowest[0] === 'Beginner'){
+        notes.push({
+          type:'warn',
+          label:'Sandbagging watch',
+          title:`${displayName} is ${gapPct.toFixed(1)}% slower in ${platform} Beginner than their own ${fastest[0]} pace at ${trackTitle(track)}`,
+          detail:`Beginner best: ${msTimeFull(slowRow.bestLap)} in the ${conditionLabel(slowRow)} (${esc(slowRow.serverName)}). ${fastest[0]} best: ${msTimeFull(fastRow.bestLap)} in the ${conditionLabel(fastRow)} (${esc(fastRow.serverName)}). Consistency in Beginner: ${consistencyText(slowRow.consistencyStats?.consistency, slowRow.consistencyStats?.count)}. Session Risk: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
+          reason:`This driver has demonstrated meaningfully faster pace elsewhere on the same platform and track. Not proof of deliberate sandbagging, but worth a racecraft and attendance review before treating this as genuine Beginner pace.${caution}`,
+          timestampMs: Math.max(fileTimestamp(slowRow), fileTimestamp(fastRow))
+        });
+      }else{
+        notes.push({
+          type:'move',
+          label:'Pace mismatch',
+          title:`${displayName} shows a ${gapPct.toFixed(1)}% pace gap between ${fastest[0]} and ${slowest[0]} at ${trackTitle(track)} (${platform})`,
+          detail:`${fastest[0]} best: ${msTimeFull(fastRow.bestLap)} in the ${conditionLabel(fastRow)} (${esc(fastRow.serverName)}). ${slowest[0]} best: ${msTimeFull(slowRow.bestLap)} in the ${conditionLabel(slowRow)} (${esc(slowRow.serverName)}). Session Risk in the slower category: ${Number.isFinite(slowRisk.risk) ? slowRisk.risk.toFixed(0)+'%' : '-'} (${slowRisk.label}).`,
+          reason:`Neither category here is the protected Beginner tier, so this ranks below a Sandbagging watch - but a large, repeated gap between two categories for the same driver is still worth a look.${caution}`,
+          timestampMs: Math.max(fileTimestamp(slowRow), fileTimestamp(fastRow))
+        });
+      }
+    }
+
+    // Rapid pace increase: same driver, same server/category, same track,
+    // compared over time (earliest vs most recent). Not inherently
+    // suspicious - genuine improvement is normal - but worth surfacing.
+    const byServerTrack = new Map();
+    for(const r of validRows){
+      const groupKey = `${r.serverId}|||${r.track}`;
+      if(!byServerTrack.has(groupKey)) byServerTrack.set(groupKey, []);
+      byServerTrack.get(groupKey).push(r);
+    }
+    for(const [groupKey, groupRows] of byServerTrack.entries()){
+      if(groupRows.length < 3) continue; // need a real trend, not just one pair of files
+      const [, track] = groupKey.split('|||');
+      const sortedByTime = [...groupRows].sort((a,b) => fileTimestamp(a) - fileTimestamp(b));
+      const earliest = sortedByTime[0];
+      const mostRecent = sortedByTime[sortedByTime.length - 1];
+      if(earliest === mostRecent || !isValidLap(earliest.bestLap)) continue;
+
+      const improvementPct = ((earliest.bestLap - mostRecent.bestLap) / earliest.bestLap) * 100;
+      if(improvementPct < 3) continue;
+
+      const recentRisk = raceRiskForRow(mostRecent, null, 0);
+      const increaseCaution = conditionCaution(earliest, mostRecent);
+      notes.push({
+        type:'move',
+        label:'Rapid pace increase',
+        title:`${displayName} improved ${improvementPct.toFixed(1)}% at ${trackTitle(track)} in ${esc(mostRecent.serverName)}`,
+        detail:`Earliest recorded best: ${msTimeFull(earliest.bestLap)} in the ${conditionLabel(earliest)} (${humanSessionDate(earliest)}). Most recent best: ${msTimeFull(mostRecent.bestLap)} in the ${conditionLabel(mostRecent)} (${humanSessionDate(mostRecent)}). Consistency now: ${consistencyText(mostRecent.consistencyStats?.consistency, mostRecent.consistencyStats?.count)}. Session Risk: ${Number.isFinite(recentRisk.risk) ? recentRisk.risk.toFixed(0)+'%' : '-'} (${recentRisk.label}).`,
+        reason:`Not automatically suspicious - genuine improvement is normal and worth celebrating. Flagged so staff have visibility on drivers whose pace is changing quickly, in either direction.${increaseCaution}`,
+        timestampMs: fileTimestamp(mostRecent)
+      });
+    }
+
+    return notes;
+  }
+
+  /**
+   * Looks up the same live-computed Sandbagging Watch / Pace Mismatch /
+   * Rapid Pace Increase / Too Fast For Beginner flags shown on Live
+   * Timings' staff-only Beginner Review panel, scoped to one driver's
+   * linked ACC name(s). Nothing is stored anywhere - this recomputes the
+   * check fresh from the same public result files each time it's called.
+   *
+   * @param {string[]} accDriverNames - the driver's linked ACC name(s),
+   *   e.g. a licence profile's accDriverNames field.
+   * @returns {Promise<{checked:boolean, notes:object[], driverRowCount:number,
+   *   totalRowCount:number, reason?:string}>}
+   */
+  async function fetchSandbaggingReview(accDriverNames, opts={}){
+    const mine = (accDriverNames || []).map(n => driverNameKey(n)).filter(Boolean);
+    if(!mine.length) return { checked: false, notes: [], driverRowCount: 0, totalRowCount: 0, reason: 'no-linked-names' };
+
+    const allRows = await buildAllRows(!!opts.force);
+    if(!allRows.length) return { checked: true, notes: [], driverRowCount: 0, totalRowCount: 0, reason: 'no-data' };
+
+    const myRows = allRows.filter(r => mine.includes(driverNameKey(r.driver)));
+    const validRows = myRows.filter(r => isValidLap(r.bestLap));
+    if(!validRows.length) return { checked: true, notes: [], driverRowCount: 0, totalRowCount: allRows.length };
+
+    const categoryBenchmarks = computeCategoryBenchmarks(allRows);
+    const displayName = validRows[0]?.driver || accDriverNames[0] || 'Unknown driver';
+    const notes = sandbaggingNotesForDriver(displayName, validRows, categoryBenchmarks);
+
+    const typeOrder = { warn: 0, move: 1, info: 2 };
+    notes.sort((a,b) => (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9) || (b.timestampMs||0) - (a.timestampMs||0));
+
+    return { checked: true, notes, driverRowCount: validRows.length, totalRowCount: allRows.length };
+  }
+
+  window.IFWLStats.fetchSandbaggingReview = fetchSandbaggingReview;
 })();
