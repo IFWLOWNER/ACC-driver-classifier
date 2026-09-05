@@ -3117,6 +3117,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </div>
       <div class="field-hint" style="margin:-8px 0 10px">Series drives the tabs above the event list below - same 6 series as the Entrylist Builder.</div>
       <div class="field-group"><label>Available to which tiers?</label><div id="sgTierChecks"></div></div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1">
+          <label>Discord Role ID (optional)</label>
+          <input type="text" id="sgDiscordRoleId" placeholder="e.g. 1148213099887656990" inputmode="numeric">
+        </div>
+        <div class="field-group" style="flex:1">
+          <label>Discord area name (shown to drivers)</label>
+          <input type="text" id="sgDiscordRoleLabel" placeholder="e.g. Pro-Am Race Chat">
+        </div>
+      </div>
+      <div class="field-hint" style="margin:-8px 0 10px">Leave the Role ID blank for events with nothing to unlock on Discord. When set, eligible drivers see an "Unlock this area on IFWL Discord" button on their Available Races card that grants them this exact role - only while they still qualify for this race's tier(s), removed automatically if that changes. In Discord: enable Developer Mode, right-click the role in Server Settings &rarr; Roles, and "Copy Role ID". The IFWL bot needs Manage Roles permission and its own role positioned ABOVE this one in the role list, or the grant will fail.</div>
       <div class="field-group"><label>Notes (optional)</label><input type="text" id="sgNotes" placeholder="e.g. Grid limited to 24 cars"></div>
       <div class="field-group">
         <label>Event image (optional)</label>
@@ -3700,7 +3711,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function uploadEventRoster(eventId, entries){
     return apiPost('staffEventRosterUpload', { eventId, entries });
   }
-  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, uploadEventRoster };
+  // ✅ ADDED: driver-facing half of the per-event Discord role. Demo mode
+  // has no real Discord bot to call, so it just fakes success - good enough
+  // to click through the flow while trying the site out.
+  async function unlockEventDiscordRole(eventId){
+    if(USE_DEMO_FALLBACK) return { ok:true };
+    return apiPost('unlockEventDiscordRole', { eventId });
+  }
+  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, uploadEventRoster, unlockEventDiscordRole };
 
   // Server contract:
   //   ?enduranceConfigGet=1                        (GET,  public - entry fee + prize pool split)
@@ -5353,6 +5371,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           ${e.password ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">🔒 Password: <code style="background:#f7f8fa;padding:2px 6px;border-radius:5px;color:var(--text-primary)">${e.password}</code></p>` : ''}
           ${e.notes ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${e.notes}</p>` : ''}
           ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="margin-top:8px;font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
+          ${(!staffAll && e.discordRoleId) ? `<div style="margin-top:8px">${
+            e.discordRoleUnlocked
+              ? `<span class="btn ghost" style="font-size:11px;opacity:.8;pointer-events:none">🔓 ${e.discordRoleLabel || 'Discord area'} unlocked</span>`
+              : `<button class="btn teal" data-unlock-discord="${e.id}" style="font-size:11px">Unlock ${e.discordRoleLabel ? `"${e.discordRoleLabel}"` : 'this area'} on IFWL Discord</button>`
+          }</div>` : ''}
         </div>
         ${e.simgridLink ? `<a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>` : ''}
       </div>
@@ -5377,6 +5400,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         } else {
           container.classList.add('hidden');
           btn.textContent = btn.textContent.replace('\u2191', '\u2193');
+        }
+      });
+    });
+
+    // \u2705 ADDED: "Unlock this area on IFWL Discord" - see the backend
+    // comment above unlockEventDiscordRole for the full server-side
+    // eligibility re-check. Idempotent, so no harm if clicked more than
+    // once; on success the button becomes a plain "unlocked" indicator
+    // rather than re-fetching the whole list just for this one field.
+    body.querySelectorAll('[data-unlock-discord]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const eventId = btn.dataset.unlockDiscord;
+        const event = events.find(ev => ev.id === eventId);
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Unlocking\u2026';
+        try{
+          await window.IFWL_SimgridAPI.unlockEventDiscordRole(eventId);
+          btn.outerHTML = `<span class="btn ghost" style="font-size:11px;opacity:.8;pointer-events:none">\ud83d\udd13 ${event?.discordRoleLabel || 'Discord area'} unlocked - check Discord in a moment</span>`;
+        }catch(e){
+          alert('Could not unlock this on Discord: ' + e.message);
+          btn.disabled = false;
+          btn.textContent = original;
         }
       });
     });
@@ -9236,6 +9282,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             <strong>${e.title}</strong>${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
             <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
             <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 This event's password: ${e.password}` : ' &middot; No password set for this event'}</div>
+            <div class="note-meta">${e.discordRoleId ? `🔓 Unlocks Discord: ${e.discordRoleLabel || 'Role ' + e.discordRoleId}` : 'No Discord area unlocked by this event'}</div>
             <div class="note-meta">👥 ${e.rosterCount ? `${e.rosterCount} driver(s) signed up (shown as cards under Available Races)` : 'No signup roster uploaded yet'}</div>
             <div class="note-meta" style="color:${hasBriefing ? 'var(--ifwl-green)' : 'var(--ifwl-amber)'};font-weight:700">${hasBriefing ? '📋 Raceday briefing attached' : '⚠️ No raceday briefing linked yet'}</div>
           </div>
@@ -9293,6 +9340,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('sgSeries').value = ev.series || '';
       q('sgNotes').value = ev.notes || '';
       q('sgPassword').value = ev.password || '';
+      q('sgDiscordRoleId').value = ev.discordRoleId || '';
+      q('sgDiscordRoleLabel').value = ev.discordRoleLabel || '';
       q('sgEventDate').value = ev.eventDateMs ? new Date(ev.eventDateMs).toISOString().slice(0,16) : '';
       q('sgEventDateLabel').value = ev.eventDateLabel || '';
       document.querySelectorAll('.sg-tier-check').forEach(el => { el.checked = (ev.tiers||[]).includes(el.value); });
@@ -9315,6 +9364,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     sgEditingEventImageUrl = '';
     q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
     q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
+    q('sgDiscordRoleId').value = ''; q('sgDiscordRoleLabel').value = '';
     q('sgSeries').value = '';
     q('sgEventImageInput').value = '';
     q('sgEventImagePreview').innerHTML = '';
@@ -9335,7 +9385,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const eventDateMs = q('sgEventDate').value ? new Date(q('sgEventDate').value).getTime() : 0;
     const eventDateLabel = q('sgEventDateLabel').value.trim();
     const password = q('sgPassword').value.trim();
+    const discordRoleId = q('sgDiscordRoleId').value.trim();
+    const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
     if(!title || !simgridLink || !tiers.length){ q('sgSaveStatus').textContent = 'Title, link and at least one tier are required.'; return; }
+    if(discordRoleId && !/^\d{5,25}$/.test(discordRoleId)){ q('sgSaveStatus').textContent = 'Discord Role ID should be the numeric role ID (Copy Role ID in Discord), not a role name.'; return; }
 
     // Keep the existing image on an edit unless a new file was chosen -
     // saving other fields should never silently wipe out a set image.
@@ -9349,7 +9402,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, imageUrl });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, imageUrl, discordRoleId, discordRoleLabel });
       const wasEditing = !!sgEditingEventId;
       sgResetForm();
       q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
