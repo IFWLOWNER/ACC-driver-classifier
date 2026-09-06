@@ -792,6 +792,21 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .trophy-award-detail{position:relative;z-index:1;margin:0 0 14px;font-size:14px;color:#fff9ec;font-weight:700;line-height:1.4}
 .trophy-award-cta{position:relative;z-index:1;margin:0 0 20px;font-size:12.5px;color:#c9b18a;line-height:1.5}
 .trophy-award-actions{position:relative;z-index:1;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+/* ✅ FIXED: Raceday Info reuses this always-dark trophy-award-card shell
+   (deliberately, per the note above - a raceday briefing shouldn't change
+   look depending on the viewer's site theme), but its own body content
+   (paragraphs/headings from the markdown renderer, role-mention hints, the
+   quick-facts chips) was colored with var(--text-primary) etc - correct
+   back when the whole page was dark-only, but those tokens now default to
+   dark-on-light values under the new Season 4 light theme, making the
+   text and chips unreadable against this card's fixed dark background.
+   Pinned to explicit light tones here, same family as the heading/detail/
+   cta text above, so this popup reads correctly regardless of theme.
+   (raceday-info-theme-fix) */
+#racedayInfoBody{color:#fff3e6}
+#racedayInfoBody .field-hint{color:#c9b18a}
+#racedayInfoBody hr{border-color:rgba(255,204,120,.3)}
+#racedayInfoBody .tier-pill{background:rgba(255,204,120,.14);color:#ffe9c2;border:1px solid rgba(255,204,120,.32)}
 
 /* ✅ ADDED: rank-change login notice */
 .rank-change-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;background:var(--surface-alt);border:1px solid var(--ifwl-line);margin-bottom:8px;text-align:left}
@@ -1959,7 +1974,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <div id="racedayInfoModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:260;display:flex;align-items:center;justify-content:center;padding:20px">
     <div class="trophy-award-card" style="max-width:680px;max-height:85vh;display:flex;flex-direction:column">
       <h2 class="trophy-award-heading">🏁 Raceday Info</h2>
-      <div id="racedayInfoBody" style="margin:14px 0;overflow-y:auto;text-align:left;flex:1;color:var(--text-primary);line-height:1.6"></div>
+      <div id="racedayInfoBody" style="margin:14px 0;overflow-y:auto;text-align:left;flex:1;line-height:1.6"></div>
       <div class="trophy-award-actions">
         <button type="button" class="btn purple" id="racedayInfoDismissBtn" disabled>Read for 60s to continue&hellip;</button>
       </div>
@@ -4364,19 +4379,34 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         btn.disabled = false;
         btn.textContent = queue.length ? `Skip (staff) - next briefing (${queue.length} more)` : 'Skip (staff) - close';
       }else{
-        btn.disabled = true;
-        let remaining = 60;
-        btn.textContent = `Read for ${remaining}s to continue…`;
-        timer = setInterval(() => {
-          remaining--;
-          if(remaining <= 0){
-            clearInterval(timer);
-            btn.disabled = false;
-            btn.textContent = queue.length ? 'Got it - next briefing' : 'Got it - close';
-          }else{
-            btn.textContent = `Read for ${remaining}s to continue…`;
-          }
-        }, 1000);
+        // ✅ FIXED: this used to always start the 60s timer fresh, so a
+        // driver who left the page (or clicked through to My Career / My
+        // Race Team) before it finished got the SAME briefing again on
+        // their next visit with a brand new full 60s wait - "every time I
+        // go onto the home page it makes me sit through the message". The
+        // server now stamps the first moment a briefing was shown today
+        // (n.firstShownAtMs) and keeps returning that same stamp, so the
+        // remaining wait here is based on real elapsed time since first
+        // seen today, not since this particular page load.
+        const elapsedSec = n.firstShownAtMs ? Math.max(0, Math.floor((Date.now() - n.firstShownAtMs) / 1000)) : 0;
+        let remaining = Math.max(0, 60 - elapsedSec);
+        if(remaining <= 0){
+          btn.disabled = false;
+          btn.textContent = queue.length ? 'Got it - next briefing' : 'Got it - close';
+        }else{
+          btn.disabled = true;
+          btn.textContent = `Read for ${remaining}s to continue…`;
+          timer = setInterval(() => {
+            remaining--;
+            if(remaining <= 0){
+              clearInterval(timer);
+              btn.disabled = false;
+              btn.textContent = queue.length ? 'Got it - next briefing' : 'Got it - close';
+            }else{
+              btn.textContent = `Read for ${remaining}s to continue…`;
+            }
+          }, 1000);
+        }
       }
       btn.onclick = async () => {
         if(btn.disabled) return;
