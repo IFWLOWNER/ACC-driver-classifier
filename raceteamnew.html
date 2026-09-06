@@ -163,6 +163,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 .rt-avail-table th,.rt-avail-table td{text-align:center}
 .rt-avail-table .rt-avail-name{text-align:left;font-weight:800;color:var(--text-primary)}
 .rt-avail-cell.yes{color:var(--ifwl-green);font-weight:900}
+.rt-avail-cell.avail{color:var(--ifwl-purple);font-weight:900}
 .rt-avail-cell.no{color:var(--text-dim)}
 .rt-alloc-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}
 .rt-alloc-row{display:flex;flex-direction:column;gap:5px;min-width:150px}
@@ -175,10 +176,17 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 .rt-ack-row.bad span{color:var(--ifwl-red);font-weight:700}
 .rt-ack-row.pending span{color:var(--ifwl-amber);font-weight:700}
 .rt-mystint-grid{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
-.rt-mystint-toggle{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px;border-radius:12px;border:1px solid var(--ifwl-line);background:#0d1116;min-width:90px;cursor:pointer}
-.rt-mystint-toggle.active{border-color:var(--ifwl-teal);background:rgba(31,214,189,.12)}
-.rt-mystint-toggle span{font-size:11px;text-transform:uppercase;font-weight:800;color:var(--text-muted)}
-.rt-mystint-toggle strong{font-size:16px;color:var(--text-primary)}
+.rt-mystint-group{display:flex;flex-direction:column;align-items:center;gap:8px;padding:11px;border-radius:12px;border:1px solid var(--ifwl-line);background:#0d1116;min-width:110px}
+.rt-mystint-stintlabel{font-size:11px;text-transform:uppercase;font-weight:800;color:var(--text-muted);text-align:center;line-height:1.4}
+.rt-mystint-stintlabel span{display:block;font-size:10px;font-weight:600;color:var(--text-dim);text-transform:none;margin-top:2px}
+.rt-mystint-pair{display:flex;gap:6px}
+.rt-mystint-toggle,.rt-mystint-toggle-avail{border:1px solid var(--ifwl-line);background:#12161c;color:var(--text-muted);border-radius:8px;padding:7px 10px;font-size:10.5px;font-weight:800;text-transform:uppercase;cursor:pointer;white-space:nowrap}
+.rt-mystint-toggle.active{border-color:var(--ifwl-green);background:rgba(51,217,155,.16);color:var(--ifwl-green)}
+.rt-mystint-toggle-avail.active{border-color:var(--ifwl-purple);background:rgba(198,91,232,.16);color:var(--ifwl-purple)}
+.rt-tz-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:#0d1116;border:1px solid var(--ifwl-line);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text-muted)}
+.rt-tz-bar b{color:var(--text-primary)}
+.rt-tz-bar a{color:var(--ifwl-teal);font-weight:800;text-decoration:none}
+.rt-tz-bar select{padding:6px 8px;border:1px solid var(--ifwl-line);border-radius:6px;background:#12161c;color:var(--text-primary);font-size:12px}
 .rt-notify-banner{background:linear-gradient(90deg,rgba(198,91,232,.18),rgba(31,214,189,.1));border:1px solid rgba(198,91,232,.4);border-radius:14px;padding:14px 16px;margin-bottom:14px}
 .rt-notify-banner strong{display:block;font-size:15px;color:var(--text-primary);margin-bottom:8px}
 .rt-notify-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
@@ -427,12 +435,115 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   }
   async function rtFetchEvents(teamId){ const data = await rtApiCall(`?raceTeamEventList=1&teamId=${encodeURIComponent(teamId)}`); return Array.isArray(data.events) ? data.events : []; }
   async function rtSaveEvent(event){ return rtApiCall('?raceTeamEventSave=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(event) }); }
-  async function rtSetAvailability(eventId, driverName, stints){ return rtApiCall('?raceTeamEventAvailability=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, stints}) }); }
+  // availableStints is the new "also available as backup" state (purple) -
+  // kept separate from stints ("this is my planned/scheduled stint", green)
+  // so a driver can flag both independently. Optional 4th arg keeps this
+  // backward compatible with any old call site that only ever sent stints.
+  async function rtSetAvailability(eventId, driverName, stints, availableStints){ return rtApiCall('?raceTeamEventAvailability=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, stints, availableStints: availableStints || []}) }); }
   async function rtFinalizeEvent(eventId, stints){ return rtApiCall('?raceTeamEventFinalize=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, stints}) }); }
   async function rtAcknowledgeEvent(eventId, driverName, status, reason){ return rtApiCall('?raceTeamEventAcknowledge=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, status, reason}) }); }
   async function rtDeleteEvent(eventId){ return rtApiCall(`?raceTeamEventDelete=1&id=${encodeURIComponent(eventId)}`, { method: 'POST' }); }
   function driverNameKey(name){ return String(name || '').trim().toLowerCase(); }
   function rtEventBannerStyle(event){ if(!event.simgridImageUrl) return ''; return `background-image:linear-gradient(90deg,rgba(13,17,22,.92),rgba(13,17,22,.55)),url('${event.simgridImageUrl.replace(/'/g,"%27")}');background-size:cover;background-position:center`; }
+
+  // ============================================================
+  // Local timezone display for stint times. Stint times are stored as
+  // fixed "HH:MM UTC" strings (see the stint-time dropdown below) - this
+  // section auto-detects the viewer's browser timezone on load, lets them
+  // override it, remembers the choice the same way myDriverName is
+  // remembered, and converts every displayed stint time from UTC into
+  // whatever timezone the viewer has set.
+  // ============================================================
+  const RT_TZ_KEY = 'IFWL_MY_RACE_TEAM_TZ';
+  let detectedTimezone = '';
+  try{ detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(_){}
+  function getMyTimezone(){
+    try{ const saved = localStorage.getItem(RT_TZ_KEY); if(saved) return saved; }catch(_){}
+    return detectedTimezone || 'UTC';
+  }
+  function setMyTimezone(tz){ try{ localStorage.setItem(RT_TZ_KEY, tz); }catch(_){} }
+  function isTimezoneAutoDetected(){ try{ return !localStorage.getItem(RT_TZ_KEY); }catch(_){ return true; } }
+  const COMMON_TIMEZONES = [
+    'UTC','Europe/London','Europe/Dublin','Europe/Lisbon','Europe/Paris','Europe/Berlin','Europe/Madrid','Europe/Rome','Europe/Amsterdam',
+    'Europe/Warsaw','Europe/Athens','Europe/Bucharest','Europe/Moscow','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+    'America/Sao_Paulo','America/Toronto','Australia/Sydney','Australia/Perth','Asia/Tokyo','Asia/Singapore','Asia/Dubai','Asia/Kolkata',
+    'Pacific/Auckland'
+  ];
+  function timezoneOptionList(){
+    let zones = COMMON_TIMEZONES.slice();
+    try{ if(typeof Intl.supportedValuesOf === 'function') zones = Intl.supportedValuesOf('timeZone'); }catch(_){}
+    if(detectedTimezone && !zones.includes(detectedTimezone)) zones = [detectedTimezone, ...zones];
+    return [...new Set(zones)];
+  }
+  // Every stored stint time starts "HH:MM" (the dropdown always writes
+  // "HH:MM UTC") - parsed loosely so any pre-existing free-typed value that
+  // happens to start with a time still converts; anything unparseable just
+  // falls back to being shown as typed.
+  function parseStintTimeParts(str){
+    const m = String(str || '').trim().match(/^(\d{1,2}):(\d{2})/);
+    if(!m) return null;
+    const hh = Number(m[1]), mm = Number(m[2]);
+    if(!Number.isFinite(hh) || !Number.isFinite(mm) || hh > 23 || mm > 59) return null;
+    return { hh, mm };
+  }
+  // eventDateMs is the event's calendar date (stored as that date's local
+  // midnight when the event was created). We only need its Y/M/D - read
+  // with local getters (matching how eventTitleLine already displays that
+  // same date to this viewer) and combine with the stint's UTC time-of-day
+  // to get the real UTC instant for that stint.
+  function stintTimeToUtcDate(event, timeStr){
+    const parts = parseStintTimeParts(timeStr);
+    if(!parts || !event || !event.eventDateMs) return null;
+    const base = new Date(event.eventDateMs);
+    return new Date(Date.UTC(base.getFullYear(), base.getMonth(), base.getDate(), parts.hh, parts.mm, 0));
+  }
+  function formatStintTimeLocal(event, timeStr){
+    const raw = String(timeStr || '').trim();
+    if(!raw) return '';
+    const utcDate = stintTimeToUtcDate(event, raw);
+    if(!utcDate) return raw;
+    const tz = getMyTimezone();
+    if(tz === 'UTC') return raw;
+    try{
+      const localPart = utcDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: tz });
+      return `${localPart} (${raw})`;
+    }catch(_){ return raw; }
+  }
+  function rtTimezoneBarHtml(){
+    const tz = getMyTimezone();
+    const auto = isTimezoneAutoDetected();
+    return `<div class="rt-tz-bar">🕒 Stint times below are shown in your local time — <b>${esc(tz)}</b>${auto ? ' (auto-detected)' : ''}.
+      <a href="#" id="rtTzChangeLink">Change</a>
+      <select id="rtTzSelect" class="hidden">${timezoneOptionList().map(z => `<option value="${esc(z)}" ${z === tz ? 'selected' : ''}>${esc(z)}</option>`).join('')}</select>
+    </div>`;
+  }
+  function wireTimezoneBar(onChange){
+    const link = q('rtTzChangeLink');
+    const select = q('rtTzSelect');
+    if(!link || !select) return;
+    link.addEventListener('click', (e) => { e.preventDefault(); link.classList.add('hidden'); select.classList.remove('hidden'); select.focus(); });
+    select.addEventListener('change', () => { setMyTimezone(select.value); if(onChange) onChange(); });
+  }
+  // ✅ ADDED: fixed 30-minute stint time options (UTC) - replaces manual
+  // free-typing so times parse reliably (needed for the local-timezone
+  // conversion above) and captains no longer have to remember the
+  // "20:00 UTC" format by hand.
+  const STINT_TIME_OPTIONS = (() => {
+    const list = [];
+    for(let h = 0; h < 24; h++){
+      for(let m = 0; m < 60; m += 30){
+        list.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} UTC`);
+      }
+    }
+    return list;
+  })();
+  function stintTimeSelectHtml(i, currentValue){
+    const cur = String(currentValue || '').trim();
+    const known = STINT_TIME_OPTIONS.includes(cur);
+    const extra = cur && !known ? `<option value="${esc(cur)}" selected>${esc(cur)} (existing)</option>` : '';
+    const opts = STINT_TIME_OPTIONS.map(t => `<option value="${esc(t)}" ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    return `<select data-rt-stint-time="${i}" style="margin-top:4px"><option value="">— Not set —</option>${extra}${opts}</select>`;
+  }
 
   // ============================================================
   // Roster & Branding — ported verbatim from Licence Centre's
@@ -653,22 +764,35 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const stintCount = Number(event.stintCount || 0);
     const availability = event.availability || {};
     const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
-    const availHeader = Array.from({length: stintCount}, (_,i) => `<th>Stint ${i+1}${stintTimes[i] ? `<br><span style="font-weight:600;text-transform:none">${esc(stintTimes[i])}</span>` : ''}</th>`).join('');
+    const availHeader = Array.from({length: stintCount}, (_,i) => `<th>Stint ${i+1}${stintTimes[i] ? `<br><span style="font-weight:600;text-transform:none">${esc(formatStintTimeLocal(event, stintTimes[i]))}</span>` : ''}</th>`).join('');
+    // ✅ ADDED: response-progress hint - "X of Y responded" - so a captain
+    // can see at a glance whether it's worth chasing anyone before
+    // allocating stints, without having to eyeball the whole table.
+    const respondedCount = drivers.filter(name => !!availability[driverNameKey(name)]).length;
     const availRows = drivers.map(name => {
       const entry = availability[driverNameKey(name)];
-      const cells = Array.from({length: stintCount}, (_,i) => { const free = !!entry?.stints?.[i]; return `<td class="rt-avail-cell ${free?'yes':'no'}">${free?'✓':'—'}</td>`; }).join('');
+      const cells = Array.from({length: stintCount}, (_,i) => {
+        const scheduled = !!entry?.stints?.[i];
+        const availableOnly = !scheduled && !!entry?.availableStints?.[i];
+        const cls = scheduled ? 'yes' : (availableOnly ? 'avail' : 'no');
+        const mark = scheduled || availableOnly ? '✓' : '—';
+        return `<td class="rt-avail-cell ${cls}" title="${scheduled ? 'Scheduled' : availableOnly ? 'Available (backup)' : 'Not marked'}">${mark}</td>`;
+      }).join('');
       return `<tr><td class="rt-avail-name">${esc(name)}</td>${cells}</tr>`;
     }).join('');
     const allocationRows = Array.from({length: stintCount}, (_,i) => {
       const currentAssignment = (event.stints||[]).find(s => Number(s.index) === i)?.driverName || '';
       const options = drivers.map(name => {
-        const isAvailable = !!availability[driverNameKey(name)]?.stints?.[i];
+        const entry = availability[driverNameKey(name)];
+        const scheduled = !!entry?.stints?.[i];
+        const availableOnly = !scheduled && !!entry?.availableStints?.[i];
+        const tag = scheduled ? ' (Scheduled)' : availableOnly ? ' (Available)' : '';
         const selected = driverNameKey(currentAssignment) === driverNameKey(name) ? 'selected' : '';
-        return `<option value="${esc(name)}" ${selected}>${esc(name)}${isAvailable?' (Available)':''}</option>`;
+        return `<option value="${esc(name)}" ${selected}>${esc(name)}${tag}</option>`;
       }).join('');
       return `<div class="rt-alloc-row"><span class="rt-alloc-label">Stint ${i+1}</span>
         <select data-rt-alloc-stint="${i}"><option value="">— Unassigned —</option>${options}</select>
-        <input type="text" placeholder="Time (e.g. 20:00 UTC)" value="${esc(stintTimes[i]||'')}" data-rt-stint-time="${i}" style="padding:8px 10px;border:1px solid var(--ifwl-line);border-radius:8px;background:#12161c;color:var(--text-primary);font-size:12px;margin-top:4px"></div>`;
+        ${stintTimeSelectHtml(i, stintTimes[i])}</div>`;
     }).join('');
     const ackRows = Object.values(event.acknowledgements||{}).map(a => {
       const cls = a.status === 'yes' ? 'good' : a.status === 'no' ? 'bad' : 'pending';
@@ -683,7 +807,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span>
         <button type="button" data-rt-event-delete="1">Delete event</button>
       </div>
-      <div class="rt-event-section"><h5>Driver availability (${stintCount} stints)</h5>
+      <div class="rt-event-section"><h5>Driver availability (${stintCount} stints) <span class="field-hint" style="text-transform:none;font-weight:600;margin-left:6px;">— ${respondedCount} of ${drivers.length} responded</span></h5>
         <div class="table-wrap"><table class="results-table rt-avail-table"><thead><tr><th>Driver</th>${availHeader}</tr></thead>
         <tbody>${availRows || `<tr><td colspan="${stintCount+1}" class="empty">No drivers on this roster yet.</td></tr>`}</tbody></table></div>
       </div>
@@ -700,18 +824,32 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const key = driverNameKey(myDriverName);
     const stintCount = Number(event.stintCount || 0);
     const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
-    const myAvailability = event.availability?.[key]?.stints || [];
+    const myEntry = event.availability?.[key] || {};
+    const myScheduled = Array.isArray(myEntry.stints) ? myEntry.stints : [];
+    const myAvailableOnly = Array.isArray(myEntry.availableStints) ? myEntry.availableStints : [];
     const myAck = event.acknowledgements?.[key];
     const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
-    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`).join(', ');
+    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${formatStintTimeLocal(event, stintTimes[n-1])})` : `Stint ${n}`).join(', ');
     const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
       <strong>${eventTitleLine(event)}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
       <span class="badge ${event.finalized?'purple':''}">${event.finalized?'Finalised':'Planning'}</span></div>`;
     let bodyHtml;
     if(!event.finalized){
-      const toggles = Array.from({length: stintCount}, (_,i) => `<div class="rt-mystint-toggle ${myAvailability[i]?'active':''}" data-mystint-toggle="${i}"><span>Stint</span><strong>${i+1}</strong>${stintTimes[i]?`<span>${esc(stintTimes[i])}</span>`:''}</div>`).join('');
-      bodyHtml = `<div class="rt-event-section"><h5>Mark which stints you're free for</h5><div class="rt-mystint-grid">${toggles}</div><button type="button" class="btn teal" data-mystint-save="1">Save my availability</button></div>`;
+      // Two independent boxes per stint: green "Scheduled" = this is my
+      // planned/set stint; purple "Available" = I could also cover this one
+      // as backup if plans change. Either, both, or neither can be active.
+      const groups = Array.from({length: stintCount}, (_,i) => {
+        const timeLabel = stintTimes[i] ? `<span>${esc(formatStintTimeLocal(event, stintTimes[i]))}</span>` : '';
+        return `<div class="rt-mystint-group">
+          <div class="rt-mystint-stintlabel">Stint ${i+1}${timeLabel}</div>
+          <div class="rt-mystint-pair">
+            <div class="rt-mystint-toggle ${myScheduled[i]?'active':''}" data-mystint-toggle="${i}">Scheduled</div>
+            <div class="rt-mystint-toggle-avail ${myAvailableOnly[i]?'active':''}" data-mystint-avail-toggle="${i}">Available</div>
+          </div>
+        </div>`;
+      }).join('');
+      bodyHtml = `<div class="rt-event-section"><h5>Mark which stints you're free for</h5><div class="rt-mystint-grid">${groups}</div><button type="button" class="btn teal" data-mystint-save="1">Save my availability</button></div>`;
     }else if(myAck && myAck.status === 'pending'){
       const assignedText = myAssignedStints.length ? ` — you're assigned ${myAssignedStintsText}` : ' — you are not assigned a stint this event';
       bodyHtml = `<div class="rt-event-section"><div class="rt-notify-banner"><strong>${esc(currentTeamName)} stints finalised${esc(assignedText)}.</strong>
@@ -756,6 +894,21 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         card.querySelector('[data-rt-populate]')?.addEventListener('click', async () => {
           const selects = [...card.querySelectorAll('[data-rt-alloc-stint]')];
           const stints = selects.map(sel => ({ index: Number(sel.dataset.rtAllocStint), driverName: sel.value }));
+          // ✅ ADDED: warn before finalising if an assignment doesn't match
+          // what that driver actually marked (scheduled or backup-available)
+          // for that stint - easy to fat-finger the wrong name in a busy
+          // dropdown, and this catches it before drivers get notified.
+          const conflicts = stints.filter(s => {
+            if(!s.driverName) return false;
+            const entry = event.availability?.[driverNameKey(s.driverName)];
+            const scheduled = !!entry?.stints?.[s.index];
+            const availableOnly = !!entry?.availableStints?.[s.index];
+            return !scheduled && !availableOnly;
+          });
+          if(conflicts.length){
+            const names = conflicts.map(c => `Stint ${c.index+1}: ${c.driverName}`).join('\n');
+            if(!confirm(`Heads up — these assignments don't match what the driver marked as scheduled or available:\n${names}\n\nFinalise anyway?`)) return;
+          }
           try{
             await rtFinalizeEvent(event.id, stints);
             const idx = currentEvents.findIndex(e => e.id === event.id);
@@ -774,17 +927,20 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         const card = document.querySelector(`[data-mystint-event-id="${window.CSS && CSS.escape ? CSS.escape(event.id) : event.id}"]`);
         if(!card) return;
         card.querySelectorAll('[data-mystint-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
+        card.querySelectorAll('[data-mystint-avail-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
         card.querySelector('[data-mystint-save]')?.addEventListener('click', async (evt) => {
           const btn = evt.currentTarget;
           const toggles = [...card.querySelectorAll('[data-mystint-toggle]')].sort((a,b) => Number(a.dataset.mystintToggle) - Number(b.dataset.mystintToggle));
+          const availToggles = [...card.querySelectorAll('[data-mystint-avail-toggle]')].sort((a,b) => Number(a.dataset.mystintAvailToggle) - Number(b.dataset.mystintAvailToggle));
           const stints = toggles.map(t => t.classList.contains('active'));
+          const availableStints = availToggles.map(t => t.classList.contains('active'));
           const originalLabel = btn.textContent;
           btn.disabled = true;
           btn.textContent = 'Saving…';
           try{
-            await rtSetAvailability(event.id, myDriverName, stints);
+            await rtSetAvailability(event.id, myDriverName, stints, availableStints);
             const idx = currentEvents.findIndex(e => e.id === event.id);
-            if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
+            if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, availableStints, updatedAtMs: Date.now() }; }
             btn.textContent = '✅ Saved!';
             btn.style.background = 'var(--ifwl-green)';
             btn.style.color = '#03211c';
@@ -872,8 +1028,9 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     } else {
       newEventForm = eventsCardsHtml();
     }
-    body.innerHTML = newEventForm;
+    body.innerHTML = rtTimezoneBarHtml() + newEventForm;
     wireEventCards();
+    wireTimezoneBar(() => renderEventsBody());
 
     q('newEvBtn')?.addEventListener('click', async () => {
       const raceNumber = q('newEvRaceNum').value.trim();
@@ -926,10 +1083,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const key = driverNameKey(myDriverName);
     const stintCount = Number(event.stintCount || 0);
     const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
-    const myAvailability = event.availability?.[key]?.stints || [];
+    const myEntry = event.availability?.[key] || {};
+    const myScheduled = Array.isArray(myEntry.stints) ? myEntry.stints : [];
+    const myAvailableOnly = Array.isArray(myEntry.availableStints) ? myEntry.availableStints : [];
     const myAck = event.acknowledgements?.[key];
     const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
-    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${stintTimes[n-1]})` : `Stint ${n}`).join(', ');
+    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${formatStintTimeLocal(event, stintTimes[n-1])})` : `Stint ${n}`).join(', ');
     const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
       <strong>${eventTitleLine(event)}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
@@ -937,8 +1096,17 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     let bodyHtml;
     if(!event.finalized){
-      const toggles = Array.from({length: stintCount}, (_,i) => `<div class="rt-mystint-toggle ${myAvailability[i]?'active':''}" data-claim-toggle="${i}"><span>Stint</span><strong>${i+1}</strong>${stintTimes[i]?`<span>${esc(stintTimes[i])}</span>`:''}</div>`).join('');
-      bodyHtml = `<div class="rt-event-section"><h5>Mark which stints you're free for</h5><div class="rt-mystint-grid">${toggles}</div><button type="button" class="btn teal" data-claim-save="1">Save my availability</button></div>`;
+      const groups = Array.from({length: stintCount}, (_,i) => {
+        const timeLabel = stintTimes[i] ? `<span>${esc(formatStintTimeLocal(event, stintTimes[i]))}</span>` : '';
+        return `<div class="rt-mystint-group">
+          <div class="rt-mystint-stintlabel">Stint ${i+1}${timeLabel}</div>
+          <div class="rt-mystint-pair">
+            <div class="rt-mystint-toggle ${myScheduled[i]?'active':''}" data-claim-toggle="${i}">Scheduled</div>
+            <div class="rt-mystint-toggle-avail ${myAvailableOnly[i]?'active':''}" data-claim-avail-toggle="${i}">Available</div>
+          </div>
+        </div>`;
+      }).join('');
+      bodyHtml = `<div class="rt-event-section"><h5>Mark which stints you're free for</h5><div class="rt-mystint-grid">${groups}</div><button type="button" class="btn teal" data-claim-save="1">Save my availability</button></div>`;
     }else if(myAck && myAck.status === 'pending'){
       const assignedText = myAssignedStints.length ? ` — you're assigned ${myAssignedStintsText}` : ' — you are not assigned a stint this event';
       bodyHtml = `<div class="rt-event-section"><div class="rt-notify-banner"><strong>${esc(currentTeamName)} stints finalised${esc(assignedText)}.</strong>
@@ -978,25 +1146,30 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 
     body.innerHTML = `
       <div class="field-hint" style="margin-bottom:14px;">Claiming as <b>${esc(myDriverName)}</b> — <a href="#" id="claimSwitchName">not you? switch</a></div>
+      ${rtTimezoneBarHtml()}
       ${currentEvents.length ? currentEvents.map(claimEventBlockHtml).join('') : '<div class="empty">No events yet.</div>'}
     `;
     q('claimSwitchName')?.addEventListener('click', (e) => { e.preventDefault(); myDriverName = ''; renderClaimBody(); });
+    wireTimezoneBar(() => renderClaimBody());
 
     currentEvents.forEach(event => {
       const card = document.querySelector(`[data-claim-event-id="${window.CSS && CSS.escape ? CSS.escape(event.id) : event.id}"]`);
       if(!card) return;
       card.querySelectorAll('[data-claim-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
+      card.querySelectorAll('[data-claim-avail-toggle]').forEach(el => el.addEventListener('click', () => el.classList.toggle('active')));
       card.querySelector('[data-claim-save]')?.addEventListener('click', async (evt) => {
         const btn = evt.currentTarget;
         const toggles = [...card.querySelectorAll('[data-claim-toggle]')].sort((a,b) => Number(a.dataset.claimToggle) - Number(b.dataset.claimToggle));
+        const availToggles = [...card.querySelectorAll('[data-claim-avail-toggle]')].sort((a,b) => Number(a.dataset.claimAvailToggle) - Number(b.dataset.claimAvailToggle));
         const stints = toggles.map(t => t.classList.contains('active'));
+        const availableStints = availToggles.map(t => t.classList.contains('active'));
         const originalLabel = btn.textContent;
         btn.disabled = true;
         btn.textContent = 'Saving…';
         try{
-          await rtSetAvailability(event.id, myDriverName, stints);
+          await rtSetAvailability(event.id, myDriverName, stints, availableStints);
           const idx = currentEvents.findIndex(e => e.id === event.id);
-          if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, updatedAtMs: Date.now() }; }
+          if(idx !== -1){ currentEvents[idx].availability = currentEvents[idx].availability || {}; currentEvents[idx].availability[driverNameKey(myDriverName)] = { driverName: myDriverName, stints, availableStints, updatedAtMs: Date.now() }; }
           // ✅ FIXED: this used to save silently with zero visual feedback -
           // drivers were reporting the site looked broken when it had
           // actually saved fine. A clear, unmissable confirmation now shows
