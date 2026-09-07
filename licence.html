@@ -1472,6 +1472,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <button data-view="staffWelcomeBonus" class="owner-only-tab" type="button">Welcome Bonus</button>
           <button data-view="staffMessageTemplates" class="owner-only-tab" type="button">Message Templates</button>
           <button data-view="staffRaceEarningsSettlement" class="owner-only-tab" type="button">Race Earnings Settlement</button>
+          <button data-view="staffCareerSystem" class="owner-only-tab" type="button">Career System</button>
           <button data-view="staffCareerShop" class="owner-only-tab" type="button">IFWL Shop</button>
           <button data-view="staffMarketplace" class="owner-only-tab" type="button">Parts Marketplace</button>
         </div>
@@ -2685,6 +2686,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
            an empty accDriverNames field or a name that doesn't match how
            ACC recorded it in the race file. -->
       <div id="resDiagnoseResult" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- ✅ ADDED: Staff: Career System - master on/off switch (blocks EVERYONE,
+       Gold Patreon and staff bypass included, from new Career Shop purchases,
+       Marketplace listings/buys, Backing offers/acceptances and locking in
+       Career Perks) plus an immediate master reset of every driver's Career
+       Shop balance/items/transactions/inventory and locked-in Perks. Built
+       for closing the whole Career system during Qualification and reopening
+       it once everyone's placed for the new season - deliberately separate
+       from Career Unlock on the Season Window tab, which only ever WIDENS
+       access and never blocks anyone. -->
+  <section class="panel view-panel" data-view="staffCareerSystem" id="careerSystemPanel">
+    <div class="panel-head"><div><h3>Staff: Career System</h3><small>Master on/off for the whole Career system, and an immediate master reset</small></div><span class="badge purple">Owner only</span></div>
+    <div class="panel-body">
+
+      <div class="notice-card">This is a full stop, not a beta toggle. While closed, <strong>nobody</strong> - including Gold Patreon and staff - can buy or sell on the Career Shop or Parts Marketplace, send/accept a Driver Backing offer, or lock in Career Perks. Read-only pages (your ledger, the catalog, marketplace listings, backing overview) stay viewable so they can show a "closed" message instead of erroring. This is separate from <strong>Career Unlock</strong> on the Season Window tab, which only ever opens Gold-only features to everyone else and can't block anyone.</div>
+
+      <h4 style="margin:18px 0 8px">Master On/Off</h4>
+      <div class="field-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="careerSystemEnabledCheck" style="width:auto"> Career system is open (untick to close it for everyone)</label></div>
+      <div class="field-group"><label>Message shown to drivers while closed</label><textarea id="careerSystemClosedMessageInput" placeholder="e.g. The Career system is closed while IFWL preps for Season 4 - it reopens once everyone's placed." style="min-height:70px"></textarea></div>
+      <button class="btn teal" id="careerSystemSaveBtn" type="button">Save Career System status</button>
+      <span class="save-status" id="careerSystemSaveStatus"></span>
+
+      <hr style="border-color:var(--ifwl-line);margin:22px 0">
+
+      <h4 style="margin:0 0 8px">Master Reset <span class="badge" style="background:rgba(224,84,84,.15);color:#e05454;font-size:11px;vertical-align:middle">Destructive</span></h4>
+      <div class="notice-card" style="border-color:rgba(224,84,84,.35)">Immediately wipes <strong>every driver's</strong> Career Shop balance, owned Shop/Factory items, transaction history, Parts/Tyre/Fuel inventory, and locked-in Career Perks - all at once, right now (not the lazy per-season reset). <strong>Does not</strong> touch permanent liveries, open Marketplace listings, or pending Backing offers/contracts - those need their own explicit call. This cannot be undone.</div>
+      <button class="btn" id="careerSystemResetBtn" type="button" style="background:rgba(224,84,84,.15);border-color:#e05454;color:#e05454">Run Master Reset for Season 4</button>
+      <span class="save-status" id="careerSystemResetStatus"></span>
     </div>
   </section>
 
@@ -3952,7 +3983,26 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(USE_DEMO_FALLBACK){ demoSet('careerUnlock', { enabled }); return { enabled }; }
     return apiPost('staffSaveCareerUnlock', { enabled });
   }
-  window.IFWL_SeasonAPI = { fetchSeasonWindow, saveSeasonWindow, fetchCareerUnlock, saveCareerUnlock };
+  // ✅ ADDED: Career System master on/off + master reset - a full stop for
+  // EVERYONE (Gold Patreon and staffBypass included) while closed, separate
+  // from Career Unlock above which only ever widens access. See
+  // careerSystemPanel below.
+  // Server contract: ?careerSystemStatus=1 -> {enabled, closedMessage}
+  //                  ?staffSaveCareerSystemStatus=1 {enabled, closedMessage} (Owner/Ops)
+  //                  ?staffCareerSystemMasterReset=1 {confirm:"RESET"} (Owner only)
+  async function fetchCareerSystemStatus(){
+    if(USE_DEMO_FALLBACK) return demoGet('careerSystemStatus', { enabled: true, closedMessage: '' });
+    return apiGet('careerSystemStatus');
+  }
+  async function saveCareerSystemStatus(enabled, closedMessage){
+    if(USE_DEMO_FALLBACK){ const d = { enabled, closedMessage }; demoSet('careerSystemStatus', d); return d; }
+    return apiPost('staffSaveCareerSystemStatus', { enabled, closedMessage });
+  }
+  async function runCareerSystemMasterReset(){
+    if(USE_DEMO_FALLBACK) return { ok:true, resetCount: 0 };
+    return apiPost('staffCareerSystemMasterReset', { confirm: 'RESET' });
+  }
+  window.IFWL_SeasonAPI = { fetchSeasonWindow, saveSeasonWindow, fetchCareerUnlock, saveCareerUnlock, fetchCareerSystemStatus, saveCareerSystemStatus, runCareerSystemMasterReset };
 
   async function fetchQualificationWindow(){
     if(USE_DEMO_FALLBACK) return demoGet('qualificationWindow', { label:'', startDate:'', endDate:'' });
@@ -10765,6 +10815,39 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }catch(e){ q('careerUnlockSaveStatus').textContent = 'Could not save: ' + e.message; }
   });
 
+  /* ---- Career System (master on/off + master reset) ---- */
+  async function initCareerSystemPanel(){
+    try{
+      const status = await window.IFWL_SeasonAPI.fetchCareerSystemStatus();
+      q('careerSystemEnabledCheck').checked = status.enabled !== false;
+      q('careerSystemClosedMessageInput').value = status.closedMessage || '';
+    }catch(e){ q('careerSystemSaveStatus').textContent = 'Could not load current state: ' + e.message; }
+  }
+  q('careerSystemSaveBtn')?.addEventListener('click', async () => {
+    const enabled = q('careerSystemEnabledCheck').checked;
+    const closedMessage = q('careerSystemClosedMessageInput').value.trim();
+    q('careerSystemSaveStatus').textContent = 'Saving...';
+    try{
+      await window.IFWL_SeasonAPI.saveCareerSystemStatus(enabled, closedMessage);
+      q('careerSystemSaveStatus').textContent = enabled
+        ? 'Saved - the Career system is open for everyone.'
+        : 'Saved - the Career system is now closed for everyone, including Gold Patreon and staff.';
+    }catch(e){ q('careerSystemSaveStatus').textContent = 'Could not save: ' + e.message; }
+  });
+  q('careerSystemResetBtn')?.addEventListener('click', async () => {
+    const confirmText = `Run the Career System Master Reset now?\n\nThis immediately wipes EVERY driver's Career Shop balance, owned Shop/Factory items, transaction history, Parts/Tyre/Fuel inventory, and locked-in Career Perks - all at once, right now.\n\nIt does NOT touch permanent liveries, open Marketplace listings, or pending Backing offers/contracts - those need their own separate action.\n\nThis cannot be undone. Type RESET to confirm.`;
+    const typed = prompt(confirmText);
+    if(typed !== 'RESET'){ q('careerSystemResetStatus').textContent = 'Cancelled - nothing changed.'; return; }
+    const btn = q('careerSystemResetBtn');
+    btn.disabled = true;
+    q('careerSystemResetStatus').textContent = 'Resetting every driver - this may take a moment...';
+    try{
+      const result = await window.IFWL_SeasonAPI.runCareerSystemMasterReset();
+      q('careerSystemResetStatus').textContent = `Done - reset ${result.resetCount} driver(s) for Season 4.`;
+    }catch(e){ q('careerSystemResetStatus').textContent = 'Could not reset: ' + e.message; }
+    finally{ btn.disabled = false; }
+  });
+
   async function initQualificationWindowPanel(){
     const w = await window.IFWL_QualWindowAPI.fetchQualificationWindow();
     q('qualWindowEnabledCheck').checked = w.enabled !== false;
@@ -14226,6 +14309,7 @@ Flashing Headlights:
     renderLicenceQualPanel('PC', 'pc-licence');
     renderLicenceQualPanel('Console', 'console-licence');
     initSeasonWindowPanel();
+    initCareerSystemPanel();
     initQualificationWindowPanel();
     initStaffMessagesPanel();
     initBulkTierTool();
