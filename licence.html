@@ -298,7 +298,11 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
    My Licence / Qualification Ranking row */
 .home-top-row{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
 .home-top-row #myLicencePanel{flex:0 0 396px;margin:22px 0}
-.home-top-row #qualStandingPanel{flex:1 1 480px;min-width:320px;margin:22px 0}
+.home-right-col{flex:1 1 480px;min-width:320px;display:flex;flex-direction:column}
+.home-right-col #seasonStatsPanel{margin:22px 0}
+.home-right-col #qualStandingPanel{margin:118px 0 22px}
+.s4-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:640px){.s4-stat-grid{grid-template-columns:repeat(2,1fr)}}
 .quick-action-row{display:flex;gap:10px;padding:18px 18px 14px;justify-content:center}
 .quick-action-btn{appearance:none;cursor:pointer;width:50px;height:50px;border-radius:12px;border:1.5px solid var(--ifwl-line);background:var(--panel-bg-raised);color:var(--text-muted);display:flex;align-items:center;justify-content:center;position:relative;box-shadow:0 1px 2px rgba(20,30,50,.05);transition:border-color .15s,color .15s,transform .1s}
 .quick-action-btn:hover{border-color:var(--ifwl-teal);color:var(--ifwl-teal);transform:translateY(-1px)}
@@ -1582,10 +1586,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <div class="home-right-col">
+  <!-- ✅ ADDED: tranche 2 - live season stats breakdown, next to the
+       licence card. Fully client-side from the same race results engine
+       Race Results/Drivers to Watch already use - no backend change. -->
+  <section class="panel view-panel" data-view="home" id="seasonStatsPanel">
+    <div class="panel-head"><div><h3 id="seasonStatsTitle">Season Stats</h3><small id="seasonStatsSub">Your race record this season</small></div></div>
+    <div id="seasonStatsBody" class="panel-body">
+      <div class="s4-stat-grid">
+        <div class="qual-stat-box"><span>Races Attended</span><strong id="s4StatAttended">-</strong></div>
+        <div class="qual-stat-box"><span>Wins</span><strong id="s4StatWins">-</strong></div>
+        <div class="qual-stat-box"><span>Podiums</span><strong id="s4StatPodiums">-</strong></div>
+        <div class="qual-stat-box"><span>Best Finish</span><strong id="s4StatBest">-</strong></div>
+      </div>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="home" id="qualStandingPanel">
     <div class="panel-head"><div><h3>Your Qualification Ranking</h3><small>How you compare to the field on the IFWL Licence server(s)</small></div></div>
     <div id="qualStandingBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
   </section>
+  </div>
   </div>
 
   <!-- ✅ ADDED: tranche 2 - the old inline profile-edit form + tier review
@@ -6708,6 +6729,77 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // ✅ CHANGED: the new-sponsorship celebration popup moved to career.html
   // with the rest of Season Progression.
 
+  // ✅ ADDED: tranche 2 - live Season Stats breakdown (attended/wins/podiums/
+  // best finish), sitting next to the licence card. Reuses the exact same
+  // season-window + race-results-in-range + per-race detail pipeline that
+  // Race Results already uses - no new backend endpoint, just a client-side
+  // tally over the same data. One race's detail fetch failing doesn't sink
+  // the whole breakdown (Promise.allSettled), it's just excluded.
+  async function renderSeasonStatsBreakdown(){
+    const body = q('seasonStatsBody');
+    if(!body || !currentProfile) return;
+    const accDriverNames = currentProfile.accDriverNames || [];
+    const titleEl = q('seasonStatsTitle');
+    const subEl = q('seasonStatsSub');
+    if(!accDriverNames.length){
+      body.innerHTML = '<div class="empty">Link your ACC driver name above to see your season stats here.</div>';
+      return;
+    }
+
+    let season;
+    try{ season = await window.IFWL_SeasonAPI.fetchSeasonWindow(); }
+    catch(e){ body.innerHTML = '<div class="empty">Could not load the season window.</div>'; return; }
+    if(!season.startDate || !season.endDate){
+      body.innerHTML = '<div class="empty">No season window set yet - ask staff to configure one under Staff &rarr; Season Window.</div>';
+      return;
+    }
+    if(titleEl) titleEl.textContent = `${season.label || 'Season'} Stats`;
+    if(subEl) subEl.textContent = `Your race record &middot; ${season.startDate} to ${season.endDate}`;
+
+    const startMs = new Date(season.startDate + 'T00:00:00Z').getTime();
+    const endMs = new Date(season.endDate + 'T23:59:59Z').getTime();
+
+    let races;
+    try{ races = await window.IFWLStats.listRaceResultsInRange(startMs, endMs); }
+    catch(e){ body.innerHTML = `<div class="empty">Could not load races: ${e.message}</div>`; return; }
+
+    body.innerHTML = `<div class="s4-stat-grid">
+      <div class="qual-stat-box"><span>Races Attended</span><strong id="s4StatAttended">-</strong></div>
+      <div class="qual-stat-box"><span>Wins</span><strong id="s4StatWins">-</strong></div>
+      <div class="qual-stat-box"><span>Podiums</span><strong id="s4StatPodiums">-</strong></div>
+      <div class="qual-stat-box"><span>Best Finish</span><strong id="s4StatBest">-</strong></div>
+    </div>`;
+
+    if(!races.length){
+      q('s4StatAttended').textContent = '0';
+      q('s4StatWins').textContent = '0';
+      q('s4StatPodiums').textContent = '0';
+      return;
+    }
+
+    const mine = new Set(accDriverNames.map(n => window.IFWLStats.driverNameKey(n)));
+    const details = await Promise.allSettled(races.map(r => window.IFWLStats.loadRaceDetail(r.file)));
+
+    let attended = 0, wins = 0, podiums = 0, best = null;
+    details.forEach(result => {
+      if(result.status !== 'fulfilled' || !result.value?.rows) return;
+      const myRow = result.value.rows.find(row => mine.has(window.IFWLStats.driverNameKey(row.driver)));
+      if(!myRow) return;
+      attended++;
+      const pos = Number(myRow.racePos);
+      if(!Number.isFinite(pos)) return;
+      if(pos === 1) wins++;
+      if(pos <= 3) podiums++;
+      if(best === null || pos < best) best = pos;
+    });
+
+    q('s4StatAttended').textContent = String(attended);
+    q('s4StatWins').textContent = String(wins);
+    q('s4StatPodiums').textContent = String(podiums);
+    q('s4StatBest').textContent = best != null ? `P${best}` : '-';
+  }
+  window.renderSeasonStatsBreakdown = renderSeasonStatsBreakdown;
+
   async function renderQualificationStanding(){
     const body = q('qualStandingBody');
     if(!body || !currentProfile) return;
@@ -7207,6 +7299,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // is defined in the THIRD block, so it must be called via the window
     // bridge from here (the second block), not as a bare name.
     renderQualificationStanding();
+    renderSeasonStatsBreakdown();
     initRaceTeamsPanel();
     renderLmuPanel();
     window.initMyTrophyCabinetPanel?.();
@@ -7467,6 +7560,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     switchView('home'); // avoid landing on a tab that just got hidden by the simulated tier
     renderQualificationStanding();
+    renderSeasonStatsBreakdown();
   }
   document.querySelectorAll('[data-view-as]').forEach(btn => {
     btn.addEventListener('click', () => setViewAs(btn.dataset.viewAs));
