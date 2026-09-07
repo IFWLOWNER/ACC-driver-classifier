@@ -3244,7 +3244,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-hint">Best-effort - reads the championship's own Races page. Works on public links; private/invite-only links may not be reachable this way. Preview only, doesn't create anything on its own.</div>
       </div>
       <div id="sgRoundsPreview" class="hidden" style="background:#f7f8fa;border:1px solid var(--ifwl-line);border-radius:10px;padding:12px;margin-bottom:10px"></div>
-      <div class="field-hint" style="margin-bottom:10px">The fields below are only used by the single "Add event" button underneath - if you're adding multiple rounds via "Preview rounds" above, each round has its own date/password inline and these aren't used.</div>
+      <div class="field-hint" style="margin-bottom:10px">Platform, Series, Available tiers, Discord Role, Notes and Event image below are <strong>shared across every round</strong> - set once here and applied to every round you add, whether that's the single "Add event" button underneath or "Add ticked rounds as events" above. Only Title, Track, Date and Password are per-round.</div>
       <div style="display:flex;gap:10px">
         <div class="field-group" style="flex:1"><label>Event date (for a single manually-added event)</label><input type="datetime-local" id="sgEventDate"></div>
         <div class="field-group" style="flex:1"><label>Or a free-text date label (optional)</label><input type="text" id="sgEventDateLabel" placeholder="e.g. Round 3 - TBC"></div>
@@ -9749,8 +9749,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // broken in the save/display pipeline. This now seeds the "fill all"
       // field (and every round) from whatever's already in the top field.
       const sharedPassword = q('sgPassword')?.value.trim() || '';
+      // ✅ ADDED: Title prefix - manually-added events get IFWL's full naming
+      // convention ("IFWL.NET | SEASON 3 | PC | BEGINNER SERIES | R7 | ...");
+      // bulk-imported rounds were only ever getting SimGrid's bare round
+      // name plus track ("Round 3 - Nurburgring"), a real gap in detail
+      // between the two paths. Seeding this from the shared Title field
+      // above (if staff already typed one) so it doesn't start blank.
+      const sharedTitlePrefix = q('sgTitle')?.value.trim() || '';
+      const buildDefaultTitle = (prefix, roundName, trackName) => {
+        const parts = [prefix, roundName, trackName].map(s => String(s || '').trim()).filter(Boolean);
+        return parts.join(' | ');
+      };
       preview.innerHTML = (result.warning ? `<div class="field-hint" style="margin-bottom:8px">${result.warning}</div>` : '') +
-        `<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--ifwl-line)">
+        `<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:10px">
+          <div class="field-group" style="flex:1;margin-bottom:0"><label>Title prefix for all rounds below (optional)</label><input type="text" id="sgFillAllTitleInput" placeholder="e.g. IFWL.NET | SEASON 3 | PC | BEGINNER SERIES" value="${sharedTitlePrefix.replace(/"/g,'&quot;')}"></div>
+          <button class="btn ghost" id="sgFillAllTitleBtn" type="button">Apply to all round titles</button>
+        </div>
+        <div class="field-hint" style="margin:-6px 0 14px">Rebuilds every round's title below as "prefix | round name | track" - each one stays individually editable afterwards, so a one-off rename (a re-run, "!!", etc.) doesn't get overwritten unless you click this again.</div>
+        <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--ifwl-line)">
           <div class="field-group" style="flex:1;margin-bottom:0"><label>Fill all round passwords below with:</label><input type="text" id="sgFillAllPasswordInput" placeholder="e.g. ifwl2026" value="${sharedPassword.replace(/"/g,'&quot;')}"></div>
           <button class="btn ghost" id="sgFillAllPasswordBtn" type="button">Apply to all rounds</button>
         </div>` +
@@ -9758,6 +9774,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         result.rounds.map((r, i) => {
           const dateVal = r.dateMs ? new Date(r.dateMs).toISOString().slice(0,16) : '';
           const preselectedSlug = matchTrackSlug(r.track);
+          const preselectedTrackName = trackOptions.find(t => t.slug === preselectedSlug)?.name || '';
+          const defaultTitle = buildDefaultTitle(sharedTitlePrefix, r.name, preselectedTrackName);
           return `
           <div class="note-item sg-round-row">
             <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
@@ -9767,21 +9785,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
                 <div class="note-meta">${r.ended ? 'Ended' : 'Upcoming'}${r.track ? ` &middot; SimGrid says: "${r.track}"` : ''}</div>
               </div>
             </label>
-            <div style="display:flex;gap:10px;margin-top:8px;padding-left:26px;flex-wrap:wrap">
-              <div class="field-group" style="flex:1;min-width:160px;margin-bottom:0"><label style="font-size:10px">Track</label>
-                <select class="sg-round-track" data-round-idx="${i}">
-                  <option value="">Not set</option>
-                  ${trackOptions.map(t => `<option value="${t.slug}" ${t.slug===preselectedSlug?'selected':''}>${t.name}</option>`).join('')}
-                </select>
+            <div style="padding-left:26px;margin-top:8px">
+              <div class="field-group" style="margin-bottom:8px"><label style="font-size:10px">Event title (editable - same naming as a manually-added event)</label><input type="text" class="sg-round-title" data-round-idx="${i}" value="${defaultTitle.replace(/"/g,'&quot;')}"></div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <div class="field-group" style="flex:1;min-width:160px;margin-bottom:0"><label style="font-size:10px">Track</label>
+                  <select class="sg-round-track" data-round-idx="${i}">
+                    <option value="">Not set</option>
+                    ${trackOptions.map(t => `<option value="${t.slug}" ${t.slug===preselectedSlug?'selected':''}>${t.name}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="field-group" style="flex:1;min-width:140px;margin-bottom:0"><label style="font-size:10px">Date/time (editable)</label><input type="datetime-local" class="sg-round-date" data-round-idx="${i}" value="${dateVal}"></div>
+                <div class="field-group" style="flex:1;min-width:140px;margin-bottom:0"><label style="font-size:10px">Password for this round</label><input type="text" class="sg-round-password" data-round-idx="${i}" value="${sharedPassword.replace(/"/g,'&quot;')}"></div>
               </div>
-              <div class="field-group" style="flex:1;min-width:140px;margin-bottom:0"><label style="font-size:10px">Date/time (editable)</label><input type="datetime-local" class="sg-round-date" data-round-idx="${i}" value="${dateVal}"></div>
-              <div class="field-group" style="flex:1;min-width:140px;margin-bottom:0"><label style="font-size:10px">Password for this round</label><input type="text" class="sg-round-password" data-round-idx="${i}" value="${sharedPassword.replace(/"/g,'&quot;')}"></div>
             </div>
           </div>`;
         }).join('') +
         `<div style="margin-top:10px;display:flex;gap:10px;align-items:center">
           <button class="btn teal" id="sgBulkAddBtn" type="button">Add ticked rounds as events</button>
-          <span class="field-hint">Each round uses its own track/date/password above. Platform/tiers/notes below are shared across all of them.</span>
+          <span class="field-hint">Each round uses its own title/track/date/password above. Platform/tiers/Discord role/notes/image below are shared across all of them - same detail as a manually-added event.</span>
         </div>
         <div id="sgBulkAddStatus" style="margin-top:8px"></div>`;
 
@@ -9789,6 +9810,34 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         const val = q('sgFillAllPasswordInput').value;
         preview.querySelectorAll('.sg-round-password').forEach(el => { el.value = val; });
       });
+
+      q('sgFillAllTitleBtn').addEventListener('click', () => {
+        const prefix = q('sgFillAllTitleInput').value.trim();
+        preview.querySelectorAll('.sg-round-title').forEach(el => {
+          const idx = Number(el.dataset.roundIdx);
+          const r = result.rounds[idx];
+          const trackSlug = preview.querySelector(`.sg-round-track[data-round-idx="${idx}"]`).value;
+          const trackName = trackOptions.find(t => t.slug === trackSlug)?.name || '';
+          el.value = buildDefaultTitle(prefix, r.name, trackName);
+        });
+      });
+
+      // Picking a different track updates that round's title too, as long
+      // as it still starts with the same prefix - so a manual rename (e.g.
+      // adding "RE RUN!!") survives, but a plain default title stays in
+      // sync with the track dropdown.
+      preview.querySelectorAll('.sg-round-track').forEach(sel => sel.addEventListener('change', () => {
+        const idx = Number(sel.dataset.roundIdx);
+        const r = result.rounds[idx];
+        const titleInput = preview.querySelector(`.sg-round-title[data-round-idx="${idx}"]`);
+        const prefix = q('sgFillAllTitleInput')?.value.trim() || '';
+        const oldTrackName = trackOptions.find(t => t.slug === matchTrackSlug(r.track))?.name || '';
+        const stillDefault = titleInput.value === buildDefaultTitle(prefix, r.name, oldTrackName)
+          || titleInput.value === buildDefaultTitle(sharedTitlePrefix, r.name, oldTrackName);
+        if(!stillDefault) return;
+        const newTrackName = trackOptions.find(t => t.slug === sel.value)?.name || '';
+        titleInput.value = buildDefaultTitle(prefix || sharedTitlePrefix, r.name, newTrackName);
+      }));
 
       q('sgBulkAddBtn').addEventListener('click', async () => {
         const status = q('sgBulkAddStatus');
@@ -9799,7 +9848,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         const series = q('sgSeries').value;
         const tiers = [...document.querySelectorAll('.sg-tier-check:checked')].map(el => el.value);
         const notes = q('sgNotes').value.trim();
+        // ✅ FIXED: Discord Role ID/label were being read for the single
+        // "Add event" save but silently dropped from this bulk path - bulk-
+        // imported rounds never unlocked their Discord area for drivers even
+        // when a role was set, with no error to say so. Same shared-field
+        // treatment as platform/series/tiers/notes/image above.
+        const discordRoleId = q('sgDiscordRoleId').value.trim();
+        const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
         if(!tiers.length){ status.innerHTML = '<div class="empty">Select at least one tier below first - it applies to every round being added.</div>'; return; }
+        if(discordRoleId && !/^\d{5,25}$/.test(discordRoleId)){ status.innerHTML = '<div class="empty">Discord Role ID should be the numeric role ID (Copy Role ID in Discord), not a role name.</div>'; return; }
 
         // One shared image (if chosen) applies to every round in this batch,
         // same as platform/series/tiers/notes above - uploaded once, reused.
@@ -9821,8 +9878,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           // own scraped text - that text is shown alongside it purely as a
           // hint, never trusted directly into the saved title.
           const trackSlug = preview.querySelector(`.sg-round-track[data-round-idx="${idx}"]`).value;
-          const trackName = trackOptions.find(t => t.slug === trackSlug)?.name || '';
-          const title = `${r.name}${trackName ? ' - ' + trackName : ''}`;
+          // Title now comes from this round's own (editable) title field -
+          // defaults to "prefix | round name | track" but staff can rename
+          // any individual round (a re-run, added "!!", etc.) before adding.
+          const title = preview.querySelector(`.sg-round-title[data-round-idx="${idx}"]`).value.trim() || r.name;
           // Reads THIS round's own inline date/password fields, not a
           // shared value - each round genuinely gets its own.
           const dateInput = preview.querySelector(`.sg-round-date[data-round-idx="${idx}"]`).value;
@@ -9831,6 +9890,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           try{
             await window.IFWL_SimgridAPI.saveSimgridEvent({
               title, simgridLink: url, platform, series, tiers, notes, password, imageUrl,
+              discordRoleId, discordRoleLabel,
               eventDateMs,
               eventDateLabel: eventDateMs ? '' : (r.dateText || title)
             });
