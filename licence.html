@@ -3641,7 +3641,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
        page, since that's the one step meant to stay a manual Head Steward/
        Owner call. -->
   <section class="panel view-panel" data-view="staffAlerts" id="staffAlertsPanel">
-    <div class="panel-head"><div><h3>Staff: Alerts</h3><small>Licence points band-crossing events - AMBER / FINAL WARNING post to Discord automatically, ESCALATE (7+) is staff-only and needs Head Steward/Owner action</small></div><button class="btn ghost" id="staffAlertsRefreshBtn" type="button">Refresh</button></div>
+    <div class="panel-head"><div><h3>Staff: Alerts</h3><small>Licence points band-crossing events - AMBER / FINAL WARNING post to Discord automatically, ESCALATE (7+) is staff-only and needs Head Steward/Owner action</small></div><div style="display:flex;gap:8px"><button class="btn purple owner-only-tab" id="staffAlertsBackfillBtn" type="button">Backfill Existing Drivers</button><button class="btn ghost" id="staffAlertsRefreshBtn" type="button">Refresh</button></div></div>
+    <div class="staff-only-note owner-only-tab">"Backfill Existing Drivers" is a one-time action (safe to run again - already-processed drivers are skipped) - it notifies every driver currently on 3+ licence points and posts to Discord for AMBER/FINAL WARNING as if it just happened, so drivers who already had points before this system went live show up here too.</div>
     <div id="staffAlertsList"><div class="empty">Loading&hellip;</div></div>
   </section>
 
@@ -9302,6 +9303,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     });
   }
   q('staffAlertsRefreshBtn')?.addEventListener('click', renderStaffAlertsPanel);
+  q('staffAlertsBackfillBtn')?.addEventListener('click', async () => {
+    const confirmText = `Backfill existing drivers now?\n\nThis notifies every driver currently on 3+ licence points and posts to Discord for AMBER/FINAL WARNING, as if it just happened right now - so their existing standing shows up in Staff Alerts instead of only future changes.\n\nESCALATE (7+) drivers still only ever raise a staff alert - no Discord post, no driver notice - same as a live crossing.\n\nSafe to run more than once - already-backfilled drivers are skipped, so this won't double-notify anyone. Type BACKFILL to confirm.`;
+    const typed = prompt(confirmText);
+    if(typed !== 'BACKFILL') return;
+    const btn = q('staffAlertsBackfillBtn');
+    btn.disabled = true;
+    btn.textContent = 'Backfilling...';
+    try{
+      const result = await window.IFWL_Api.apiPost('staffLicencePointsBackfill', { confirm: 'BACKFILL' });
+      alert(`Done - backfilled ${result.processed} driver(s).`);
+      await renderStaffAlertsPanel();
+    }catch(e){
+      alert('Could not backfill: ' + e.message);
+    }finally{
+      btn.disabled = false;
+      btn.textContent = 'Backfill Existing Drivers';
+    }
+  });
 
   function renderResults(rows){
     const wrap = q('staffSearchResults');
