@@ -9481,6 +9481,41 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return map;
   }
 
+  // ✅ ADDED: server footprint - cross-references each pending request's
+  // driver against EVERY server IFWL tracks (window.IFWLStats.getDriverServerFootprint),
+  // not just the two Licence Q servers the suggestion map above is scoped
+  // to. Lets staff tell at a glance whether a request is from an existing
+  // racer (real data on an actual race server) or someone brand new who's
+  // only ever touched the Licence Qualification servers - or nothing at
+  // all. Best-effort/non-fatal, same shape as reqBuildSystemSuggestionMap.
+  async function reqBuildServerFootprintMap(driverIds){
+    const map = new Map();
+    if(!driverIds.length) return map;
+    try{
+      const profiles = await staffSearch('');
+      const profileById = new Map(profiles.map(p => [p.discordId, p]));
+      await Promise.all(driverIds.map(async id => {
+        const p = profileById.get(id);
+        const footprint = await window.IFWLStats.getDriverServerFootprint(p?.accDriverNames || []);
+        map.set(id, footprint);
+      }));
+    }catch(e){ console.warn('Could not compute server footprint for the request queue', e); }
+    return map;
+  }
+  function reqFootprintLabel(fp){
+    if(!fp || fp.reason === 'no-linked-names') return '';
+    const totalServers = (fp.raceServers?.length || 0) + (fp.licenceServers?.length || 0);
+    if(!totalServers){
+      return '🖥️ Server data: <strong style="color:var(--ifwl-amber,#ffb238)">none - brand new</strong>';
+    }
+    if(fp.isRacer){
+      const list = fp.raceServers.map(s => `${s.serverName} (${s.sessionCount})`).join(', ');
+      return `🖥️ Server data: <strong style="color:var(--ifwl-green,#33d99b)">Racer</strong> &middot; ${list}`;
+    }
+    const list = fp.licenceServers.map(s => `${s.serverName} (${s.sessionCount})`).join(', ');
+    return `🖥️ Server data: <strong style="color:var(--ifwl-amber,#ffb238)">Licence servers only</strong> &middot; ${list}`;
+  }
+
   async function renderRequestQueue(){
     const body = q('requestQueueBody');
     if(!body) return;
@@ -9490,7 +9525,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const pending = all.filter(r => r.status === 'pending');
     if(!pending.length){ body.innerHTML = '<div class="empty">No pending licence requests.</div>'; return; }
 
-    const suggestionMap = await reqBuildSystemSuggestionMap(pending.map(r => r.driverId));
+    const [suggestionMap, footprintMap] = await Promise.all([
+      reqBuildSystemSuggestionMap(pending.map(r => r.driverId)),
+      reqBuildServerFootprintMap(pending.map(r => r.driverId))
+    ]);
 
     body.innerHTML = pending.map(r => {
       // undefined (key never set) = the whole lookup failed/wasn't permitted -
@@ -9502,12 +9540,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         : row.qualified
           ? `System suggests: <strong style="color:${findColor(row.recommendedTier)}">${row.recommendedTier}</strong> (avg gap ${row.avgGapPct != null ? row.avgGapPct + '%' : '-'}, ${row.totalLaps} lap(s))`
           : `System suggests: <strong style="color:${findColor(row.recommendedTier)}">${row.recommendedTier}</strong> (not yet qualified - only ${row.totalLaps} lap(s) logged)`;
+      const footprint = reqFootprintLabel(footprintMap.get(r.driverId));
       return `
       <div class="request-card" data-driver="${r.driverId}" data-request="${r.id}">
         <span class="request-status-pill pending">Pending</span>
         <strong style="display:block;margin-top:8px">${r.driverName} &mdash; <span style="color:${findColor(r.requestedTier)}">${r.requestedTier}</span></strong>
         <div class="req-meta">Currently: ${r.currentTier} &middot; submitted ${new Date(r.submittedAt).toLocaleString()}</div>
         <div class="req-meta">🏁 Says they're racing: <strong>${reqCurrentRaceLabel(r.currentRace)}</strong>${suggestion ? ` &middot; ${suggestion}` : ''}</div>
+        ${footprint ? `<div class="req-meta">${footprint}</div>` : ''}
         <p style="color:var(--text-muted);font-size:13px;margin:8px 0 0">${r.reason}</p>
         <div class="req-actions">
           <button class="btn teal" data-decision="approved">Approve</button>
