@@ -331,6 +331,7 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .points-value{display:block;margin-top:2px;font-size:46px;line-height:1;font-family:var(--font-mono);font-weight:700}
 .points-value.pts-green{color:var(--ifwl-green)}
 .points-value.pts-orange{color:var(--ifwl-amber)}
+.points-value.pts-warning{color:#ff6b3d}
 .points-value.pts-red{color:var(--ifwl-red)}
 .calling-card-box{margin-top:14px;border-radius:12px;overflow:hidden;background:#161b22;min-height:110px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--ifwl-line)}
 .calling-card-box img{width:100%;height:130px;object-fit:cover;display:block}
@@ -446,6 +447,8 @@ main{width:min(1360px,88vw);margin:34px auto 60px}
 .shop-receipt-amount.neg{color:var(--ifwl-red)}
 #inboxNoticeModal{position:fixed;inset:0;z-index:199996;background:rgba(4,6,9,.82);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
 #inboxNoticeModal.hidden{display:none!important}
+#licencePointsNoticeModal{position:fixed;inset:0;z-index:199995;background:rgba(4,6,9,.82);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
+#licencePointsNoticeModal.hidden{display:none!important}
 /* ✅ ADDED: Owner's Emergency Standards Clause - driver-facing briefing */
 #ownerClauseModal{position:fixed;inset:0;z-index:199997;background:rgba(4,6,9,.86);display:flex;align-items:flex-start;justify-content:center;padding:24px 24px 60px;overflow-y:auto}
 #ownerClauseModal.hidden{display:none!important}
@@ -1309,6 +1312,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </div>
 </div>
 
+<!-- ✅ ADDED: Licence Points band-crossing notice - supersedes the old TLS
+     tool's manual Discord-only amber/warning posts. Fires once per notice
+     (server-tracked via licencePointsNotices[].seen, same shape as the
+     Inbox notice above but acked server-side too so it doesn't reappear on
+     another device). -->
+<div id="licencePointsNoticeModal" class="hidden">
+  <div class="login-wall-card">
+    <div class="licence-org" style="font-size:13px;color:var(--ifwl-amber)" id="licencePointsNoticeKicker">LICENCE POINTS</div>
+    <h1 style="background:linear-gradient(100deg,#fff,var(--ifwl-amber));-webkit-background-clip:text;background-clip:text;color:transparent" id="licencePointsNoticeTitle">Points Update</h1>
+    <p id="licencePointsNoticeText">Loading&hellip;</p>
+    <div class="login-wall-actions" style="margin-top:14px">
+      <button class="login-wall-logout" id="licencePointsNoticeDismissBtn" type="button">I Understand</button>
+    </div>
+  </div>
+</div>
+
 <!-- ✅ ADDED: Owner's Emergency Standards Clause - one-time driver briefing.
      Fingerprinted on enabledAtMs (see checkOwnerClauseNotice) so re-enabling
      the clause later re-shows this even to a driver who dismissed it before. -->
@@ -1430,6 +1449,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="staff-accordion-items">
           <button data-view="staffLicenceManagement" class="ops-only-tab" type="button">Licence Management</button>
           <button data-view="staffLicenceDatabase" class="ops-only-tab" type="button">Licence Database</button>
+          <button data-view="staffAlerts" class="ops-only-tab" type="button">Staff Alerts</button>
           <button data-view="staffRequests" type="button">Licence Requests</button>
           <button data-view="staffTierManage" class="ops-only-tab" type="button">Manage Licence Tiers</button>
           <button data-view="staffNameAudit" type="button">Driver Name Audit</button>
@@ -3614,6 +3634,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <!-- ✅ ADDED: Staff Alerts - band-crossing feed for the new Licence
+       Points system (supersedes manually watching TLS/Discord for
+       amber/final-warning drivers). ESCALATE (7+) entries only ever land
+       here - deliberately never auto-posted to Discord or the driver's own
+       page, since that's the one step meant to stay a manual Head Steward/
+       Owner call. -->
+  <section class="panel view-panel" data-view="staffAlerts" id="staffAlertsPanel">
+    <div class="panel-head"><div><h3>Staff: Alerts</h3><small>Licence points band-crossing events - AMBER / FINAL WARNING post to Discord automatically, ESCALATE (7+) is staff-only and needs Head Steward/Owner action</small></div><button class="btn ghost" id="staffAlertsRefreshBtn" type="button">Refresh</button></div>
+    <div id="staffAlertsList"><div class="empty">Loading&hellip;</div></div>
+  </section>
+
   <section class="panel view-panel" data-view="staffLicenceDatabase" id="licenceDatabasePanel">
     <div class="panel-head"><div><h3>Staff: Licence Database</h3><small>Every driver, ranked by pace, with everything else staff need to know</small></div><button class="btn ghost" id="licDbRefreshBtn" type="button">Refresh</button></div>
     <div class="staff-only-note">Overview loads instantly. Consistency/Race Risk/pace ranking requires scanning every driver's session history - click "Load full stats" when you actually need the ranking, rather than every time this tab opens.</div>
@@ -4914,6 +4945,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   let currentProfile = null;
   let avatarMode = 'discord';
 
+  // ✅ CHANGED: shared band classifier - 0-2 none / 3-4 amber / 5-6 final
+  // warning / 7+ escalate - matches the licence points bands the server
+  // now uses everywhere (see ifwlLicencePointsBand in rtgate.js). Used by
+  // renderCard, the staff card preview, and the Licence Database table so
+  // all three always agree.
+  function ifwlPointsBandClass(points){
+    const n = Number(points) || 0;
+    if(n <= 2) return 'pts-green';
+    if(n <= 4) return 'pts-orange';
+    if(n <= 6) return 'pts-warning';
+    return 'pts-red';
+  }
+
   function renderCard(p){
     q('licenceName').textContent = p.name || 'Unnamed driver';
     q('licenceNumber').textContent = p.licenceNumber || 'IFWL-0000-00000';
@@ -4932,7 +4976,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const points = Number(p.licencePoints || 0);
     const pointsBadge = q('cardPointsBadge');
     pointsBadge.textContent = points;
-    pointsBadge.className = 'points-value ' + (points <= 3 ? 'pts-green' : points <= 6 ? 'pts-orange' : 'pts-red');
+    pointsBadge.className = 'points-value ' + ifwlPointsBandClass(points);
     renderCallingCardBox(p.callingCardUrl, p.tier);
     const photo = p.avatarMode==='upload' && p.photoUploadUrl ? p.photoUploadUrl
                 : p.avatarMode==='url' && p.avatarUrl ? p.avatarUrl
@@ -6567,6 +6611,35 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('inboxNoticeOpenBtn').onclick = () => { dismiss(); window.switchView?.('inbox'); };
   }
 
+  // ✅ ADDED: Licence Points band-crossing notice - supersedes the old TLS
+  // tool's manual Discord posts. licencePointsNotices already comes down
+  // on currentProfile (licenceProfile spreads the whole doc), so this is
+  // pure client-side - no extra fetch. Shows the oldest unseen notice
+  // first (in case more than one landed between visits), acks it server-
+  // side via licencePointsNoticeSeen on dismiss so it never reappears,
+  // even on another device.
+  async function checkLicencePointsNotice(){
+    if(window.IFWL_STAFF) return;
+    const notices = Array.isArray(currentProfile?.licencePointsNotices) ? currentProfile.licencePointsNotices : [];
+    const unseen = notices.filter(n => n && !n.seen).sort((a,b) => (a.dateMs||0) - (b.dateMs||0));
+    if(!unseen.length) return;
+    const notice = unseen[0];
+
+    const kicker = notice.band === 'escalate' ? 'LICENCE POINTS - REFERRED' : notice.band === 'warning' ? 'FINAL WARNING' : 'LICENCE POINTS - AMBER';
+    const title = notice.band === 'escalate' ? 'Referred For Review' : notice.band === 'warning' ? 'Final Warning' : 'Points Update';
+    q('licencePointsNoticeKicker').textContent = kicker;
+    q('licencePointsNoticeTitle').textContent = title;
+    q('licencePointsNoticeText').textContent = notice.text || `Your licence points have reached ${notice.points ?? ''}.`;
+    q('licencePointsNoticeModal').classList.remove('hidden');
+
+    q('licencePointsNoticeDismissBtn').onclick = async () => {
+      q('licencePointsNoticeModal').classList.add('hidden');
+      try{ await apiPost('licencePointsNoticeSeen', { noticeId: notice.id }); }
+      catch(e){ /* best-effort - worst case it re-shows next visit */ }
+      notice.seen = true;
+    };
+  }
+
   // ✅ ADDED: Owner's Emergency Standards Clause - persistent red banner
   // (home tab, same shape as System Status) plus a one-time full briefing
   // popup per activation. Fingerprinted on enabledAtMs, not a fixed key, so
@@ -7431,6 +7504,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     checkTicketNotice();
     checkInboxNotice();
     checkOwnerClauseNotice();
+    checkLicencePointsNotice();
     // ✅ ADDED: Season 4 checklist - Home view only (see switchView for the
     // re-check when navigating back to Home later in the same visit).
     if(document.querySelector('#viewTabs > .view-tab.active')?.dataset.view === 'home'){
@@ -9174,6 +9248,54 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return (await window.IFWL_Api.apiPost('staffLicencePoints', { driverId: id, delta, reason })).licencePoints;
   }
 
+  // ✅ ADDED: Staff Alerts panel - licence points band-crossing feed
+  // (supersedes staff having to watch TLS/Discord manually for amber/
+  // final-warning drivers). ESCALATE (7+) alerts land here ONLY - see the
+  // panel header note for why that band is never auto-posted anywhere else.
+  async function fetchStaffAlerts(){
+    return (await window.IFWL_Api.apiGet('staffAlerts')).alerts || [];
+  }
+  async function ackStaffAlert(alertId){
+    return window.IFWL_Api.apiPost('staffAlertAck', { alertId });
+  }
+  function staffAlertBandLabel(band){
+    return band === 'escalate' ? 'ESCALATE (7+)' : band === 'warning' ? 'FINAL WARNING' : 'AMBER';
+  }
+  function staffAlertBandClass(band){
+    return band === 'escalate' ? 'pts-red' : band === 'warning' ? 'pts-warning' : 'pts-orange';
+  }
+  async function renderStaffAlertsPanel(){
+    const wrap = q('staffAlertsList');
+    if(!wrap) return;
+    let alerts;
+    try{ alerts = await fetchStaffAlerts(); }
+    catch(e){ wrap.innerHTML = `<div class="empty">Could not load alerts: ${e.message}</div>`; return; }
+    if(!alerts.length){ wrap.innerHTML = '<div class="empty">No alerts yet.</div>'; return; }
+
+    alerts.sort((a,b) => (a.acknowledged === b.acknowledged ? 0 : a.acknowledged ? 1 : -1) || (b.createdAtMs||0) - (a.createdAtMs||0));
+
+    wrap.innerHTML = alerts.map(a => `
+      <div class="note-item" style="${a.acknowledged ? 'opacity:.55' : ''}">
+        <span class="points-value ${staffAlertBandClass(a.band)}" style="font-size:15px;display:inline;margin-right:8px">${staffAlertBandLabel(a.band)}</span>
+        <strong>${a.driverName || 'Unknown driver'}</strong> is now on <strong>${a.points}</strong> licence points
+        <div class="note-meta">
+          ${new Date(a.createdAtMs || Date.now()).toLocaleString()}
+          ${a.acknowledged ? ` &middot; acknowledged by ${a.acknowledgedBy || 'staff'}` : ''}
+        </div>
+        ${a.acknowledged ? '' : `<button class="btn ghost" style="margin-top:6px" data-ack-alert="${a.id}" type="button">Acknowledge</button>`}
+      </div>
+    `).join('');
+
+    wrap.querySelectorAll('[data-ack-alert]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try{ await ackStaffAlert(btn.dataset.ackAlert); await renderStaffAlertsPanel(); }
+        catch(e){ alert('Could not acknowledge: ' + e.message); btn.disabled = false; }
+      });
+    });
+  }
+  q('staffAlertsRefreshBtn')?.addEventListener('click', renderStaffAlertsPanel);
+
   function renderResults(rows){
     const wrap = q('staffSearchResults');
     if(!rows.length){ wrap.innerHTML = '<div class="empty">No matches.</div>'; return; }
@@ -9199,7 +9321,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
                 : p.avatarMode==='url' && p.avatarUrl ? p.avatarUrl
                 : 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="88" height="88"><rect width="88" height="88" fill="%231a2027"/></svg>';
     const points = Number(p.licencePoints || 0);
-    const pointsClass = points <= 3 ? 'pts-green' : points <= 6 ? 'pts-orange' : 'pts-red';
+    const pointsClass = ifwlPointsBandClass(points);
     const cardStyle = tier.foil ? '' : ` style="background:linear-gradient(135deg, ${tier.color}, var(--ifwl-purple))"`;
     const headerStyle = p.headerUploadUrl ? ` style="background-image:url('${p.headerUploadUrl}')"` : '';
     return `<div class="licence-card${tier.foil ? ' foil' : ''}"${cardStyle}>
@@ -11381,7 +11503,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <td><button class="licdb-expand-btn" data-licdb-expand="${p.discordId}" data-row="${i}">&#9660;</button></td>
         <td>${p.name} <span class="field-hint mono">(${p.licenceNumber})</span></td>
         <td><span class="tier-pill" style="background:transparent;border:none;padding:0">${p.tier}</span></td>
-        <td class="mono">${p.licencePoints}</td>
+        <td class="mono"><span class="points-value ${ifwlPointsBandClass(p.licencePoints)}" style="font-size:15px;display:inline">${p.licencePoints}</span></td>
         <td>${platformLabel}</td>
         <td>${statusBits.join(' &middot; ') || '-'}</td>
         <td class="mono">${pcLapsCell}</td>
@@ -14478,6 +14600,7 @@ Flashing Headlights:
     renderNameAudit();
     initSystemStatusPanel();
     renderLicenceDatabase();
+    renderStaffAlertsPanel();
     renderStaffTrophyCabinet();
     initAffiliateAdsPanel();
     initStaffBopTrackerPanel();
