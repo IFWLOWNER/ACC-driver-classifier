@@ -1008,6 +1008,22 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .dir-card-team{font-size:11.5px;color:#c4d0d3;display:block;margin-top:4px}
 .dir-card-trophies{display:flex;gap:5px;margin-top:6px}
 .dir-card-trophies .lct-trophy{width:24px;height:24px}
+/* ✅ ADDED: entrylist ACC name, shown between the driver's name and their
+   licence number - italic/dimmer so it reads as secondary to the name. */
+.dir-card-acc-name{font-size:11px;color:#9fb0b5;font-style:italic;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:1px 0 2px}
+.dir-card-acc-extra{font-style:normal;opacity:.75}
+/* ✅ ADDED: Peer Ratings thumbs up/down - bottom-right of the card, same
+   absolute-positioning pattern as .platform-tag/.dir-card-team-logo above.
+   Neutral/grey until voted; once voted the chosen button locks into a
+   green (up) or red (down) fill and both buttons disable - see
+   renderDirectory's rateRow. */
+.dir-card-rate{position:absolute;bottom:8px;right:8px;z-index:3;display:flex;gap:4px}
+.dir-rate-btn{width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(8,10,13,.55);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .1s ease,border-color .1s ease}
+.dir-rate-btn:hover:not(:disabled){transform:translateY(-1px);border-color:rgba(255,255,255,.55)}
+.dir-rate-btn:disabled{cursor:default}
+.dir-rate-btn.voted{opacity:1}
+.dir-rate-up.voted{background:rgba(51,217,155,.28);border-color:var(--ifwl-green,#33d99b)}
+.dir-rate-down.voted{background:rgba(255,84,100,.28);border-color:var(--ifwl-red,#ff5464)}
 
 /* ---- Commentator: Drivers to Watch ---- */
 .cw-toggle{display:flex;gap:8px;margin-bottom:16px}
@@ -4812,6 +4828,30 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return (await apiGet('licenceDirectory')).drivers || [];
   }
 
+  // ✅ ADDED: Peer Ratings - "good racer/bad racer" thumbs up/down drivers
+  // leave on each other from the Driver Directory. fetchMyPeerRatingsGiven
+  // returns ONLY the caller's own votes ({targetDiscordId: 'up'|'down'}) -
+  // never anyone else's, and never the aggregate counts (Staff-only, see
+  // Staff: Licence Management) - so the Directory can lock a card's buttons
+  // to whichever choice this driver already made, without exposing anything
+  // about how anyone else voted. Server contract: ?myPeerRatingsGiven=1 ->
+  // {ratings}, ?submitPeerRating=1 {targetId, rating} (one-time, no undo).
+  async function fetchMyPeerRatingsGiven(){
+    if(USE_DEMO_FALLBACK) return demoGet('peerRatingsGiven', {});
+    try{ return (await apiGet('myPeerRatingsGiven')).ratings || {}; }
+    catch(e){ console.warn('Could not load peer ratings', e); return {}; }
+  }
+  async function submitPeerRating(targetId, rating){
+    if(USE_DEMO_FALLBACK){
+      const all = demoGet('peerRatingsGiven', {});
+      all[targetId] = rating;
+      demoSet('peerRatingsGiven', all);
+      return { ok:true, rating };
+    }
+    return apiPost('submitPeerRating', { targetId, rating });
+  }
+  window.IFWL_PeerRatingAPI = { fetchMyPeerRatingsGiven, submitPeerRating };
+
   // ✅ ADDED: public roster read (name/licenceNumber/tier/accDriverNames) -
   // used by the Commentator "Drivers to Watch" screen to match a pace
   // standings row (which only has a raw ACC name string) back to a licence,
@@ -5034,12 +5074,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   const DIR_PAGE_SIZE = 24;
   let dirCurrentPage = 0;
+  // ✅ ADDED: Peer Ratings - {targetDiscordId: 'up'|'down'} for every driver
+  // THIS logged-in user has already rated, loaded once in init() alongside
+  // the directory fetch and kept in sync locally the moment a vote is cast
+  // (no need to re-fetch on every render/page/search). Never holds anyone
+  // else's votes or any aggregate count - see fetchMyPeerRatingsGiven.
+  let myPeerRatingsGiven = {};
 
   function renderDirectory(rows){
     const search = (q('dirSearch').value||'').toLowerCase();
     const tierFilter = q('dirTierFilter').value;
     const filtered = rows.filter(r=>{
-      const matchesSearch = !search || (r.name||'').toLowerCase().includes(search) || (r.licenceNumber||'').toLowerCase().includes(search);
+      const matchesSearch = !search || (r.name||'').toLowerCase().includes(search) || (r.licenceNumber||'').toLowerCase().includes(search)
+        || (r.accDriverNames||[]).some(n => (n||'').toLowerCase().includes(search));
       const matchesTier = !tierFilter || r.tier===tierFilter;
       return matchesSearch && matchesTier;
     });
@@ -5062,6 +5109,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     dirCurrentPage = Math.max(0, Math.min(dirCurrentPage, totalPages - 1));
     const start = dirCurrentPage * DIR_PAGE_SIZE;
     const pageRows = filtered.slice(start, start + DIR_PAGE_SIZE);
+
+    // ✅ ADDED: who's viewing, for the Peer Ratings buttons below - 'guest'
+    // (not logged in) and a driver's own card both get no buttons at all,
+    // rather than showing controls that would just 401/400 on click.
+    const myId = window.IFWL_AUTH?.userId(window.IFWL_META) || 'guest';
 
     body.innerHTML = pageRows.map(r=>{
       const tier = findTier(r.tier || 'No Licence');
@@ -5099,14 +5151,38 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const seasonalOverlay = activeSeasonal
         ? `<img class="seasonal-overlay-img dir-card-seasonal${activeSeasonal.glow ? ' glow' : ''}" src="${activeSeasonal.imageUrl}" alt="">`
         : '';
+      // ✅ ADDED: entrylist ACC name(s), shown under the driver's name and
+      // above their licence number - so drivers can recognise/thank each
+      // other by the name that actually shows up in the entrylist/results.
+      // Only the first linked name is shown (a "+N" hint covers the rest);
+      // most drivers only ever link one anyway.
+      const accNameRow = (r.accDriverNames && r.accDriverNames.length)
+        ? `<span class="dir-card-acc-name">${r.accDriverNames[0]}${r.accDriverNames.length > 1 ? ` <span class="dir-card-acc-extra">+${r.accDriverNames.length - 1}</span>` : ''}</span>`
+        : '';
+      // ✅ ADDED: Peer Ratings - thumbs up/down "good racer/bad racer".
+      // Hidden entirely for a guest (not logged in) and on a driver's own
+      // card (can't rate yourself, enforced server-side too). Once this
+      // viewer has rated someone, both buttons lock disabled with only
+      // their choice highlighted - myPeerRatingsGiven never changes after
+      // that (no undo endpoint exists), so a re-render always reproduces
+      // the same locked state without another network call.
+      const myRating = myPeerRatingsGiven[r.discordId] || '';
+      const rateRow = (myId !== 'guest' && r.discordId && r.discordId !== myId)
+        ? `<div class="dir-card-rate" data-target="${r.discordId}">
+            <button type="button" class="dir-rate-btn dir-rate-up${myRating === 'up' ? ' voted' : ''}" data-rate="up" ${myRating ? 'disabled' : ''} title="${myRating === 'up' ? 'You rated this driver a good racer' : 'Good racer'}">&#128077;</button>
+            <button type="button" class="dir-rate-btn dir-rate-down${myRating === 'down' ? ' voted' : ''}" data-rate="down" ${myRating ? 'disabled' : ''} title="${myRating === 'down' ? 'You reported this driver as a bad racer' : 'Bad racer'}">&#128078;</button>
+          </div>`
+        : '';
       return `<div class="dir-card${hasHeader ? ' has-header' : ''}${outlineClass}"${bgStyle}>
         ${seasonalOverlay}
         ${platformTag}
         ${r.teamLogoUrl ? `<img class="dir-card-team-logo" src="${r.teamLogoUrl}" alt="${r.teamName||'Team'}" title="${r.teamName||''}">` : ''}
+        ${rateRow}
         <div class="dir-card-overlay">
           ${avatarCell}
           <div class="dir-card-info">
             <strong>${r.name||'Unnamed'}</strong>
+            ${accNameRow}
             <span class="mono">${r.licenceNumber||'-'}</span>
             <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${r.tier||'No Licence'}</span>
             ${trophyRow}
@@ -5114,6 +5190,32 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
       </div>`;
     }).join('');
+
+    // ✅ ADDED: Peer Ratings click handling - event delegation would be
+    // simpler, but body.innerHTML is fully replaced on every render anyway
+    // (search/filter/page all call renderDirectory again), so wiring these
+    // directly after each render is no more work and keeps the handler
+    // right next to the markup it belongs to.
+    body.querySelectorAll('[data-rate]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const wrap = btn.closest('.dir-card-rate');
+        const targetId = wrap?.dataset.target;
+        const rating = btn.dataset.rate;
+        if(!targetId || myPeerRatingsGiven[targetId]) return; // already voted - ignore stray clicks
+        const label = rating === 'up' ? 'a GOOD racer' : 'a BAD racer';
+        const ok = confirm(`Report this driver as ${label}?\n\nThis can only be submitted once and can't be changed afterwards. Only IFWL Staff can see the outcome - the driver themselves is never told who rated them or how.`);
+        if(!ok) return;
+        wrap.querySelectorAll('.dir-rate-btn').forEach(b => b.disabled = true);
+        try{
+          await window.IFWL_PeerRatingAPI.submitPeerRating(targetId, rating);
+          myPeerRatingsGiven[targetId] = rating;
+          wrap.querySelectorAll('.dir-rate-btn').forEach(b => b.classList.toggle('voted', b.dataset.rate === rating));
+        }catch(e){
+          alert('Could not submit rating: ' + e.message);
+          wrap.querySelectorAll('.dir-rate-btn').forEach(b => b.disabled = false);
+        }
+      });
+    });
 
     if(pager){
       if(totalPages <= 1){ pager.innerHTML = ''; }
@@ -7356,21 +7458,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     initSubmitTicketPanel();
     renderLapProgressBox();
     checkRacedayNotifications();
-    // ✅ FIXED: these five fetches (ticket/stats, available races, the full
-    // driver directory, your pending request, and the calling-card catalog)
-    // are all independent of each other, but were previously each awaited
-    // one at a time - meaning every visitor's page load paid for five
-    // sequential network round-trips back-to-back instead of one. Running
-    // them together cuts this part of page load to whichever single call
-    // is slowest, not the sum of all five.
-    const [ticketInfo, perfStats, availableRaces, dir, , callingCards] = await Promise.all([
+    // ✅ FIXED: these six fetches (ticket/stats, available races, the full
+    // driver directory, your pending request, the calling-card catalog, and
+    // your own Peer Ratings given) are all independent of each other, but
+    // were previously each awaited one at a time - meaning every visitor's
+    // page load paid for sequential network round-trips back-to-back
+    // instead of one. Running them together cuts this part of page load to
+    // whichever single call is slowest, not the sum of all six.
+    const [ticketInfo, perfStats, availableRaces, dir, , callingCards, myRatingsGiven] = await Promise.all([
       fetchTicketInfo(),
       fetchPerformanceStats(currentProfile),
       fetchAvailableRaces(),
       fetchDirectory(),
       renderMyRequestPanel(),
-      window.IFWL_CallingCardAPI.fetchCallingCardCatalog()
+      window.IFWL_CallingCardAPI.fetchCallingCardCatalog(),
+      window.IFWL_PeerRatingAPI.fetchMyPeerRatingsGiven()
     ]);
+    myPeerRatingsGiven = myRatingsGiven || {};
     renderTicketData(ticketInfo);
     renderCardStats(perfStats);
     renderAvailableRaces(availableRaces);
@@ -9073,7 +9177,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function renderResults(rows){
     const wrap = q('staffSearchResults');
     if(!rows.length){ wrap.innerHTML = '<div class="empty">No matches.</div>'; return; }
-    wrap.innerHTML = rows.map(r=>`<div class="note-item" style="cursor:pointer" data-id="${r.discordId}"><strong>${r.name}</strong><div class="note-meta">${r.licenceNumber} · ${r.tier}</div></div>`).join('');
+    // ✅ ADDED: a quick red flag in the search list itself when a driver has
+    // at least one Peer Ratings "bad racer" report, so staff scanning a long
+    // result list can spot it without opening every profile - the full
+    // up/down breakdown is on the profile card itself (buildStaffCardPreviewHtml).
+    wrap.innerHTML = rows.map(r=>{
+      const downCount = Number(r.peerRatingDownCount || 0);
+      const flag = downCount > 0 ? ` <span style="color:var(--ifwl-red,#ff5464)" title="${downCount} 'bad racer' peer report(s)">&#128078; ${downCount}</span>` : '';
+      return `<div class="note-item" style="cursor:pointer" data-id="${r.discordId}"><strong>${r.name}</strong>${flag}<div class="note-meta">${r.licenceNumber} · ${r.tier}</div></div>`;
+    }).join('');
     wrap.querySelectorAll('[data-id]').forEach(el=>el.addEventListener('click', ()=>openEditor(el.dataset.id)));
   }
 
@@ -9109,6 +9221,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <span class="points-label">Licence Points</span>
           <strong class="points-value ${pointsClass}">${points}</strong>
         </div>
+      </div>
+      <!-- ✅ ADDED: Peer Ratings summary - "good racer/bad racer" thumbs
+           other drivers have submitted from the Driver Directory. Staff-only
+           surface for this by design (staffLicenceGet returns these counts,
+           the public licenceDirectory endpoint never does) - never who
+           voted, just the totals. -->
+      <div class="field-hint" style="padding:0 14px 10px;display:flex;gap:14px;align-items:center">
+        <span>Peer Reports:</span>
+        <strong style="color:var(--ifwl-green,#33d99b)">&#128077; ${Number(p.peerRatingUpCount || 0)}</strong>
+        <strong style="color:var(--ifwl-red,#ff5464)">&#128078; ${Number(p.peerRatingDownCount || 0)}</strong>
       </div>
       ${perfStats ? `<div class="field-hint" style="padding:0 14px 12px">${perfStats.sessionCount} session(s) counted &middot; ${perfStats.trackCount} track(s) &middot; most recent: ${perfStats.mostRecentLabel || '-'}</div>` : ''}
     </div>`;
