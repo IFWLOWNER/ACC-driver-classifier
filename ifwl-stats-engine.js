@@ -1160,6 +1160,58 @@
   window.IFWLStats.buildDriverSessionChartHtml = buildDriverSessionChartHtml;
 
   // =======================================================
+  // ✅ ADDED: server footprint - cross-references a driver against EVERY
+  // server IFWL tracks (IFWL_KNOWN_SERVER_IDS: the four race servers, the
+  // two Monday Funday servers, and the two Licence Qualification servers),
+  // not just the Licence servers the rest of this file's Q-standings
+  // functions are scoped to. Built for the Staff Licence Requests queue, so
+  // staff can tell at a glance whether a pending request is from an
+  // existing racer (real session data on an actual race server) or someone
+  // brand new who's only ever touched the Licence Qualification servers -
+  // or nothing at all. Same public session-file data, same name-matching
+  // convention (exact/contains, case-insensitive) as getDriverSessionHistory
+  // above and the sandbagging review below.
+  // =======================================================
+  const LICENCE_SERVER_IDS = ['pc-licence', 'console-licence'];
+  /**
+   * @param {string[]} accDriverNames - the driver's linked ACC name(s).
+   * @returns {Promise<{checked:boolean, isRacer:boolean, raceServers:object[],
+   *   licenceServers:object[], totalSessions:number, reason?:string}>}
+   *   raceServers/licenceServers: [{serverId, serverName, sessionCount, lastSeenMs}],
+   *   newest first. isRacer is true only when there's data on at least one
+   *   server OTHER than the two Licence servers - that's the "are they an
+   *   existing racer, or only here for licence obtainment" signal.
+   */
+  async function getDriverServerFootprint(accDriverNames, opts = {}){
+    const mine = (accDriverNames || []).map(n => driverNameKey(n)).filter(Boolean);
+    if(!mine.length) return { checked: false, isRacer: false, raceServers: [], licenceServers: [], totalSessions: 0, reason: 'no-linked-names' };
+
+    const allRows = await buildAllRows(!!opts.force);
+    if(!allRows.length) return { checked: true, isRacer: false, raceServers: [], licenceServers: [], totalSessions: 0, reason: 'no-data' };
+
+    const myRows = allRows.filter(r => mine.some(m => {
+      const key = driverNameKey(r.driver);
+      return m === key || key.includes(m) || m.includes(key);
+    }));
+
+    const bySrv = new Map();
+    myRows.forEach(r => {
+      const entry = bySrv.get(r.serverId) || { serverId: r.serverId, serverName: r.serverName, sessionCount: 0, lastSeenMs: 0 };
+      entry.sessionCount += 1;
+      const ts = fileTimestamp(r);
+      if(ts > entry.lastSeenMs) entry.lastSeenMs = ts;
+      bySrv.set(r.serverId, entry);
+    });
+
+    const all = [...bySrv.values()].sort((a,b) => b.lastSeenMs - a.lastSeenMs);
+    const raceServers = all.filter(s => !LICENCE_SERVER_IDS.includes(s.serverId));
+    const licenceServers = all.filter(s => LICENCE_SERVER_IDS.includes(s.serverId));
+
+    return { checked: true, isRacer: raceServers.length > 0, raceServers, licenceServers, totalSessions: myRows.length };
+  }
+  window.IFWLStats.getDriverServerFootprint = getDriverServerFootprint;
+
+  // =======================================================
   // ✅ ADDED: Sandbagging Watch lookup - ported from livetimings.html's
   // staff-only Beginner Review panel (computeCategoryBenchmarks /
   // renderBeginnerReview) so the exact same detection - category pace
