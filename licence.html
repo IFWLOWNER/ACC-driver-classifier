@@ -6730,10 +6730,26 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return apiPost('acRallySubmitTime', { eventId, roundIndex, stageIndex, claimedSeconds, imageUrl, imagePath });
   }
 
+  function acRallyFmtSchedule(ms){
+    if(!ms) return '';
+    return new Date(ms).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+  }
+  window.acRallyFmtSchedule = acRallyFmtSchedule;
+
+  // ms epoch -> value for an <input type="datetime-local"> (local time,
+  // "YYYY-MM-DDTHH:mm"), accounting for timezone offset since
+  // toISOString() is always UTC.
+  function acRallyMsToDatetimeLocal(ms){
+    if(!ms) return '';
+    const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000);
+    return d.toISOString().slice(0, 16);
+  }
+  window.acRallyMsToDatetimeLocal = acRallyMsToDatetimeLocal;
+
   function acRallyBracketSummaryHtml(ev){
     return `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--ifwl-teal)">View bracket</summary>` +
       ev.rounds.map(r => {
-        if(r.status === 'pending') return `<div class="field-hint" style="margin-top:6px">${r.name}: not started yet</div>`;
+        if(r.status === 'pending') return `<div class="field-hint" style="margin-top:6px">${r.name}: not started yet${r.scheduledAtMs ? ` &middot; 📅 ${acRallyFmtSchedule(r.scheduledAtMs)}` : ''}</div>`;
         const ranked = (r.drivers || []).map(id => ({ id, ...(r.results[id] || {}) })).sort((a,b) => (a.rank||999) - (b.rank||999));
         return `<div style="margin-top:8px"><strong style="font-size:12px">${r.name}</strong>
           <table class="mono" style="width:100%;font-size:11.5px;margin-top:4px"><tbody>
@@ -6787,14 +6803,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     } else {
       const currentRound = ev.rounds[ev.currentRoundIndex];
       const iAmIn = currentRound && (currentRound.drivers || []).includes(myId);
+      const scheduleLine = currentRound?.scheduledAtMs
+        ? `<p style="color:var(--ifwl-teal);font-size:12.5px;margin:4px 0 0;font-weight:700">📅 ${currentRound.name}: ${acRallyFmtSchedule(currentRound.scheduledAtMs)}</p>` : '';
       if(ev.status === 'completed'){
         body = `<div class="note-meta">&#127942; Champion: ${ev.championName || '-'}</div>`;
       } else if(iAmIn){
-        body = `<div class="note-meta">You're in: ${currentRound.name}</div>` + acRallyMySubmitFormHtml(ev, currentRound, myId);
+        body = scheduleLine + `<div class="note-meta">You're in: ${currentRound.name}</div>` + acRallyMySubmitFormHtml(ev, currentRound, myId);
       } else if(ev.isSignedUp){
         body = `<div class="note-meta">You've been eliminated - thanks for racing!</div>`;
       } else {
-        body = `<div class="note-meta">In progress - ${currentRound?.name || ''}</div>`;
+        body = scheduleLine + `<div class="note-meta">In progress - ${currentRound?.name || ''}</div>`;
       }
       body += acRallyBracketSummaryHtml(ev);
     }
@@ -9567,8 +9585,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function lockInAcRallyEvent(eventId){
     return window.IFWL_Api.apiPost('staffAcRallyLockIn', { eventId });
   }
-  async function saveAcRallyRoundConfig(eventId, roundIndex, stages, name){
-    return window.IFWL_Api.apiPost('staffAcRallyRoundConfig', { eventId, roundIndex, stages, name });
+  async function saveAcRallyRoundConfig(eventId, roundIndex, stages, name, scheduledAtMs){
+    const body = { eventId, roundIndex, stages, name };
+    if(scheduledAtMs !== undefined) body.scheduledAtMs = scheduledAtMs;
+    return window.IFWL_Api.apiPost('staffAcRallyRoundConfig', body);
   }
   async function reviewAcRallySubmission(eventId, roundIndex, submissionId, decision, refusalReason){
     return window.IFWL_Api.apiPost('staffAcRallySubmissionReview', { eventId, roundIndex, submissionId, decision, refusalReason });
@@ -9602,6 +9622,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(round.status === 'pending'){
       html += `<div class="field-hint" style="margin-top:8px">Opens once the previous round is advanced - stages can still be planned ahead of time below.</div>`;
     }
+
+    html += `<div style="margin-top:10px">
+      <em class="field-hint">Scheduled date/time (optional - shown to drivers on Available Races as a heads-up)</em>
+      <input type="datetime-local" data-round-schedule="${round.roundIndex}" value="${window.acRallyMsToDatetimeLocal(round.scheduledAtMs)}" style="margin-top:6px;display:block;width:220px">
+    </div>`;
 
     html += `<div style="margin-top:10px"><em class="field-hint">Stages (track / weather / assists)</em>`;
     html += stages.map((s,i) => `
@@ -9744,7 +9769,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           stages[i] = stages[i] || {};
           stages[i][input.dataset.stageField] = input.value;
         });
-        try{ await saveAcRallyRoundConfig(ev.id, roundIndex, stages); await renderAcRallyStaffPanel(); }
+        const scheduleInput = document.querySelector(`[data-round-schedule="${roundIndex}"]`);
+        const scheduledAtMs = scheduleInput && scheduleInput.value ? new Date(scheduleInput.value).getTime() : null;
+        try{ await saveAcRallyRoundConfig(ev.id, roundIndex, stages, undefined, scheduledAtMs); await renderAcRallyStaffPanel(); }
         catch(e){ alert('Could not save: ' + e.message); }
       });
     });
