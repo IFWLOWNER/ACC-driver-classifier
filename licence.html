@@ -9705,8 +9705,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const entrants = ev.entrants || [];
       html += `<div class="staff-only-note">${entrants.length} signed up. Needs to be a power of two (4/8/16/32&hellip;) before you can lock in.</div>`;
       html += `<div style="margin-top:8px">${entrants.map(e => `<span class="badge" style="margin:2px">${e.name} <button data-remove-entrant="${e.driverId}" type="button" style="background:none;border:none;color:var(--ifwl-red);cursor:pointer;margin-left:4px">&times;</button></span>`).join('') || '<span class="field-hint">No entrants yet.</span>'}</div>`;
-      html += `<div style="display:flex;gap:8px;margin-top:10px">
-        <input type="text" id="acRallyAddDriverId" placeholder="Driver's Discord ID (for manual add)" style="flex:1">
+      html += `<div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="trophy-driver-picker" id="acRallyAddDriverPicker" style="flex:1;min-width:220px">
+          <label>Add entrant</label>
+          <input type="text" class="tdp-search" placeholder="Search driver by name or licence number...">
+          <div class="tdp-selected">None selected</div>
+          <div class="ticket-picker-results hidden"></div>
+        </div>
         <button class="btn ghost" id="acRallyAddEntrantBtn" type="button">Add</button>
       </div>`;
       html += `<button class="btn purple owner-only-tab" id="acRallyLockInBtn" type="button" style="margin-top:12px" ${window.acRallyIsPow2(entrants.length) ? '' : 'disabled'}>Lock In (${entrants.length} drivers)</button>`;
@@ -9742,9 +9747,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         btn.textContent = originalLabel;
       }
     });
+    const acRallyAddPicker = q('acRallyAddDriverPicker');
+    if(acRallyAddPicker) wireTrophyDriverPicker(acRallyAddPicker);
     q('acRallyAddEntrantBtn')?.addEventListener('click', async () => {
-      const driverId = q('acRallyAddDriverId').value.trim();
-      if(!driverId) return;
+      const driverId = acRallyAddPicker?.dataset.discordId || '';
+      if(!driverId){ alert('Search and pick a driver first.'); return; }
       try{ await editAcRallyEntrant(ev.id, driverId, 'add'); await renderAcRallyStaffPanel(); }
       catch(e){ alert('Could not add: ' + e.message); }
     });
