@@ -9790,7 +9790,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         html += `</div>`;
       }
 
-      html += `<button class="btn purple owner-only-tab" data-advance-round="${round.roundIndex}" type="button" style="margin-top:12px">Advance Round</button>`;
+      // ✅ ADDED: the Final doesn't advance anywhere - clicking this on it
+      // crowns the champion and completes the event (same backend endpoint,
+      // isFinal branch), so the button and confirmation need to say that
+      // instead of "Advance Round", which was confusingly implying a round
+      // that doesn't exist.
+      const isFinalRound = drivers.length <= 4;
+      html += `<button class="btn purple owner-only-tab" data-advance-round="${round.roundIndex}" type="button" style="margin-top:12px">${isFinalRound ? 'Crown Champion' : 'Advance Round'}</button>`;
     }
 
     html += `</div>`;
@@ -9930,7 +9936,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     document.querySelectorAll('[data-advance-round]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const roundIndex = Number(btn.dataset.advanceRound);
-        if(!confirm("Advance this round now? Any driver without a verified time in every stage will be treated as last / eliminated. This cannot be undone.")) return;
+        const round = (ev.rounds || [])[roundIndex];
+        const isFinalRound = (round?.drivers || []).length <= 4;
+        const confirmMsg = isFinalRound
+          ? "Crown the champion now? Any driver without a verified time in every stage will be treated as last / eliminated. This finishes the event and cannot be undone."
+          : "Advance this round now? Any driver without a verified time in every stage will be treated as last / eliminated. This cannot be undone.";
+        if(!confirm(confirmMsg)) return;
         try{
           const result = await advanceAcRallyRound(ev.id, roundIndex);
           alert(result.champion ? `Champion: ${result.champion}!` : `Advanced: ${result.advancedNames.join(', ')}`);
