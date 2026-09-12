@@ -6768,6 +6768,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }).join('');
   }
 
+  const acRallyImgPlaceholder = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><rect width="120" height="68" fill="#1a2027"/></svg>');
+  window.acRallyImgPlaceholder = acRallyImgPlaceholder;
+
+  function acRallyStatusBadgeHtml(ev){
+    if(ev.status === 'signup') return `<span class="platform-badge">Signup Open</span>`;
+    if(ev.status === 'completed') return `<span class="platform-badge" style="background:rgba(212,175,55,.18);color:#d4af37">Completed</span>`;
+    return `<span class="platform-badge">In Progress</span>`;
+  }
+
   function acRallyDriverCardHtml(ev){
     const myId = window.IFWL_AUTH?.userId(window.IFWL_META);
     let body = '';
@@ -6790,10 +6799,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       body += acRallyBracketSummaryHtml(ev);
     }
 
-    return `<div class="note-item">
-      <strong>${ev.title}</strong>
-      ${ev.description ? `<div class="field-hint" style="margin-top:4px">${ev.description}</div>` : ''}
-      ${body}
+    return `<div class="race-event-card">
+      <img src="${ev.imageUrl || acRallyImgPlaceholder}" alt="">
+      <div>
+        ${acRallyStatusBadgeHtml(ev)}
+        <strong style="display:block;margin-top:6px">${ev.title}</strong>
+        ${ev.description ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${ev.description}</p>` : ''}
+        ${body}
+      </div>
     </div>`;
   }
 
@@ -9545,6 +9558,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function deleteAcRallyEvent(eventId){
     return window.IFWL_Api.apiPost('staffAcRallyEventDelete', { eventId });
   }
+  async function updateAcRallyEvent(eventId, fields){
+    return window.IFWL_Api.apiPost('staffAcRallyEventUpdate', { eventId, ...fields });
+  }
   async function editAcRallyEntrant(eventId, driverId, action){
     return window.IFWL_Api.apiPost('staffAcRallyEditEntrants', { eventId, driverId, action });
   }
@@ -9648,6 +9664,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!ev){ wrap.innerHTML = ''; return; }
 
     let html = `<div class="panel-head" style="margin-top:20px"><div><h4 style="margin:0">${ev.title}</h4><small>${ev.description || ''}</small></div></div>`;
+    html += `<div class="note-item" style="margin-top:10px">
+      <strong style="font-size:12.5px">Event image</strong>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <img src="${ev.imageUrl || window.acRallyImgPlaceholder}" alt="" style="width:120px;height:68px;object-fit:cover;border-radius:8px;background:#1a2027">
+        <div>
+          <input type="file" id="acRallyImageFile" accept="image/jpeg,image/png">
+          <button class="btn ghost" id="acRallyImageUploadBtn" type="button" style="margin-top:6px">Upload &amp; Set Image</button>
+          <div class="field-hint" style="margin-top:4px">Shown on this event's card under Available Races - matches the SimGrid event look.</div>
+        </div>
+      </div>
+    </div>`;
 
     if(ev.status === 'signup'){
       const entrants = ev.entrants || [];
@@ -9672,6 +9699,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   function wireAcRallyDetailHandlers(ev){
+    q('acRallyImageUploadBtn')?.addEventListener('click', async () => {
+      const fileInput = q('acRallyImageFile');
+      const file = fileInput?.files?.[0];
+      if(!file){ alert('Choose an image first.'); return; }
+      const btn = q('acRallyImageUploadBtn');
+      btn.disabled = true;
+      const originalLabel = btn.textContent;
+      btn.textContent = 'Uploading...';
+      try{
+        const uploaded = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'acRallyEventImage');
+        await updateAcRallyEvent(ev.id, { imageUrl: uploaded.url });
+        await renderAcRallyStaffPanel();
+      }catch(e){
+        alert('Could not upload image: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    });
     q('acRallyAddEntrantBtn')?.addEventListener('click', async () => {
       const driverId = q('acRallyAddDriverId').value.trim();
       if(!driverId) return;
