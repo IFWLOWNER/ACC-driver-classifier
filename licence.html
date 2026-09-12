@@ -548,7 +548,7 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 
 body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #qualStandingPanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #availableRacesPanel,body:not(.discord-logged-in) #claimLapsPanel,body:not(.discord-logged-in) #claimLapsPanelConsole{display:none!important}
 body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel,body:not(.staff-access) #licenceQualPanel,body:not(.staff-access) #licenceQualPanelConsole,body:not(.staff-access) #simgridBulkLinkPanel,body:not(.staff-access) #seasonWindowPanel,body:not(.staff-access) #staffMessagesPanel,body:not(.staff-access) #nameAuditPanel,body:not(.staff-access) #systemStatusPanel,body:not(.staff-access) #licenceDatabasePanel{display:none!important}
-.tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px 100px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:var(--surface);margin-bottom:8px}
+.tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px 100px 130px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:var(--surface);margin-bottom:8px}
 .tier-row input[type="text"]{border:1px solid var(--ifwl-line);background:var(--surface-alt);color:var(--text-primary);border-radius:7px;padding:8px 10px;font-size:13px}
 .tier-row input[type="color"]{width:44px;height:32px;border:1px solid var(--ifwl-line);border-radius:7px;background:none;padding:0;cursor:pointer}
 .tier-row label.foil-toggle{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--text-muted);display:flex;align-items:center;gap:5px;white-space:nowrap}
@@ -596,6 +596,17 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .lmu-sublicence-card .lmu-name{font-weight:800;font-size:13px;color:var(--text-primary)}
 .lmu-sublicence-card .lmu-desc{display:block;font-size:11.5px;color:var(--text-muted);margin-top:2px}
 .lmu-locked-note{padding:14px 16px;border-radius:12px;background:var(--surface-alt);border:1px solid var(--ifwl-line);color:var(--text-muted);font-size:13px}
+.lmu-gated-section{margin-top:6px}
+.lmu-gated-heading{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-dim)}
+.lmu-gated-card{align-items:flex-start;cursor:default}
+.lmu-gated-card .lmu-swatch{margin-top:3px}
+.lmu-gated-body{display:flex;flex-direction:column;gap:2px;flex:1}
+.lmu-gated-actions{margin-top:8px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.lmu-gated-status{display:inline-block;padding:4px 9px;border-radius:999px;font-size:10.5px;font-weight:800;text-transform:uppercase}
+.lmu-gated-status.held{background:rgba(51,217,155,.16);color:var(--ifwl-green)}
+.lmu-gated-status.pending{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
+.lmu-gated-declined{font-size:11.5px;color:var(--ifwl-red)}
+.lmu-request-reason{width:100%;resize:vertical;min-height:44px;border-radius:8px;border:1px solid var(--ifwl-line);background:var(--surface);color:var(--text-primary);font-size:12px;padding:8px;font-family:inherit}
 
 /* ✅ ADDED: IFWL Trophy Cabinet */
 .trophy-cabinet-case{
@@ -3336,6 +3347,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   <section class="panel view-panel" data-view="staffRequests" id="requestQueuePanel">
     <div class="panel-head"><div><h3>Staff: Licence Requests</h3><small>Members asking for a manual tier review</small></div><span class="badge purple">Staff only</span></div>
     <div id="requestQueueBody" class="panel-body"><div class="empty">Loading requests...</div></div>
+    <!-- ✅ ADDED: LMU sub-licence requests (Hypercar, LMP3, ...) - a separate
+         queue from the main-ladder one above, see renderLmuRequestQueue(). -->
+    <div class="panel-head" style="margin-top:24px"><div><h3>Staff: LMU Sub-Licence Requests</h3><small>Requests for gated LMU classes (e.g. Hypercar, LMP3)</small></div><span class="badge purple">Staff only</span></div>
+    <div id="lmuRequestQueueBody" class="panel-body"><div class="empty">Loading requests...</div></div>
   </section>
 
   <section class="panel view-panel" data-view="staffSimgridEvents" id="simgridEventsPanel">
@@ -3978,8 +3993,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return apiPost('staffLicenceRequestReview', { requestId, decision, staffNote });
   }
 
+  // ✅ ADDED: LMU sub-licence requests - a deliberately separate, parallel
+  // flow from the main-ladder requests just above, not a reuse of them.
+  // Only used for tiers staff have marked lmuGated:true on the tier editor
+  // (Hypercar, LMP3, ...) - every other LMU sub-licence stays the plain
+  // self-select checkbox it always was. See submitLmuLicenceRequest in
+  // rtgate.js for why approving one of these can't share the main-ladder
+  // review action (it adds to lmuSubLicences, never overwrites tier).
+  async function fetchMyLmuRequests(){
+    return (await apiGet('myLmuLicenceRequests')).requests || [];
+  }
+  async function submitLmuRequest(tierId, reason){
+    return apiPost('submitLmuLicenceRequest', { tierId, reason });
+  }
+  async function fetchAllLmuRequests(){
+    return (await apiGet('staffLmuLicenceRequestList')).requests || [];
+  }
+  async function reviewLmuRequest(requestId, decision, staffNote){
+    return apiPost('staffLmuLicenceRequestReview', { requestId, decision, staffNote });
+  }
+
   window.IFWL_TierAPI = { DEFAULT_TIERS, fetchTierList, saveTierList };
-  window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest };
+  window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest, fetchMyLmuRequests, submitLmuRequest, fetchAllLmuRequests, reviewLmuRequest };
   window.IFWL_USE_DEMO_FALLBACK = USE_DEMO_FALLBACK;
   window.IFWL_Api = { apiGet, apiPost };
 
@@ -7906,9 +7941,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return;
     }
 
+    // ✅ ADDED: gated tiers (Hypercar, LMP3, ...) need a staff-approved
+    // request instead of the old plain self-select checkbox - see
+    // submitLmuLicenceRequest / staffLmuLicenceRequestReview in rtgate.js.
+    // Non-gated tiers keep the exact original checkbox+batch-save flow.
+    const openTiers = lmuTiers.filter(t => !t.lmuGated);
+    const gatedTiers = lmuTiers.filter(t => t.lmuGated);
+
     const mine = new Set(currentProfile.lmuSubLicences || []);
-    body.innerHTML = `
-      <div class="lmu-sublicence-grid">${lmuTiers.map(t => `
+    let myRequests = [];
+    if(gatedTiers.length){
+      try{ myRequests = await window.IFWL_RequestAPI.fetchMyLmuRequests(); }
+      catch(e){ myRequests = []; }
+    }
+    const latestRequestByTier = {};
+    myRequests.forEach(r => {
+      const prev = latestRequestByTier[r.tierId];
+      if(!prev || (r.submittedAtMs || 0) > (prev.submittedAtMs || 0)) latestRequestByTier[r.tierId] = r;
+    });
+
+    const openBlock = openTiers.length ? `
+      <div class="lmu-sublicence-grid">${openTiers.map(t => `
         <label class="lmu-sublicence-card">
           <input type="checkbox" class="lmu-check" value="${t.id}" ${mine.has(t.id) ? 'checked' : ''}>
           <span class="lmu-swatch" style="background:${t.color}"></span>
@@ -7917,17 +7970,92 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       `).join('')}</div>
       <button class="btn purple" id="saveLmuBtn" type="button">Save selection</button>
       <span id="lmuSaveStatus" class="field-hint" style="margin-left:10px"></span>
-    `;
+    ` : '';
 
-    q('saveLmuBtn').addEventListener('click', async () => {
-      const chosen = Array.from(body.querySelectorAll('.lmu-check:checked')).map(el => el.value);
-      q('lmuSaveStatus').textContent = 'Saving...';
-      try{
-        currentProfile = await saveMyProfile({ lmuSubLicences: chosen });
-        q('lmuSaveStatus').textContent = 'Saved.';
-      }catch(e){
-        q('lmuSaveStatus').textContent = 'Could not save: ' + e.message;
-      }
+    const gatedBlock = gatedTiers.length ? `
+      <div class="lmu-gated-section">
+        <h4 class="lmu-gated-heading">Requires staff approval</h4>
+        <div class="lmu-sublicence-grid">${gatedTiers.map(t => {
+          const held = mine.has(t.id);
+          const req = latestRequestByTier[t.id];
+          let statusHtml = '';
+          if(held){
+            statusHtml = `<span class="lmu-gated-status held">Held</span><button class="btn ghost lmu-drop-btn" data-tier="${t.id}" type="button">Drop</button>`;
+          }else if(req && req.status === 'pending'){
+            statusHtml = `<span class="lmu-gated-status pending">Pending review</span>`;
+          }else{
+            const declinedNote = (req && req.status === 'declined') ? `<div class="lmu-gated-declined">Declined${req.staffNote ? ': ' + req.staffNote : ''}</div>` : '';
+            statusHtml = `${declinedNote}
+              <textarea class="lmu-request-reason" data-tier="${t.id}" placeholder="Why should you get this sub-licence? (recent results, experience, etc.)" rows="2"></textarea>
+              <button class="btn purple lmu-request-btn" data-tier="${t.id}" type="button">${req && req.status === 'declined' ? 'Request again' : 'Request access'}</button>
+              <span class="field-hint lmu-request-status" data-tier="${t.id}"></span>`;
+          }
+          return `
+            <div class="lmu-sublicence-card lmu-gated-card">
+              <span class="lmu-swatch" style="background:${t.color}"></span>
+              <div class="lmu-gated-body">
+                <span class="lmu-name">${t.name}</span>${t.description ? `<span class="lmu-desc">${t.description}</span>` : ''}
+                <div class="lmu-gated-actions">${statusHtml}</div>
+              </div>
+            </div>
+          `;
+        }).join('')}</div>
+      </div>
+    ` : '';
+
+    body.innerHTML = openBlock + gatedBlock;
+
+    if(openTiers.length){
+      q('saveLmuBtn').addEventListener('click', async () => {
+        // Only touches the OPEN (non-gated) tiers - gated tiers the driver
+        // already holds must never be dropped by this batch save; they're
+        // only removable via the explicit per-tier "Drop" button below.
+        const chosenOpen = Array.from(body.querySelectorAll('.lmu-check:checked')).map(el => el.value);
+        const heldGated = gatedTiers.filter(t => mine.has(t.id)).map(t => t.id);
+        q('lmuSaveStatus').textContent = 'Saving...';
+        try{
+          currentProfile = await saveMyProfile({ lmuSubLicences: [...chosenOpen, ...heldGated] });
+          q('lmuSaveStatus').textContent = 'Saved.';
+        }catch(e){
+          q('lmuSaveStatus').textContent = 'Could not save: ' + e.message;
+        }
+      });
+    }
+
+    body.querySelectorAll('.lmu-request-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const tierId = btn.dataset.tier;
+        const reasonEl = body.querySelector(`.lmu-request-reason[data-tier="${tierId}"]`);
+        const statusEl = body.querySelector(`.lmu-request-status[data-tier="${tierId}"]`);
+        const reason = (reasonEl?.value || '').trim();
+        if(!reason){
+          if(statusEl) statusEl.textContent = 'Add a short reason first.';
+          return;
+        }
+        btn.disabled = true;
+        if(statusEl) statusEl.textContent = 'Submitting...';
+        try{
+          await window.IFWL_RequestAPI.submitLmuRequest(tierId, reason);
+          await renderLmuPanel();
+        }catch(e){
+          btn.disabled = false;
+          if(statusEl) statusEl.textContent = 'Could not submit: ' + e.message;
+        }
+      });
+    });
+
+    body.querySelectorAll('.lmu-drop-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const tierId = btn.dataset.tier;
+        btn.disabled = true;
+        try{
+          const remaining = (currentProfile.lmuSubLicences || []).filter(id => id !== tierId);
+          currentProfile = await saveMyProfile({ lmuSubLicences: remaining });
+          await renderLmuPanel();
+        }catch(e){
+          btn.disabled = false;
+        }
+      });
     });
   }
 
@@ -10103,6 +10231,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function advanceAcRallyRound(eventId, roundIndex){
     return window.IFWL_Api.apiPost('staffAcRallyAdvanceRound', { eventId, roundIndex });
   }
+  // ✅ ADDED: adds a driver straight into the currently open round of an
+  // already-locked-in event (a late joiner who missed original signup) -
+  // see staffAcRallyAddLateDriver in rtgate.js.
+  async function addLateAcRallyDriver(eventId, driverId){
+    return window.IFWL_Api.apiPost('staffAcRallyAddLateDriver', { eventId, driverId });
+  }
 
   function acRallyRoundStatusBadge(status){
     return status === 'open' ? '<span class="badge teal">Open</span>' : status === 'completed' ? '<span class="badge purple">Completed</span>' : '<span class="badge">Pending</span>';
@@ -10156,6 +10290,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     if(round.status === 'open'){
+      // ✅ ADDED: add a driver who missed the original signup/lock-in
+      // straight into this open round - see addLateAcRallyDriver /
+      // staffAcRallyAddLateDriver. Reuses the same driver-search picker
+      // widget as "Add entrant" during signup.
+      html += `<div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="trophy-driver-picker" id="acRallyLateDriverPicker-${round.roundIndex}" style="flex:1;min-width:220px">
+          <label>Add a driver who missed out (joins this round)</label>
+          <input type="text" class="tdp-search" placeholder="Search driver by name or licence number...">
+          <div class="tdp-selected">None selected</div>
+          <div class="ticket-picker-results hidden"></div>
+        </div>
+        <button class="btn ghost owner-only-tab" data-add-late-driver="${round.roundIndex}" type="button">Add to round</button>
+      </div>`;
+
       html += `<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center">
         <select data-override-driver="${round.roundIndex}">${drivers.map(id => `<option value="${id}">${results[id]?.name||id}</option>`).join('')}</select>
         <select data-override-stage="${round.roundIndex}">${stages.map((s,i)=>`<option value="${i}">${s.name||'Stage '+(i+1)}</option>`).join('')}</select>
@@ -10184,7 +10332,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // isFinal branch), so the button and confirmation need to say that
       // instead of "Advance Round", which was confusingly implying a round
       // that doesn't exist.
-      const isFinalRound = drivers.length <= 4;
+      // ✅ CHANGED: was `drivers.length <= 4`, which mislabels the button
+      // the moment a late driver (see the "Add to round" picker above)
+      // pushes the Final's count above 4 - position in the bracket is what
+      // actually decides this, not how many are currently in it (matches
+      // the same fix in staffAcRallyAdvanceRound server-side).
+      const isFinalRound = round.roundIndex === (ev.rounds.length - 1);
       html += `<button class="btn purple owner-only-tab" data-advance-round="${round.roundIndex}" type="button" style="margin-top:12px">${isFinalRound ? 'Crown Champion' : 'Advance Round'}</button>`;
     }
 
@@ -10306,6 +10459,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       });
     });
 
+    document.querySelectorAll('[data-add-late-driver]').forEach(btn => {
+      const roundIndex = btn.dataset.addLateDriver;
+      const picker = q(`acRallyLateDriverPicker-${roundIndex}`);
+      if(picker) wireTrophyDriverPicker(picker);
+      btn.addEventListener('click', async () => {
+        const driverId = picker?.dataset.discordId || '';
+        if(!driverId){ alert('Search and pick a driver first.'); return; }
+        btn.disabled = true;
+        try{
+          const result = await addLateAcRallyDriver(ev.id, driverId);
+          alert(`${result.name} added to ${result.roundName}.`);
+          await renderAcRallyStaffPanel();
+        }catch(e){ alert('Could not add driver: ' + e.message); btn.disabled = false; }
+      });
+    });
     document.querySelectorAll('[data-verify-sub]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const [roundIndex, subId] = btn.dataset.verifySub.split(':');
@@ -10326,7 +10494,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       btn.addEventListener('click', async () => {
         const roundIndex = Number(btn.dataset.advanceRound);
         const round = (ev.rounds || [])[roundIndex];
-        const isFinalRound = (round?.drivers || []).length <= 4;
+        const isFinalRound = roundIndex === ((ev.rounds || []).length - 1);
         const confirmMsg = isFinalRound
           ? "Crown the champion now? Any driver without a verified time in every stage will be treated as last / eliminated. This finishes the event and cannot be undone."
           : "Advance this round now? Any driver without a verified time in every stage will be treated as last / eliminated. This cannot be undone.";
@@ -11122,6 +11290,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <input type="color" data-field="color" value="${t.color}">
         <label class="foil-toggle"><input type="checkbox" data-field="foil" ${t.foil?'checked':''}> Foil</label>
         <label class="foil-toggle" title="Self-selected add-on (e.g. LMU) - not part of the main ladder, never shown on licence cards or in tier dropdowns"><input type="checkbox" data-field="lmuSubLicence" ${t.lmuSubLicence?'checked':''}> LMU</label>
+        <label class="foil-toggle" title="Only applies to an LMU sub-licence above - requires a driver to request it and staff to approve, instead of the plain self-select checkbox (e.g. Hypercar, LMP3)"><input type="checkbox" data-field="lmuGated" ${t.lmuGated?'checked':''}> Requires approval</label>
         <input type="text" data-field="description" value="${t.description||''}" placeholder="Short description" style="grid-column:span 1">
         <button class="icon-btn" data-remove="1" title="Remove tier">&times;</button>
       </div>
@@ -11133,6 +11302,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       row.querySelector('[data-field="color"]').addEventListener('input', e => tierRows[idx].color = e.target.value);
       row.querySelector('[data-field="foil"]').addEventListener('change', e => tierRows[idx].foil = e.target.checked);
       row.querySelector('[data-field="lmuSubLicence"]').addEventListener('change', e => tierRows[idx].lmuSubLicence = e.target.checked);
+      row.querySelector('[data-field="lmuGated"]').addEventListener('change', e => tierRows[idx].lmuGated = e.target.checked);
       row.querySelector('[data-field="description"]').addEventListener('input', e => tierRows[idx].description = e.target.value);
       row.querySelector('[data-remove]').addEventListener('click', () => { tierRows.splice(idx,1); renumberAndRender(); });
       const moveBtns = row.querySelectorAll('[data-move]');
@@ -11156,7 +11326,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderTierRows();
   }
   q('addTierRowBtn')?.addEventListener('click', () => {
-    tierRows.push({ id: 'tier_' + Date.now(), name: 'New Tier', color: '#93a1a9', foil:false, lmuSubLicence:false, description:'', order: tierRows.length });
+    tierRows.push({ id: 'tier_' + Date.now(), name: 'New Tier', color: '#93a1a9', foil:false, lmuSubLicence:false, lmuGated:false, description:'', order: tierRows.length });
     renderTierRows();
   });
   q('saveTiersBtn')?.addEventListener('click', async () => {
@@ -11297,6 +11467,47 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       try{
         await window.IFWL_RequestAPI.reviewRequest(driverId, requestId, decision, staffNote);
         await renderRequestQueue();
+      }catch(e){ alert('Could not review request: ' + e.message); btn.disabled = false; }
+    }));
+  }
+
+  // ✅ ADDED: staff review queue for gated LMU sub-licence requests
+  // (Hypercar, LMP3, ...) - mirrors renderRequestQueue() above but is a
+  // fully separate queue/collection, since approving one of these ADDS to
+  // the driver's lmuSubLicences array instead of overwriting their tier.
+  async function renderLmuRequestQueue(){
+    const body = q('lmuRequestQueueBody');
+    if(!body) return;
+    const tiers = await window.IFWL_TierAPI.fetchTierList();
+    const findColor = id => (tiers.find(t=>t.id===id) || {color:'#93a1a9'}).color;
+    const pending = await window.IFWL_RequestAPI.fetchAllLmuRequests();
+    if(!pending.length){ body.innerHTML = '<div class="empty">No pending LMU sub-licence requests.</div>'; return; }
+
+    body.innerHTML = pending.map(r => `
+      <div class="request-card" data-request="${r.id}">
+        <span class="request-status-pill pending">Pending</span>
+        <strong style="display:block;margin-top:8px">${r.driverName} &mdash; <span style="color:${findColor(r.tierId)}">${r.tierName}</span></strong>
+        <div class="req-meta">submitted ${new Date(r.submittedAt).toLocaleString()}</div>
+        <p style="color:var(--text-muted);font-size:13px;margin:8px 0 0">${r.reason}</p>
+        <div class="req-actions">
+          <button class="btn teal" data-decision="approved">Approve</button>
+          <button class="btn ghost" data-decision="declined">Decline</button>
+        </div>
+      </div>
+    `).join('');
+
+    body.querySelectorAll('[data-decision]').forEach(btn => btn.addEventListener('click', async () => {
+      const card = btn.closest('.request-card');
+      const requestId = card.dataset.request;
+      const decision = btn.dataset.decision;
+      let staffNote = '';
+      if(decision === 'declined'){
+        staffNote = prompt('Optional note to the driver for why this was declined:') || '';
+      }
+      btn.disabled = true;
+      try{
+        await window.IFWL_RequestAPI.reviewLmuRequest(requestId, decision, staffNote);
+        await renderLmuRequestQueue();
       }catch(e){ alert('Could not review request: ' + e.message); btn.disabled = false; }
     }));
   }
@@ -16069,6 +16280,7 @@ Flashing Headlights:
     staffPanelsInited = true;
     initTierManager();
     renderRequestQueue();
+    renderLmuRequestQueue();
     renderTierCheckboxes();
     renderSimgridEventList();
     initEnduranceEventPanel();
