@@ -1400,6 +1400,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <button class="view-tab dropdown-toggle" type="button">Racing &#9662;</button>
     <div class="view-tab-menu">
       <button data-view="raceResults" type="button">Race Results</button>
+      <!-- ✅ ADDED: AC Rally gets its own results tab rather than being
+           folded into the ACC Race Results list above - keeps the two
+           communities/formats from competing for the same space, per the
+           explicit ask when this was built. -->
+      <button data-view="acRallyResults" type="button">AC Rally Results</button>
       <button id="navMyCareerBtn" type="button">My Career &amp; Marketplace</button>
       <button data-view="raceTeams" type="button">Race Teams</button>
       <button id="navMyRaceTeamBtn" type="button">My Race Team</button>
@@ -1857,6 +1862,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
     <div id="raceResultsBody" class="panel-body"><div class="empty">Loading races&hellip;</div></div>
     <div id="raceDetailWrap" class="hidden"></div>
+  </section>
+
+  <!-- ✅ ADDED: AC Rally Results - a separate list/detail view mirroring
+       Race Results above, but reading from the same acRallyBoard feed
+       Available Races already uses (no new backend endpoint needed). -->
+  <section class="panel view-panel" data-view="acRallyResults" id="acRallyResultsPanel">
+    <div class="panel-head"><div><h3>AC Rally Results</h3><small>Every AC Rally Knockout event that's underway or finished - stage times, round-by-round results and the eventual champion</small></div></div>
+    <div id="acRallyResultsBody" class="panel-body"><div class="empty">Loading events&hellip;</div></div>
+    <div id="acRallyResultsDetailWrap" class="hidden"></div>
   </section>
 
   <section class="panel view-panel" data-view="claimLapsPC" id="claimLapsPanel">
@@ -6881,6 +6895,106 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
   window.renderAcRallyDriverBoard = renderAcRallyDriverBoard;
 
+  // ✅ ADDED: AC Rally Results (Racing > AC Rally Results) - a separate
+  // list/detail view from ACC's Race Results, deliberately not merged into
+  // it, so the two formats/communities don't compete for the same space.
+  // Reads the same acRallyBoard feed Available Races already uses - no new
+  // backend endpoint. Only events past signup (in_progress/completed) show
+  // here, since a signup-only event has no stages/results yet.
+  let acRallyResultsCache = [];
+
+  function acRallyResultRoundHtml(round){
+    const stages = round.stages || [];
+    const drivers = round.drivers || [];
+    const results = round.results || {};
+    const ranked = drivers.map(id => ({ id, ...(results[id]||{}) })).sort((a,b) => (a.rank||999) - (b.rank||999));
+    const roundBadge = round.status === 'completed' ? '<span class="badge purple">Completed</span>' : round.status === 'open' ? '<span class="badge teal">Open</span>' : '<span class="badge">Pending</span>';
+
+    let html = `<div class="note-item" style="margin-top:14px">
+      <strong>${round.name}</strong> ${roundBadge}
+      ${round.scheduledAtMs ? `<div class="field-hint" style="margin-top:4px">📅 ${acRallyFmtSchedule(round.scheduledAtMs)}</div>` : ''}`;
+
+    if(stages.length){
+      html += `<div class="field-hint" style="margin-top:8px">${stages.map((s,i) => `${s.name||'Stage '+(i+1)}${s.track?' &middot; '+s.track:''}${s.weather?' &middot; '+s.weather:''}${s.assists?' &middot; '+s.assists:''}`).join('<br>')}</div>`;
+    }
+
+    if(drivers.length){
+      html += `<div style="overflow-x:auto;margin-top:10px"><table class="mono" style="width:100%;font-size:12.5px"><thead><tr><th>Rank</th><th>Driver</th>${stages.map((s,i)=>`<th>${s.name||'Stage '+(i+1)}</th>`).join('')}<th>Combined</th><th>Status</th></tr></thead><tbody>`;
+      html += ranked.map(r => `<tr>
+        <td>${r.rank || '-'}</td>
+        <td>${r.name || ''}</td>
+        ${stages.map((s,i)=>`<td>${acRallyFmtTime(r.stageTimes?.[i])}</td>`).join('')}
+        <td>${acRallyFmtTime(r.combinedSeconds)}</td>
+        <td>${r.advanced===true?'&check; Advanced':r.advanced===false?'&times; Eliminated':r.complete?'Ready':'Waiting'}</td>
+      </tr>`).join('');
+      html += `</tbody></table></div>`;
+    } else {
+      html += `<div class="field-hint" style="margin-top:8px">Not started yet.</div>`;
+    }
+
+    html += `</div>`;
+    return html;
+  }
+
+  function loadAcRallyResultDetail(ev){
+    const wrap = q('acRallyResultsDetailWrap');
+    if(!wrap) return;
+    wrap.classList.remove('hidden');
+    wrap.scrollIntoView({behavior:'smooth', block:'start'});
+    wrap.innerHTML = `
+      <button class="btn ghost" id="backToAcRallyResultsBtn" type="button" style="margin:16px 18px">&larr; Back to AC Rally results</button>
+      <div class="race-event-card" style="margin:0 18px 14px">
+        <img src="${ev.imageUrl || acRallyImgPlaceholder}" alt="">
+        <div>
+          ${acRallyStatusBadgeHtml(ev)}
+          <strong style="display:block;margin-top:6px">${ev.title}</strong>
+          ${ev.description ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${ev.description}</p>` : ''}
+          ${ev.status === 'completed' ? `<div class="note-meta" style="margin-top:6px">&#127942; Champion: ${ev.championName || '-'}</div>` : ''}
+        </div>
+      </div>
+      <div style="padding:0 18px 18px">${(ev.rounds||[]).map(acRallyResultRoundHtml).join('')}</div>
+    `;
+    q('backToAcRallyResultsBtn').addEventListener('click', () => {
+      wrap.classList.add('hidden');
+      wrap.innerHTML = '';
+      q('acRallyResultsBody').scrollIntoView({behavior:'smooth', block:'start'});
+    });
+  }
+
+  function renderAcRallyResultsList(){
+    const body = q('acRallyResultsBody');
+    if(!body) return;
+    if(!acRallyResultsCache.length){ body.innerHTML = '<div class="empty">No AC Rally events have started yet - check back once one is locked in.</div>'; return; }
+    body.innerHTML = acRallyResultsCache.map((ev, i) => {
+      const statusLabel = ev.status === 'completed' ? `&#127942; Champion: ${ev.championName || '-'}` : `In progress - ${(ev.rounds||[])[ev.currentRoundIndex]?.name || ''}`;
+      return `<div class="claim-row">
+        <div>
+          <div class="claim-name">${ev.title}</div>
+          <div class="claim-meta">${statusLabel} &middot; ${ev.entrantCount} driver(s)</div>
+        </div>
+        <button class="btn purple" data-view-ac-rally-result="${i}">View Results</button>
+      </div>`;
+    }).join('');
+    body.querySelectorAll('[data-view-ac-rally-result]').forEach(btn => btn.addEventListener('click', () => {
+      loadAcRallyResultDetail(acRallyResultsCache[Number(btn.dataset.viewAcRallyResult)]);
+    }));
+  }
+
+  async function renderAcRallyResultsPanel(){
+    const body = q('acRallyResultsBody');
+    if(!body) return;
+    body.innerHTML = '<div class="empty">Loading events&hellip;</div>';
+    try{
+      const events = await fetchAcRallyBoard();
+      acRallyResultsCache = events.filter(ev => ev.status !== 'signup');
+    }catch(e){
+      body.innerHTML = `<div class="empty">Could not load AC Rally results: ${e.message}</div>`;
+      return;
+    }
+    renderAcRallyResultsList();
+  }
+  window.renderAcRallyResultsPanel = renderAcRallyResultsPanel;
+
   // ✅ ADDED: Owner's Emergency Standards Clause - persistent red banner
   // (home tab, same shape as System Status) plus a one-time full briefing
   // popup per activation. Fingerprinted on enabledAtMs, not a fixed key, so
@@ -7818,6 +7932,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderRaceResultsPanel();
     q('raceResultsSearch')?.addEventListener('input', renderRaceResultsList);
     q('raceResultsPlatformFilter')?.addEventListener('change', renderRaceResultsList);
+    renderAcRallyResultsPanel();
     renderDirectory(dir);
 
     const ccSelect = q('callingCardSelect');
