@@ -1405,6 +1405,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
            communities/formats from competing for the same space, per the
            explicit ask when this was built. -->
       <button data-view="acRallyResults" type="button">AC Rally Results</button>
+      <!-- ✅ ADDED: RL 3v3 gets its own separate results tab too, same
+           reasoning as AC Rally Results above - its own space, not
+           intermingled with ACC/AC Rally. -->
+      <button data-view="rlResults" type="button">RL 3v3 Results</button>
       <button id="navMyCareerBtn" type="button">My Career &amp; Marketplace</button>
       <button data-view="raceTeams" type="button">Race Teams</button>
       <button id="navMyRaceTeamBtn" type="button">My Race Team</button>
@@ -1482,6 +1486,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <button data-view="staffSeasonalEvents" class="owner-only-tab" type="button">Seasonal Events</button>
           <button data-view="staffEnduranceEvent" class="ops-only-tab" type="button">Endurance Event</button>
           <button data-view="staffAcRallyEvents" class="ops-only-tab" type="button">AC Rally Events</button>
+          <!-- ✅ ADDED: RL 3v3 Events - its own separate staff area from AC
+               Rally Events, same reasoning as everywhere else this format
+               shows up. -->
+          <button data-view="staffRlEvents" class="ops-only-tab" type="button">RL 3v3 Events</button>
         </div>
       </details>
 
@@ -1847,6 +1855,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
          from the SimGrid roster below, rendered by renderAcRallyDriverBoard()
          into its own container so refreshing the SimGrid list never clobbers it. -->
     <div id="acRallyDriverBoard"></div>
+    <!-- ✅ ADDED: RL 3v3 knockout events - same self-service pattern as AC
+         Rally above, own container so refreshing the SimGrid list never
+         clobbers it. -->
+    <div id="rlDriverBoard"></div>
     <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
   </section>
 
@@ -1871,6 +1883,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     <div class="panel-head"><div><h3>AC Rally Results</h3><small>Every AC Rally Knockout event that's underway or finished - stage times, round-by-round results and the eventual champion</small></div></div>
     <div id="acRallyResultsBody" class="panel-body"><div class="empty">Loading events&hellip;</div></div>
     <div id="acRallyResultsDetailWrap" class="hidden"></div>
+  </section>
+
+  <!-- ✅ ADDED: RL 3v3 Results - list/detail view mirroring AC Rally Results
+       above, but showing a head-to-head bracket (squads/matches) instead of
+       a ranked stage-times table, reading from the rlBoard feed. -->
+  <section class="panel view-panel" data-view="rlResults" id="rlResultsPanel">
+    <div class="panel-head"><div><h3>RL 3v3 Results</h3><small>Every RL 3v3 Knockout event that's underway or finished - squads, match scores and the eventual champion squad</small></div></div>
+    <div id="rlResultsBody" class="panel-body"><div class="empty">Loading events&hellip;</div></div>
+    <div id="rlResultsDetailWrap" class="hidden"></div>
   </section>
 
   <section class="panel view-panel" data-view="claimLapsPC" id="claimLapsPanel">
@@ -3403,6 +3424,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     <div id="acRallyEventsList" style="margin-top:20px"><div class="empty">Loading&hellip;</div></div>
     <div id="acRallyEventDetail"></div>
+  </section>
+
+  <!-- ✅ ADDED: Staff: RL 3v3 Events - same self-service-signup / staff
+       Lock In shape as AC Rally Events above, but Lock In auto-shuffles the
+       signup pool into squads of 3 and builds a head-to-head single-
+       elimination bracket instead of a ranked-field-cut one. Everything
+       below the create form is rendered by JS into #rlEventsList /
+       #rlEventDetail - see renderRlStaffPanel / renderRlDetail. -->
+  <section class="panel view-panel" data-view="staffRlEvents" id="staffRlEventsPanel">
+    <div class="panel-head">
+      <div><h3>Staff: RL 3v3 Events</h3><small>Dynamic 3v3 knockout events - drivers sign up solo, you Lock In, the system auto-forms squads of 3 and builds a head-to-head bracket, squads submit series scores with proof, you review and Advance Round</small></div>
+      <button class="btn ghost" id="rlRefreshBtn" type="button">Refresh</button>
+    </div>
+    <div class="staff-only-note">Create one event and let drivers sign up solo under Available Races. Once the signup count divides evenly into squads of 3 with a power-of-two squad count (6/12/24/48&hellip;), Lock In - this randomly shuffles drivers into squads of 3 and builds the full bracket (Semi Final/Final for 4 squads, Quarter Final/Semi Final/Final for 8, and so on). Every round except the Final is a best-of-3 series, the Final is best-of-5. One squad from each match submits the final series score plus a screenshot of the scoreboard as proof; you review and verify or refuse it, then Advance Round once every match in the round is decided. Squads are fixed once formed - use "Move" on a squad card before any match has been decided if a driver needs reassigning.</div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <input type="text" id="rlNewTitle" placeholder="Event title (e.g. RL 3v3 Knockout - Season 4)" style="flex:1;min-width:220px">
+    </div>
+    <textarea id="rlNewDescription" placeholder="Description (optional) - rules, prize, anything drivers should know before signing up" style="width:100%;margin-top:8px;min-height:60px"></textarea>
+    <button class="btn purple" id="rlCreateBtn" type="button" style="margin-top:8px">Create Event</button>
+
+    <div id="rlEventsList" style="margin-top:20px"><div class="empty">Loading&hellip;</div></div>
+    <div id="rlEventDetail"></div>
   </section>
 
   <section class="panel view-panel" data-view="staffEnduranceEvent" id="enduranceEventPanel">
@@ -6995,6 +7039,334 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
   window.renderAcRallyResultsPanel = renderAcRallyResultsPanel;
 
+  // =====================================================================
+  // ✅ ADDED: RL 3v3 KNOCKOUT EVENTS - driver-facing (Available Races)
+  // Same self-service pattern as AC Rally above, but drivers sign up SOLO
+  // and get auto-placed into a squad of 3 once staff Lock In - a standard
+  // head-to-head single-elimination bracket (rounds[i].matches[], not a
+  // ranked field), since Rocket League results are decided match-by-match
+  // (win/loss of a series), not a combined time. Squads are fixed for the
+  // whole event once formed at Lock In - only which squads are still alive
+  // changes round to round. Rendered into its own #rlDriverBoard container
+  // so it survives renderAvailableRaces() re-rendering the SimGrid list
+  // underneath it.
+  // =====================================================================
+
+  async function fetchRlBoard(){
+    return (await apiGet('rlBoard')).events || [];
+  }
+  async function rlSignUp(eventId){
+    return apiPost('rlSignup', { eventId });
+  }
+  async function rlWithdrawFrom(eventId){
+    return apiPost('rlWithdraw', { eventId });
+  }
+  async function rlSubmitMatchScore(eventId, roundIndex, matchIndex, scoreA, scoreB, imageUrl, imagePath){
+    return apiPost('rlSubmitMatchScore', { eventId, roundIndex, matchIndex, scoreA, scoreB, imageUrl, imagePath });
+  }
+
+  // Client-side mirror of the server's ifwlRlIsValidEntrantCount (rtgate.js)
+  // - squads of exactly 3, and the squad count itself has to be a power of
+  // two (no byes, same convention as AC Rally's field-size rule extended to
+  // squads instead of individual drivers). Used by the staff Lock In button
+  // to enable/disable itself without a round trip.
+  function rlIsValidEntrantCount(n){
+    if(!Number.isInteger(n) || n <= 0 || n % 3 !== 0) return false;
+    const squadCount = n / 3;
+    return squadCount >= 2 && (squadCount & (squadCount - 1)) === 0;
+  }
+  window.rlIsValidEntrantCount = rlIsValidEntrantCount;
+
+  function rlFindMySquad(ev){
+    // rlBoard (the driver-facing feed) hands back mySquadId directly - it
+    // doesn't include per-driver driverIds on each squad (only driverNames),
+    // since that feed is intentionally stripped down for public display.
+    if(!ev.mySquadId) return null;
+    return (ev.squads || []).find(sq => sq.id === ev.mySquadId) || null;
+  }
+  window.rlFindMySquad = rlFindMySquad;
+
+  function rlSquadNameById(ev, squadId){
+    const sq = (ev.squads || []).find(s => s.id === squadId);
+    return sq ? sq.name : 'TBD';
+  }
+  window.rlSquadNameById = rlSquadNameById;
+
+  // scoreA/scoreB on a match are ALWAYS relative to the match's fixed
+  // squadAId/squadBId slots, never "my score vs their score" - this figures
+  // out which slot my squad occupies so the submit handler can map the
+  // driver-facing "your squad's score" / "opponent's score" inputs into the
+  // correct backend fields.
+  function rlMatchOpponentAndSlot(match, mySquadId){
+    if(match.squadAId === mySquadId) return { mySlot: 'A', opponentId: match.squadBId };
+    if(match.squadBId === mySquadId) return { mySlot: 'B', opponentId: match.squadAId };
+    return null;
+  }
+
+  function rlIsSquadEliminated(ev, squadId){
+    return (ev.rounds || []).some(r => (r.matches || []).some(m => m.status === 'completed' && (m.squadAId === squadId || m.squadBId === squadId) && m.winnerSquadId && m.winnerSquadId !== squadId));
+  }
+
+  function rlBracketSummaryHtml(ev){
+    return `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--ifwl-teal)">View bracket</summary>` +
+      (ev.rounds || []).map(r => {
+        if(r.status === 'pending') return `<div class="field-hint" style="margin-top:6px">${r.name}: not started yet${r.scheduledAtMs ? ` &middot; 📅 ${acRallyFmtSchedule(r.scheduledAtMs)}` : ''}</div>`;
+        return `<div style="margin-top:8px"><strong style="font-size:12px">${r.name} (Bo${r.bestOf})</strong>
+          <table class="mono" style="width:100%;font-size:11.5px;margin-top:4px"><tbody>
+          ${(r.matches || []).map(m => `<tr><td>${rlSquadNameById(ev, m.squadAId)}</td><td>${m.finalScoreA ?? '-'} - ${m.finalScoreB ?? '-'}</td><td>${rlSquadNameById(ev, m.squadBId)}</td><td>${m.status === 'completed' ? (m.winnerSquadId === m.squadAId ? 'A won' : 'B won') : m.status}</td></tr>`).join('')}
+          </tbody></table></div>`;
+      }).join('') + `</details>`;
+  }
+
+  function rlMySubmitFormHtml(ev, round, match, mySquadId){
+    const mySubs = match.mySubmissions || [];
+    const pendingSub = mySubs.find(s => s.status === 'pending');
+    const refusedSub = [...mySubs].reverse().find(s => s.status === 'refused');
+    const slot = rlMatchOpponentAndSlot(match, mySquadId);
+    const opponentName = slot && slot.opponentId ? rlSquadNameById(ev, slot.opponentId) : 'TBD';
+
+    if(match.status === 'completed'){
+      const iWon = match.winnerSquadId === mySquadId;
+      return `<div class="note-item" style="margin-top:6px">vs ${opponentName}: <strong>${match.finalScoreA} - ${match.finalScoreB}</strong> ${iWon ? '&check; Won' : '&times; Lost'}</div>`;
+    }
+    if(pendingSub){
+      return `<div class="note-item" style="margin-top:6px">vs ${opponentName} (Bo${round.bestOf}): submitted ${pendingSub.scoreA} - ${pendingSub.scoreB} - awaiting review</div>`;
+    }
+    if(!slot || !slot.opponentId){
+      return `<div class="note-item" style="margin-top:6px">Waiting on opponent to be decided.</div>`;
+    }
+    return `<div class="note-item" style="margin-top:6px">
+      <div>vs ${opponentName} (Best of ${round.bestOf})</div>
+      ${refusedSub ? `<div class="field-hint" style="color:var(--ifwl-red)">Refused: ${refusedSub.refusalReason} - please resubmit.</div>` : ''}
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+        <input type="number" min="0" step="1" placeholder="Your squad's score" data-rl-score-a="${ev.id}:${round.roundIndex}:${match.matchIndex}" style="width:110px">
+        <span>-</span>
+        <input type="number" min="0" step="1" placeholder="Opponent score" data-rl-score-b="${ev.id}:${round.roundIndex}:${match.matchIndex}" style="width:110px">
+      </div>
+      <input type="file" accept="image/jpeg,image/png" data-rl-file="${ev.id}:${round.roundIndex}:${match.matchIndex}" style="margin-top:6px;display:block">
+      <button class="btn ghost" data-rl-submit="${ev.id}:${round.roundIndex}:${match.matchIndex}" data-rl-my-slot="${slot.mySlot}" type="button" style="margin-top:6px">Submit Score</button>
+    </div>`;
+  }
+
+  const rlImgPlaceholder = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><rect width="120" height="68" fill="#1a2027"/></svg>');
+  window.rlImgPlaceholder = rlImgPlaceholder;
+
+  function rlStatusBadgeHtml(ev){
+    if(ev.status === 'signup') return `<span class="platform-badge">Signup Open</span>`;
+    if(ev.status === 'completed') return `<span class="platform-badge" style="background:rgba(212,175,55,.18);color:#d4af37">Completed</span>`;
+    return `<span class="platform-badge">In Progress</span>`;
+  }
+
+  function rlDriverCardHtml(ev){
+    let body = '';
+
+    if(ev.status === 'signup'){
+      body = `<div class="note-meta">${ev.entrantCount} signed up so far (squads of 3)</div>
+        <button class="btn ${ev.isSignedUp ? 'ghost' : 'purple'}" data-rl-signup="${ev.id}" data-signed-up="${ev.isSignedUp}" type="button" style="margin-top:8px">${ev.isSignedUp ? 'Withdraw' : 'Sign Up'}</button>`;
+    } else {
+      const mySquad = rlFindMySquad(ev);
+      const currentRound = (ev.rounds || [])[ev.currentRoundIndex];
+      const myMatch = mySquad && currentRound ? (currentRound.matches || []).find(m => m.squadAId === mySquad.id || m.squadBId === mySquad.id) : null;
+      const scheduleLine = currentRound?.scheduledAtMs
+        ? `<p style="color:var(--ifwl-teal);font-size:12.5px;margin:4px 0 0;font-weight:700">📅 ${currentRound.name}: ${acRallyFmtSchedule(currentRound.scheduledAtMs)}</p>` : '';
+
+      if(ev.status === 'completed'){
+        body = `<div class="note-meta">&#127942; Champion: ${ev.championSquadName || '-'}</div>`;
+      } else if(mySquad){
+        const teammates = (mySquad.driverNames || []).join(', ');
+        body = `<div class="note-meta">Your squad: <strong>${mySquad.name}</strong> (${teammates})</div>`;
+        if(myMatch){
+          body += scheduleLine + `<div class="note-meta">${currentRound.name}</div>` + rlMySubmitFormHtml(ev, currentRound, myMatch, mySquad.id);
+        } else if(rlIsSquadEliminated(ev, mySquad.id)){
+          body += `<div class="note-meta">Your squad has been eliminated - thanks for racing!</div>`;
+        } else {
+          body += scheduleLine + `<div class="note-meta">Waiting on this round's bracket to be decided.</div>`;
+        }
+      } else if(ev.isSignedUp){
+        body = `<div class="note-meta">Squads not yet formed.</div>`;
+      } else {
+        body = scheduleLine + `<div class="note-meta">In progress - ${currentRound?.name || ''}</div>`;
+      }
+      body += rlBracketSummaryHtml(ev);
+    }
+
+    return `<div class="race-event-card">
+      <img src="${ev.imageUrl || rlImgPlaceholder}" alt="">
+      <div>
+        ${rlStatusBadgeHtml(ev)}
+        <strong style="display:block;margin-top:6px">${ev.title}</strong>
+        ${ev.description ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${ev.description}</p>` : ''}
+        ${body}
+      </div>
+    </div>`;
+  }
+
+  function wireRlDriverBoardHandlers(){
+    document.querySelectorAll('[data-rl-signup]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const eventId = btn.dataset.rlSignup;
+        const isSignedUp = btn.dataset.signedUp === 'true';
+        btn.disabled = true;
+        try{
+          if(isSignedUp) await rlWithdrawFrom(eventId);
+          else await rlSignUp(eventId);
+          await renderRlDriverBoard();
+        }catch(e){ alert('Could not update signup: ' + e.message); btn.disabled = false; }
+      });
+    });
+
+    document.querySelectorAll('[data-rl-submit]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const [eventId, roundIndex, matchIndex] = btn.dataset.rlSubmit.split(':');
+        const mySlot = btn.dataset.rlMySlot;
+        const aInput = document.querySelector(`[data-rl-score-a="${eventId}:${roundIndex}:${matchIndex}"]`);
+        const bInput = document.querySelector(`[data-rl-score-b="${eventId}:${roundIndex}:${matchIndex}"]`);
+        const fileInput = document.querySelector(`[data-rl-file="${eventId}:${roundIndex}:${matchIndex}"]`);
+        const myScore = Number(aInput.value);
+        const opponentScore = Number(bInput.value);
+        if(!Number.isFinite(myScore) || myScore < 0 || !Number.isFinite(opponentScore) || opponentScore < 0){ alert('Enter both scores.'); return; }
+        if(myScore === opponentScore){ alert("Scores can't be tied - a series has to have a winner."); return; }
+        const file = fileInput.files[0];
+        if(!file){ alert('A screenshot is required as proof.'); return; }
+
+        // scoreA/scoreB are always relative to the match's fixed
+        // squadA/squadB slots, not "mine vs theirs" - resolve which slot my
+        // squad occupies before sending.
+        const scoreA = mySlot === 'A' ? myScore : opponentScore;
+        const scoreB = mySlot === 'A' ? opponentScore : myScore;
+
+        btn.disabled = true;
+        const originalLabel = btn.textContent;
+        btn.textContent = 'Uploading...';
+        try{
+          const uploaded = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'rlMatchProof');
+          await rlSubmitMatchScore(eventId, Number(roundIndex), Number(matchIndex), scoreA, scoreB, uploaded.url, uploaded.path);
+          await renderRlDriverBoard();
+        }catch(e){
+          alert('Could not submit: ' + e.message);
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        }
+      });
+    });
+  }
+
+  async function renderRlDriverBoard(){
+    const wrap = q('rlDriverBoard');
+    if(!wrap) return;
+    let events;
+    try{ events = await fetchRlBoard(); }
+    catch(e){ return; } // fails silently - a bonus section, not core to the page
+    if(!events.length){ wrap.innerHTML = ''; return; }
+
+    wrap.innerHTML = `<h4 style="margin:14px 0 8px">RL 3v3 Knockout</h4>` + events.map(rlDriverCardHtml).join('');
+    wireRlDriverBoardHandlers();
+  }
+  window.renderRlDriverBoard = renderRlDriverBoard;
+
+  // ✅ ADDED: RL 3v3 Results (Racing > RL 3v3 Results) - a separate
+  // list/detail view from ACC's Race Results and AC Rally Results,
+  // deliberately not merged into either, so the formats/communities don't
+  // compete for the same space. Reads the same rlBoard feed Available
+  // Races already uses - no new backend endpoint. Only events past signup
+  // (in_progress/completed) show here, since a signup-only event has no
+  // squads/matches yet.
+  let rlResultsCache = [];
+
+  function rlResultRoundHtml(ev, round){
+    const matches = round.matches || [];
+    const roundBadge = round.status === 'completed' ? '<span class="badge purple">Completed</span>' : round.status === 'open' ? '<span class="badge teal">Open</span>' : '<span class="badge">Pending</span>';
+
+    let html = `<div class="note-item" style="margin-top:14px">
+      <strong>${round.name}</strong> (Best of ${round.bestOf}) ${roundBadge}
+      ${round.scheduledAtMs ? `<div class="field-hint" style="margin-top:4px">📅 ${acRallyFmtSchedule(round.scheduledAtMs)}</div>` : ''}`;
+
+    if(matches.length){
+      html += `<div style="overflow-x:auto;margin-top:10px"><table class="mono" style="width:100%;font-size:12.5px"><thead><tr><th>Squad A</th><th>Score</th><th>Squad B</th><th>Result</th></tr></thead><tbody>`;
+      html += matches.map(m => `<tr>
+        <td>${rlSquadNameById(ev, m.squadAId)}</td>
+        <td>${m.finalScoreA ?? '-'} - ${m.finalScoreB ?? '-'}</td>
+        <td>${rlSquadNameById(ev, m.squadBId)}</td>
+        <td>${m.status === 'completed' ? (m.winnerSquadId === m.squadAId ? rlSquadNameById(ev, m.squadAId) + ' won' : rlSquadNameById(ev, m.squadBId) + ' won') : m.status === 'open' ? 'In progress' : 'Waiting'}</td>
+      </tr>`).join('');
+      html += `</tbody></table></div>`;
+    } else {
+      html += `<div class="field-hint" style="margin-top:8px">Not started yet.</div>`;
+    }
+
+    html += `</div>`;
+    return html;
+  }
+
+  function rlSquadsListHtml(ev){
+    if(!(ev.squads || []).length) return '';
+    return `<div style="margin-top:10px"><strong style="font-size:12px">Squads</strong>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+        ${ev.squads.map(sq => `<div class="note-item" style="flex:1;min-width:160px">${sq.name}<div class="field-hint">${(sq.driverNames || []).join(', ')}</div></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  function loadRlResultDetail(ev){
+    const wrap = q('rlResultsDetailWrap');
+    if(!wrap) return;
+    wrap.classList.remove('hidden');
+    wrap.scrollIntoView({behavior:'smooth', block:'start'});
+    wrap.innerHTML = `
+      <button class="btn ghost" id="backToRlResultsBtn" type="button" style="margin:16px 18px">&larr; Back to RL 3v3 results</button>
+      <div class="race-event-card" style="margin:0 18px 14px">
+        <img src="${ev.imageUrl || rlImgPlaceholder}" alt="">
+        <div>
+          ${rlStatusBadgeHtml(ev)}
+          <strong style="display:block;margin-top:6px">${ev.title}</strong>
+          ${ev.description ? `<p style="color:var(--text-muted);font-size:12.5px;margin:4px 0 0">${ev.description}</p>` : ''}
+          ${ev.status === 'completed' ? `<div class="note-meta" style="margin-top:6px">&#127942; Champion: ${ev.championSquadName || '-'}</div>` : ''}
+          ${rlSquadsListHtml(ev)}
+        </div>
+      </div>
+      <div style="padding:0 18px 18px">${(ev.rounds || []).map(r => rlResultRoundHtml(ev, r)).join('')}</div>
+    `;
+    q('backToRlResultsBtn').addEventListener('click', () => {
+      wrap.classList.add('hidden');
+      wrap.innerHTML = '';
+      q('rlResultsBody').scrollIntoView({behavior:'smooth', block:'start'});
+    });
+  }
+
+  function renderRlResultsList(){
+    const body = q('rlResultsBody');
+    if(!body) return;
+    if(!rlResultsCache.length){ body.innerHTML = '<div class="empty">No RL 3v3 events have started yet - check back once one is locked in.</div>'; return; }
+    body.innerHTML = rlResultsCache.map((ev, i) => {
+      const statusLabel = ev.status === 'completed' ? `&#127942; Champion: ${ev.championSquadName || '-'}` : `In progress - ${(ev.rounds || [])[ev.currentRoundIndex]?.name || ''}`;
+      return `<div class="claim-row">
+        <div>
+          <div class="claim-name">${ev.title}</div>
+          <div class="claim-meta">${statusLabel} &middot; ${(ev.squads || []).length} squad(s)</div>
+        </div>
+        <button class="btn purple" data-view-rl-result="${i}">View Results</button>
+      </div>`;
+    }).join('');
+    body.querySelectorAll('[data-view-rl-result]').forEach(btn => btn.addEventListener('click', () => {
+      loadRlResultDetail(rlResultsCache[Number(btn.dataset.viewRlResult)]);
+    }));
+  }
+
+  async function renderRlResultsPanel(){
+    const body = q('rlResultsBody');
+    if(!body) return;
+    body.innerHTML = '<div class="empty">Loading events&hellip;</div>';
+    try{
+      const events = await fetchRlBoard();
+      rlResultsCache = events.filter(ev => ev.status !== 'signup');
+    }catch(e){
+      body.innerHTML = `<div class="empty">Could not load RL 3v3 results: ${e.message}</div>`;
+      return;
+    }
+    renderRlResultsList();
+  }
+  window.renderRlResultsPanel = renderRlResultsPanel;
+
   // ✅ ADDED: Owner's Emergency Standards Clause - persistent red banner
   // (home tab, same shape as System Status) plus a one-time full briefing
   // popup per activation. Fingerprinted on enabledAtMs, not a fixed key, so
@@ -7908,6 +8280,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderCardStats(perfStats);
     renderAvailableRaces(availableRaces);
     renderAcRallyDriverBoard(); // fire-and-forget - independent of the SimGrid list above
+    renderRlDriverBoard(); // fire-and-forget - independent of the SimGrid list above
     // ✅ ADDED: "Show ALL races (staff)" toggle - only ever visible via the
     // .staff-only-tab CSS class, but wired unconditionally since it's a
     // no-op for anyone who can't see the button anyway. Assigned via
@@ -7933,6 +8306,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('raceResultsSearch')?.addEventListener('input', renderRaceResultsList);
     q('raceResultsPlatformFilter')?.addEventListener('change', renderRaceResultsList);
     renderAcRallyResultsPanel();
+    renderRlResultsPanel();
     renderDirectory(dir);
 
     const ccSelect = q('callingCardSelect');
@@ -10002,6 +10376,370 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }catch(e){ alert('Could not create: ' + e.message); }
   });
   q('acRallyRefreshBtn')?.addEventListener('click', renderAcRallyStaffPanel);
+
+  // =====================================================================
+  // ✅ ADDED: Staff: RL 3v3 Events
+  // Same self-service-signup / staff Lock In shape as AC Rally Events
+  // above, but Lock In auto-shuffles the signup pool into squads of 3 and
+  // builds a head-to-head single-elimination bracket (rounds[i].matches[])
+  // instead of a ranked-field-cut one. rlSquadNameById/rlImgPlaceholder/
+  // rlIsValidEntrantCount are defined in the earlier driver-facing script
+  // block and bridged onto window - see the "RL 3v3 KNOCKOUT EVENTS -
+  // driver-facing" section for why (each inline <script> block on this
+  // page is its own closure).
+  // =====================================================================
+
+  let rlEventsCache = [];
+  let rlDetailEventId = null;
+
+  async function fetchRlEventsStaff(){
+    return (await window.IFWL_Api.apiGet('staffRlEventList')).events || [];
+  }
+  async function createRlEvent(title, description){
+    return window.IFWL_Api.apiPost('staffRlEventCreate', { title, description });
+  }
+  async function deleteRlEvent(eventId){
+    return window.IFWL_Api.apiPost('staffRlEventDelete', { eventId });
+  }
+  async function updateRlEvent(eventId, fields){
+    return window.IFWL_Api.apiPost('staffRlEventUpdate', { eventId, ...fields });
+  }
+  async function editRlEntrant(eventId, driverId, action){
+    return window.IFWL_Api.apiPost('staffRlEditEntrants', { eventId, driverId, action });
+  }
+  async function lockInRlEvent(eventId){
+    return window.IFWL_Api.apiPost('staffRlLockIn', { eventId });
+  }
+  // "move if required" - only usable before any round-0 match has been
+  // decided (see the note on the Squads block in renderRlDetail below).
+  async function reassignRlSquad(eventId, driverId, toSquadId){
+    return window.IFWL_Api.apiPost('staffRlSquadReassign', { eventId, driverId, toSquadId });
+  }
+  async function saveRlRoundConfig(eventId, roundIndex, bestOf, scheduledAtMs){
+    const body = { eventId, roundIndex };
+    if(bestOf !== undefined) body.bestOf = bestOf;
+    if(scheduledAtMs !== undefined) body.scheduledAtMs = scheduledAtMs;
+    return window.IFWL_Api.apiPost('staffRlRoundConfig', body);
+  }
+  async function reviewRlSubmission(eventId, roundIndex, matchIndex, submissionId, decision, refusalReason){
+    return window.IFWL_Api.apiPost('staffRlMatchSubmissionReview', { eventId, roundIndex, matchIndex, submissionId, decision, refusalReason });
+  }
+  async function manualRlMatchOverride(eventId, roundIndex, matchIndex, scoreA, scoreB){
+    return window.IFWL_Api.apiPost('staffRlManualMatchOverride', { eventId, roundIndex, matchIndex, scoreA, scoreB });
+  }
+  async function advanceRlRound(eventId, roundIndex){
+    return window.IFWL_Api.apiPost('staffRlAdvanceRound', { eventId, roundIndex });
+  }
+
+  function rlRoundStatusBadge(status){
+    return status === 'open' ? '<span class="badge teal">Open</span>' : status === 'completed' ? '<span class="badge purple">Completed</span>' : '<span class="badge">Pending</span>';
+  }
+
+  function rlDetailFindEvent(){
+    return rlEventsCache.find(e => e.id === rlDetailEventId) || null;
+  }
+
+  function renderRlRoundHtml(ev, round){
+    const matches = round.matches || [];
+
+    let html = `<div class="note-item" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <strong>${round.name} ${rlRoundStatusBadge(round.status)}</strong>
+      </div>`;
+
+    if(round.status === 'pending'){
+      html += `<div class="field-hint" style="margin-top:8px">Opens once the previous round is advanced - best-of length and schedule can still be planned ahead of time below.</div>`;
+    }
+
+    html += `<div style="margin-top:10px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <em class="field-hint">Best of (must be odd)</em>
+        <input type="number" min="1" step="2" data-round-bestof="${round.roundIndex}" value="${round.bestOf}" style="display:block;width:90px;margin-top:6px" ${round.status === 'completed' ? 'disabled' : ''}>
+      </div>
+      <div>
+        <em class="field-hint">Scheduled date/time (optional - shown to squads on Available Races as a heads-up)</em>
+        <input type="datetime-local" data-round-schedule="${round.roundIndex}" value="${window.acRallyMsToDatetimeLocal(round.scheduledAtMs)}" style="margin-top:6px;display:block;width:220px" ${round.status === 'completed' ? 'disabled' : ''}>
+      </div>
+      <button class="btn ghost" data-save-round="${round.roundIndex}" type="button" ${round.status === 'completed' ? 'disabled' : ''}>Save Round Config</button>
+    </div>`;
+
+    if(matches.length){
+      html += `<div style="overflow-x:auto;margin-top:12px"><table class="mono" style="width:100%;font-size:12.5px"><thead><tr><th>Squad A</th><th>Score</th><th>Squad B</th><th>Status</th></tr></thead><tbody>`;
+      html += matches.map(m => `<tr>
+        <td>${window.rlSquadNameById(ev, m.squadAId)}</td>
+        <td>${m.finalScoreA ?? '-'} - ${m.finalScoreB ?? '-'}</td>
+        <td>${window.rlSquadNameById(ev, m.squadBId)}</td>
+        <td>${m.status === 'completed' ? (m.winnerSquadId === m.squadAId ? window.rlSquadNameById(ev, m.squadAId) + ' won' : window.rlSquadNameById(ev, m.squadBId) + ' won') : m.status}</td>
+      </tr>`).join('');
+      html += `</tbody></table></div>`;
+    }
+
+    if(round.status === 'open'){
+      matches.forEach(m => {
+        if(m.status === 'completed') return;
+        const pending = (m.submissions || []).filter(s => s.status === 'pending');
+        html += `<div class="note-item" style="margin-top:10px">
+          <strong>${window.rlSquadNameById(ev, m.squadAId)} vs ${window.rlSquadNameById(ev, m.squadBId)}</strong> (Bo${m.bestOf})
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
+            <input type="number" min="0" step="1" placeholder="Squad A score" data-override-score-a="${round.roundIndex}:${m.matchIndex}" style="width:130px">
+            <input type="number" min="0" step="1" placeholder="Squad B score" data-override-score-b="${round.roundIndex}:${m.matchIndex}" style="width:130px">
+            <button class="btn ghost owner-only-tab" data-set-match-override="${round.roundIndex}:${m.matchIndex}" type="button">Set Score (Owner)</button>
+          </div>`;
+
+        if(pending.length){
+          html += `<div style="margin-top:10px"><strong>Pending submissions (${pending.length})</strong>`;
+          html += pending.map(s => `
+            <div class="note-item" style="margin-top:6px">
+              <strong>${window.rlSquadNameById(ev, s.submittedBySquadId)}</strong> claims <strong>${s.scoreA} - ${s.scoreB}</strong>
+              <div style="margin-top:6px"><a href="${s.imageUrl}" target="_blank" rel="noopener">View screenshot</a></div>
+              <div style="margin-top:6px;display:flex;gap:6px">
+                <button class="btn purple" data-verify-match-sub="${round.roundIndex}:${m.matchIndex}:${s.id}" type="button">Verify</button>
+                <button class="btn ghost" data-refuse-match-sub="${round.roundIndex}:${m.matchIndex}:${s.id}" type="button">Refuse</button>
+              </div>
+            </div>
+          `).join('');
+          html += `</div>`;
+        }
+        html += `</div>`;
+      });
+
+      const isFinalRound = matches.length === 1;
+      html += `<button class="btn purple owner-only-tab" data-advance-rl-round="${round.roundIndex}" type="button" style="margin-top:12px">${isFinalRound ? 'Crown Champion' : 'Advance Round'}</button>`;
+    }
+
+    html += `</div>`;
+    return html;
+  }
+
+  function renderRlDetail(){
+    const wrap = q('rlEventDetail');
+    if(!wrap) return;
+    const ev = rlDetailFindEvent();
+    if(!ev){ wrap.innerHTML = ''; return; }
+
+    let html = `<div class="panel-head" style="margin-top:20px"><div><h4 style="margin:0">${ev.title}</h4><small>${ev.description || ''}</small></div></div>`;
+    html += `<div class="note-item" style="margin-top:10px">
+      <strong style="font-size:12.5px">Event image</strong>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <img src="${ev.imageUrl || window.rlImgPlaceholder}" alt="" style="width:120px;height:68px;object-fit:cover;border-radius:8px;background:#1a2027">
+        <div>
+          <input type="file" id="rlImageFile" accept="image/jpeg,image/png">
+          <button class="btn ghost" id="rlImageUploadBtn" type="button" style="margin-top:6px">Upload &amp; Set Image</button>
+          <div class="field-hint" style="margin-top:4px">Shown on this event's card under Available Races - matches the SimGrid event look.</div>
+        </div>
+      </div>
+    </div>`;
+
+    if(ev.status === 'signup'){
+      const entrants = ev.entrants || [];
+      const isValid = window.rlIsValidEntrantCount(entrants.length);
+      html += `<div class="staff-only-note">${entrants.length} signed up. Needs to divide evenly into squads of 3, with a power-of-two squad count (6/12/24/48&hellip;), before you can lock in.</div>`;
+      html += `<div style="margin-top:8px">${entrants.map(e => `<span class="badge" style="margin:2px">${e.name} <button data-remove-rl-entrant="${e.driverId}" type="button" style="background:none;border:none;color:var(--ifwl-red);cursor:pointer;margin-left:4px">&times;</button></span>`).join('') || '<span class="field-hint">No entrants yet.</span>'}</div>`;
+      html += `<div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="trophy-driver-picker" id="rlAddDriverPicker" style="flex:1;min-width:220px">
+          <label>Add entrant</label>
+          <input type="text" class="tdp-search" placeholder="Search driver by name or licence number...">
+          <div class="tdp-selected">None selected</div>
+          <div class="ticket-picker-results hidden"></div>
+        </div>
+        <button class="btn ghost" id="rlAddEntrantBtn" type="button">Add</button>
+      </div>`;
+      html += `<button class="btn purple owner-only-tab" id="rlLockInBtn" type="button" style="margin-top:12px" ${isValid ? '' : 'disabled'}>Lock In (${entrants.length} drivers)</button>`;
+      if(!isValid) html += `<div class="field-hint" style="margin-top:6px">Add or remove entrants above until the count divides evenly into squads of 3 with a power-of-two squad count.</div>`;
+    } else {
+      html += `<div class="staff-only-note">${(ev.squads||[]).length} squads &middot; locked ${new Date(ev.lockedAtMs).toLocaleString()}</div>`;
+      if(ev.status === 'completed'){
+        html += `<div class="note-item" style="margin-top:10px;border-color:var(--ifwl-amber)"><strong>&#127942; Champion: ${ev.championSquadName}</strong></div>`;
+      }
+
+      // "move if required" - the squad reassign dropdown is only shown/
+      // enabled while it's actually still usable: locked in, but before any
+      // round-0 match has been decided (see staffRlSquadReassign - moving a
+      // driver after a match has already been played would retroactively
+      // make that played match's roster ambiguous).
+      const round0 = (ev.rounds||[])[0];
+      const canReassign = !!round0 && !(round0.matches||[]).some(m => m.status === 'completed');
+      html += `<div class="note-item" style="margin-top:10px"><strong style="font-size:12.5px">Squads</strong>`;
+      html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">`;
+      (ev.squads||[]).forEach(sq => {
+        html += `<div class="note-item" style="flex:1;min-width:200px">
+          <strong>${sq.name}</strong>
+          <div style="margin-top:6px">${(sq.drivers||[]).map(d => `<div style="margin-top:4px">${d.name}${canReassign ? ` <select data-reassign-driver="${d.driverId}" style="margin-left:6px;font-size:11px">
+            <option value="">Move to...</option>
+            ${(ev.squads||[]).filter(other => other.id !== sq.id).map(other => `<option value="${other.id}">${other.name}</option>`).join('')}
+          </select>` : ''}</div>`).join('')}</div>
+        </div>`;
+      });
+      html += `</div>`;
+      if(!canReassign) html += `<div class="field-hint" style="margin-top:6px">Squads can no longer be moved - a match has already been decided.</div>`;
+      html += `</div>`;
+
+      (ev.rounds||[]).forEach(round => { html += renderRlRoundHtml(ev, round); });
+    }
+
+    wrap.innerHTML = html;
+    wireRlDetailHandlers(ev);
+  }
+
+  function wireRlDetailHandlers(ev){
+    q('rlImageUploadBtn')?.addEventListener('click', async () => {
+      const fileInput = q('rlImageFile');
+      const file = fileInput?.files?.[0];
+      if(!file){ alert('Choose an image first.'); return; }
+      const btn = q('rlImageUploadBtn');
+      btn.disabled = true;
+      const originalLabel = btn.textContent;
+      btn.textContent = 'Uploading...';
+      try{
+        const uploaded = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'rlEventImage');
+        await updateRlEvent(ev.id, { imageUrl: uploaded.url });
+        await renderRlStaffPanel();
+      }catch(e){
+        alert('Could not upload image: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    });
+    const rlAddPicker = q('rlAddDriverPicker');
+    if(rlAddPicker) wireTrophyDriverPicker(rlAddPicker);
+    q('rlAddEntrantBtn')?.addEventListener('click', async () => {
+      const driverId = rlAddPicker?.dataset.discordId || '';
+      if(!driverId){ alert('Search and pick a driver first.'); return; }
+      try{ await editRlEntrant(ev.id, driverId, 'add'); await renderRlStaffPanel(); }
+      catch(e){ alert('Could not add: ' + e.message); }
+    });
+    document.querySelectorAll('[data-remove-rl-entrant]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try{ await editRlEntrant(ev.id, btn.dataset.removeRlEntrant, 'remove'); await renderRlStaffPanel(); }
+        catch(e){ alert('Could not remove: ' + e.message); }
+      });
+    });
+    q('rlLockInBtn')?.addEventListener('click', async () => {
+      if(!confirm(`Lock in ${(ev.entrants||[]).length} drivers now? This randomly shuffles them into squads of 3 and builds the full bracket - can't be undone.`)) return;
+      try{ await lockInRlEvent(ev.id); await renderRlStaffPanel(); }
+      catch(e){ alert('Could not lock in: ' + e.message); }
+    });
+
+    document.querySelectorAll('[data-reassign-driver]').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const toSquadId = sel.value;
+        if(!toSquadId) return;
+        const driverId = sel.dataset.reassignDriver;
+        sel.disabled = true;
+        try{ await reassignRlSquad(ev.id, driverId, toSquadId); await renderRlStaffPanel(); }
+        catch(e){ alert('Could not move driver: ' + e.message); sel.disabled = false; sel.value = ''; }
+      });
+    });
+
+    document.querySelectorAll('[data-save-round]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const roundIndex = Number(btn.dataset.saveRound);
+        const bestOfInput = document.querySelector(`[data-round-bestof="${roundIndex}"]`);
+        const scheduleInput = document.querySelector(`[data-round-schedule="${roundIndex}"]`);
+        const bestOf = Number(bestOfInput.value);
+        const scheduledAtMs = scheduleInput && scheduleInput.value ? new Date(scheduleInput.value).getTime() : null;
+        if(!Number.isInteger(bestOf) || bestOf <= 0){ alert('Enter a valid best-of number.'); return; }
+        try{ await saveRlRoundConfig(ev.id, roundIndex, bestOf, scheduledAtMs); await renderRlStaffPanel(); }
+        catch(e){ alert('Could not save: ' + e.message); }
+      });
+    });
+
+    document.querySelectorAll('[data-set-match-override]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const [roundIndex, matchIndex] = btn.dataset.setMatchOverride.split(':');
+        const scoreA = Number(document.querySelector(`[data-override-score-a="${roundIndex}:${matchIndex}"]`).value);
+        const scoreB = Number(document.querySelector(`[data-override-score-b="${roundIndex}:${matchIndex}"]`).value);
+        if(!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0 || scoreA === scoreB){ alert("Enter valid, non-tied scores for both squads."); return; }
+        try{ await manualRlMatchOverride(ev.id, Number(roundIndex), Number(matchIndex), scoreA, scoreB); await renderRlStaffPanel(); }
+        catch(e){ alert('Could not set score: ' + e.message); }
+      });
+    });
+
+    document.querySelectorAll('[data-verify-match-sub]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const [roundIndex, matchIndex, subId] = btn.dataset.verifyMatchSub.split(':');
+        try{ await reviewRlSubmission(ev.id, Number(roundIndex), Number(matchIndex), subId, 'verify'); await renderRlStaffPanel(); }
+        catch(e){ alert('Could not verify: ' + e.message); }
+      });
+    });
+    document.querySelectorAll('[data-refuse-match-sub]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const reason = prompt('Reason for refusing this submission?');
+        if(!reason) return;
+        const [roundIndex, matchIndex, subId] = btn.dataset.refuseMatchSub.split(':');
+        try{ await reviewRlSubmission(ev.id, Number(roundIndex), Number(matchIndex), subId, 'refuse', reason); await renderRlStaffPanel(); }
+        catch(e){ alert('Could not refuse: ' + e.message); }
+      });
+    });
+    document.querySelectorAll('[data-advance-rl-round]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const roundIndex = Number(btn.dataset.advanceRlRound);
+        const round = (ev.rounds || [])[roundIndex];
+        const isFinalRound = (round?.matches || []).length === 1;
+        const confirmMsg = isFinalRound
+          ? "Crown the champion now? This finishes the event and cannot be undone."
+          : "Advance this round now? This cannot be undone.";
+        if(!confirm(confirmMsg)) return;
+        try{
+          const result = await advanceRlRound(ev.id, roundIndex);
+          alert(result.champion ? `Champion: ${result.champion}!` : `Advanced: ${result.advancedSquadNames.join(', ')}`);
+          await renderRlStaffPanel();
+        }catch(e){ alert('Could not advance: ' + e.message); }
+      });
+    });
+  }
+
+  async function renderRlStaffPanel(){
+    const wrap = q('rlEventsList');
+    if(!wrap) return;
+    try{ rlEventsCache = await fetchRlEventsStaff(); }
+    catch(e){ wrap.innerHTML = `<div class="empty">Could not load events: ${e.message}</div>`; return; }
+
+    if(!rlEventsCache.length){
+      wrap.innerHTML = '<div class="empty">No RL 3v3 events yet - create one above.</div>';
+    } else {
+      wrap.innerHTML = rlEventsCache.map(ev => `
+        <div class="note-item">
+          <strong>${ev.title}</strong>
+          <span class="badge ${ev.status === 'completed' ? 'purple' : ev.status === 'signup' ? '' : 'teal'}" style="margin-left:8px">${ev.status === 'signup' ? 'Open for signup' : ev.status === 'in_progress' ? 'In progress' : ev.status === 'completed' ? 'Completed' : ev.status}</span>
+          <div class="note-meta">
+            ${ev.status === 'signup' ? `${(ev.entrants||[]).length} signed up` : `${(ev.squads||[]).length} squads &middot; ${ev.status === 'completed' ? `Champion: ${ev.championSquadName || '-'}` : `Round: ${(ev.rounds||[])[ev.currentRoundIndex]?.name || '-'}`}`}
+          </div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn ghost" data-manage-rl="${ev.id}" type="button">Manage</button>
+            <button class="btn ghost owner-only-tab" data-delete-rl="${ev.id}" type="button">Delete</button>
+          </div>
+        </div>
+      `).join('');
+      wrap.querySelectorAll('[data-manage-rl]').forEach(btn => {
+        btn.addEventListener('click', () => { rlDetailEventId = btn.dataset.manageRl; renderRlDetail(); });
+      });
+      wrap.querySelectorAll('[data-delete-rl]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if(!confirm('Delete this event? This cannot be undone.')) return;
+          try{
+            await deleteRlEvent(btn.dataset.deleteRl);
+            if(rlDetailEventId === btn.dataset.deleteRl){ rlDetailEventId = null; q('rlEventDetail').innerHTML = ''; }
+            await renderRlStaffPanel();
+          }catch(e){ alert('Could not delete: ' + e.message); }
+        });
+      });
+    }
+
+    if(rlDetailEventId) renderRlDetail();
+  }
+
+  q('rlCreateBtn')?.addEventListener('click', async () => {
+    const title = q('rlNewTitle').value.trim();
+    const description = q('rlNewDescription').value.trim();
+    if(!title){ alert('A title is required.'); return; }
+    try{
+      await createRlEvent(title, description);
+      q('rlNewTitle').value = ''; q('rlNewDescription').value = '';
+      await renderRlStaffPanel();
+    }catch(e){ alert('Could not create: ' + e.message); }
+  });
+  q('rlRefreshBtn')?.addEventListener('click', renderRlStaffPanel);
 
   function renderResults(rows){
     const wrap = q('staffSearchResults');
@@ -15309,6 +16047,7 @@ Flashing Headlights:
     renderLicenceDatabase();
     renderStaffAlertsPanel();
     renderAcRallyStaffPanel();
+    renderRlStaffPanel();
     renderStaffTrophyCabinet();
     initAffiliateAdsPanel();
     initStaffBopTrackerPanel();
