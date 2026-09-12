@@ -1476,6 +1476,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <button data-view="staffRacedayInfo" class="ops-only-tab" type="button">Raceday Info</button>
           <button data-view="staffSeasonalEvents" class="owner-only-tab" type="button">Seasonal Events</button>
           <button data-view="staffEnduranceEvent" class="ops-only-tab" type="button">Endurance Event</button>
+          <button data-view="staffAcRallyEvents" class="ops-only-tab" type="button">AC Rally Events</button>
         </div>
       </details>
 
@@ -1837,6 +1838,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div><h3>Available Races</h3><small id="availableRacesSubtitle">Invite-only SimGrid events open to your current licence tier</small></div>
       <button type="button" id="availableRacesStaffToggle" class="btn ghost staff-only-tab" style="font-size:11px">Show ALL races (staff)</button>
     </div>
+    <!-- ✅ ADDED: AC Rally knockout events - self-service sign up, separate
+         from the SimGrid roster below, rendered by renderAcRallyDriverBoard()
+         into its own container so refreshing the SimGrid list never clobbers it. -->
+    <div id="acRallyDriverBoard"></div>
     <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
   </section>
 
@@ -3361,6 +3366,29 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div id="sgSeriesTabs" class="sg-series-tabs"></div>
       <div id="sgEventList"></div>
     </div>
+  </section>
+
+  <!-- ✅ ADDED: Staff: AC Rally Events - dynamic knockout events. Drivers
+       sign up under Available Races, staff Lock In once the field is a
+       clean power of two, and the system builds every round automatically.
+       Everything below the create form is rendered by JS into
+       #acRallyEventsList / #acRallyEventDetail - see renderAcRallyStaffPanel
+       / renderAcRallyDetail. -->
+  <section class="panel view-panel" data-view="staffAcRallyEvents" id="staffAcRallyEventsPanel">
+    <div class="panel-head">
+      <div><h3>Staff: AC Rally Events</h3><small>Dynamic knockout events - drivers sign up, you Lock In, drivers submit stage times with proof each round, you review and Advance Round</small></div>
+      <button class="btn ghost" id="acRallyRefreshBtn" type="button">Refresh</button>
+    </div>
+    <div class="staff-only-note">Create an event and let drivers sign up under Available Races. Once the field is a clean power of two (4/8/16/32&hellip;), Lock In - this shuffles the roster and builds every round automatically (Qualifier/Quarter Final/Semi Final/Final for a 32-driver field, fewer rounds for a smaller one). Configure each round's stages (track/weather/assists), review submitted times as they come in, then Advance Round when you're ready to cut to the next stage - a driver without a verified time in every stage of the round simply ranks last and is cut, same as a DNF.</div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <input type="text" id="acRallyNewTitle" placeholder="Event title (e.g. AC Rally Knockout - Season 4)" style="flex:1;min-width:220px">
+    </div>
+    <textarea id="acRallyNewDescription" placeholder="Description (optional) - rules, prize, anything drivers should know before signing up" style="width:100%;margin-top:8px;min-height:60px"></textarea>
+    <button class="btn purple" id="acRallyCreateBtn" type="button" style="margin-top:8px">Create Event</button>
+
+    <div id="acRallyEventsList" style="margin-top:20px"><div class="empty">Loading&hellip;</div></div>
+    <div id="acRallyEventDetail"></div>
   </section>
 
   <section class="panel view-panel" data-view="staffEnduranceEvent" id="enduranceEventPanel">
@@ -5576,7 +5604,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     const d = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(d?.error || 'Upload failed');
-    return { url: d.url, ref: 'url' };
+    // ✅ ADDED: also return the raw storage path - most callers only need
+    // the display URL, but AC Rally proof submissions (acRallySubmitTime)
+    // need the path too, so the backend can confirm the upload actually
+    // belongs to the submitting driver before accepting it.
+    return { url: d.url, path: d.path, ref: 'url' };
   }
   window.IFWL_UploadAPI = { uploadLicenceImage };
 
@@ -6648,6 +6680,176 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     };
   }
 
+  // =====================================================================
+  // ✅ ADDED: AC RALLY KNOCKOUT EVENTS - driver-facing (Available Races)
+  // Separate self-service system from the SimGrid roster above - drivers
+  // sign themselves up, and once staff lock the field, submit their own
+  // stage times with a proof screenshot each round. Rendered into its own
+  // #acRallyDriverBoard container so it survives renderAvailableRaces()
+  // re-rendering the SimGrid list underneath it.
+  // =====================================================================
+
+  function acRallyFmtTime(seconds){
+    if(seconds === null || seconds === undefined || !Number.isFinite(seconds)) return '-';
+    const m = Math.floor(seconds / 60);
+    const s = seconds - m * 60;
+    return `${m}:${s.toFixed(3).padStart(6, '0')}`;
+  }
+  function acRallyParseTime(str){
+    const s = String(str || '').trim();
+    if(!s) return NaN;
+    if(s.includes(':')){
+      const parts = s.split(':');
+      const m = Number(parts[0]), sec = Number(parts[1]);
+      if(!Number.isFinite(m) || !Number.isFinite(sec)) return NaN;
+      return m * 60 + sec;
+    }
+    return Number(s);
+  }
+  function acRallyIsPow2(n){
+    return Number.isInteger(n) && n >= 4 && (n & (n - 1)) === 0;
+  }
+  // ✅ FIXED: exposed on window, same "bridged" pattern as every other
+  // cross-<script>-block helper on this page (see ifwlPointsBandClass) -
+  // the Staff AC Rally Events panel lives in a later script block and
+  // needs these same formatters.
+  window.acRallyFmtTime = acRallyFmtTime;
+  window.acRallyParseTime = acRallyParseTime;
+  window.acRallyIsPow2 = acRallyIsPow2;
+
+  async function fetchAcRallyBoard(){
+    return (await apiGet('acRallyBoard')).events || [];
+  }
+  async function acRallySignUp(eventId){
+    return apiPost('acRallySignup', { eventId });
+  }
+  async function acRallyWithdrawFrom(eventId){
+    return apiPost('acRallyWithdraw', { eventId });
+  }
+  async function acRallySubmitStageTime(eventId, roundIndex, stageIndex, claimedSeconds, imageUrl, imagePath){
+    return apiPost('acRallySubmitTime', { eventId, roundIndex, stageIndex, claimedSeconds, imageUrl, imagePath });
+  }
+
+  function acRallyBracketSummaryHtml(ev){
+    return `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--ifwl-teal)">View bracket</summary>` +
+      ev.rounds.map(r => {
+        if(r.status === 'pending') return `<div class="field-hint" style="margin-top:6px">${r.name}: not started yet</div>`;
+        const ranked = (r.drivers || []).map(id => ({ id, ...(r.results[id] || {}) })).sort((a,b) => (a.rank||999) - (b.rank||999));
+        return `<div style="margin-top:8px"><strong style="font-size:12px">${r.name}</strong>
+          <table class="mono" style="width:100%;font-size:11.5px;margin-top:4px"><tbody>
+          ${ranked.map(d => `<tr><td>${d.rank||'-'}</td><td>${d.name}</td><td>${acRallyFmtTime(d.combinedSeconds)}</td><td>${d.advanced===true?'Advanced':d.advanced===false?'Eliminated':''}</td></tr>`).join('')}
+          </tbody></table></div>`;
+      }).join('') + `</details>`;
+  }
+
+  function acRallyMySubmitFormHtml(ev, round, myId){
+    const myResult = (round.results || {})[myId] || {};
+    const myStageTimes = myResult.stageTimes || {};
+    const mySubs = round.mySubmissions || [];
+
+    return (round.stages || []).map((stage, i) => {
+      const verifiedTime = myStageTimes[i];
+      const pendingSub = mySubs.find(s => s.stageIndex === i && s.status === 'pending');
+      const refusedSub = [...mySubs].reverse().find(s => s.stageIndex === i && s.status === 'refused');
+
+      if(verifiedTime !== undefined){
+        return `<div class="note-item" style="margin-top:6px">${stage.name}: <strong>${acRallyFmtTime(verifiedTime)}</strong> &check; Verified</div>`;
+      }
+      if(pendingSub){
+        return `<div class="note-item" style="margin-top:6px">${stage.name}: ${acRallyFmtTime(pendingSub.claimedSeconds)} - awaiting review</div>`;
+      }
+      return `<div class="note-item" style="margin-top:6px">
+        <div>${stage.name}${stage.track ? ' &middot; ' + stage.track : ''}${stage.weather ? ' &middot; ' + stage.weather : ''}${stage.assists ? ' &middot; ' + stage.assists : ''}</div>
+        ${refusedSub ? `<div class="field-hint" style="color:var(--ifwl-red)">Refused: ${refusedSub.refusalReason} - please resubmit.</div>` : ''}
+        <input type="text" placeholder="Time (mm:ss.mmm)" data-ac-rally-time="${ev.id}:${round.roundIndex}:${i}" style="margin-top:6px;width:140px">
+        <input type="file" accept="image/jpeg,image/png" data-ac-rally-file="${ev.id}:${round.roundIndex}:${i}" style="margin-top:6px;display:block">
+        <button class="btn ghost" data-ac-rally-submit="${ev.id}:${round.roundIndex}:${i}" type="button" style="margin-top:6px">Submit Time</button>
+      </div>`;
+    }).join('');
+  }
+
+  function acRallyDriverCardHtml(ev){
+    const myId = window.IFWL_AUTH?.userId(window.IFWL_META);
+    let body = '';
+
+    if(ev.status === 'signup'){
+      body = `<div class="note-meta">${ev.entrantCount} signed up so far</div>
+        <button class="btn ${ev.isSignedUp ? 'ghost' : 'purple'}" data-ac-rally-signup="${ev.id}" data-signed-up="${ev.isSignedUp}" type="button" style="margin-top:8px">${ev.isSignedUp ? 'Withdraw' : 'Sign Up'}</button>`;
+    } else {
+      const currentRound = ev.rounds[ev.currentRoundIndex];
+      const iAmIn = currentRound && (currentRound.drivers || []).includes(myId);
+      if(ev.status === 'completed'){
+        body = `<div class="note-meta">&#127942; Champion: ${ev.championName || '-'}</div>`;
+      } else if(iAmIn){
+        body = `<div class="note-meta">You're in: ${currentRound.name}</div>` + acRallyMySubmitFormHtml(ev, currentRound, myId);
+      } else if(ev.isSignedUp){
+        body = `<div class="note-meta">You've been eliminated - thanks for racing!</div>`;
+      } else {
+        body = `<div class="note-meta">In progress - ${currentRound?.name || ''}</div>`;
+      }
+      body += acRallyBracketSummaryHtml(ev);
+    }
+
+    return `<div class="note-item">
+      <strong>${ev.title}</strong>
+      ${ev.description ? `<div class="field-hint" style="margin-top:4px">${ev.description}</div>` : ''}
+      ${body}
+    </div>`;
+  }
+
+  function wireAcRallyDriverBoardHandlers(){
+    document.querySelectorAll('[data-ac-rally-signup]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const eventId = btn.dataset.acRallySignup;
+        const isSignedUp = btn.dataset.signedUp === 'true';
+        btn.disabled = true;
+        try{
+          if(isSignedUp) await acRallyWithdrawFrom(eventId);
+          else await acRallySignUp(eventId);
+          await renderAcRallyDriverBoard();
+        }catch(e){ alert('Could not update signup: ' + e.message); btn.disabled = false; }
+      });
+    });
+
+    document.querySelectorAll('[data-ac-rally-submit]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const [eventId, roundIndex, stageIndex] = btn.dataset.acRallySubmit.split(':');
+        const timeInput = document.querySelector(`[data-ac-rally-time="${eventId}:${roundIndex}:${stageIndex}"]`);
+        const fileInput = document.querySelector(`[data-ac-rally-file="${eventId}:${roundIndex}:${stageIndex}"]`);
+        const seconds = acRallyParseTime(timeInput.value);
+        if(!Number.isFinite(seconds) || seconds <= 0){ alert('Enter a valid time, e.g. 3:45.120'); return; }
+        const file = fileInput.files[0];
+        if(!file){ alert('A screenshot is required as proof.'); return; }
+
+        btn.disabled = true;
+        const originalLabel = btn.textContent;
+        btn.textContent = 'Uploading...';
+        try{
+          const uploaded = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'acRallyProof');
+          await acRallySubmitStageTime(eventId, Number(roundIndex), Number(stageIndex), seconds, uploaded.url, uploaded.path);
+          await renderAcRallyDriverBoard();
+        }catch(e){
+          alert('Could not submit: ' + e.message);
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        }
+      });
+    });
+  }
+
+  async function renderAcRallyDriverBoard(){
+    const wrap = q('acRallyDriverBoard');
+    if(!wrap) return;
+    let events;
+    try{ events = await fetchAcRallyBoard(); }
+    catch(e){ return; } // fails silently - a bonus section, not core to the page
+    if(!events.length){ wrap.innerHTML = ''; return; }
+
+    wrap.innerHTML = `<h4 style="margin:14px 0 8px">AC Rally Knockout</h4>` + events.map(acRallyDriverCardHtml).join('');
+    wireAcRallyDriverBoardHandlers();
+  }
+  window.renderAcRallyDriverBoard = renderAcRallyDriverBoard;
+
   // ✅ ADDED: Owner's Emergency Standards Clause - persistent red banner
   // (home tab, same shape as System Status) plus a one-time full briefing
   // popup per activation. Fingerprinted on enabledAtMs, not a fixed key, so
@@ -7560,6 +7762,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderTicketData(ticketInfo);
     renderCardStats(perfStats);
     renderAvailableRaces(availableRaces);
+    renderAcRallyDriverBoard(); // fire-and-forget - independent of the SimGrid list above
     // ✅ ADDED: "Show ALL races (staff)" toggle - only ever visible via the
     // .staff-only-tab CSS class, but wired unconditionally since it's a
     // no-op for anyone who can't see the button anyway. Assigned via
@@ -9321,6 +9524,279 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       btn.textContent = 'Backfill Existing Drivers';
     }
   });
+
+  // =====================================================================
+  // ✅ ADDED: Staff: AC Rally Events
+  // Time-format helpers (acRallyFmtTime/acRallyParseTime/acRallyIsPow2) are
+  // defined in the earlier driver-facing script block and bridged onto
+  // window - see the "AC RALLY KNOCKOUT EVENTS - driver-facing" section
+  // for why (each inline <script> block on this page is its own closure).
+  // =====================================================================
+
+  let acRallyEventsCache = [];
+  let acRallyDetailEventId = null;
+
+  async function fetchAcRallyEventsStaff(){
+    return (await window.IFWL_Api.apiGet('staffAcRallyEventList')).events || [];
+  }
+  async function createAcRallyEvent(title, description){
+    return window.IFWL_Api.apiPost('staffAcRallyEventCreate', { title, description });
+  }
+  async function deleteAcRallyEvent(eventId){
+    return window.IFWL_Api.apiPost('staffAcRallyEventDelete', { eventId });
+  }
+  async function editAcRallyEntrant(eventId, driverId, action){
+    return window.IFWL_Api.apiPost('staffAcRallyEditEntrants', { eventId, driverId, action });
+  }
+  async function lockInAcRallyEvent(eventId){
+    return window.IFWL_Api.apiPost('staffAcRallyLockIn', { eventId });
+  }
+  async function saveAcRallyRoundConfig(eventId, roundIndex, stages, name){
+    return window.IFWL_Api.apiPost('staffAcRallyRoundConfig', { eventId, roundIndex, stages, name });
+  }
+  async function reviewAcRallySubmission(eventId, roundIndex, submissionId, decision, refusalReason){
+    return window.IFWL_Api.apiPost('staffAcRallySubmissionReview', { eventId, roundIndex, submissionId, decision, refusalReason });
+  }
+  async function manualAcRallyTimeOverride(eventId, roundIndex, driverId, stageIndex, seconds){
+    return window.IFWL_Api.apiPost('staffAcRallyManualTimeOverride', { eventId, roundIndex, driverId, stageIndex, seconds });
+  }
+  async function advanceAcRallyRound(eventId, roundIndex){
+    return window.IFWL_Api.apiPost('staffAcRallyAdvanceRound', { eventId, roundIndex });
+  }
+
+  function acRallyRoundStatusBadge(status){
+    return status === 'open' ? '<span class="badge teal">Open</span>' : status === 'completed' ? '<span class="badge purple">Completed</span>' : '<span class="badge">Pending</span>';
+  }
+
+  function acRallyDetailFindEvent(){
+    return acRallyEventsCache.find(e => e.id === acRallyDetailEventId) || null;
+  }
+
+  function renderAcRallyRoundHtml(ev, round){
+    const stages = round.stages || [];
+    const drivers = round.drivers || [];
+    const results = round.results || {};
+    const ranked = drivers.map(id => ({ id, ...(results[id]||{}) })).sort((a,b) => (a.rank||999) - (b.rank||999));
+
+    let html = `<div class="note-item" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <strong>${round.name} ${acRallyRoundStatusBadge(round.status)}</strong>
+      </div>`;
+
+    if(round.status === 'pending'){
+      html += `<div class="field-hint" style="margin-top:8px">Opens once the previous round is advanced - stages can still be planned ahead of time below.</div>`;
+    }
+
+    html += `<div style="margin-top:10px"><em class="field-hint">Stages (track / weather / assists)</em>`;
+    html += stages.map((s,i) => `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-top:6px">
+        <input type="text" data-stage-field="name" data-round="${round.roundIndex}" data-stage="${i}" value="${s.name||''}" placeholder="Stage name">
+        <input type="text" data-stage-field="track" data-round="${round.roundIndex}" data-stage="${i}" value="${s.track||''}" placeholder="Track">
+        <input type="text" data-stage-field="weather" data-round="${round.roundIndex}" data-stage="${i}" value="${s.weather||''}" placeholder="Weather">
+        <input type="text" data-stage-field="assists" data-round="${round.roundIndex}" data-stage="${i}" value="${s.assists||''}" placeholder="Assists">
+      </div>
+    `).join('');
+    html += `<button class="btn ghost" data-save-stages="${round.roundIndex}" type="button" style="margin-top:8px" ${round.status==='completed'?'disabled':''}>Save Stage Config</button></div>`;
+
+    if(drivers.length){
+      html += `<div style="overflow-x:auto;margin-top:12px"><table class="mono" style="width:100%;font-size:12.5px"><thead><tr><th>Rank</th><th>Driver</th>${stages.map((s,i)=>`<th>${s.name||'Stage '+(i+1)}</th>`).join('')}<th>Combined</th><th>Status</th></tr></thead><tbody>`;
+      html += ranked.map(r => `<tr>
+        <td>${r.rank || '-'}</td>
+        <td>${r.name || ''}</td>
+        ${stages.map((s,i)=>`<td>${window.acRallyFmtTime(r.stageTimes?.[i])}</td>`).join('')}
+        <td>${window.acRallyFmtTime(r.combinedSeconds)}</td>
+        <td>${r.advanced===true?'&check; Advanced':r.advanced===false?'&times; Eliminated':r.complete?'Ready':'Waiting'}</td>
+      </tr>`).join('');
+      html += `</tbody></table></div>`;
+    }
+
+    if(round.status === 'open'){
+      html += `<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center">
+        <select data-override-driver="${round.roundIndex}">${drivers.map(id => `<option value="${id}">${results[id]?.name||id}</option>`).join('')}</select>
+        <select data-override-stage="${round.roundIndex}">${stages.map((s,i)=>`<option value="${i}">${s.name||'Stage '+(i+1)}</option>`).join('')}</select>
+        <input type="text" data-override-time="${round.roundIndex}" placeholder="mm:ss.mmm" style="width:120px">
+        <button class="btn ghost owner-only-tab" data-set-override="${round.roundIndex}" type="button">Set Time (Owner)</button>
+      </div>`;
+
+      const pending = (round.submissions||[]).filter(s => s.status === 'pending');
+      if(pending.length){
+        html += `<div style="margin-top:14px"><strong>Pending submissions (${pending.length})</strong>`;
+        html += pending.map(s => `
+          <div class="note-item" style="margin-top:6px">
+            <strong>${results[s.driverId]?.name || s.driverId}</strong> - ${stages[s.stageIndex]?.name || 'Stage '+(s.stageIndex+1)}: ${window.acRallyFmtTime(s.claimedSeconds)}
+            <div style="margin-top:6px"><a href="${s.imageUrl}" target="_blank" rel="noopener">View screenshot</a></div>
+            <div style="margin-top:6px;display:flex;gap:6px">
+              <button class="btn purple" data-verify-sub="${round.roundIndex}:${s.id}" type="button">Verify</button>
+              <button class="btn ghost" data-refuse-sub="${round.roundIndex}:${s.id}" type="button">Refuse</button>
+            </div>
+          </div>
+        `).join('');
+        html += `</div>`;
+      }
+
+      html += `<button class="btn purple owner-only-tab" data-advance-round="${round.roundIndex}" type="button" style="margin-top:12px">Advance Round</button>`;
+    }
+
+    html += `</div>`;
+    return html;
+  }
+
+  function renderAcRallyDetail(){
+    const wrap = q('acRallyEventDetail');
+    if(!wrap) return;
+    const ev = acRallyDetailFindEvent();
+    if(!ev){ wrap.innerHTML = ''; return; }
+
+    let html = `<div class="panel-head" style="margin-top:20px"><div><h4 style="margin:0">${ev.title}</h4><small>${ev.description || ''}</small></div></div>`;
+
+    if(ev.status === 'signup'){
+      const entrants = ev.entrants || [];
+      html += `<div class="staff-only-note">${entrants.length} signed up. Needs to be a power of two (4/8/16/32&hellip;) before you can lock in.</div>`;
+      html += `<div style="margin-top:8px">${entrants.map(e => `<span class="badge" style="margin:2px">${e.name} <button data-remove-entrant="${e.driverId}" type="button" style="background:none;border:none;color:var(--ifwl-red);cursor:pointer;margin-left:4px">&times;</button></span>`).join('') || '<span class="field-hint">No entrants yet.</span>'}</div>`;
+      html += `<div style="display:flex;gap:8px;margin-top:10px">
+        <input type="text" id="acRallyAddDriverId" placeholder="Driver's Discord ID (for manual add)" style="flex:1">
+        <button class="btn ghost" id="acRallyAddEntrantBtn" type="button">Add</button>
+      </div>`;
+      html += `<button class="btn purple owner-only-tab" id="acRallyLockInBtn" type="button" style="margin-top:12px" ${window.acRallyIsPow2(entrants.length) ? '' : 'disabled'}>Lock In (${entrants.length} drivers)</button>`;
+      if(!window.acRallyIsPow2(entrants.length)) html += `<div class="field-hint" style="margin-top:6px">Add or remove entrants above until the count is a power of two.</div>`;
+    } else {
+      html += `<div class="staff-only-note">${ev.bracketSize} drivers &middot; locked ${new Date(ev.lockedAtMs).toLocaleString()}</div>`;
+      if(ev.status === 'completed'){
+        html += `<div class="note-item" style="margin-top:10px;border-color:var(--ifwl-amber)"><strong>&#127942; Champion: ${ev.championName}</strong></div>`;
+      }
+      (ev.rounds||[]).forEach(round => { html += renderAcRallyRoundHtml(ev, round); });
+    }
+
+    wrap.innerHTML = html;
+    wireAcRallyDetailHandlers(ev);
+  }
+
+  function wireAcRallyDetailHandlers(ev){
+    q('acRallyAddEntrantBtn')?.addEventListener('click', async () => {
+      const driverId = q('acRallyAddDriverId').value.trim();
+      if(!driverId) return;
+      try{ await editAcRallyEntrant(ev.id, driverId, 'add'); await renderAcRallyStaffPanel(); }
+      catch(e){ alert('Could not add: ' + e.message); }
+    });
+    document.querySelectorAll('[data-remove-entrant]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try{ await editAcRallyEntrant(ev.id, btn.dataset.removeEntrant, 'remove'); await renderAcRallyStaffPanel(); }
+        catch(e){ alert('Could not remove: ' + e.message); }
+      });
+    });
+    q('acRallyLockInBtn')?.addEventListener('click', async () => {
+      if(!confirm(`Lock in ${(ev.entrants||[]).length} drivers now? This shuffles the roster and builds the full bracket - can't be undone.`)) return;
+      try{ await lockInAcRallyEvent(ev.id); await renderAcRallyStaffPanel(); }
+      catch(e){ alert('Could not lock in: ' + e.message); }
+    });
+
+    document.querySelectorAll('[data-save-stages]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const roundIndex = Number(btn.dataset.saveStages);
+        const stages = [];
+        document.querySelectorAll(`[data-stage-field][data-round="${roundIndex}"]`).forEach(input => {
+          const i = Number(input.dataset.stage);
+          stages[i] = stages[i] || {};
+          stages[i][input.dataset.stageField] = input.value;
+        });
+        try{ await saveAcRallyRoundConfig(ev.id, roundIndex, stages); await renderAcRallyStaffPanel(); }
+        catch(e){ alert('Could not save: ' + e.message); }
+      });
+    });
+
+    document.querySelectorAll('[data-set-override]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const roundIndex = Number(btn.dataset.setOverride);
+        const driverId = document.querySelector(`[data-override-driver="${roundIndex}"]`).value;
+        const stageIndex = Number(document.querySelector(`[data-override-stage="${roundIndex}"]`).value);
+        const timeStr = document.querySelector(`[data-override-time="${roundIndex}"]`).value;
+        const seconds = window.acRallyParseTime(timeStr);
+        if(!Number.isFinite(seconds) || seconds <= 0){ alert('Enter a valid time, e.g. 1:23.456'); return; }
+        try{ await manualAcRallyTimeOverride(ev.id, roundIndex, driverId, stageIndex, seconds); await renderAcRallyStaffPanel(); }
+        catch(e){ alert('Could not set time: ' + e.message); }
+      });
+    });
+
+    document.querySelectorAll('[data-verify-sub]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const [roundIndex, subId] = btn.dataset.verifySub.split(':');
+        try{ await reviewAcRallySubmission(ev.id, Number(roundIndex), subId, 'verify'); await renderAcRallyStaffPanel(); }
+        catch(e){ alert('Could not verify: ' + e.message); }
+      });
+    });
+    document.querySelectorAll('[data-refuse-sub]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const reason = prompt('Reason for refusing this submission?');
+        if(!reason) return;
+        const [roundIndex, subId] = btn.dataset.refuseSub.split(':');
+        try{ await reviewAcRallySubmission(ev.id, Number(roundIndex), subId, 'refuse', reason); await renderAcRallyStaffPanel(); }
+        catch(e){ alert('Could not refuse: ' + e.message); }
+      });
+    });
+    document.querySelectorAll('[data-advance-round]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const roundIndex = Number(btn.dataset.advanceRound);
+        if(!confirm("Advance this round now? Any driver without a verified time in every stage will be treated as last / eliminated. This cannot be undone.")) return;
+        try{
+          const result = await advanceAcRallyRound(ev.id, roundIndex);
+          alert(result.champion ? `Champion: ${result.champion}!` : `Advanced: ${result.advancedNames.join(', ')}`);
+          await renderAcRallyStaffPanel();
+        }catch(e){ alert('Could not advance: ' + e.message); }
+      });
+    });
+  }
+
+  async function renderAcRallyStaffPanel(){
+    const wrap = q('acRallyEventsList');
+    if(!wrap) return;
+    try{ acRallyEventsCache = await fetchAcRallyEventsStaff(); }
+    catch(e){ wrap.innerHTML = `<div class="empty">Could not load events: ${e.message}</div>`; return; }
+
+    if(!acRallyEventsCache.length){
+      wrap.innerHTML = '<div class="empty">No AC Rally events yet - create one above.</div>';
+    } else {
+      wrap.innerHTML = acRallyEventsCache.map(ev => `
+        <div class="note-item">
+          <strong>${ev.title}</strong>
+          <span class="badge ${ev.status === 'completed' ? 'purple' : ev.status === 'signup' ? '' : 'teal'}" style="margin-left:8px">${ev.status === 'signup' ? 'Open for signup' : ev.status === 'in_progress' ? 'In progress' : ev.status === 'completed' ? 'Completed' : ev.status}</span>
+          <div class="note-meta">
+            ${ev.status === 'signup' ? `${(ev.entrants||[]).length} signed up` : `${ev.bracketSize} drivers &middot; ${ev.status === 'completed' ? `Champion: ${ev.championName || '-'}` : `Round: ${(ev.rounds||[])[ev.currentRoundIndex]?.name || '-'}`}`}
+          </div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn ghost" data-manage-ac-rally="${ev.id}" type="button">Manage</button>
+            <button class="btn ghost owner-only-tab" data-delete-ac-rally="${ev.id}" type="button">Delete</button>
+          </div>
+        </div>
+      `).join('');
+      wrap.querySelectorAll('[data-manage-ac-rally]').forEach(btn => {
+        btn.addEventListener('click', () => { acRallyDetailEventId = btn.dataset.manageAcRally; renderAcRallyDetail(); });
+      });
+      wrap.querySelectorAll('[data-delete-ac-rally]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if(!confirm('Delete this event? This cannot be undone.')) return;
+          try{
+            await deleteAcRallyEvent(btn.dataset.deleteAcRally);
+            if(acRallyDetailEventId === btn.dataset.deleteAcRally){ acRallyDetailEventId = null; q('acRallyEventDetail').innerHTML = ''; }
+            await renderAcRallyStaffPanel();
+          }catch(e){ alert('Could not delete: ' + e.message); }
+        });
+      });
+    }
+
+    if(acRallyDetailEventId) renderAcRallyDetail();
+  }
+
+  q('acRallyCreateBtn')?.addEventListener('click', async () => {
+    const title = q('acRallyNewTitle').value.trim();
+    const description = q('acRallyNewDescription').value.trim();
+    if(!title){ alert('A title is required.'); return; }
+    try{
+      await createAcRallyEvent(title, description);
+      q('acRallyNewTitle').value = ''; q('acRallyNewDescription').value = '';
+      await renderAcRallyStaffPanel();
+    }catch(e){ alert('Could not create: ' + e.message); }
+  });
+  q('acRallyRefreshBtn')?.addEventListener('click', renderAcRallyStaffPanel);
 
   function renderResults(rows){
     const wrap = q('staffSearchResults');
@@ -14627,6 +15103,7 @@ Flashing Headlights:
     initSystemStatusPanel();
     renderLicenceDatabase();
     renderStaffAlertsPanel();
+    renderAcRallyStaffPanel();
     renderStaffTrophyCabinet();
     initAffiliateAdsPanel();
     initStaffBopTrackerPanel();
