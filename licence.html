@@ -1039,6 +1039,28 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .dir-rate-up.voted{background:rgba(51,217,155,.28);border-color:var(--ifwl-green,#33d99b)}
 .dir-rate-down.voted{background:rgba(255,84,100,.28);border-color:var(--ifwl-red,#ff5464)}
 
+/* ✅ ADDED: AC Rally result cards - driver-directory-style presentation
+   for round results (driver-facing AND staff), replacing the old plain
+   HTML table. See acRallyResultCardHtml - reuses .dir-card and
+   .race-pos-badge (with their existing gold/silver/bronze variants) so
+   this reads as part of the site rather than a bolted-on data table. */
+.acr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:12px}
+.acr-card{padding:14px}
+.acr-card-dq{opacity:.55;border-style:dashed;border-color:var(--ifwl-red)}
+.acr-stage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(58px,1fr));gap:6px;margin-top:10px;text-align:center}
+.acr-stage-grid .mini-stat span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-dim);font-weight:800}
+.acr-stage-grid .mini-stat strong{display:block;margin-top:4px;font-size:12.5px;font-family:var(--font-mono);color:var(--ifwl-teal)}
+.acr-stage-grid .acr-combined strong{color:var(--ifwl-amber)}
+.acr-status-pill{display:inline-block;margin-top:8px;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
+.acr-status-ready{background:rgba(31,214,189,.16);color:var(--ifwl-teal)}
+.acr-status-waiting{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
+.acr-status-advanced{background:rgba(51,217,155,.16);color:var(--ifwl-green)}
+.acr-status-eliminated{background:rgba(147,161,169,.16);color:var(--text-muted)}
+.acr-status-dq{background:rgba(255,84,100,.16);color:var(--ifwl-red)}
+.acr-card-actions{display:flex;gap:6px;margin-top:10px}
+.acr-card-actions .btn{padding:6px 10px;font-size:10.5px}
+.acr-dq-heading{margin:18px 0 0;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-dim)}
+
 /* ---- Commentator: Drivers to Watch ---- */
 .cw-toggle{display:flex;gap:8px;margin-bottom:16px}
 .cw-toggle button{appearance:none;border:1px solid var(--ifwl-line);background:var(--surface-alt);color:var(--text-primary);font-family:var(--font-body);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:8px 18px;border-radius:8px;cursor:pointer}
@@ -6814,6 +6836,51 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   window.acRallyParseTime = acRallyParseTime;
   window.acRallyIsPow2 = acRallyIsPow2;
 
+  // ✅ ADDED: shared result-card renderer for AC Rally results - used by
+  // both the driver-facing AC Rally Results page (this block) and the
+  // Staff AC Rally Events panel (a later script block, via the window
+  // bridge below). Replaces the old plain <table> of stage times with a
+  // driver-directory-style card per driver (reuses .dir-card /
+  // .race-pos-badge from the Driver Directory elsewhere on the site) so
+  // results read as part of the site rather than a bolted-on data table.
+  function acRallyStatusInfo(r){
+    if(r.dq) return { key: 'dq', label: 'Disqualified' };
+    if(r.advanced === true) return { key: 'advanced', label: 'Advanced' };
+    if(r.advanced === false) return { key: 'eliminated', label: 'Eliminated' };
+    if(r.complete) return { key: 'ready', label: 'Ready' };
+    return { key: 'waiting', label: 'Waiting' };
+  }
+  function acRallyRankBadge(r){
+    if(r.dq) return { label: 'DQ', cls: '' };
+    if(!r.rank) return { label: '-', cls: '' };
+    const cls = r.rank === 1 ? ' race-pos-gold' : r.rank === 2 ? ' race-pos-silver' : r.rank === 3 ? ' race-pos-bronze' : '';
+    return { label: 'P' + r.rank, cls };
+  }
+  function acRallyResultCardHtml(r, stages, extraHtml){
+    const status = acRallyStatusInfo(r);
+    const posBadge = acRallyRankBadge(r);
+    const outlineClass = !r.dq && r.rank === 1 ? ' dir-card-gold' : !r.dq && r.rank === 2 ? ' dir-card-silver' : !r.dq && r.rank === 3 ? ' dir-card-bronze' : '';
+    const stageStats = (stages||[]).map((s,i) => `<div class="mini-stat"><span>${(s.name||'Stage '+(i+1)).replace(/</g,'&lt;')}</span><strong>${acRallyFmtTime(r.stageTimes?.[i])}</strong></div>`).join('');
+    return `<div class="dir-card acr-card${outlineClass}${r.dq ? ' acr-card-dq' : ''}" data-driver="${r.id||''}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="min-width:0">
+          <strong style="display:block;font-size:14px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(r.name||'Unnamed driver').replace(/</g,'&lt;')}</strong>
+          <span class="mono" style="font-size:11px;color:var(--text-muted);display:block;margin-top:2px">${r.licenceNumber||'-'}</span>
+        </div>
+        <span class="race-pos-badge${posBadge.cls}" style="position:static;flex:none">${posBadge.label}</span>
+      </div>
+      <span class="acr-status-pill acr-status-${status.key}">${status.label}</span>
+      <div class="mini-stats acr-stage-grid">
+        ${stageStats}
+        <div class="mini-stat acr-combined"><span>Combined</span><strong>${acRallyFmtTime(r.combinedSeconds)}</strong></div>
+      </div>
+      ${extraHtml || ''}
+    </div>`;
+  }
+  window.acRallyStatusInfo = acRallyStatusInfo;
+  window.acRallyRankBadge = acRallyRankBadge;
+  window.acRallyResultCardHtml = acRallyResultCardHtml;
+
   async function fetchAcRallyBoard(){
     return (await apiGet('acRallyBoard')).events || [];
   }
@@ -6991,6 +7058,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const drivers = round.drivers || [];
     const results = round.results || {};
     const ranked = drivers.map(id => ({ id, ...(results[id]||{}) })).sort((a,b) => (a.rank||999) - (b.rank||999));
+    // ✅ ADDED: a disqualified driver is removed from round.drivers (so
+    // they're excluded from ranking/advancement) but their result entry
+    // stays behind marked dq:true - surface those separately rather than
+    // just letting them disappear from the results page.
+    const dqRows = Object.keys(results).filter(id => results[id]?.dq && !drivers.includes(id)).map(id => ({ id, ...results[id] }));
     const roundBadge = round.status === 'completed' ? '<span class="badge purple">Completed</span>' : round.status === 'open' ? '<span class="badge teal">Open</span>' : '<span class="badge">Pending</span>';
 
     let html = `<div class="note-item" style="margin-top:14px">
@@ -7002,17 +7074,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     if(drivers.length){
-      html += `<div style="overflow-x:auto;margin-top:10px"><table class="mono" style="width:100%;font-size:12.5px"><thead><tr><th>Rank</th><th>Driver</th>${stages.map((s,i)=>`<th>${s.name||'Stage '+(i+1)}</th>`).join('')}<th>Combined</th><th>Status</th></tr></thead><tbody>`;
-      html += ranked.map(r => `<tr>
-        <td>${r.rank || '-'}</td>
-        <td>${r.name || ''}</td>
-        ${stages.map((s,i)=>`<td>${acRallyFmtTime(r.stageTimes?.[i])}</td>`).join('')}
-        <td>${acRallyFmtTime(r.combinedSeconds)}</td>
-        <td>${r.advanced===true?'&check; Advanced':r.advanced===false?'&times; Eliminated':r.complete?'Ready':'Waiting'}</td>
-      </tr>`).join('');
-      html += `</tbody></table></div>`;
+      html += `<div class="acr-grid">${ranked.map(r => acRallyResultCardHtml(r, stages)).join('')}</div>`;
     } else {
       html += `<div class="field-hint" style="margin-top:8px">Not started yet.</div>`;
+    }
+
+    if(dqRows.length){
+      html += `<h5 class="acr-dq-heading">Disqualified</h5><div class="acr-grid">${dqRows.map(r => acRallyResultCardHtml(r, stages)).join('')}</div>`;
     }
 
     html += `</div>`;
@@ -10237,6 +10305,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function addLateAcRallyDriver(eventId, driverId){
     return window.IFWL_Api.apiPost('staffAcRallyAddLateDriver', { eventId, driverId });
   }
+  // ✅ ADDED: disqualify (action:'dq', with an optional reason) or reinstate
+  // (action:'reinstate') a driver in the currently open round - see
+  // staffAcRallyDisqualifyDriver in rtgate.js.
+  async function disqualifyAcRallyDriver(eventId, driverId, action, reason){
+    return window.IFWL_Api.apiPost('staffAcRallyDisqualifyDriver', { eventId, driverId, action, reason });
+  }
 
   function acRallyRoundStatusBadge(status){
     return status === 'open' ? '<span class="badge teal">Open</span>' : status === 'completed' ? '<span class="badge purple">Completed</span>' : '<span class="badge">Pending</span>';
@@ -10251,6 +10325,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const drivers = round.drivers || [];
     const results = round.results || {};
     const ranked = drivers.map(id => ({ id, ...(results[id]||{}) })).sort((a,b) => (a.rank||999) - (b.rank||999));
+    // ✅ ADDED: disqualified drivers are pulled out of round.drivers (see
+    // staffAcRallyDisqualifyDriver) but their result stays behind marked
+    // dq:true - surface them separately with a Reinstate option instead of
+    // letting them silently disappear from the staff view.
+    const dqRows = Object.keys(results).filter(id => results[id]?.dq && !drivers.includes(id)).map(id => ({ id, ...results[id] }));
 
     let html = `<div class="note-item" style="margin-top:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -10278,15 +10357,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     html += `<button class="btn ghost" data-save-stages="${round.roundIndex}" type="button" style="margin-top:8px" ${round.status==='completed'?'disabled':''}>Save Stage Config</button></div>`;
 
     if(drivers.length){
-      html += `<div style="overflow-x:auto;margin-top:12px"><table class="mono" style="width:100%;font-size:12.5px"><thead><tr><th>Rank</th><th>Driver</th>${stages.map((s,i)=>`<th>${s.name||'Stage '+(i+1)}</th>`).join('')}<th>Combined</th><th>Status</th></tr></thead><tbody>`;
-      html += ranked.map(r => `<tr>
-        <td>${r.rank || '-'}</td>
-        <td>${r.name || ''}</td>
-        ${stages.map((s,i)=>`<td>${window.acRallyFmtTime(r.stageTimes?.[i])}</td>`).join('')}
-        <td>${window.acRallyFmtTime(r.combinedSeconds)}</td>
-        <td>${r.advanced===true?'&check; Advanced':r.advanced===false?'&times; Eliminated':r.complete?'Ready':'Waiting'}</td>
-      </tr>`).join('');
-      html += `</tbody></table></div>`;
+      // ✅ CHANGED: was a plain <table> - now driver-directory-style cards
+      // (see acRallyResultCardHtml, shared with the driver-facing results
+      // page) with a per-card Disqualify button while the round's still
+      // open, for a driver who's gone quiet and isn't submitting times.
+      const canEdit = round.status === 'open';
+      html += `<div class="acr-grid" style="margin-top:12px">${ranked.map(r => {
+        const extra = canEdit ? `<div class="acr-card-actions"><button class="btn ghost owner-only-tab" data-dq-driver="${r.id}" data-round="${round.roundIndex}" type="button">Disqualify</button></div>` : '';
+        return window.acRallyResultCardHtml(r, stages, extra);
+      }).join('')}</div>`;
+    }
+
+    if(dqRows.length){
+      const canEdit = round.status === 'open';
+      html += `<h5 class="acr-dq-heading">Disqualified</h5><div class="acr-grid">${dqRows.map(r => {
+        const extra = canEdit ? `<div class="acr-card-actions"><button class="btn ghost owner-only-tab" data-reinstate-driver="${r.id}" data-round="${round.roundIndex}" type="button">Reinstate</button></div>` : '';
+        return window.acRallyResultCardHtml(r, stages, extra);
+      }).join('')}</div>`;
     }
 
     if(round.status === 'open'){
@@ -10472,6 +10559,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           alert(`${result.name} added to ${result.roundName}.`);
           await renderAcRallyStaffPanel();
         }catch(e){ alert('Could not add driver: ' + e.message); btn.disabled = false; }
+      });
+    });
+    document.querySelectorAll('[data-dq-driver]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const driverId = btn.dataset.dqDriver;
+        const reason = prompt('Reason for disqualifying this driver? (e.g. no times submitted, shown to them)') || '';
+        if(!confirm('Disqualify this driver from the current round? They can be reinstated afterwards if needed.')) return;
+        btn.disabled = true;
+        try{ await disqualifyAcRallyDriver(ev.id, driverId, 'dq', reason); await renderAcRallyStaffPanel(); }
+        catch(e){ alert('Could not disqualify: ' + e.message); btn.disabled = false; }
+      });
+    });
+    document.querySelectorAll('[data-reinstate-driver]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const driverId = btn.dataset.reinstateDriver;
+        btn.disabled = true;
+        try{ await disqualifyAcRallyDriver(ev.id, driverId, 'reinstate'); await renderAcRallyStaffPanel(); }
+        catch(e){ alert('Could not reinstate: ' + e.message); btn.disabled = false; }
       });
     });
     document.querySelectorAll('[data-verify-sub]').forEach(btn => {
