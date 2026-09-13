@@ -1039,19 +1039,25 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .dir-rate-up.voted{background:rgba(51,217,155,.28);border-color:var(--ifwl-green,#33d99b)}
 .dir-rate-down.voted{background:rgba(255,84,100,.28);border-color:var(--ifwl-red,#ff5464)}
 
-/* ✅ ADDED: AC Rally result cards - driver-directory-style presentation
-   for round results (driver-facing AND staff), replacing the old plain
-   HTML table. See acRallyResultCardHtml - reuses .dir-card and
-   .race-pos-badge (with their existing gold/silver/bronze variants) so
-   this reads as part of the site rather than a bolted-on data table. */
-.acr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:12px}
-.acr-card{padding:14px}
-.acr-card-dq{opacity:.55;border-style:dashed;border-color:var(--ifwl-red)}
+/* ✅ CHANGED: AC Rally result cards - true driver-directory-style cards
+   (avatar photo, header/livery image, team logo, tier pill - same as the
+   Driver Directory / Commentator "Drivers to Watch" cards) for round
+   results, driver-facing AND staff, replacing the old plain HTML table.
+   See acRallyResultCardHtml. Composed from .cw-card + .dir-card (the
+   existing "photo card with a stats footer" pattern already used by
+   Drivers to Watch) rather than a plain data table, so a driver with a
+   header image/team logo shows it here exactly like everywhere else on
+   the site. A driver with no directory entry (or none of that filled in)
+   still renders correctly - just without the photo/team/tier chrome. */
+.acr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;margin-top:12px}
+.acr-card-dq{opacity:.55}
+.acr-card-dq .dir-card{border-style:dashed;border-color:var(--ifwl-red)}
+.acr-stat-footer{padding:10px 14px 12px;background:var(--surface-alt);border-top:1px solid var(--ifwl-line)}
 .acr-stage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(58px,1fr));gap:6px;margin-top:10px;text-align:center}
 .acr-stage-grid .mini-stat span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-dim);font-weight:800}
 .acr-stage-grid .mini-stat strong{display:block;margin-top:4px;font-size:12.5px;font-family:var(--font-mono);color:var(--ifwl-teal)}
 .acr-stage-grid .acr-combined strong{color:var(--ifwl-amber)}
-.acr-status-pill{display:inline-block;margin-top:8px;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
+.acr-status-pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
 .acr-status-ready{background:rgba(31,214,189,.16);color:var(--ifwl-teal)}
 .acr-status-waiting{background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
 .acr-status-advanced{background:rgba(51,217,155,.16);color:var(--ifwl-green)}
@@ -6856,30 +6862,60 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const cls = r.rank === 1 ? ' race-pos-gold' : r.rank === 2 ? ' race-pos-silver' : r.rank === 3 ? ' race-pos-bronze' : '';
     return { label: 'P' + r.rank, cls };
   }
-  function acRallyResultCardHtml(r, stages, extraHtml){
+  // dirEntry (optional) is a row from fetchDirectory()/licenceDirectory,
+  // matched by discordId === r.id - the SAME avatar/header/team-logo/
+  // tier-pill fields the Driver Directory and "Drivers to Watch" cards
+  // use (see eventRosterCardHtml above for the identical pattern). With
+  // no match (driver removed, directory fetch failed, etc.) the card
+  // still renders fine, just without the photo/team/tier chrome.
+  function acRallyResultCardHtml(r, stages, extraHtml, dirEntry){
     const status = acRallyStatusInfo(r);
     const posBadge = acRallyRankBadge(r);
-    const outlineClass = !r.dq && r.rank === 1 ? ' dir-card-gold' : !r.dq && r.rank === 2 ? ' dir-card-silver' : !r.dq && r.rank === 3 ? ' dir-card-bronze' : '';
+    const thumb = dirEntry?.avatarMode === 'upload' && dirEntry?.photoUploadUrl ? dirEntry.photoUploadUrl
+                : dirEntry?.avatarMode === 'url' && dirEntry?.avatarUrl ? dirEntry.avatarUrl
+                : '';
+    const avatarCell = thumb ? `<div class="dir-card-avatar"><img src="${thumb}" alt=""></div>` : `<div class="dir-card-avatar-empty"></div>`;
+    const hasHeader = !!dirEntry?.headerUploadUrl;
+    const bgStyle = hasHeader ? ` style="background-image:url('${dirEntry.headerUploadUrl}')"` : '';
+    const outlineClass = dirEntry?.patreonOutlineTier ? ` dir-card-${dirEntry.patreonOutlineTier}`
+      : (!r.dq && r.rank === 1 ? ' dir-card-gold' : !r.dq && r.rank === 2 ? ' dir-card-silver' : !r.dq && r.rank === 3 ? ' dir-card-bronze' : '');
+    const platformTag = dirEntry?.platform === 'pc' ? '<span class="platform-tag plat-pc">PC</span>'
+      : dirEntry?.platform === 'console' ? '<span class="platform-tag plat-console">Console</span>'
+      : dirEntry?.platform === 'both' ? '<span class="platform-tag plat-both">PC + Console</span>' : '';
+    const tier = dirEntry ? findTier(dirEntry.tier || 'No Licence') : null;
+    const tierPill = tier ? `<span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${dirEntry.tier || 'No Licence'}</span>` : '';
     const stageStats = (stages||[]).map((s,i) => `<div class="mini-stat"><span>${(s.name||'Stage '+(i+1)).replace(/</g,'&lt;')}</span><strong>${acRallyFmtTime(r.stageTimes?.[i])}</strong></div>`).join('');
-    return `<div class="dir-card acr-card${outlineClass}${r.dq ? ' acr-card-dq' : ''}" data-driver="${r.id||''}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-        <div style="min-width:0">
-          <strong style="display:block;font-size:14px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(r.name||'Unnamed driver').replace(/</g,'&lt;')}</strong>
-          <span class="mono" style="font-size:11px;color:var(--text-muted);display:block;margin-top:2px">${r.licenceNumber||'-'}</span>
+    return `<div class="cw-card acr-card${r.dq ? ' acr-card-dq' : ''}" data-driver="${r.id||''}">
+      <div class="dir-card${hasHeader ? ' has-header' : ''}${outlineClass}"${bgStyle}>
+        ${platformTag}
+        <span class="race-pos-badge${posBadge.cls}" style="left:10px;right:auto">${posBadge.label}</span>
+        ${dirEntry?.teamLogoUrl ? `<img class="dir-card-team-logo" src="${dirEntry.teamLogoUrl}" alt="${dirEntry.teamName||'Team'}" title="${dirEntry.teamName||''}">` : ''}
+        <div class="dir-card-overlay">
+          ${avatarCell}
+          <div class="dir-card-info">
+            <strong>${(r.name||'Unnamed driver').replace(/</g,'&lt;')}</strong>
+            <span class="mono">${r.licenceNumber||'-'}</span>
+            ${tierPill}
+          </div>
         </div>
-        <span class="race-pos-badge${posBadge.cls}" style="position:static;flex:none">${posBadge.label}</span>
       </div>
-      <span class="acr-status-pill acr-status-${status.key}">${status.label}</span>
-      <div class="mini-stats acr-stage-grid">
-        ${stageStats}
-        <div class="mini-stat acr-combined"><span>Combined</span><strong>${acRallyFmtTime(r.combinedSeconds)}</strong></div>
+      <div class="acr-stat-footer">
+        <span class="acr-status-pill acr-status-${status.key}">${status.label}</span>
+        <div class="mini-stats acr-stage-grid">
+          ${stageStats}
+          <div class="mini-stat acr-combined"><span>Combined</span><strong>${acRallyFmtTime(r.combinedSeconds)}</strong></div>
+        </div>
+        ${extraHtml || ''}
       </div>
-      ${extraHtml || ''}
     </div>`;
   }
   window.acRallyStatusInfo = acRallyStatusInfo;
   window.acRallyRankBadge = acRallyRankBadge;
   window.acRallyResultCardHtml = acRallyResultCardHtml;
+  // ✅ ADDED: bridged so the staff AC Rally panel (later script block) can
+  // look up avatar/header/team/tier data for its own result cards too -
+  // same function the driver-facing results page already uses.
+  window.fetchDirectory = fetchDirectory;
 
   async function fetchAcRallyBoard(){
     return (await apiGet('acRallyBoard')).events || [];
@@ -7053,7 +7089,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // here, since a signup-only event has no stages/results yet.
   let acRallyResultsCache = [];
 
-  function acRallyResultRoundHtml(round){
+  function acRallyResultRoundHtml(round, dirMap){
     const stages = round.stages || [];
     const drivers = round.drivers || [];
     const results = round.results || {};
@@ -7074,20 +7110,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     if(drivers.length){
-      html += `<div class="acr-grid">${ranked.map(r => acRallyResultCardHtml(r, stages)).join('')}</div>`;
+      html += `<div class="acr-grid">${ranked.map(r => acRallyResultCardHtml(r, stages, null, dirMap?.get(r.id))).join('')}</div>`;
     } else {
       html += `<div class="field-hint" style="margin-top:8px">Not started yet.</div>`;
     }
 
     if(dqRows.length){
-      html += `<h5 class="acr-dq-heading">Disqualified</h5><div class="acr-grid">${dqRows.map(r => acRallyResultCardHtml(r, stages)).join('')}</div>`;
+      html += `<h5 class="acr-dq-heading">Disqualified</h5><div class="acr-grid">${dqRows.map(r => acRallyResultCardHtml(r, stages, null, dirMap?.get(r.id))).join('')}</div>`;
     }
 
     html += `</div>`;
     return html;
   }
 
-  function loadAcRallyResultDetail(ev){
+  async function loadAcRallyResultDetail(ev){
     const wrap = q('acRallyResultsDetailWrap');
     if(!wrap) return;
     wrap.classList.remove('hidden');
@@ -7103,8 +7139,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           ${ev.status === 'completed' ? `<div class="note-meta" style="margin-top:6px">&#127942; Champion: ${ev.championName || '-'}</div>` : ''}
         </div>
       </div>
-      <div style="padding:0 18px 18px">${(ev.rounds||[]).map(acRallyResultRoundHtml).join('')}</div>
+      <div id="acRallyResultRoundsWrap" style="padding:0 18px 18px"><div class="empty">Loading driver details&hellip;</div></div>
     `;
+    // ✅ ADDED: pull the shared Driver Directory list (avatars, header
+    // images, team logos, tiers) once for this event, matched to each
+    // result row by discordId, so result cards look exactly like the
+    // Driver Directory instead of plain text - see acRallyResultCardHtml.
+    let dirMap = null;
+    try{
+      const directory = await fetchDirectory();
+      dirMap = new Map(directory.map(d => [d.discordId, d]));
+    }catch(e){ console.warn('Could not load directory data for AC Rally results', e); }
+    const roundsWrap = q('acRallyResultRoundsWrap');
+    if(roundsWrap) roundsWrap.innerHTML = (ev.rounds||[]).map(round => acRallyResultRoundHtml(round, dirMap)).join('');
     q('backToAcRallyResultsBtn').addEventListener('click', () => {
       wrap.classList.add('hidden');
       wrap.innerHTML = '';
@@ -10320,7 +10367,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return acRallyEventsCache.find(e => e.id === acRallyDetailEventId) || null;
   }
 
-  function renderAcRallyRoundHtml(ev, round){
+  function renderAcRallyRoundHtml(ev, round, dirMap){
     const stages = round.stages || [];
     const drivers = round.drivers || [];
     const results = round.results || {};
@@ -10364,7 +10411,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const canEdit = round.status === 'open';
       html += `<div class="acr-grid" style="margin-top:12px">${ranked.map(r => {
         const extra = canEdit ? `<div class="acr-card-actions"><button class="btn ghost owner-only-tab" data-dq-driver="${r.id}" data-round="${round.roundIndex}" type="button">Disqualify</button></div>` : '';
-        return window.acRallyResultCardHtml(r, stages, extra);
+        return window.acRallyResultCardHtml(r, stages, extra, dirMap?.get(r.id));
       }).join('')}</div>`;
     }
 
@@ -10372,7 +10419,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const canEdit = round.status === 'open';
       html += `<h5 class="acr-dq-heading">Disqualified</h5><div class="acr-grid">${dqRows.map(r => {
         const extra = canEdit ? `<div class="acr-card-actions"><button class="btn ghost owner-only-tab" data-reinstate-driver="${r.id}" data-round="${round.roundIndex}" type="button">Reinstate</button></div>` : '';
-        return window.acRallyResultCardHtml(r, stages, extra);
+        return window.acRallyResultCardHtml(r, stages, extra, dirMap?.get(r.id));
       }).join('')}</div>`;
     }
 
@@ -10432,11 +10479,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return html;
   }
 
-  function renderAcRallyDetail(){
+  async function renderAcRallyDetail(){
     const wrap = q('acRallyEventDetail');
     if(!wrap) return;
     const ev = acRallyDetailFindEvent();
     if(!ev){ wrap.innerHTML = ''; return; }
+
+    // ✅ ADDED: same Driver Directory lookup the driver-facing results page
+    // uses (avatars/header images/team logos/tiers), so staff result cards
+    // show the same photo/team/tier chrome instead of plain text. Only
+    // needed once rounds actually exist (status !== 'signup').
+    let dirMap = null;
+    if(ev.status !== 'signup'){
+      try{
+        const directory = await window.fetchDirectory();
+        dirMap = new Map(directory.map(d => [d.discordId, d]));
+      }catch(e){ console.warn('Could not load directory data for AC Rally staff results', e); }
+    }
 
     let html = `<div class="panel-head" style="margin-top:20px"><div><h4 style="margin:0">${ev.title}</h4><small>${ev.description || ''}</small></div></div>`;
     html += `<div class="note-item" style="margin-top:10px">
@@ -10471,7 +10530,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       if(ev.status === 'completed'){
         html += `<div class="note-item" style="margin-top:10px;border-color:var(--ifwl-amber)"><strong>&#127942; Champion: ${ev.championName}</strong></div>`;
       }
-      (ev.rounds||[]).forEach(round => { html += renderAcRallyRoundHtml(ev, round); });
+      (ev.rounds||[]).forEach(round => { html += renderAcRallyRoundHtml(ev, round, dirMap); });
     }
 
     wrap.innerHTML = html;
