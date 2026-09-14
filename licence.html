@@ -548,7 +548,15 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 
 body:not(.discord-logged-in) #myLicencePanel,body:not(.discord-logged-in) #qualStandingPanel,body:not(.discord-logged-in) #directoryPanel,body:not(.discord-logged-in) #availableRacesPanel,body:not(.discord-logged-in) #claimLapsPanel,body:not(.discord-logged-in) #claimLapsPanelConsole{display:none!important}
 body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,body:not(.staff-access) #requestQueuePanel,body:not(.staff-access) #simgridEventsPanel,body:not(.staff-access) #callingCardManagePanel,body:not(.staff-access) #licenceQualPanel,body:not(.staff-access) #licenceQualPanelConsole,body:not(.staff-access) #simgridBulkLinkPanel,body:not(.staff-access) #seasonWindowPanel,body:not(.staff-access) #staffMessagesPanel,body:not(.staff-access) #nameAuditPanel,body:not(.staff-access) #systemStatusPanel,body:not(.staff-access) #licenceDatabasePanel,body:not(.staff-access) #staffAccLiveriesPanel,body:not(.staff-access) #staffLmuLiveriesPanel,body:not(.staff-access) #staffEts2LiveriesPanel{display:none!important}
-.tier-row{display:grid;grid-template-columns:auto 1fr 90px 90px 100px 130px auto auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:var(--surface);margin-bottom:8px}
+.tier-row{padding:10px;border:1px solid var(--ifwl-line);border-radius:12px;background:var(--surface);margin-bottom:8px}
+.tier-row-main{display:grid;grid-template-columns:auto 1fr 90px 90px 100px 130px auto auto;gap:10px;align-items:center}
+/* ✅ ADDED: per-tier Discord role sync (Owner/Ops paste in a role ID per
+   platform, live-syncs the moment a driver's tier or platform changes -
+   see syncTierDiscordRoles in rtgate.js). Second line inside the same
+   tier card rather than widening the already-dense main grid above. */
+.tier-row-discord{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:8px;border-top:1px solid var(--ifwl-line)}
+.tier-row-discord-label{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--text-muted);flex-shrink:0;white-space:nowrap}
+.tier-row-discord input{flex:1;min-width:0}
 .tier-row input[type="text"]{border:1px solid var(--ifwl-line);background:var(--surface-alt);color:var(--text-primary);border-radius:7px;padding:8px 10px;font-size:13px}
 .tier-row input[type="color"]{width:44px;height:32px;border:1px solid var(--ifwl-line);border-radius:7px;background:none;padding:0;cursor:pointer}
 .tier-row label.foil-toggle{font-size:10px;text-transform:uppercase;font-weight:800;color:var(--text-muted);display:flex;align-items:center;gap:5px;white-space:nowrap}
@@ -11697,17 +11705,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!wrap) return;
     wrap.innerHTML = tierRows.map((t, i) => `
       <div class="tier-row" data-idx="${i}">
-        <div>
-          <button class="icon-btn" data-move="up" title="Move up" ${i===0?'disabled':''}>&uarr;</button>
-          <button class="icon-btn" data-move="down" title="Move down" ${i===tierRows.length-1?'disabled':''}>&darr;</button>
+        <div class="tier-row-main">
+          <div>
+            <button class="icon-btn" data-move="up" title="Move up" ${i===0?'disabled':''}>&uarr;</button>
+            <button class="icon-btn" data-move="down" title="Move down" ${i===tierRows.length-1?'disabled':''}>&darr;</button>
+          </div>
+          <input type="text" data-field="name" value="${t.name}" placeholder="Tier name">
+          <input type="color" data-field="color" value="${t.color}">
+          <label class="foil-toggle"><input type="checkbox" data-field="foil" ${t.foil?'checked':''}> Foil</label>
+          <label class="foil-toggle" title="Self-selected add-on (e.g. LMU) - not part of the main ladder, never shown on licence cards or in tier dropdowns"><input type="checkbox" data-field="lmuSubLicence" ${t.lmuSubLicence?'checked':''}> LMU</label>
+          <label class="foil-toggle" title="Only applies to an LMU sub-licence above - requires a driver to request it and staff to approve, instead of the plain self-select checkbox (e.g. Hypercar, LMP3)"><input type="checkbox" data-field="lmuGated" ${t.lmuGated?'checked':''}> Requires approval</label>
+          <input type="text" data-field="description" value="${t.description||''}" placeholder="Short description" style="grid-column:span 1">
+          <button class="icon-btn" data-remove="1" title="Remove tier">&times;</button>
         </div>
-        <input type="text" data-field="name" value="${t.name}" placeholder="Tier name">
-        <input type="color" data-field="color" value="${t.color}">
-        <label class="foil-toggle"><input type="checkbox" data-field="foil" ${t.foil?'checked':''}> Foil</label>
-        <label class="foil-toggle" title="Self-selected add-on (e.g. LMU) - not part of the main ladder, never shown on licence cards or in tier dropdowns"><input type="checkbox" data-field="lmuSubLicence" ${t.lmuSubLicence?'checked':''}> LMU</label>
-        <label class="foil-toggle" title="Only applies to an LMU sub-licence above - requires a driver to request it and staff to approve, instead of the plain self-select checkbox (e.g. Hypercar, LMP3)"><input type="checkbox" data-field="lmuGated" ${t.lmuGated?'checked':''}> Requires approval</label>
-        <input type="text" data-field="description" value="${t.description||''}" placeholder="Short description" style="grid-column:span 1">
-        <button class="icon-btn" data-remove="1" title="Remove tier">&times;</button>
+        <div class="tier-row-discord">
+          <span class="tier-row-discord-label">Discord roles</span>
+          <input type="text" data-field="discordRoleIdPc" value="${t.discordRoleIdPc||''}" placeholder="PC role ID (optional)" title="Granted the moment a driver on PC reaches this tier, revoked the moment they leave it. Leave blank for no role on PC.">
+          <input type="text" data-field="discordRoleIdConsole" value="${t.discordRoleIdConsole||''}" placeholder="Console role ID (optional)" title="Granted the moment a driver on Console reaches this tier, revoked the moment they leave it. Leave blank for no role on Console. For a tier that isn't split by platform, paste the same role ID into both fields.">
+        </div>
       </div>
     `).join('');
 
@@ -11719,6 +11734,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       row.querySelector('[data-field="lmuSubLicence"]').addEventListener('change', e => tierRows[idx].lmuSubLicence = e.target.checked);
       row.querySelector('[data-field="lmuGated"]').addEventListener('change', e => tierRows[idx].lmuGated = e.target.checked);
       row.querySelector('[data-field="description"]').addEventListener('input', e => tierRows[idx].description = e.target.value);
+      row.querySelector('[data-field="discordRoleIdPc"]').addEventListener('input', e => tierRows[idx].discordRoleIdPc = e.target.value);
+      row.querySelector('[data-field="discordRoleIdConsole"]').addEventListener('input', e => tierRows[idx].discordRoleIdConsole = e.target.value);
       row.querySelector('[data-remove]').addEventListener('click', () => { tierRows.splice(idx,1); renumberAndRender(); });
       const moveBtns = row.querySelectorAll('[data-move]');
       moveBtns.forEach(btn => btn.addEventListener('click', () => {
@@ -11741,7 +11758,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     renderTierRows();
   }
   q('addTierRowBtn')?.addEventListener('click', () => {
-    tierRows.push({ id: 'tier_' + Date.now(), name: 'New Tier', color: '#93a1a9', foil:false, lmuSubLicence:false, lmuGated:false, description:'', order: tierRows.length });
+    tierRows.push({ id: 'tier_' + Date.now(), name: 'New Tier', color: '#93a1a9', foil:false, lmuSubLicence:false, lmuGated:false, description:'', discordRoleIdPc:'', discordRoleIdConsole:'', order: tierRows.length });
     renderTierRows();
   });
   q('saveTiersBtn')?.addEventListener('click', async () => {
