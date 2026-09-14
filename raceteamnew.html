@@ -465,6 +465,30 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     return d;
   }
 
+  // Optional preview image for a livery - a plain JPEG/PNG thumbnail so
+  // drivers can see what the livery looks like before downloading the zip.
+  // Not password-gated (it's not the protected file itself), but still
+  // scoped to team members via teamId, same as the zip upload above.
+  async function uploadLiveryPreviewImage(file, teamId){
+    if(file.size > 5*1024*1024) throw new Error('That image is over 5MB. Please choose a smaller preview image.');
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const form = new FormData();
+    form.append('file', file);
+    form.append('kind', 'raceTeamLiveryPreview');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let r;
+    try{
+      r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}&kind=raceTeamLiveryPreview&teamId=${encodeURIComponent(teamId)}`, { method:'POST', body: form, signal: controller.signal });
+    }catch(err){
+      if(err.name === 'AbortError') throw new Error('Preview image upload timed out after 30s.');
+      throw err;
+    }finally{ clearTimeout(timeout); }
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d?.error || 'Preview image upload failed');
+    return d;
+  }
+
   // ---- Events/Stints calling convention, ported verbatim from Live Timings ----
   const RT_AUTH_FUNCTION = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
   const RT_SESSION_KEY = 'IFWL_PATREON_SESSION';
@@ -1333,8 +1357,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   function liveryRowHtml(l, canManageLiveries){
     const sizeLabel = l.sizeBytes ? `${(l.sizeBytes/1024/1024).toFixed(1)}MB` : '';
     const metaBits = [l.fileName, sizeLabel, l.notes].filter(Boolean).map(esc).join(' &middot; ');
+    const thumb = l.previewUrl
+      ? `<img src="${esc(l.previewUrl)}" alt="${esc(l.car)} preview" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--ifwl-line);flex:0 0 auto;">`
+      : `<div style="width:64px;height:64px;border-radius:8px;border:1px dashed var(--ifwl-line);display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:10px;text-align:center;flex:0 0 auto;">No preview</div>`;
     return `
-      <div class="note-item" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div class="note-item" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        ${thumb}
         <div style="flex:1;min-width:180px;">
           <strong>${esc(l.car)}</strong>
           ${metaBits ? `<div class="field-hint">${metaBits}</div>` : ''}
@@ -1368,6 +1396,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         <div class="panel-body">
           <div class="field-group"><label for="liveryCarInput">Car</label><input type="text" id="liveryCarInput" placeholder="e.g. Ferrari 296 GT3"></div>
           <div class="field-group"><label for="liveryFileInput">Livery file (.zip, max 60MB)</label><input type="file" id="liveryFileInput" accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream" style="display:block;margin-top:6px"></div>
+          <div class="field-group"><label for="liveryPreviewInput">Preview image (optional — JPEG/PNG, max 5MB)</label><input type="file" id="liveryPreviewInput" accept="image/jpeg,image/png" style="display:block;margin-top:6px"><div class="field-hint">Shown as a thumbnail so drivers can see the livery before they download it. Not password-protected.</div></div>
           <div class="field-group"><label for="liveryNotesInput">Notes (optional)</label><input type="text" id="liveryNotesInput" placeholder="e.g. Season 4 spec"></div>
           <div class="field-group"><label for="liveryPasswordInput">Upload password</label><input type="password" id="liveryPasswordInput" placeholder="Ask your team lead" autocomplete="off"></div>
           <button class="btn purple" id="liveryUploadBtn" type="button">Upload Livery</button>
@@ -1377,19 +1406,34 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     `;
 
     q('liveryUploadBtn')?.addEventListener('click', async () => {
-      const carInput = q('liveryCarInput'), fileInput = q('liveryFileInput'), notesInput = q('liveryNotesInput'), passwordInput = q('liveryPasswordInput');
+      const carInput = q('liveryCarInput'), fileInput = q('liveryFileInput'), previewInput = q('liveryPreviewInput'), notesInput = q('liveryNotesInput'), passwordInput = q('liveryPasswordInput');
       const car = carInput.value.trim();
       const file = fileInput.files[0];
+      const previewFile = previewInput.files[0];
       const notes = notesInput.value.trim();
       const password = passwordInput.value;
       const status = q('liveryUploadStatus');
       if(!car){ alert('Enter which car this livery is for.'); return; }
       if(!file){ alert('Choose a .zip file to upload.'); return; }
       if(!password){ alert('Enter the upload password.'); return; }
-      status.textContent = 'Uploading…';
       try{
+        status.textContent = 'Uploading…';
         const uploaded = await uploadLiveryZip(file, currentTeamId, password);
-        await rtSaveLivery({ teamId: currentTeamId, car, fileName: uploaded.fileName || file.name, url: uploaded.url, path: uploaded.path, sizeBytes: uploaded.sizeBytes || file.size, notes, password });
+        let previewUrl = '', previewPath = '';
+        if(previewFile){
+          status.textContent = 'Uploading preview image…';
+          try{
+            const uploadedPreview = await uploadLiveryPreviewImage(previewFile, currentTeamId);
+            previewUrl = uploadedPreview.url || '';
+            previewPath = uploadedPreview.path || '';
+          }catch(previewErr){
+            // The livery zip already saved successfully - don't lose that
+            // over a failed preview image, just let the driver know.
+            alert('The livery uploaded, but the preview image failed: ' + previewErr.message);
+          }
+        }
+        status.textContent = 'Saving…';
+        await rtSaveLivery({ teamId: currentTeamId, car, fileName: uploaded.fileName || file.name, url: uploaded.url, path: uploaded.path, previewUrl, previewPath, sizeBytes: uploaded.sizeBytes || file.size, notes, password });
         await renderLiveriesBody();
       }catch(e){
         status.textContent = '';
