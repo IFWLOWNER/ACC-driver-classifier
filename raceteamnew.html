@@ -89,7 +89,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
 .badge.purple{background:rgba(198,91,232,.14);color:var(--ifwl-purple);border:1px solid rgba(198,91,232,.32)}
 .field-group{margin-bottom:16px}
 .field-group label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:0 0 6px}
-.field-group input[type="text"],.field-group input[type="url"],.field-group textarea,.field-group select{width:100%;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:9px;padding:10px 12px;font-size:13px;font-family:var(--font-body)}
+.field-group input[type="text"],.field-group input[type="url"],.field-group input[type="password"],.field-group textarea,.field-group select{width:100%;border:1px solid var(--ifwl-line);background:#0d1116;color:var(--text-primary);border-radius:9px;padding:10px 12px;font-size:13px;font-family:var(--font-body)}
 .field-group textarea{min-height:80px;resize:vertical}
 .field-hint{font-size:11.5px;color:var(--text-dim);margin-top:5px}
 .btn{appearance:none;border:0;background:#1a2027;color:#fff;border-radius:9px;padding:10px 16px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;cursor:pointer;text-decoration:none;font-size:12px;display:inline-block}
@@ -255,6 +255,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <button class="team-tab" data-team-view="scouting" type="button">Team Server Stats</button>
       <button class="team-tab" data-team-view="events" type="button">Events &amp; Stints</button>
       <button class="team-tab" data-team-view="claim" type="button">Claim Your Stints</button>
+      <button class="team-tab" data-team-view="liveries" type="button">Liveries</button>
       <button class="team-tab" data-team-view="auditLog" type="button">Audit Log</button>
     </div>
 
@@ -300,6 +301,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
       <section class="panel">
         <div class="panel-head"><div><h3>Claim Your Stints</h3><small>Mark which stints you're free for, and respond to finalised plans — as yourself, whoever's viewing this page</small></div></div>
         <div class="panel-body"><div id="claimBody"><div class="empty">Loading&hellip;</div></div></div>
+      </section>
+    </div>
+
+    <div class="team-view" data-team-view="liveries">
+      <section class="panel">
+        <div class="panel-head"><div><h3>IFWL Racing Team Liveries</h3><small>Browse and request a livery for your inbox, or add one with the upload password</small></div></div>
+        <div class="panel-body"><div id="liveriesBody"><div class="empty">Loading&hellip;</div></div></div>
       </section>
     </div>
 
@@ -399,6 +407,15 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
     return d;
   }
+  // Same as apiPost, but for actions (like raceTeamLiveryDelete) that read
+  // an id from the query string rather than the JSON body.
+  async function apiPostQ(action, extraQuery, body){
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const r = await fetch(`${FN()}?${action}=1&token=${encodeURIComponent(token)}${extraQuery||''}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
+    return d;
+  }
   async function uploadLicenceImage(file, kind, extraParams){
     if(file.size > 5*1024*1024) throw new Error('That file is over 5MB. Please choose a smaller image.');
     const token = window.IFWL_AUTH?.sessionToken() || '';
@@ -418,6 +435,34 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     const d = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(d?.error || 'Upload failed');
     return { url: d.url, ref: 'url' };
+  }
+
+  // Race Team Liveries upload - separate from uploadLicenceImage above
+  // because this needs a much bigger size cap (a real ACC livery pack) and
+  // has to carry the upload password + original filename as extra form
+  // fields. The password is only ever sent over this one request - it is
+  // checked server-side in rtLicenceImageUpload and never stored or echoed
+  // back to the page.
+  async function uploadLiveryZip(file, teamId, password){
+    if(file.size > 60*1024*1024) throw new Error('That file is over 60MB. Please choose a smaller zip.');
+    const token = window.IFWL_AUTH?.sessionToken() || '';
+    const form = new FormData();
+    form.append('file', file);
+    form.append('kind', 'raceTeamLivery');
+    form.append('password', password);
+    form.append('fileName', file.name);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    let r;
+    try{
+      r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}&kind=raceTeamLivery&teamId=${encodeURIComponent(teamId)}`, { method:'POST', body: form, signal: controller.signal });
+    }catch(err){
+      if(err.name === 'AbortError') throw new Error('Upload timed out after 60s.');
+      throw err;
+    }finally{ clearTimeout(timeout); }
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d?.error || 'Upload failed');
+    return d;
   }
 
   // ---- Events/Stints calling convention, ported verbatim from Live Timings ----
@@ -444,6 +489,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   async function rtAcknowledgeEvent(eventId, driverName, status, reason){ return rtApiCall('?raceTeamEventAcknowledge=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, status, reason}) }); }
   async function rtDeleteEvent(eventId){ return rtApiCall(`?raceTeamEventDelete=1&id=${encodeURIComponent(eventId)}`, { method: 'POST' }); }
   function driverNameKey(name){ return String(name || '').trim().toLowerCase(); }
+
+  // ---- Race Team Liveries ----
+  async function rtFetchLiveries(teamId){ return apiGet('raceTeamLiveryList', `&teamId=${encodeURIComponent(teamId)}`); }
+  async function rtSaveLivery(payload){ return apiPost('raceTeamLiverySave', payload); }
+  async function rtRequestLivery(liveryId){ return apiPost('raceTeamLiveryRequest', { liveryId }); }
+  async function rtDeleteLivery(liveryId){ return apiPostQ('raceTeamLiveryDelete', `&id=${encodeURIComponent(liveryId)}`); }
   function rtEventBannerStyle(event){ if(!event.simgridImageUrl) return ''; return `background-image:linear-gradient(90deg,rgba(13,17,22,.92),rgba(13,17,22,.55)),url('${event.simgridImageUrl.replace(/'/g,"%27")}');background-size:cover;background-position:center`; }
 
   // ============================================================
@@ -1268,6 +1319,101 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     }).join('');
   }
 
+  // ============================================================
+  // IFWL Racing Team Liveries — a private per-team file library so drivers
+  // stop having to dig through Discord history for the right livery.
+  // Anyone on the team's roster can browse and request one (goes straight
+  // to their Inbox on Licence Centre); adding one needs the team's upload
+  // password, checked server-side - a wrong password never saves the file.
+  // Deleting/organizing stays limited to whoever can already manage the
+  // team (same canManage the Roster tab already uses).
+  // ============================================================
+  let currentLiveries = [];
+
+  function liveryRowHtml(l, canManageLiveries){
+    const sizeLabel = l.sizeBytes ? `${(l.sizeBytes/1024/1024).toFixed(1)}MB` : '';
+    const metaBits = [l.fileName, sizeLabel, l.notes].filter(Boolean).map(esc).join(' &middot; ');
+    return `
+      <div class="note-item" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:180px;">
+          <strong>${esc(l.car)}</strong>
+          ${metaBits ? `<div class="field-hint">${metaBits}</div>` : ''}
+        </div>
+        <button class="btn teal" type="button" data-livery-request="${esc(l.id)}">Send to my Inbox</button>
+        ${canManageLiveries ? `<button class="btn ghost" type="button" data-livery-delete="${esc(l.id)}" style="color:#ffb3ba;">Delete</button>` : ''}
+      </div>
+    `;
+  }
+
+  async function renderLiveriesBody(){
+    const body = q('liveriesBody');
+    if(!body) return;
+    body.innerHTML = '<div class="empty">Loading&hellip;</div>';
+
+    let data;
+    try{ data = await rtFetchLiveries(currentTeamId); }
+    catch(e){ body.innerHTML = `<div class="empty">Could not load: ${e.message}</div>`; return; }
+
+    currentLiveries = data.liveries || [];
+    const canManageLiveries = !!data.canManage;
+    const listHtml = currentLiveries.length
+      ? currentLiveries.map(l => liveryRowHtml(l, canManageLiveries)).join('')
+      : '<div class="empty">No liveries uploaded yet.</div>';
+
+    body.innerHTML = `
+      <div class="notice-card">Anyone on this team's roster can browse and request a livery below — it's sent straight to your Inbox on the Licence Centre. Adding a new livery needs the team's upload password from your team lead.</div>
+      <div id="liveriesList">${listHtml}</div>
+      <section class="panel" style="margin:18px 0 0;box-shadow:none;">
+        <div class="panel-head"><div><h3 style="font-size:16px;">Add a livery</h3><small>Wrong password, and the file is not saved</small></div></div>
+        <div class="panel-body">
+          <div class="field-group"><label for="liveryCarInput">Car</label><input type="text" id="liveryCarInput" placeholder="e.g. Ferrari 296 GT3"></div>
+          <div class="field-group"><label for="liveryFileInput">Livery file (.zip, max 60MB)</label><input type="file" id="liveryFileInput" accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream" style="display:block;margin-top:6px"></div>
+          <div class="field-group"><label for="liveryNotesInput">Notes (optional)</label><input type="text" id="liveryNotesInput" placeholder="e.g. Season 4 spec"></div>
+          <div class="field-group"><label for="liveryPasswordInput">Upload password</label><input type="password" id="liveryPasswordInput" placeholder="Ask your team lead" autocomplete="off"></div>
+          <button class="btn purple" id="liveryUploadBtn" type="button">Upload Livery</button>
+          <span class="save-status" id="liveryUploadStatus"></span>
+        </div>
+      </section>
+    `;
+
+    q('liveryUploadBtn')?.addEventListener('click', async () => {
+      const carInput = q('liveryCarInput'), fileInput = q('liveryFileInput'), notesInput = q('liveryNotesInput'), passwordInput = q('liveryPasswordInput');
+      const car = carInput.value.trim();
+      const file = fileInput.files[0];
+      const notes = notesInput.value.trim();
+      const password = passwordInput.value;
+      const status = q('liveryUploadStatus');
+      if(!car){ alert('Enter which car this livery is for.'); return; }
+      if(!file){ alert('Choose a .zip file to upload.'); return; }
+      if(!password){ alert('Enter the upload password.'); return; }
+      status.textContent = 'Uploading…';
+      try{
+        const uploaded = await uploadLiveryZip(file, currentTeamId, password);
+        await rtSaveLivery({ teamId: currentTeamId, car, fileName: uploaded.fileName || file.name, url: uploaded.url, path: uploaded.path, sizeBytes: uploaded.sizeBytes || file.size, notes, password });
+        await renderLiveriesBody();
+      }catch(e){
+        status.textContent = '';
+        alert('Could not upload: ' + e.message);
+      }
+    });
+
+    document.querySelectorAll('[data-livery-request]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true; const original = btn.textContent; btn.textContent = 'Sending…';
+      try{
+        await rtRequestLivery(btn.dataset.liveryRequest);
+        btn.textContent = 'Sent! Check your Inbox';
+      }catch(e){
+        btn.disabled = false; btn.textContent = original;
+        alert('Could not send: ' + e.message);
+      }
+    }));
+    document.querySelectorAll('[data-livery-delete]').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('Delete this livery? This removes the file too.')) return;
+      try{ await rtDeleteLivery(btn.dataset.liveryDelete); await renderLiveriesBody(); }
+      catch(e){ alert('Could not delete: ' + e.message); }
+    }));
+  }
+
   async function boot(){
     let mine;
     try{ mine = await apiGet('myRaceTeamId'); }
@@ -1787,6 +1933,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     if(currentRosterNames.some(n => driverNameKey(n) === driverNameKey(savedName))) myDriverName = savedName;
     else if(currentIsOwner && detail.team.ownerName) myDriverName = detail.team.ownerName; // sensible default: captain is usually themselves
     await initEventsPanel();
+    await renderLiveriesBody();
     if(currentIsOwner) renderAuditLog();
   }
 
