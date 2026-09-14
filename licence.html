@@ -8912,6 +8912,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     switchView('home'); // avoid landing on a tab that just got hidden by the simulated tier
     renderQualificationStanding();
     renderSeasonStatsBreakdown();
+    // ✅ ADDED: re-fetch the Game Liveries tabs under the simulated tier so
+    // their locked/unlocked cards actually reflect "View As" too - see
+    // fetchPatreonLiveries()'s simulateTier param above.
+    if(typeof initGameLiveriesPanels === 'function') initGameLiveriesPanels();
   }
   document.querySelectorAll('[data-view-as]').forEach(btn => {
     btn.addEventListener('click', () => setViewAs(btn.dataset.viewAs));
@@ -9251,7 +9255,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
   window.IFWL_UploadAPI.uploadPatreonLiveryZip = uploadPatreonLiveryZip;
 
-  async function fetchPatreonLiveries(game){ return apiGet('patreonLiveryList', `&game=${encodeURIComponent(game||'acc')}`); }
+  // ✅ CHANGED: now also passes the staff "View As" simulator's current mode
+  // (if any) as simulateTier - the backend only honours this for a real
+  // staff session (see patreonLiveryList in rtgate.js), so this lets staff
+  // genuinely preview a Bronze/Silver/Gold member's locked/unlocked cards
+  // without needing a second real account. currentViewAs is declared above
+  // in this same script block (Staff: View As simulator).
+  async function fetchPatreonLiveries(game){
+    const simParam = (typeof currentViewAs !== 'undefined' && currentViewAs !== 'real') ? `&simulateTier=${encodeURIComponent(currentViewAs)}` : '';
+    return apiGet('patreonLiveryList', `&game=${encodeURIComponent(game||'acc')}${simParam}`);
+  }
   async function savePatreonLivery(payload){ return apiPost('patreonLiverySave', payload); }
   async function deletePatreonLivery(id){ return apiPost('patreonLiveryDelete', { id }); }
   // ✅ FIXED: same cross-script-block visibility issue as uploadLiveryZip
