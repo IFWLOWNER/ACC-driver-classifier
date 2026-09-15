@@ -3507,11 +3507,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   </section>
 
   <!-- ✅ ADDED: Staff: AC Rally Events - dynamic knockout events. Drivers
-       sign up under Available Races, staff Lock In once the field is a
-       clean power of two, and the system builds every round automatically.
-       Everything below the create form is rendered by JS into
-       #acRallyEventsList / #acRallyEventDetail - see renderAcRallyStaffPanel
-       / renderAcRallyDetail. -->
+       sign up under Available Races, staff Lock In once there are at least
+       4 entrants (any count works now, not just an exact power of two),
+       and the system builds every round automatically. Everything below
+       the create form is rendered by JS into #acRallyEventsList /
+       #acRallyEventDetail - see renderAcRallyStaffPanel / renderAcRallyDetail. -->
   <section class="panel view-panel" data-view="staffAcRallyEvents" id="staffAcRallyEventsPanel">
     <div class="panel-head">
       <div><h3>Staff: AC Rally Events</h3><small>Dynamic knockout events - drivers sign up, you Lock In, drivers submit stage times with proof each round, you review and Advance Round</small></div>
@@ -6978,8 +6978,41 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     return Number(s);
   }
-  function acRallyIsPow2(n){
-    return Number.isInteger(n) && n >= 4 && (n & (n - 1)) === 0;
+  // ✅ CHANGED: was acRallyIsPow2 and required an exact power of two (4/8/
+  // 16/32...) before Lock In would enable - the backend no longer requires
+  // that (see ifwlAcRallyIsValidFieldSize/ifwlAcRallyBuildRounds in
+  // rtgate.js), it just needs at least 4 entrants and floor-halves each
+  // round down to a clean single-champion Final regardless of starting
+  // count. Kept as its own named check (not just an inline `>= 4`) so the
+  // one place this rule lives is easy to find/change again later.
+  function acRallyCanLockIn(n){
+    return Number.isInteger(n) && n >= 4;
+  }
+  // ✅ ADDED: client-side mirror of ifwlAcRallyBuildRounds/
+  // ifwlAcRallyRoundLabel in rtgate.js (labels + round count only, no stage
+  // data) - lets the Staff AC Rally Events panel show "which rounds will
+  // this bracket have" the moment a valid entrant count is reached, so
+  // staff can set a Times Required By deadline for every round BEFORE
+  // locking in, instead of finding out the shape of the bracket only after.
+  // Keep this in sync with the backend function if that logic ever changes.
+  function acRallyPreviewRounds(bracketSize){
+    const label = (startCount) => {
+      if(startCount <= 4) return 'Final';
+      if(startCount === 8) return 'Semi Final';
+      if(startCount === 16) return 'Quarter Final';
+      if(startCount === 32) return 'Round of 32';
+      return `Round of ${startCount}`;
+    };
+    const rounds = [];
+    let count = bracketSize;
+    let roundIndex = 0;
+    while(count > 4){
+      rounds.push({ roundIndex, name: label(count) });
+      count = Math.floor(count / 2);
+      roundIndex++;
+    }
+    rounds.push({ roundIndex, name: 'Final' });
+    return rounds;
   }
   // ✅ FIXED: exposed on window, same "bridged" pattern as every other
   // cross-<script>-block helper on this page (see ifwlPointsBandClass) -
@@ -6987,7 +7020,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // needs these same formatters.
   window.acRallyFmtTime = acRallyFmtTime;
   window.acRallyParseTime = acRallyParseTime;
-  window.acRallyIsPow2 = acRallyIsPow2;
+  window.acRallyCanLockIn = acRallyCanLockIn;
+  window.acRallyPreviewRounds = acRallyPreviewRounds;
 
   // ✅ ADDED: shared result-card renderer for AC Rally results - used by
   // both the driver-facing AC Rally Results page (this block) and the
@@ -7140,6 +7174,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return `<span class="platform-badge">In Progress</span>`;
   }
 
+  // ✅ ADDED: "Times Required By" full schedule - every round's deadline is
+  // now set the moment staff Lock In (see the Staff AC Rally Events panel),
+  // so this can show a driver the WHOLE event's timeline up front, not just
+  // whatever round they're currently in - the AC Rally Beta 01 test event's
+  // problem was drivers only ever finding out a deadline (if at all) once
+  // their round had already opened.
+  function acRallyFullScheduleHtml(ev){
+    if(!ev.rounds || !ev.rounds.length) return '';
+    return `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--ifwl-teal)">Times Required By - full schedule</summary>` +
+      `<table class="mono" style="width:100%;font-size:11.5px;margin-top:6px"><tbody>` +
+      ev.rounds.map(r => `<tr><td>${r.name}</td><td>${r.scheduledAtMs ? acRallyFmtSchedule(r.scheduledAtMs) : 'TBC'}</td></tr>`).join('') +
+      `</tbody></table></details>`;
+  }
+
   function acRallyDriverCardHtml(ev){
     const myId = window.IFWL_AUTH?.userId(window.IFWL_META);
     let body = '';
@@ -7150,8 +7198,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     } else {
       const currentRound = ev.rounds[ev.currentRoundIndex];
       const iAmIn = currentRound && (currentRound.drivers || []).includes(myId);
-      const scheduleLine = currentRound?.scheduledAtMs
-        ? `<p style="color:var(--ifwl-teal);font-size:12.5px;margin:4px 0 0;font-weight:700">📅 ${currentRound.name}: ${acRallyFmtSchedule(currentRound.scheduledAtMs)}</p>` : '';
+      // ✅ CHANGED: was a plain "📅 <round>: <date>" heads-up - now reads as
+      // an explicit deadline, and turns red/⚠️ once it's passed so an
+      // overdue driver can't miss it either.
+      const deadlineMs = currentRound?.scheduledAtMs || null;
+      const isOverdue = !!(deadlineMs && Date.now() > deadlineMs);
+      const scheduleLine = deadlineMs
+        ? `<p style="color:${isOverdue ? 'var(--ifwl-red)' : 'var(--ifwl-teal)'};font-size:12.5px;margin:4px 0 0;font-weight:700">${isOverdue ? '⚠️' : '⏰'} ${currentRound.name} times required by: ${acRallyFmtSchedule(deadlineMs)}${isOverdue ? ' - overdue' : ''}</p>` : '';
       if(ev.status === 'completed'){
         body = `<div class="note-meta">&#127942; Champion: ${ev.championName || '-'}</div>`;
       } else if(iAmIn){
@@ -7161,7 +7214,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       } else {
         body = scheduleLine + `<div class="note-meta">In progress - ${currentRound?.name || ''}</div>`;
       }
-      body += acRallyBracketSummaryHtml(ev);
+      body += acRallyFullScheduleHtml(ev) + acRallyBracketSummaryHtml(ev);
     }
 
     return `<div class="race-event-card">
@@ -7221,9 +7274,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     let events;
     try{ events = await fetchAcRallyBoard(); }
     catch(e){ return; } // fails silently - a bonus section, not core to the page
-    if(!events.length){ wrap.innerHTML = ''; return; }
+    // ✅ FIXED: once an event is finalised (champion crowned) it should move
+    // over to Racing > AC Rally Results instead of lingering under Available
+    // Races forever - completed events already have their own home there.
+    const activeEvents = events.filter((ev) => ev.status !== 'completed');
+    if(!activeEvents.length){ wrap.innerHTML = ''; return; }
 
-    wrap.innerHTML = `<h4 style="margin:14px 0 8px">AC Rally Knockout</h4>` + events.map(acRallyDriverCardHtml).join('');
+    wrap.innerHTML = `<h4 style="margin:14px 0 8px">AC Rally Knockout</h4>` + activeEvents.map(acRallyDriverCardHtml).join('');
     wireAcRallyDriverBoardHandlers();
   }
   window.renderAcRallyDriverBoard = renderAcRallyDriverBoard;
@@ -7248,9 +7305,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const dqRows = Object.keys(results).filter(id => results[id]?.dq && !drivers.includes(id)).map(id => ({ id, ...results[id] }));
     const roundBadge = round.status === 'completed' ? '<span class="badge purple">Completed</span>' : round.status === 'open' ? '<span class="badge teal">Open</span>' : '<span class="badge">Pending</span>';
 
+    const isOverdueRound = !!(round.scheduledAtMs && round.status === 'open' && Date.now() > round.scheduledAtMs);
     let html = `<div class="note-item" style="margin-top:14px">
       <strong>${round.name}</strong> ${roundBadge}
-      ${round.scheduledAtMs ? `<div class="field-hint" style="margin-top:4px">📅 ${acRallyFmtSchedule(round.scheduledAtMs)}</div>` : ''}`;
+      ${round.scheduledAtMs ? `<div class="field-hint" style="margin-top:4px${isOverdueRound ? ';color:var(--ifwl-red)' : ''}">${isOverdueRound ? '⚠️' : '⏰'} Times required by: ${acRallyFmtSchedule(round.scheduledAtMs)}${isOverdueRound ? ' - overdue' : ''}</div>` : ''}`;
 
     if(stages.length){
       html += `<div class="field-hint" style="margin-top:8px">${stages.map((s,i) => `${s.name||'Stage '+(i+1)}${s.track?' &middot; '+s.track:''}${s.weather?' &middot; '+s.weather:''}${s.assists?' &middot; '+s.assists:''}`).join('<br>')}</div>`;
@@ -7568,9 +7626,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     let events;
     try{ events = await fetchRlBoard(); }
     catch(e){ return; } // fails silently - a bonus section, not core to the page
-    if(!events.length){ wrap.innerHTML = ''; return; }
+    // ✅ FIXED: same as AC Rally's driver board - a finalised event moves to
+    // Racing > RL 3v3 Results instead of lingering under Available Races.
+    const activeEvents = events.filter((ev) => ev.status !== 'completed');
+    if(!activeEvents.length){ wrap.innerHTML = ''; return; }
 
-    wrap.innerHTML = `<h4 style="margin:14px 0 8px">RL 3v3 Knockout</h4>` + events.map(rlDriverCardHtml).join('');
+    wrap.innerHTML = `<h4 style="margin:14px 0 8px">RL 3v3 Knockout</h4>` + activeEvents.map(rlDriverCardHtml).join('');
     wireRlDriverBoardHandlers();
   }
   window.renderRlDriverBoard = renderRlDriverBoard;
@@ -10564,7 +10625,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   // =====================================================================
   // ✅ ADDED: Staff: AC Rally Events
-  // Time-format helpers (acRallyFmtTime/acRallyParseTime/acRallyIsPow2) are
+  // Time-format helpers (acRallyFmtTime/acRallyParseTime/acRallyCanLockIn) are
   // defined in the earlier driver-facing script block and bridged onto
   // window - see the "AC RALLY KNOCKOUT EVENTS - driver-facing" section
   // for why (each inline <script> block on this page is its own closure).
@@ -10588,8 +10649,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function editAcRallyEntrant(eventId, driverId, action){
     return window.IFWL_Api.apiPost('staffAcRallyEditEntrants', { eventId, driverId, action });
   }
-  async function lockInAcRallyEvent(eventId){
-    return window.IFWL_Api.apiPost('staffAcRallyLockIn', { eventId });
+  async function lockInAcRallyEvent(eventId, roundDeadlines){
+    return window.IFWL_Api.apiPost('staffAcRallyLockIn', { eventId, roundDeadlines });
   }
   async function saveAcRallyRoundConfig(eventId, roundIndex, stages, name, scheduledAtMs){
     const body = { eventId, roundIndex, stages, name };
@@ -10647,7 +10708,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
 
     html += `<div style="margin-top:10px">
-      <em class="field-hint">Scheduled date/time (optional - shown to drivers on Available Races as a heads-up)</em>
+      <em class="field-hint">Times Required By (submission deadline - shown to every driver)</em>
       <input type="datetime-local" data-round-schedule="${round.roundIndex}" value="${window.acRallyMsToDatetimeLocal(round.scheduledAtMs)}" style="margin-top:6px;display:block;width:220px">
     </div>`;
 
@@ -10771,7 +10832,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     if(ev.status === 'signup'){
       const entrants = ev.entrants || [];
-      html += `<div class="staff-only-note">${entrants.length} signed up. Needs to be a power of two (4/8/16/32&hellip;) before you can lock in.</div>`;
+      html += `<div class="staff-only-note">${entrants.length} signed up. Needs at least 4 entrants before you can lock in.</div>`;
       html += `<div style="margin-top:8px">${entrants.map(e => `<span class="badge" style="margin:2px">${e.name} <button data-remove-entrant="${e.driverId}" type="button" style="background:none;border:none;color:var(--ifwl-red);cursor:pointer;margin-left:4px">&times;</button></span>`).join('') || '<span class="field-hint">No entrants yet.</span>'}</div>`;
       html += `<div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;flex-wrap:wrap">
         <div class="trophy-driver-picker" id="acRallyAddDriverPicker" style="flex:1;min-width:220px">
@@ -10782,8 +10843,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
         <button class="btn ghost" id="acRallyAddEntrantBtn" type="button">Add</button>
       </div>`;
-      html += `<button class="btn purple owner-only-tab" id="acRallyLockInBtn" type="button" style="margin-top:12px" ${window.acRallyIsPow2(entrants.length) ? '' : 'disabled'}>Lock In (${entrants.length} drivers)</button>`;
-      if(!window.acRallyIsPow2(entrants.length)) html += `<div class="field-hint" style="margin-top:6px">Add or remove entrants above until the count is a power of two.</div>`;
+      // ✅ ADDED: Times Required By - once the field is big enough to lock
+      // in, show exactly which rounds this bracket will contain and require
+      // a submission deadline for every one of them before Lock In is
+      // allowed to fire. Fixes the AC Rally Beta 01 problem where deadlines
+      // were only ever set (if at all) on a round-by-round basis after the
+      // fact, once a round had already opened - drivers had no way to know
+      // upfront what the whole event's timeline looked like.
+      if(window.acRallyCanLockIn(entrants.length)){
+        const previewRounds = window.acRallyPreviewRounds(entrants.length);
+        html += `<div class="note-item" style="margin-top:14px">
+          <strong style="font-size:12.5px">Times Required By</strong>
+          <div class="field-hint" style="margin-top:4px">Set a submission deadline for every round this bracket will contain - posted to every driver the moment this event locks in, so nobody can say they didn't know.</div>
+          ${previewRounds.map(r => `
+            <div style="margin-top:8px">
+              <label style="font-size:12px;font-weight:700;display:block">${r.name}</label>
+              <input type="datetime-local" data-lockin-deadline="${r.roundIndex}" style="margin-top:4px;width:220px">
+            </div>
+          `).join('')}
+        </div>`;
+      }
+      html += `<button class="btn purple owner-only-tab" id="acRallyLockInBtn" type="button" style="margin-top:12px" ${window.acRallyCanLockIn(entrants.length) ? '' : 'disabled'}>Lock In (${entrants.length} drivers)</button>`;
+      if(!window.acRallyCanLockIn(entrants.length)) html += `<div class="field-hint" style="margin-top:6px">Add at least 4 entrants before you can lock in.</div>`;
     } else {
       html += `<div class="staff-only-note">${ev.bracketSize} drivers &middot; locked ${new Date(ev.lockedAtMs).toLocaleString()}</div>`;
       if(ev.status === 'completed'){
@@ -10830,8 +10911,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       });
     });
     q('acRallyLockInBtn')?.addEventListener('click', async () => {
+      // ✅ ADDED: gather the Times Required By deadline for every previewed
+      // round - all of them required, so Lock In can't fire (backend
+      // enforces this too) until every round has a posted deadline.
+      const deadlineInputs = document.querySelectorAll('[data-lockin-deadline]');
+      const roundDeadlines = [];
+      for(const input of deadlineInputs){
+        if(!input.value){ alert('Please set a submission deadline for every round before locking in - drivers need to know upfront when their times are due.'); return; }
+        roundDeadlines[Number(input.dataset.lockinDeadline)] = new Date(input.value).getTime();
+      }
       if(!confirm(`Lock in ${(ev.entrants||[]).length} drivers now? This shuffles the roster and builds the full bracket - can't be undone.`)) return;
-      try{ await lockInAcRallyEvent(ev.id); await renderAcRallyStaffPanel(); }
+      try{ await lockInAcRallyEvent(ev.id, roundDeadlines); await renderAcRallyStaffPanel(); }
       catch(e){ alert('Could not lock in: ' + e.message); }
     });
 
