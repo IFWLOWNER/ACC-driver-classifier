@@ -10927,14 +10927,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const driverIds = Array.from(document.querySelectorAll('.ac-rally-grant-driver:checked')).map(el => el.value);
       if(!tierId){ alert('Choose a licence to grant first.'); return; }
       if(!driverIds.length){ alert('Select at least one driver.'); return; }
-      if(!confirm(`Grant "${tierName}" to ${driverIds.length} driver(s)? This adds it to their profile and pushes the Discord role live for anyone who doesn't already hold it.`)) return;
+      if(!confirm(`Grant "${tierName}" to ${driverIds.length} driver(s)? This adds it to their profile and pushes the Discord role live - safe to re-run on the same drivers if anyone's Discord role didn't land the first time.`)) return;
       const btn = q('acRallyGrantLicenceBtn');
       btn.disabled = true;
       const originalLabel = btn.textContent;
       btn.textContent = 'Granting...';
       try{
         const result = await grantAcRallyLicence(ev.id, tierId, driverIds);
-        alert(`Granted "${tierName}" to ${result.grantedCount} driver(s)${result.alreadyHeldCount ? ` - ${result.alreadyHeldCount} already held it` : ''}.`);
+        // ✅ FIXED: the backend now re-attempts the Discord role grant for
+        // every selected driver on every click (not just newly-added ones),
+        // so surface roleSyncFailedCount and point staff at re-running the
+        // grant rather than leaving a silent gap - see
+        // staffAcRallyGrantLicence in rtgate.js for why some drivers could
+        // previously end up with the profile flag but no Discord role.
+        let msg = `Granted "${tierName}" to ${result.grantedCount} driver(s)${result.alreadyHeldCount ? ` - ${result.alreadyHeldCount} already held it` : ''}.`;
+        if(result.roleSyncFailedCount) msg += `\n\n${result.roleSyncFailedCount} Discord role grant(s) failed (Discord API issue, not a profile issue) - select the same drivers and hit Grant again to retry, it's safe to re-run.`;
+        alert(msg);
       }catch(e){
         alert('Could not grant: ' + e.message);
       }finally{
