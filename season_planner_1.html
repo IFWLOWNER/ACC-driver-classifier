@@ -180,6 +180,19 @@
     #eventPrintSheet { position:static; left:auto; top:auto; }
     @page { size: A4 portrait; margin:10mm; }
   }
+
+  /* ---------- track repetition check ---------- */
+  #repeatCheckCard { border-color:#c7d2fe; }
+  #runRepeatCheckBtn { font-size:15px; padding:13px 20px; font-weight:800; }
+  .repeatCluster { border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; margin-bottom:10px; background:#fff; }
+  .repeatCluster.crossEvent { border-color:#fca5a5; background:#fef2f2; }
+  .repeatCluster .rcHead { font-weight:800; font-size:13px; margin-bottom:6px; }
+  .repeatCluster.crossEvent .rcHead { color:#991b1b; }
+  .repeatRow { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #f1f1f1; flex-wrap:wrap; }
+  .repeatRow:last-child { border-bottom:none; }
+  .repeatRow .rcInfo { min-width:0; font-size:12.5px; line-height:1.5; }
+  .repeatTrackEditSlot { flex:0 0 auto; min-width:170px; }
+  .repeatTrackEditSlot select { min-width:170px; }
 </style>
 </head>
 <body>
@@ -200,6 +213,30 @@
 </header>
 
 <div class="wrap">
+
+  <!-- Track repetition check (league-wide, across every event) -->
+  <div class="card" id="repeatCheckCard">
+    <div class="sectionHead">
+      <div>
+        <div class="title">🚩 Track Repetition Check</div>
+        <div class="muted">Looks across every event at once — not just one event's own schedule — and flags any track that comes back around too soon on the combined calendar. Each event can look fine on its own and still repeat a track your drivers just raced in a different series.</div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:4px; align-items:flex-end;">
+      <div style="flex:0 0 auto;">
+        <label class="muted">Flag repeats within</label>
+        <select id="repeatWindowSelect" style="width:auto;">
+          <option value="7">1 week</option>
+          <option value="14">2 weeks</option>
+          <option value="21" selected>3 weeks</option>
+          <option value="28">4 weeks</option>
+          <option value="42">6 weeks</option>
+        </select>
+      </div>
+      <button id="runRepeatCheckBtn" class="primary">🔍 Check All Events for Track Repetition</button>
+    </div>
+    <div id="repeatCheckResults" style="margin-top:14px;"></div>
+  </div>
 
   <!-- Season card -->
   <div class="card" id="statusCard">
@@ -598,6 +635,144 @@
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
   }
+
+  // ---------- track repetition check (league-wide, across every event) ----------
+  // Flattens every event's round schedule into one list, then walks it in date
+  // order per-track so a track that comes back around too soon gets flagged —
+  // whether that's within the SAME event's own schedule or (the case the Owner
+  // actually asked for) split across two or three totally different events that
+  // never look repetitive individually. Runs against editState, so it always
+  // reflects whatever's currently on screen, saved or not.
+  function collectAllScheduleSlots() {
+    const slots = [];
+    (editState.events || []).forEach(ev => {
+      (ev.schedule || []).forEach((r, idx) => {
+        if (!r.track) return;
+        slots.push({
+          eventId: ev.id,
+          eventName: ev.name || "(untitled event)",
+          locked: !!ev.locked,
+          roundId: r.id,
+          roundLabel: r.week || `Round ${idx + 1}`,
+          roundName: r.name || "",
+          date: r.date || "",
+          track: r.track
+        });
+      });
+    });
+    return slots;
+  }
+  function daysBetweenIso(d1, d2) {
+    const a = new Date(d1 + "T00:00:00"), b = new Date(d2 + "T00:00:00");
+    return Math.round((b - a) / 86400000);
+  }
+  function findTrackRepeatClusters(windowDays) {
+    const slots = collectAllScheduleSlots();
+    const dated = slots.filter(s => s.date).sort((a, b) => a.date.localeCompare(b.date));
+    const undatedCount = slots.length - dated.length;
+
+    const byTrack = new Map();
+    dated.forEach(s => { if (!byTrack.has(s.track)) byTrack.set(s.track, []); byTrack.get(s.track).push(s); });
+
+    const clusters = [];
+    byTrack.forEach((occurrences, track) => {
+      let cluster = [occurrences[0]];
+      for (let i = 1; i < occurrences.length; i++) {
+        const prev = cluster[cluster.length - 1];
+        if (daysBetweenIso(prev.date, occurrences[i].date) <= windowDays) {
+          cluster.push(occurrences[i]);
+        } else {
+          if (cluster.length > 1) clusters.push({ track, slots: cluster.slice() });
+          cluster = [occurrences[i]];
+        }
+      }
+      if (cluster.length > 1) clusters.push({ track, slots: cluster.slice() });
+    });
+
+    clusters.sort((a, b) => {
+      const aCross = new Set(a.slots.map(s => s.eventId)).size > 1;
+      const bCross = new Set(b.slots.map(s => s.eventId)).size > 1;
+      if (aCross !== bCross) return aCross ? -1 : 1;
+      return a.slots[0].date.localeCompare(b.slots[0].date);
+    });
+
+    return { clusters, undatedCount, totalSlots: slots.length };
+  }
+
+  function runRepeatCheck() {
+    const windowDays = Number($("repeatWindowSelect").value) || 21;
+    const { clusters, undatedCount, totalSlots } = findTrackRepeatClusters(windowDays);
+    renderRepeatResults(clusters, windowDays, undatedCount, totalSlots);
+  }
+
+  function renderRepeatResults(clusters, windowDays, undatedCount, totalSlots) {
+    const box = $("repeatCheckResults");
+
+    if (!totalSlots) {
+      box.innerHTML = '<div class="muted">No rounds have a track picked yet across any event — nothing to check.</div>';
+      return;
+    }
+
+    const undatedNote = undatedCount
+      ? `<div class="muted" style="margin-top:8px;">${undatedCount} round(s) have no date set yet, so they couldn't be checked — add a date to include them.</div>`
+      : "";
+
+    if (!clusters.length) {
+      box.innerHTML = `<div class="lockedBox">✅ No repeated tracks found within ${windowDays} days of each other across any event.</div>${undatedNote}`;
+      return;
+    }
+
+    const crossEventCount = clusters.filter(c => new Set(c.slots.map(s => s.eventId)).size > 1).length;
+    let html = `<div class="warnBox" style="margin-bottom:12px;">⚠️ Found ${clusters.length} repeated track${clusters.length === 1 ? "" : "s"} within ${windowDays} days of each other${crossEventCount ? ` — ${crossEventCount} of them span different events` : ""}.</div>${undatedNote}`;
+
+    html += clusters.map((c, ci) => {
+      const crossEvent = new Set(c.slots.map(s => s.eventId)).size > 1;
+      const rows = c.slots.map((s, i) => {
+        const gap = i > 0 ? ` <span class="muted">(${daysBetweenIso(c.slots[i - 1].date, s.date)} day(s) after the previous)</span>` : "";
+        return `<div class="repeatRow" data-cluster="${ci}" data-slot-event="${escapeHtml(s.eventId)}" data-slot-round="${escapeHtml(s.roundId)}">
+          <div class="rcInfo">
+            <b>${escapeHtml(s.eventName)}</b> — ${escapeHtml(s.roundLabel)}${s.roundName ? " (" + escapeHtml(s.roundName) + ")" : ""}
+            <span class="muted">· ${escapeHtml(formatDate(s.date))}</span>${gap}
+            ${s.locked ? ' <span class="badge locked" style="font-size:10px;">🔒 Locked</span>' : ""}
+          </div>
+          <div class="repeatTrackEditSlot"></div>
+        </div>`;
+      }).join("");
+      return `<div class="repeatCluster${crossEvent ? " crossEvent" : ""}">
+        <div class="rcHead">${crossEvent ? "🔁 Cross-event repeat" : "🔁 Repeat within the same event"} — ${escapeHtml(c.track)}</div>
+        ${rows}
+      </div>`;
+    }).join("");
+
+    box.innerHTML = html;
+
+    // Wire up an inline track-change dropdown per flagged round, right where
+    // the flag is shown — editing here mutates the same event objects the
+    // event panel uses, so it stays in sync and feeds the normal save/diff flow.
+    clusters.forEach((c, ci) => {
+      c.slots.forEach(s => {
+        const rowEl = box.querySelector(`.repeatRow[data-cluster="${ci}"][data-slot-event="${cssEscapeAttr(s.eventId)}"][data-slot-round="${cssEscapeAttr(s.roundId)}"] .repeatTrackEditSlot`);
+        if (!rowEl) return;
+        const ev = (editState.events || []).find(e => e.id === s.eventId);
+        const round = ev && (ev.schedule || []).find(r => r.id === s.roundId);
+        if (!ev || !round) return;
+        const sel = trackSelect(round.track);
+        sel.disabled = !isStaff || ev.locked;
+        sel.title = ev.locked ? "Locked — unlock this event to change its track." : "Change this round's track.";
+        sel.addEventListener("change", () => {
+          round.track = sel.value;
+          markDirty();
+          if (currentEventId === ev.id) renderEventSchedule();
+          toast(`Track updated for "${ev.name || "event"}" — ${s.roundLabel}.`);
+          runRepeatCheck();
+        });
+        rowEl.appendChild(sel);
+      });
+    });
+  }
+  // querySelector attribute values need quote-safe escaping; ids here are our
+  // own newId()-generated strings so this is just a defensive minimal escape.
+  function cssEscapeAttr(v) { return String(v).replace(/["\\]/g, "\\$&"); }
 
   // ---------- events list ----------
   function renderEventsList() {
@@ -1213,6 +1388,14 @@
       toast("New season workspace ready.");
     } catch (e) { toast("Could not start new season: " + (e?.message || e)); }
   }
+
+  // ---------- track repetition check handlers ----------
+  $("runRepeatCheckBtn").onclick = runRepeatCheck;
+  $("repeatWindowSelect").addEventListener("change", () => {
+    // Only auto-rerun if a check has already been run once this session —
+    // otherwise leave the results area alone until the button is actually pressed.
+    if ($("repeatCheckResults").innerHTML.trim()) runRepeatCheck();
+  });
 
   // ---------- season-level add-row handlers ----------
   $("addBreakBtn").onclick = () => { if (!isStaff) return; editState.breaks = editState.breaks || []; editState.breaks.push({ id: newId("brk"), label: "", start: "", end: "" }); markDirty(); renderBreaks(); };
