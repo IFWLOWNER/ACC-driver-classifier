@@ -543,6 +543,17 @@ table.dir-table tr:hover{background:rgba(31,214,189,.08);cursor:pointer}
 .staff-only-note{padding:12px 18px;background:rgba(198,91,232,.1);border-left:5px solid var(--ifwl-purple);font-size:12.5px;font-weight:800;color:#6b2f8f}
 .note-item{border:1px solid var(--ifwl-line);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--surface)}
 .note-item .note-meta{font-size:11px;color:var(--text-dim);margin-top:6px}
+/* ✅ ADDED: raw Firestore data viewer on the staff driver editor - a plain
+   dump of exactly what's stored for this driver (field names, discordId,
+   everything), for chasing edge cases like "Discord says no licence but
+   the panel shows one" without staff needing to open the Firebase console
+   and search a collection by hand. */
+.staff-raw-data{border:1px solid var(--ifwl-line);border-radius:12px;padding:2px 14px 14px;margin-bottom:16px;background:var(--surface-alt)}
+.staff-raw-data summary{cursor:pointer;padding:12px 0;font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--text-muted);list-style:none}
+.staff-raw-data summary::-webkit-details-marker{display:none}
+.staff-raw-data summary::before{content:"▸ ";color:var(--text-dim)}
+.staff-raw-data[open] summary::before{content:"▾ "}
+.raw-data-pre{font-family:var(--font-mono);font-size:11.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;background:var(--surface);border:1px solid var(--ifwl-line);border-radius:8px;padding:12px;max-height:420px;overflow:auto;color:var(--text-primary)}
 /* ✅ REDESIGNED: staff licence panel no longer shares a plain 2-col grid
    between search/bulk-tools/card/edit form. Card pins top-left next to the
    edit form (.staff-driver-layout), search sits in its own row above, and
@@ -11800,6 +11811,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const lapStatusHtml = await buildLapStatusHtml(p.accDriverNames || []);
 
     wrap.innerHTML = `
+      <details class="staff-raw-data">
+        <summary>🔎 Raw Firestore data</summary>
+        <div class="field-hint" style="margin:0 0 8px">Looked up using ID: <code>${id}</code> &mdash; this is exactly what's stored, unfiltered. Handy for edge cases like a profile that looks fine here but a Discord command can't find (e.g. missing/mismatched <code>discordId</code>).</div>
+        <button type="button" class="btn ghost" id="copyRawDataBtn" style="font-size:11px;padding:6px 10px;margin-bottom:8px">Copy JSON</button>
+        <pre id="rawDataOutput" class="raw-data-pre"></pre>
+      </details>
       ${lapStatusHtml}
       ${(p.accDriverNames||[]).length ? `<div id="sandbagReviewBox" class="sandbag-review"><div class="sandbag-review-head">Sandbagging Watch &middot; live from Live Timings</div><div class="sandbag-card"><p>Checking live timings data&hellip;</p></div></div>` : ''}
       <div class="field-group"><label>Name</label><input type="text" id="edName" value="${p.name||''}"></div>
@@ -11921,6 +11938,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <span class="save-status" id="edPointsStatus"></span>
       ${(p.pointsHistory||[]).length ? `<div style="margin-top:12px">${[...p.pointsHistory].reverse().map(h=>`<div class="note-item">${h.delta>0?'+':''}${h.delta} pts &middot; ${h.reason}<div class="note-meta">${h.setBy||'staff'} · ${new Date(h.date||h.dateMs||Date.now()).toLocaleString()}</div></div>`).join('')}</div>` : ''}
     `;
+    // ✅ ADDED: fill in + wire the raw-data viewer. Set as textContent (never
+    // innerHTML) so nothing in a driver's own free-text fields (bio, name,
+    // notes, etc.) can be interpreted as markup - this is a plain dump, not
+    // rendered content.
+    const rawDataEl = q('rawDataOutput');
+    if(rawDataEl) rawDataEl.textContent = JSON.stringify(p, null, 2);
+    q('copyRawDataBtn')?.addEventListener('click', () => {
+      const btn = q('copyRawDataBtn');
+      navigator.clipboard.writeText(JSON.stringify(p, null, 2)).then(() => {
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { if(q('copyRawDataBtn')) q('copyRawDataBtn').textContent = original; }, 1500);
+      }).catch(() => { btn.textContent = 'Could not copy'; });
+    });
+
     if((p.accDriverNames||[]).length) loadSandbaggingReviewInto(p.accDriverNames); // fire-and-forget - fills #sandbagReviewBox in once Live Timings data resolves
     q('edSaveBtn').addEventListener('click', async ()=>{
       q('edSaveStatus').textContent = 'Saving...';
