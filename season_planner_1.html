@@ -193,6 +193,8 @@
   .repeatRow .rcInfo { min-width:0; font-size:12.5px; line-height:1.5; }
   .repeatTrackEditSlot { flex:0 0 auto; min-width:170px; }
   .repeatTrackEditSlot select { min-width:170px; }
+
+  .hidden { display:none !important; }
 </style>
 </head>
 <body>
@@ -361,8 +363,22 @@
           <div class="muted">Assists, damage model, tyre wear, and every other setting for this event.</div>
         </div>
         <div class="row">
+          <button class="small" id="loadFromEventBtn">📋 Load from another event…</button>
           <button class="small" id="loadDefaultRulesBtn">Insert IFWL default template</button>
           <button class="small" id="addRuleBtn">+ Add rule</button>
+        </div>
+      </div>
+      <div id="ruleTemplatePicker" class="hidden" style="border:1px solid #c7d2fe; background:#eef2ff; border-radius:10px; padding:12px; margin-bottom:12px;">
+        <div class="row" style="margin-bottom:8px;">
+          <div style="flex:1; min-width:220px;">
+            <label class="muted">Copy rules from an already-used event</label>
+            <select id="templateSourceEventSelect"><option value="">— Choose an event —</option></select>
+          </div>
+        </div>
+        <div id="templateRuleChecklist" class="muted">Pick an event above to see its rules.</div>
+        <div class="row" style="margin-top:10px; justify-content:flex-end;">
+          <button type="button" class="small ghost" id="templatePickerCancelBtn">Cancel</button>
+          <button type="button" class="small primary" id="templatePickerLoadBtn" disabled>Load selected rules</button>
         </div>
       </div>
       <div class="tblWrap"><table id="rulesTable">
@@ -837,12 +853,14 @@
     $("panelBackdrop").classList.remove("show");
     $("eventPanel").classList.remove("show");
     currentEventId = null;
+    hideRuleTemplatePicker();
     renderEventsList();
   }
 
   function renderEventPanel() {
     const ev = currentEvent();
     if (!ev) { closeEventPanel(); return; }
+    hideRuleTemplatePicker();
 
     $("eventNameInput").value = ev.name || "";
     $("eventStartInput").value = ev.startDate || "";
@@ -868,6 +886,7 @@
     $("removeEventBtn").disabled = !isStaff || ev.locked;
     $("eventAddTrackBtn").disabled = !isStaff || ev.locked;
     $("eventNewTrackInput").disabled = !isStaff || ev.locked;
+    $("loadFromEventBtn").disabled = !isStaff || ev.locked;
   }
 
   function renderEventRules() {
@@ -881,6 +900,62 @@
       body.appendChild(tr);
     });
     if (!ev.rules || !ev.rules.length) body.innerHTML = '<tr><td colspan="3" class="muted">No rules added yet.</td></tr>';
+  }
+
+  // ---------- load rules from another event (template grab) ----------
+  // Lets staff pull a selection of already-used, complete rule rows from any
+  // OTHER event in the season straight into the one they're editing, instead
+  // of retyping a whole rules table from scratch each time. Copies rows only
+  // (new ids) — never links back to the source, so later edits on either
+  // side don't affect the other.
+  function hideRuleTemplatePicker() {
+    const picker = $("ruleTemplatePicker");
+    if (!picker) return;
+    picker.classList.add("hidden");
+    $("templateSourceEventSelect").innerHTML = '<option value="">— Choose an event —</option>';
+    $("templateRuleChecklist").innerHTML = '<div class="muted">Pick an event above to see its rules.</div>';
+    $("templatePickerLoadBtn").disabled = true;
+  }
+
+  function showRuleTemplatePicker() {
+    const ev = currentEvent(); if (!ev) return;
+    const sourceEvents = (editState.events || []).filter(e => e.id !== ev.id && (e.rules || []).length);
+    const sel = $("templateSourceEventSelect");
+    sel.innerHTML = '<option value="">— Choose an event —</option>' + sourceEvents.map(e =>
+      `<option value="${escapeHtml(e.id)}">${escapeHtml(e.name || "(untitled event)")} — ${(e.rules || []).length} rule(s)${e.locked ? " · locked" : " · draft"}</option>`
+    ).join("");
+    $("templateRuleChecklist").innerHTML = sourceEvents.length
+      ? '<div class="muted">Pick an event above to see its rules.</div>'
+      : '<div class="muted">No other events have any rules set yet.</div>';
+    $("templatePickerLoadBtn").disabled = true;
+    $("ruleTemplatePicker").classList.remove("hidden");
+  }
+
+  function renderTemplateRuleChecklist(sourceEventId) {
+    const box = $("templateRuleChecklist");
+    const src = (editState.events || []).find(e => e.id === sourceEventId);
+    if (!src || !(src.rules || []).length) {
+      box.innerHTML = '<div class="muted">That event has no rules set.</div>';
+      $("templatePickerLoadBtn").disabled = true;
+      return;
+    }
+    box.innerHTML = `
+      <div class="row" style="justify-content:flex-end; gap:10px; margin-bottom:4px;">
+        <button type="button" class="small ghost" id="templateSelectAllBtn" style="padding:3px 8px;">Select all</button>
+        <button type="button" class="small ghost" id="templateSelectNoneBtn" style="padding:3px 8px;">Select none</button>
+      </div>
+      <div style="max-height:220px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:8px 10px; background:#fff;">
+        ${src.rules.map(r => `
+          <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px;">
+            <input type="checkbox" checked data-template-rule-id="${escapeHtml(r.id)}">
+            <b>${escapeHtml(r.rule || "(unnamed)")}</b><span class="muted">${escapeHtml(r.setting || "—")}</span>
+          </label>
+        `).join("")}
+      </div>
+    `;
+    $("templatePickerLoadBtn").disabled = false;
+    $("templateSelectAllBtn").onclick = () => { box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = true); };
+    $("templateSelectNoneBtn").onclick = () => { box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false); };
   }
 
   function renderEventPoints() {
@@ -1460,6 +1535,34 @@
     DEFAULT_PLATFORMS.forEach(([platform, required]) => ev.platforms.push({ id: newId("plt"), platform, required }));
     markDirty(); renderEventRules(); renderEventPoints(); renderEventPlatforms();
     toast("Default template inserted.");
+  };
+
+  $("loadFromEventBtn").onclick = () => {
+    const ev = currentEvent(); if (!ev || !isStaff || ev.locked) return;
+    if ($("ruleTemplatePicker").classList.contains("hidden")) showRuleTemplatePicker();
+    else hideRuleTemplatePicker();
+  };
+  $("templatePickerCancelBtn").onclick = hideRuleTemplatePicker;
+  $("templateSourceEventSelect").addEventListener("change", () => {
+    const id = $("templateSourceEventSelect").value;
+    if (!id) { $("templateRuleChecklist").innerHTML = '<div class="muted">Pick an event above to see its rules.</div>'; $("templatePickerLoadBtn").disabled = true; return; }
+    renderTemplateRuleChecklist(id);
+  });
+  $("templatePickerLoadBtn").onclick = () => {
+    const ev = currentEvent(); if (!ev) return;
+    const src = (editState.events || []).find(e => e.id === $("templateSourceEventSelect").value);
+    if (!src) return;
+    const checkedIds = Array.from($("templateRuleChecklist").querySelectorAll("input[type=checkbox]:checked"))
+      .map(c => c.getAttribute("data-template-rule-id"));
+    const rowsToCopy = (src.rules || []).filter(r => checkedIds.includes(r.id));
+    if (!rowsToCopy.length) { toast("Pick at least one rule to load."); return; }
+    if ((ev.rules && ev.rules.length) && !confirm(`Add ${rowsToCopy.length} rule(s) from "${src.name || "that event"}"? Existing rows are kept.`)) return;
+    ev.rules = ev.rules || [];
+    rowsToCopy.forEach(r => ev.rules.push({ id: newId("rul"), rule: r.rule, setting: r.setting }));
+    markDirty();
+    renderEventRules();
+    hideRuleTemplatePicker();
+    toast(`Loaded ${rowsToCopy.length} rule(s) from "${src.name || "that event"}".`);
   };
 
   $("eventAddTrackBtn").onclick = () => {
