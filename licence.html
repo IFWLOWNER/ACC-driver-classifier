@@ -7005,15 +7005,23 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   async function buildQualChartSection(serverId, accDriverNames, isGoldOrStaff, isSilverOnly){
     if(!isGoldOrStaff && !isSilverOnly) return '';
 
+    // ✅ FIXED: this chart (and the stats table below it) were pulling every
+    // session ever recorded for the driver on this server, regardless of the
+    // staff-configured Qualification Window - unlike the Your Rank/
+    // Recommended Tier numbers above it, which already scope correctly via
+    // cachedLicenceServerStandings. Fetching and passing the same window here
+    // brings the chart back in line with the numbers sitting right above it.
+    const qualWindow = await window.fetchQualWindowMs();
+
     let sessions;
     try{
-      sessions = await window.IFWLStats.getDriverSessionHistory(serverId, accDriverNames);
+      sessions = await window.IFWLStats.getDriverSessionHistory(serverId, accDriverNames, { qualWindow });
     }catch(e){ return ''; }
     if(!sessions.length) return '';
 
     let tierAverages = {};
     if(isGoldOrStaff){
-      try{ tierAverages = await window.IFWLStats.computeTierLapAverages(serverId); }
+      try{ tierAverages = await window.IFWLStats.computeTierLapAverages(serverId, { qualWindow }); }
       catch(e){ /* chart still renders fine without the reference lines */ }
     }
 
@@ -12222,12 +12230,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!confirm(`Push Discord roles to every driver currently on "${tier}"?\n\nThis re-grants (or corrects) their PC/Console Discord role for this tier. Safe to run even if most people already have it right - it only touches anyone whose role is missing or wrong.`)) return;
     const btn = q('pushRoleTierBtn');
     btn.disabled = true;
-    q('pushRoleTierStatus').textContent = 'Pushing roles - this can take a moment for a large tier...';
+    q('pushRoleTierStatus').textContent = 'Queuing roles...';
     try{
       const result = await window.IFWL_Api.apiPost('staffPushTierDiscordRoles', { tier });
       const checked = result.checked ?? result.total ?? '?';
-      const updated = result.updated ?? result.granted ?? result.fixed ?? '?';
-      q('pushRoleTierStatus').textContent = `Done - checked ${checked} driver(s) on "${tier}", corrected ${updated} role assignment(s).`;
+      const queued = result.queued ?? result.updated ?? result.granted ?? result.fixed ?? '?';
+      // ✅ CHANGED: the backend queues these through tierRoleSyncQueue (same
+      // drip-feed the bulk tier tools already use) rather than calling
+      // Discord live, so it's not actually "done" the moment this responds -
+      // it drains at ~40/minute in the background.
+      q('pushRoleTierStatus').textContent = `Queued - ${queued} of ${checked} driver(s) on "${tier}" need a role check, draining at ~40/minute in the background.`;
     }catch(e){ q('pushRoleTierStatus').textContent = 'Could not push roles: ' + e.message; }
     finally{ btn.disabled = false; }
   });
