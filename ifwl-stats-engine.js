@@ -1002,10 +1002,26 @@
     if(!mine.length) return [];
 
     const allRows = await buildAllRows(!!opts.force);
-    const matches = allRows.filter(r => r.serverId === serverId && mine.some(m => {
+    let matches = allRows.filter(r => r.serverId === serverId && mine.some(m => {
       const key = driverNameKey(r.driver);
       return m === key || key.includes(m) || m.includes(key);
     }));
+
+    // ✅ ADDED: qualification window scoping, same convention as
+    // computeLicenceServerStandings above - without this, a driver's session
+    // chart/table kept showing every session ever recorded on this server,
+    // even ones from before the currently-configured qualification window,
+    // while the aggregate Your Rank / Recommended Tier numbers elsewhere on
+    // the page were already correctly scoped to it. Backward compatible: no
+    // qualWindow passed in behaves exactly as before.
+    if(opts.qualWindow && opts.qualWindow.startMs){
+      const { startMs, endMs } = opts.qualWindow;
+      const effectiveEnd = endMs || Date.now();
+      matches = matches.filter(r => {
+        const ts = fileTimestamp(r);
+        return ts >= startMs && ts <= effectiveEnd;
+      });
+    }
 
     return matches.map(r => {
       // validLaps preserves the chronological order laps were recorded in
