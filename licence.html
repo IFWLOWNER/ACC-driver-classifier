@@ -3490,6 +3490,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn teal" id="saveTiersBtn" type="button">Save tier list</button>
         <span class="save-status" id="tierSaveStatus"></span>
       </div>
+      <!-- ✅ ADDED: manual bulk Discord role push - a driver's tier/platform
+           change is supposed to grant/revoke their Discord role automatically
+           (syncTierDiscordRoles in rtgate.js), but that's only guaranteed to
+           fire on a normal single-driver save. A Bulk Tier Reset (Staff:
+           Licence Management) goes through a different endpoint
+           (staffBulkTierChange) that may not carry the same Discord sync -
+           this button lets staff force-reapply a tier's role(s) to everyone
+           currently on it, no code path in question, useful right after a
+           bulk reset or whenever a role "goes blank" for no obvious reason. -->
+      <div class="save-row" style="margin-top:14px;border-top:1px solid var(--ifwl-line);padding-top:14px;flex-wrap:wrap;gap:10px">
+        <div class="field-group" style="margin-bottom:0;flex:1;min-width:220px">
+          <label>Push Discord role to everyone on a tier</label>
+          <select id="pushRoleTierSelect"></select>
+          <div class="field-hint" style="margin-top:4px">Re-applies that tier's PC/Console role ID(s) to every driver currently holding it. Safe to run even if most people already have it right - it just corrects anyone who's missing it.</div>
+        </div>
+        <button class="btn ghost" id="pushRoleTierBtn" type="button">Push Discord role to everyone on this tier</button>
+        <span class="save-status" id="pushRoleTierStatus"></span>
+      </div>
     </div>
   </section>
 
@@ -12164,10 +12182,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         renumberAndRender();
       }));
     });
+    renderPushRoleTierOptions();
   }
   function renumberAndRender(){
     tierRows.forEach((t,i) => t.order = i);
     renderTierRows();
+  }
+  // Kept in sync with tierRows on every render (add/remove/rename during
+  // this editing session all flow through renderTierRows already).
+  function renderPushRoleTierOptions(){
+    const sel = q('pushRoleTierSelect');
+    if(!sel) return;
+    const prevValue = sel.value;
+    sel.innerHTML = tierRows.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+    if(tierRows.some(t => t.name === prevValue)) sel.value = prevValue;
   }
 
   async function initTierManager(){
@@ -12186,6 +12214,22 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       await window.IFWL_TierAPI.saveTierList(tierRows);
       q('tierSaveStatus').textContent = 'Saved. Reload the page to see it everywhere.';
     }catch(e){ q('tierSaveStatus').textContent = 'Could not save: ' + e.message; }
+  });
+
+  q('pushRoleTierBtn')?.addEventListener('click', async () => {
+    const tier = q('pushRoleTierSelect').value;
+    if(!tier) return;
+    if(!confirm(`Push Discord roles to every driver currently on "${tier}"?\n\nThis re-grants (or corrects) their PC/Console Discord role for this tier. Safe to run even if most people already have it right - it only touches anyone whose role is missing or wrong.`)) return;
+    const btn = q('pushRoleTierBtn');
+    btn.disabled = true;
+    q('pushRoleTierStatus').textContent = 'Pushing roles - this can take a moment for a large tier...';
+    try{
+      const result = await window.IFWL_Api.apiPost('staffPushTierDiscordRoles', { tier });
+      const checked = result.checked ?? result.total ?? '?';
+      const updated = result.updated ?? result.granted ?? result.fixed ?? '?';
+      q('pushRoleTierStatus').textContent = `Done - checked ${checked} driver(s) on "${tier}", corrected ${updated} role assignment(s).`;
+    }catch(e){ q('pushRoleTierStatus').textContent = 'Could not push roles: ' + e.message; }
+    finally{ btn.disabled = false; }
   });
 
   /* ---- Licence Requests queue ---- */
