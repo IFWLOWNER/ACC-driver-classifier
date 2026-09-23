@@ -1163,14 +1163,20 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
    layout rather than a different density per section. */
 .race-event-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:10px}
 @media(max-width:820px){.race-event-grid{grid-template-columns:1fr}}
-/* ✅ ADDED: section heading + Live Now wrapper - distinguishes the AC
-   Rally/RL 3v3 knockout boards (drivers already in an active bracket)
-   from the SimGrid-fed Upcoming Events grid below. Hides itself via
-   :has() when neither knockout board currently has an active event, so
-   an empty "Live Now" heading never shows with nothing under it. */
 .race-section-heading{font-family:var(--font-display);font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-primary);margin:18px 0 10px;padding-top:14px;border-top:1px solid var(--ifwl-line-soft)}
 .race-section-heading:first-child{padding-top:0;border-top:none;margin-top:0}
-#liveNowSection:has(#acRallyDriverBoard:empty):has(#rlDriverBoard:empty){display:none}
+/* ✅ ADDED: Available Races tab bar - ACC Events (SimGrid-fed browse list)
+   is the primary/default tab; AC Rally and RL 3v3 (self-service knockout
+   boards) are switched to on click rather than always shown together.
+   Each tab button auto-hides itself via racesTabEmptyWatch() (see script)
+   when its board has no active bracket, same spirit as the old :has()
+   rule this replaces, just JS-driven since now there's a button to hide
+   too, not just a content block. */
+.races-tab-bar{display:flex;gap:6px;margin:14px 0 4px;border-bottom:1px solid var(--ifwl-line);flex-wrap:wrap}
+.races-tab{padding:10px 16px;border:none;background:none;font-family:var(--font-display);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.races-tab:hover{color:var(--text-primary)}
+.races-tab.active{color:var(--ifwl-teal);border-bottom-color:var(--ifwl-teal)}
+.races-tab-panel.hidden{display:none}
 /* Live Now boards reuse .race-event-card but build it as a raw <img> +
    <div> pair rather than the .rec-thumb-wrap/.rec-body structure below -
    these two rules keep that older markup shape looking right at the new
@@ -2025,22 +2031,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div><h3>Available Races</h3><small id="availableRacesSubtitle">Invite-only SimGrid events open to your current licence tier</small></div>
       <button type="button" id="availableRacesStaffToggle" class="btn ghost staff-only-tab" style="font-size:11px">Show ALL races (staff)</button>
     </div>
-    <!-- ✅ CHANGED: AC Rally + RL 3v3 knockout boards now sit together
-         under one "Live Now" heading in a shared 2-column grid, instead of
-         each stacking full-width one after the other - visually separates
-         "you're already in an active bracket" from the browse-and-sign-up
-         SimGrid list below. Each board still renders into its own
-         container (renderAcRallyDriverBoard() / the RL equivalent) so
-         refreshing one never clobbers the other or the SimGrid list. -->
-    <div id="liveNowSection">
-      <h4 class="race-section-heading">🔴 Live Now</h4>
-      <div class="race-event-grid">
-        <div id="acRallyDriverBoard"></div>
-        <div id="rlDriverBoard"></div>
-      </div>
+    <!-- ✅ CHANGED: ACC Events (the SimGrid-fed browse list) is now the
+         primary tab shown on open; AC Rally and RL 3v3 (self-service
+         knockout boards - drivers already in an active bracket) are
+         switched to via tabs instead of always sitting above the list.
+         Each board still renders into its own container
+         (renderAcRallyDriverBoard() / the RL equivalent) so refreshing
+         one never clobbers another tab's content. -->
+    <div class="races-tab-bar">
+      <button type="button" class="races-tab active" data-races-tab="acc">ACC Events</button>
+      <button type="button" class="races-tab" data-races-tab="acrally" id="acRallyTabBtn">AC Rally</button>
+      <button type="button" class="races-tab" data-races-tab="rl3v3" id="rl3v3TabBtn">RL 3v3</button>
     </div>
-    <h4 class="race-section-heading">📅 Upcoming Events</h4>
-    <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
+    <div class="races-tab-panel" data-races-panel="acc">
+      <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
+    </div>
+    <div class="races-tab-panel hidden" data-races-panel="acrally">
+      <div id="acRallyDriverBoard"></div>
+    </div>
+    <div class="races-tab-panel hidden" data-races-panel="rl3v3">
+      <div id="rlDriverBoard"></div>
+    </div>
   </section>
 
   <section class="panel view-panel" data-view="raceResults" id="raceResultsPanel">
@@ -6118,6 +6129,34 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       return eventRosterCardHtml(entry, dirEntry);
     }).join('')}</div>`;
   }
+
+  // ✅ ADDED: Available Races tab switching - ACC Events is the default/
+  // primary tab; AC Rally and RL 3v3 are opt-in tabs for drivers who are
+  // already in one of those self-service knockout boards. A MutationObserver
+  // on each board (rather than touching renderAcRallyDriverBoard()/the RL
+  // equivalent directly) hides that tab whenever its board has no active
+  // event, and bounces the user back to ACC Events if they were sitting on
+  // a tab that just went empty - same spirit as the old #liveNowSection
+  // :has() auto-hide, just extended to hide the tab button too.
+  function switchRacesTab(tab){
+    document.querySelectorAll('.races-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.racesTab === tab));
+    document.querySelectorAll('.races-tab-panel').forEach(panel => panel.classList.toggle('hidden', panel.dataset.racesPanel !== tab));
+  }
+  function racesTabEmptyWatch(boardId, tabBtnId){
+    const board = document.getElementById(boardId);
+    const tabBtn = document.getElementById(tabBtnId);
+    if(!board || !tabBtn) return;
+    const update = () => {
+      const hasContent = board.children.length > 0;
+      tabBtn.style.display = hasContent ? '' : 'none';
+      if(!hasContent && tabBtn.classList.contains('active')) switchRacesTab('acc');
+    };
+    update();
+    new MutationObserver(update).observe(board, { childList: true });
+  }
+  document.querySelectorAll('.races-tab').forEach(btn => btn.addEventListener('click', () => switchRacesTab(btn.dataset.racesTab)));
+  racesTabEmptyWatch('acRallyDriverBoard', 'acRallyTabBtn');
+  racesTabEmptyWatch('rlDriverBoard', 'rl3v3TabBtn');
 
   let availableRacesStaffAllMode = false;
   function renderAvailableRaces(events, staffAll){
