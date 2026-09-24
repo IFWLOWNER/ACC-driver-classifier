@@ -239,6 +239,7 @@ body:not(.staff-access) .staff-only-tab{display:none!important}
 body:not(.owner-access) .owner-only-tab{display:none!important}
 body:not(.commentator-access):not(.owner-access) .commentator-only-tab{display:none!important}
 body:not(.ops-access) .ops-only-tab{display:none!important}
+body:not(.headmod-access):not(.owner-access) .headmod-only-tab{display:none!important}
 body:not(.discord-logged-in) .logged-in-tab,body:not(.discord-logged-in) .logged-in-tab-group{display:none!important}
 
 .view-panel{display:none}
@@ -1664,6 +1665,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <summary>Comms &amp; Site</summary>
         <div class="staff-accordion-items">
           <button data-view="staffMessages" class="ops-only-tab" type="button">Messages</button>
+          <button data-view="staffHeadModerator" class="headmod-only-tab" type="button">Head Moderator</button>
           <button data-view="staffSystemStatus" class="owner-only-tab" type="button">System Status</button>
           <button data-view="staffAffiliateAds" class="owner-only-tab" type="button">Manage Affiliates</button>
         </div>
@@ -3416,6 +3418,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     </div>
   </section>
 
+  <section class="panel view-panel" data-view="staffHeadModerator" id="headModPanel">
+    <div class="panel-head"><div><h3>Staff: Head Moderator</h3><small>Drivers missing a platform, and Discord sync flags - message them in-app or DM them on Discord directly</small></div><span class="badge purple">Head Moderator / Owner only</span></div>
+
+    <div class="panel-head" style="border-top:1px solid var(--ifwl-line)"><div><h4 style="margin:0;font-size:15px">Missing Platform</h4><small>These drivers' tier can never resolve to a Discord role until a platform is set</small></div><button class="btn ghost" id="headModPlatformRefreshBtn" type="button">Refresh</button></div>
+    <div id="headModPlatformList" class="panel-body"><div class="empty">Loading&hellip;</div></div>
+
+    <div class="panel-head" style="border-top:1px solid var(--ifwl-line)"><div><h4 style="margin:0;font-size:15px">Discord Flags</h4><small>Drivers the automatic role sync couldn't reach on Discord - almost always because they've left the server</small></div><button class="btn ghost" id="headModFlagsRefreshBtn" type="button">Refresh</button></div>
+    <div id="headModFlagsList" class="panel-body"><div class="empty">Loading&hellip;</div></div>
+
+    <div id="headModComposeBox" class="hidden" style="border-top:1px solid var(--ifwl-line);padding:18px">
+      <h4 id="headModComposeTitle" style="margin:0 0 10px"></h4>
+      <div class="field-group" id="headModSubjectGroup"><label>Subject</label><input type="text" id="headModSubject" placeholder="e.g. Please set your platform"></div>
+      <div class="field-group"><label>Message</label><textarea id="headModComposeText" style="min-height:80px" placeholder="Your message..."></textarea></div>
+      <button class="btn teal" id="headModComposeSendBtn" type="button">Send</button>
+      <button class="btn ghost" id="headModComposeCancelBtn" type="button">Cancel</button>
+      <span class="save-status" id="headModComposeStatus"></span>
+    </div>
+  </section>
+
   <section class="panel view-panel" data-view="home" id="directoryPanel">
     <div class="panel-head"><div><h3>Driver Directory</h3><small>Every licensed IFWL driver</small></div></div>
     <div class="dir-toolbar">
@@ -4134,6 +4155,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // canManageLicencesOpsOnly, same as everywhere else in this file.
   function isOwnerTier(m){if(!m)return false;return tierStr(m).includes('owner')}
   function isOpsOrOwnerTier(m){if(!m)return false;const t=tierStr(m);return t.includes('owner')||t.includes('ops')}
+  // ✅ ADDED: Head Moderator - a standalone permission (new Discord
+  // moderation area only), same independent-flag pattern as Commentator
+  // above rather than folding into the Owner/Ops tier string, since it's
+  // not a Patreon tier and shouldn't make the account bar show an "Owner"-
+  // style pill. Owner always has it too (isHeadModerator is already true
+  // for Owner server-side - see canModerateDiscord in index.js).
+  function isHeadModMeta(m){return !!(m && m.isHeadModerator === true)}
   function anyLogin(m){return !!(m&&(m.sessionToken||m.userId||m.discordId||m.username||m.activeRacer||m.patreonGranted||m.staffBypass))}
   function hideWall(){wall.classList.add('hidden');document.body.classList.remove('login-wall-open');document.documentElement.classList.remove('login-wall-open');document.body.classList.add('access-authorised')}
   function showWall(message,error){document.body.classList.remove('access-authorised');document.body.classList.add('login-wall-open');document.documentElement.classList.add('login-wall-open');wall.classList.remove('hidden');wallMsg.textContent=message||'Login with Discord to view or manage your IFWL racing licence.';wallErr.textContent=error||'';wallErr.style.display=error?'block':'none';wallLogout.classList.toggle('hidden',!meta)}
@@ -4143,12 +4171,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     window.IFWL_DETAILED=detailed(meta); window.IFWL_SILVER_PLUS=silverPlus(meta); window.IFWL_GOLD=isGold(meta); window.IFWL_STAFF=staff(meta);
     window.IFWL_OWNER=isOwnerTier(meta); window.IFWL_OPS_PLUS=isOpsOrOwnerTier(meta);
     window.IFWL_COMMENTATOR=isCommentatorMeta(meta);
+    window.IFWL_HEAD_MOD=isHeadModMeta(meta);
     // ✅ ADDED: real values captured once, never overwritten by the staff
     // "View As" simulator below - this is how the simulator can restore the
     // actual view, and how its own control stays visible even while
     // simulating a lower tier that would otherwise hide staff-only UI.
     window.IFWL_REAL_GOLD=window.IFWL_GOLD; window.IFWL_REAL_SILVER_PLUS=window.IFWL_SILVER_PLUS; window.IFWL_REAL_STAFF=window.IFWL_STAFF;
     window.IFWL_REAL_OWNER=window.IFWL_OWNER; window.IFWL_REAL_OPS_PLUS=window.IFWL_OPS_PLUS;
+    window.IFWL_REAL_HEAD_MOD=window.IFWL_HEAD_MOD;
     if(window.IFWL_STAFF) document.body.classList.add('real-staff');
     document.body.classList.toggle('patreon-access',window.IFWL_DETAILED);
     document.body.classList.toggle('discord-logged-in',anyLogin(meta));
@@ -4158,6 +4188,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     document.body.classList.toggle('owner-access',window.IFWL_OWNER);
     document.body.classList.toggle('ops-access',window.IFWL_OPS_PLUS);
     document.body.classList.toggle('commentator-access',window.IFWL_COMMENTATOR);
+    document.body.classList.toggle('headmod-access',window.IFWL_HEAD_MOD);
     if(meta){
       const t=meta.patreonTier||meta.tier||meta.role||'Discord';
       title.innerHTML=`Logged in as ${esc(userName(meta))} <span class="access-pill granted">${esc(t)}</span>`;
@@ -9138,22 +9169,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function setViewAs(mode){
     currentViewAs = mode;
     const sim = {
-      real:   { gold: window.IFWL_REAL_GOLD, silverPlus: window.IFWL_REAL_SILVER_PLUS, staff: window.IFWL_REAL_STAFF, owner: window.IFWL_REAL_OWNER, opsPlus: window.IFWL_REAL_OPS_PLUS },
-      bronze: { gold: false, silverPlus: false, staff: false, owner: false, opsPlus: false },
-      silver: { gold: false, silverPlus: true,  staff: false, owner: false, opsPlus: false },
-      gold:   { gold: true,  silverPlus: true,  staff: false, owner: false, opsPlus: false }
-    }[mode] || { gold: window.IFWL_REAL_GOLD, silverPlus: window.IFWL_REAL_SILVER_PLUS, staff: window.IFWL_REAL_STAFF, owner: window.IFWL_REAL_OWNER, opsPlus: window.IFWL_REAL_OPS_PLUS };
+      real:   { gold: window.IFWL_REAL_GOLD, silverPlus: window.IFWL_REAL_SILVER_PLUS, staff: window.IFWL_REAL_STAFF, owner: window.IFWL_REAL_OWNER, opsPlus: window.IFWL_REAL_OPS_PLUS, headMod: window.IFWL_REAL_HEAD_MOD },
+      bronze: { gold: false, silverPlus: false, staff: false, owner: false, opsPlus: false, headMod: false },
+      silver: { gold: false, silverPlus: true,  staff: false, owner: false, opsPlus: false, headMod: false },
+      gold:   { gold: true,  silverPlus: true,  staff: false, owner: false, opsPlus: false, headMod: false }
+    }[mode] || { gold: window.IFWL_REAL_GOLD, silverPlus: window.IFWL_REAL_SILVER_PLUS, staff: window.IFWL_REAL_STAFF, owner: window.IFWL_REAL_OWNER, opsPlus: window.IFWL_REAL_OPS_PLUS, headMod: window.IFWL_REAL_HEAD_MOD };
 
     window.IFWL_GOLD = sim.gold;
     window.IFWL_SILVER_PLUS = sim.silverPlus;
     window.IFWL_STAFF = sim.staff;
     window.IFWL_OWNER = sim.owner;
     window.IFWL_OPS_PLUS = sim.opsPlus;
+    window.IFWL_HEAD_MOD = sim.headMod;
     document.body.classList.toggle('licence-gold', sim.gold);
     document.body.classList.toggle('licence-silver-plus', sim.silverPlus);
     document.body.classList.toggle('staff-access', sim.staff);
     document.body.classList.toggle('owner-access', sim.owner);
     document.body.classList.toggle('ops-access', sim.opsPlus);
+    document.body.classList.toggle('headmod-access', sim.headMod);
     applyAccentTheme();
     applyDarkTheme();
 
@@ -10767,6 +10800,125 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function staffAlertBandClass(band){
     return band === 'escalate' ? 'pts-red' : band === 'warning' ? 'pts-warning' : 'pts-orange';
   }
+
+  /* ---- Staff: Head Moderator (Discord moderation area) ---- */
+  function hmEsc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function hmLastLogin(ms){return ms ? new Date(ms).toLocaleDateString() : 'never'}
+
+  // The one shared compose box under both lists - which endpoint it hits
+  // depends on headModComposeTarget.mode, set by whichever "Message in
+  // IFWL" / "Send Discord DM" button was clicked.
+  let headModComposeTarget = null; // {discordId, name, mode: 'inapp'|'discord'}
+  function openHeadModCompose(discordId, name, mode){
+    headModComposeTarget = { discordId, name, mode };
+    q('headModComposeTitle').textContent = mode === 'inapp' ? `Message ${name} (in-app IFWL message)` : `Send ${name} a Discord DM`;
+    q('headModSubjectGroup').style.display = mode === 'inapp' ? '' : 'none';
+    q('headModSubject').value = '';
+    q('headModComposeText').value = '';
+    q('headModComposeStatus').textContent = '';
+    q('headModComposeBox').classList.remove('hidden');
+    q('headModComposeBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  q('headModComposeCancelBtn')?.addEventListener('click', () => {
+    q('headModComposeBox').classList.add('hidden');
+    headModComposeTarget = null;
+  });
+  q('headModComposeSendBtn')?.addEventListener('click', async () => {
+    if(!headModComposeTarget) return;
+    const btn = q('headModComposeSendBtn');
+    const text = q('headModComposeText').value.trim();
+    if(!text){ alert('Write a message first.'); return; }
+    btn.disabled = true;
+    const status = q('headModComposeStatus');
+    status.textContent = 'Sending...';
+    try{
+      if(headModComposeTarget.mode === 'inapp'){
+        const subject = q('headModSubject').value.trim() || 'Message from IFWL Staff';
+        await window.IFWL_InboxAPI.staffSend(headModComposeTarget.discordId, subject, text);
+      } else {
+        await window.IFWL_Api.apiPost('staffSendDiscordDM', { driverId: headModComposeTarget.discordId, message: text });
+      }
+      status.textContent = 'Sent ✓';
+      setTimeout(() => { q('headModComposeBox').classList.add('hidden'); headModComposeTarget = null; }, 900);
+    }catch(e){
+      status.textContent = 'Failed: ' + e.message;
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
+  function headModRowActionsHtml(discordId, name){
+    return `
+      <a class="btn ghost" href="https://discord.com/users/${encodeURIComponent(discordId)}" target="_blank" rel="noopener">Open in Discord</a>
+      <button class="btn ghost" data-hm-inapp="${hmEsc(discordId)}" data-hm-name="${hmEsc(name)}" type="button">Message in IFWL</button>
+      <button class="btn ghost" data-hm-dm="${hmEsc(discordId)}" data-hm-name="${hmEsc(name)}" type="button">Send Discord DM</button>`;
+  }
+  function bindHeadModRowActions(wrap){
+    wrap.querySelectorAll('[data-hm-inapp]').forEach(btn => btn.addEventListener('click', () => openHeadModCompose(btn.dataset.hmInapp, btn.dataset.hmName, 'inapp')));
+    wrap.querySelectorAll('[data-hm-dm]').forEach(btn => btn.addEventListener('click', () => openHeadModCompose(btn.dataset.hmDm, btn.dataset.hmName, 'discord')));
+  }
+
+  async function fetchHeadModMissingPlatform(){
+    return (await window.IFWL_Api.apiGet('staffDriversMissingPlatform')).drivers || [];
+  }
+  async function renderHeadModPlatformList(){
+    const wrap = q('headModPlatformList');
+    if(!wrap) return;
+    let drivers;
+    try{ drivers = await fetchHeadModMissingPlatform(); }
+    catch(e){ wrap.innerHTML = `<div class="empty">Could not load: ${hmEsc(e.message)}</div>`; return; }
+    if(!drivers.length){ wrap.innerHTML = '<div class="empty">Every driver has a platform set.</div>'; return; }
+    wrap.innerHTML = drivers.map(d => `
+      <div class="note-item">
+        <strong>${hmEsc(d.name || 'Unknown driver')}</strong> ${d.discordUsername ? `<span class="note-meta">@${hmEsc(d.discordUsername)}</span>` : ''}
+        <div class="note-meta">${hmEsc(d.tier || 'No Licence')} &middot; last login ${hmLastLogin(d.lastLoginMs)}</div>
+        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">${headModRowActionsHtml(d.discordId, d.name || 'this driver')}</div>
+      </div>
+    `).join('');
+    bindHeadModRowActions(wrap);
+  }
+  q('headModPlatformRefreshBtn')?.addEventListener('click', renderHeadModPlatformList);
+
+  async function fetchHeadModFlags(){
+    return (await window.IFWL_Api.apiGet('staffDiscordFlagsList')).flags || [];
+  }
+  async function renderHeadModFlagsList(){
+    const wrap = q('headModFlagsList');
+    if(!wrap) return;
+    let flags;
+    try{ flags = await fetchHeadModFlags(); }
+    catch(e){ wrap.innerHTML = `<div class="empty">Could not load: ${hmEsc(e.message)}</div>`; return; }
+    if(!flags.length){ wrap.innerHTML = '<div class="empty">No open Discord flags.</div>'; return; }
+    wrap.innerHTML = flags.map(f => `
+      <div class="note-item">
+        <strong>${hmEsc(f.name || f.discordId)}</strong> ${f.discordUsername ? `<span class="note-meta">@${hmEsc(f.discordUsername)}</span>` : ''}
+        <div class="note-meta">${hmEsc(f.detail || 'Discord sync failed')} &middot; flagged ${f.flaggedAtMs ? new Date(f.flaggedAtMs).toLocaleString() : ''}</div>
+        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">${headModRowActionsHtml(f.discordId, f.name || 'this driver')}<button class="btn ghost" data-hm-dismiss="${hmEsc(f.discordId)}" type="button">Dismiss</button></div>
+      </div>
+    `).join('');
+    bindHeadModRowActions(wrap);
+    wrap.querySelectorAll('[data-hm-dismiss]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try{ await window.IFWL_Api.apiPost('staffDiscordFlagResolve', { discordId: btn.dataset.hmDismiss }); await renderHeadModFlagsList(); }
+      catch(e){ alert('Could not dismiss: ' + e.message); btn.disabled = false; }
+    }));
+  }
+  q('headModFlagsRefreshBtn')?.addEventListener('click', renderHeadModFlagsList);
+
+  // Same "own independent init, gated on its own flag rather than
+  // IFWL_STAFF" pattern as initCommentatorPanel - a Head-Moderator-only
+  // account never has IFWL_STAFF true, so this can't hang off
+  // initStaffPanels below.
+  let headModPanelsInited = false;
+  function initHeadModPanels(){
+    if(headModPanelsInited || !window.IFWL_HEAD_MOD) return;
+    headModPanelsInited = true;
+    renderHeadModPlatformList();
+    renderHeadModFlagsList();
+  }
+  window.addEventListener('ifwl-auth-changed', initHeadModPanels);
+  if(window.IFWL_HEAD_MOD) initHeadModPanels(); // covers an already-resolved session on this load
+
   async function renderStaffAlertsPanel(){
     const wrap = q('staffAlertsList');
     if(!wrap) return;
