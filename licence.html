@@ -1202,6 +1202,20 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .race-event-card .rec-row code{background:var(--surface-alt);padding:2px 6px;border-radius:5px;color:var(--text-primary);font-family:var(--font-mono)}
 .race-event-card .rec-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:auto;padding-top:4px}
 .race-event-card .rec-actions .btn.purple{margin-left:auto}
+.race-event-card.rec-flash{box-shadow:0 0 0 3px var(--ifwl-teal),var(--shadow)}
+/* ✅ ADDED: weekly M-T-W-T-F-S-S overview strip above Available Races */
+.arw-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:18px;overflow-x:auto}
+@media(max-width:820px){.arw-strip{grid-template-columns:repeat(7,minmax(88px,1fr))}}
+.arw-day-col{border:1px solid var(--ifwl-line);border-radius:12px;background:var(--surface-alt);min-height:90px;display:flex;flex-direction:column}
+.arw-day-col-other{grid-column:1 / -1;flex-direction:row;align-items:center;gap:10px;min-height:0;padding:8px 12px}
+.arw-day-col-other .arw-day-body{display:flex;flex-wrap:wrap;gap:6px}
+.arw-day-head{font-family:var(--font-display);font-weight:800;font-size:15px;text-align:center;padding:8px 4px 2px;color:var(--text-primary);line-height:1}
+.arw-day-sub{display:block;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-top:3px}
+.arw-day-body{flex:1;display:flex;flex-direction:column;gap:5px;padding:6px 6px 10px}
+.arw-day-empty{font-size:11px;color:var(--text-muted);text-align:center;padding:6px 0}
+.arw-chip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1px solid var(--ifwl-line);background:var(--panel-bg);border-radius:8px;padding:5px 7px;font-size:10.5px;font-weight:700;color:var(--text-primary);cursor:pointer;text-align:left;line-height:1.25}
+.arw-chip:hover{border-color:var(--ifwl-teal)}
+.arw-chip-time{font-size:9.5px;font-weight:600;color:var(--text-muted)}
 .platform-badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;background:rgba(31,214,189,.14);color:var(--ifwl-teal)}
 .points-pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:10.5px;font-weight:900;text-transform:uppercase;background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
 body:not(.licence-gold) .gold-only-field{display:none!important}
@@ -3646,6 +3660,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </select></div>
       </div>
       <div class="field-hint" style="margin:-8px 0 10px">Series drives the tabs above the event list below - same 6 series as the Entrylist Builder.</div>
+      <div style="display:flex;gap:10px">
+        <div class="field-group" style="flex:1"><label>Day of week</label><select id="sgDayOfWeek">
+          <option value="">Not set</option>
+          <option value="Mon">Monday</option>
+          <option value="Tue">Tuesday</option>
+          <option value="Wed">Wednesday</option>
+          <option value="Thu">Thursday</option>
+          <option value="Fri">Friday</option>
+          <option value="Sat">Saturday</option>
+          <option value="Sun">Sunday</option>
+        </select></div>
+        <div class="field-group" style="flex:1"><label>Time (UK local, 24h)</label><input type="text" id="sgRaceTimeUK" placeholder="e.g. 20:00"></div>
+        <div class="field-group" style="flex:1"><label>Server hosted by</label><input type="text" id="sgHostedBy" placeholder="GPortal"></div>
+      </div>
+      <div class="field-hint" style="margin:-8px 0 10px">Day of week / Time (converted to each driver's own timezone) / Hosted by feed the Available Races weekly calendar. Time defaults to GPortal-style UK scheduling - leave blank if this event only runs on an exact date.</div>
       <div class="field-group"><label>Available to which tiers?</label><div id="sgTierChecks"></div></div>
       <div style="display:flex;gap:10px">
         <div class="field-group" style="flex:1">
@@ -4417,6 +4446,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     return apiPost('staffSimgridEventDelete', { eventId });
   }
+  // ✅ ADDED: bulk delete - the multi-select checkboxes on the grouped
+  // Staff SimGrid Events list use this instead of deleting one round at a
+  // time.
+  async function bulkDeleteSimgridEvents(eventIds){
+    if(USE_DEMO_FALLBACK){
+      const idSet = new Set(eventIds);
+      const all = demoGet('simgridEvents', []).map(e => idSet.has(e.id) ? {...e, active:false} : e);
+      demoSet('simgridEvents', all);
+      return { ok:true, deletedCount: eventIds.length };
+    }
+    return apiPost('staffSimgridEventBulkDelete', { eventIds });
+  }
   async function uploadEventRoster(eventId, entries){
     return apiPost('staffEventRosterUpload', { eventId, entries });
   }
@@ -4427,7 +4468,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(USE_DEMO_FALLBACK) return { ok:true };
     return apiPost('unlockEventDiscordRole', { eventId });
   }
-  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, uploadEventRoster, unlockEventDiscordRole };
+  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, bulkDeleteSimgridEvents, uploadEventRoster, unlockEventDiscordRole };
 
   // Server contract:
   //   ?enduranceConfigGet=1                        (GET,  public - entry fee + prize pool split)
@@ -6212,6 +6253,68 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   racesTabEmptyWatch('acRallyDriverBoard', 'acRallyTabBtn');
   racesTabEmptyWatch('rlDriverBoard', 'rl3v3TabBtn');
 
+  // ✅ ADDED: converts a "HH:MM" staff entered as UK LOCAL time into this
+  // viewer's own local time, purely for display - mirrors the server's
+  // ukLocalDateTimeToUtcMs (Europe/London, DST-aware via Intl) so the two
+  // never disagree. Good enough for a schedule display, not exact-instant
+  // math.
+  function ifwlConvertUkTimeToViewerLocal(hhmm){
+    if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(hhmm||'').trim())) return '';
+    try{
+      const now = new Date();
+      const todayIso = now.toISOString().slice(0,10);
+      const guessMs = Date.parse(`${todayIso}T${hhmm}:00Z`);
+      const fmt = new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/London', hour:'2-digit', minute:'2-digit', hour12:false });
+      const londonParts = fmt.formatToParts(new Date(guessMs)).reduce((a,p)=>{a[p.type]=p.value;return a},{});
+      const londonHhmm = `${londonParts.hour}:${londonParts.minute}`;
+      const offsetMinutes = ((Number(hhmm.slice(0,2))*60+Number(hhmm.slice(3))) - (Number(londonHhmm.slice(0,2))*60+Number(londonHhmm.slice(3))));
+      const correctedMs = guessMs - offsetMinutes*60000;
+      return new Date(correctedMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    }catch(e){ return hhmm; }
+  }
+
+  const AVAILABLE_RACES_WEEK_DAYS = [
+    { key:'Mon', label:'M' }, { key:'Tue', label:'T' }, { key:'Wed', label:'W' }, { key:'Thu', label:'T' },
+    { key:'Fri', label:'F' }, { key:'Sat', label:'S' }, { key:'Sun', label:'S' }
+  ];
+  const AVAILABLE_RACES_WEEKDAY_FROM_JSDAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  // ✅ ADDED: weekly M-T-W-T-F-S-S calendar strip - the day columns come
+  // from each event's own dayOfWeek if staff set one; for a dated event
+  // with no explicit dayOfWeek, falls back to the weekday its eventDateMs
+  // actually falls on (viewer-local), so older events still slot in
+  // somewhere sensible. Undated/no-day events show in a trailing
+  // "Unscheduled" column rather than being silently dropped.
+  function renderAvailableRacesWeeklyStrip(events){
+    const byDay = { Mon:[], Tue:[], Wed:[], Thu:[], Fri:[], Sat:[], Sun:[], other:[] };
+    events.forEach(e => {
+      let day = e.dayOfWeek || '';
+      if(!day && e.eventDateMs) day = AVAILABLE_RACES_WEEKDAY_FROM_JSDAY[new Date(e.eventDateMs).getDay()];
+      (byDay[day] || byDay.other).push(e);
+    });
+    const dayCol = (d) => `
+      <div class="arw-day-col">
+        <div class="arw-day-head">${d.label}<span class="arw-day-sub">${d.key}</span></div>
+        <div class="arw-day-body">
+          ${byDay[d.key].length ? byDay[d.key].map(e => `<button type="button" class="arw-chip" data-arw-jump="${e.id}">${e.title}${e.raceTimeUK ? `<span class="arw-chip-time">${ifwlConvertUkTimeToViewerLocal(e.raceTimeUK)}</span>` : ''}</button>`).join('') : '<span class="arw-day-empty">&ndash;</span>'}
+        </div>
+      </div>`;
+    const wrap = document.createElement('div');
+    wrap.className = 'arw-strip';
+    wrap.innerHTML = AVAILABLE_RACES_WEEK_DAYS.map(dayCol).join('') + (byDay.other.length ? `
+      <div class="arw-day-col arw-day-col-other">
+        <div class="arw-day-head">&hellip;<span class="arw-day-sub">Unscheduled</span></div>
+        <div class="arw-day-body">${byDay.other.map(e => `<button type="button" class="arw-chip" data-arw-jump="${e.id}">${e.title}</button>`).join('')}</div>
+      </div>` : '');
+    wrap.querySelectorAll('[data-arw-jump]').forEach(btn => btn.addEventListener('click', () => {
+      const card = document.querySelector(`[data-race-card="${btn.dataset.arwJump}"]`);
+      if(!card) return;
+      card.scrollIntoView({ behavior:'smooth', block:'center' });
+      card.classList.add('rec-flash');
+      setTimeout(() => card.classList.remove('rec-flash'), 1600);
+    }));
+    return wrap;
+  }
+
   let availableRacesStaffAllMode = false;
   function renderAvailableRaces(events, staffAll){
     availableRacesStaffAllMode = !!staffAll;
@@ -6246,7 +6349,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const endedBadge = staffAll && e.ended
         ? `<div class="rec-row warn"><span class="rec-row-icon">⚠️</span>Past its drop-off window - not currently shown to drivers</div>`
         : '';
-      return `<div class="race-event-card">
+      // ✅ ADDED: Day of week / Time (converted to this viewer's own
+      // timezone) / Server hosted by - shown to every eligible driver
+      // regardless of whether they're assigned to the event, same as the
+      // image/date/rounds/hosted-by. Only the password (above) is gated
+      // behind assignment, enforced server-side in myAvailableRaces.
+      const scheduleBits = [e.dayOfWeek, e.raceTimeUK ? ifwlConvertUkTimeToViewerLocal(e.raceTimeUK) : ''].filter(Boolean).join(' &middot; ');
+      return `<div class="race-event-card" data-race-card="${e.id}">
         <div class="rec-thumb-wrap">
           <img src="${e.imageUrl || e.simgridImageUrl || placeholder}" alt="">
           ${dateStr ? `<span class="rec-ribbon left live">📅 ${dateStr}</span>` : ''}
@@ -6257,6 +6366,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <div class="rec-rows">
             ${tierBadges}
             ${endedBadge}
+            ${scheduleBits ? `<div class="rec-row"><span class="rec-row-icon">🗓️</span>${scheduleBits}</div>` : ''}
+            <div class="rec-row"><span class="rec-row-icon">🖥️</span>Hosted by ${e.hostedBy || 'GPortal'}</div>
             ${e.password ? `<div class="rec-row"><span class="rec-row-icon">🔒</span>Password: <code>${e.password}</code></div>` : ''}
             ${e.notes ? `<div class="rec-row"><span class="rec-row-icon">📝</span>${e.notes}</div>` : ''}
           </div>
@@ -6272,6 +6383,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>
       </div>`;
     }).join('')}</div>${events.map(e => (e.roster||[]).length ? `<div class="hidden" id="eventRoster_${e.id}" style="margin:10px 0 16px"></div>` : '').join('')}`;
+
+    // ✅ ADDED: M-T-W-T-F-S-S weekly overview strip above the card grid -
+    // clicking a race under its day scrolls straight to its full card
+    // below. Skipped in staff-all mode (that view is an audit list, not a
+    // driver-facing weekly planner).
+    if(!staffAll) body.insertBefore(renderAvailableRacesWeeklyStrip(events), body.firstChild);
 
     body.querySelectorAll('[data-toggle-roster]').forEach(btn => {
       const eventId = btn.dataset.toggleRoster;
@@ -12634,6 +12751,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }));
   }
 
+  // ✅ CHANGED: grouped-by-series rendering. Previously every round of a
+  // championship (e.g. PC Pro-Am's 10 rounds) showed as its own flat
+  // top-level card, so clearing out a finished series meant deleting rounds
+  // one at a time. Now rounds that share a parent (either ownerEventId, for
+  // ones pushed from League Owners Overview, or simgridLink, for ones
+  // added/imported here directly) are nested under ONE series card, with a
+  // per-round checkbox + a "Delete selected" bulk action above the list. A
+  // round with neither (a genuinely standalone manual add) still renders as
+  // its own flat card, unchanged from before.
   function sgRenderEventListBody(events){
     const wrap = q('sgEventList');
     // Ascending date order within the active tab - the next upcoming event
@@ -12644,26 +12770,42 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         ? events.filter(e => !e.series)
         : events.filter(e => e.series === sgActiveSeriesTab);
 
-    if(!filtered.length){ wrap.innerHTML = `<div class="empty">${events.length ? 'No events in this series yet.' : 'No SimGrid events yet.'}</div>`; return; }
+    if(!filtered.length){ wrap.innerHTML = `<div class="empty">${events.length ? 'No events in this series yet.' : 'No SimGrid events yet.'}</div>` + sgBulkToolbarHtml(); sgWireBulkToolbar(wrap); return; }
 
     const cutoffMs = Date.now() - (4 * 60 * 60 * 1000);
-    const sorted = [...filtered].sort((a,b) => (a.eventDateMs || Infinity) - (b.eventDateMs || Infinity));
-    wrap.innerHTML = sorted.map(e => {
+
+    const groups = new Map(); // key -> { name, rounds: [] }
+    filtered.forEach(e => {
+      const key = e.ownerEventId || e.simgridLink || `solo:${e.id}`;
+      if(!groups.has(key)) groups.set(key, { name: e.ownerEventName || '', rounds: [] });
+      const g = groups.get(key);
+      if(!g.name && e.ownerEventName) g.name = e.ownerEventName;
+      g.rounds.push(e);
+    });
+
+    // Each group sorts its own rounds soonest-first, then groups themselves
+    // sort by their own soonest round - same overall ordering feel as before.
+    const groupList = [...groups.entries()].map(([key, g]) => {
+      const rounds = [...g.rounds].sort((a,b) => (a.eventDateMs || Infinity) - (b.eventDateMs || Infinity));
+      return { key, rounds, soonestMs: rounds[0]?.eventDateMs || Infinity };
+    }).sort((a,b) => a.soonestMs - b.soonestMs);
+
+    const roundRowHtml = (e, compact) => {
       const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString() : (e.eventDateLabel || 'No date set');
-      // Matches the same grace period myAvailableRaces uses to decide when
-      // a round drops off drivers' own list - shown here so staff can see
-      // at a glance which of their own events have already rotated out.
       const ended = e.eventDateMs && e.eventDateMs < cutoffMs;
       const hasBriefing = sgLinkedBriefingEventIds.has(e.id);
       const imgSrc = e.imageUrl || e.simgridImageUrl || '';
+      const scheduleBits = [e.dayOfWeek, e.raceTimeUK ? `${e.raceTimeUK} UK` : ''].filter(Boolean).join(' ');
       return `
-      <div class="note-item">
+      <div class="note-item sg-round-card" data-round-card="${e.id}" style="${compact ? 'margin-left:22px' : ''}">
         <div style="display:flex;gap:12px">
+          <input type="checkbox" class="sg-bulk-select" data-select-event="${e.id}" style="width:auto;margin-top:4px">
           ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:88px;height:56px;object-fit:cover;border-radius:8px;flex:none">` : ''}
           <div style="flex:1;min-width:0">
             <strong>${e.title}</strong>${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
             <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
-            <div class="note-meta">📅 ${dateStr}${e.password ? ` &middot; 🔒 This event's password: ${e.password}` : ' &middot; No password set for this event'}</div>
+            <div class="note-meta">📅 ${dateStr}${scheduleBits ? ` &middot; 🗓️ ${scheduleBits}` : ''} &middot; 🖥️ ${e.hostedBy || 'GPortal'}</div>
+            <div class="note-meta">${e.password ? `🔒 This event's password: ${e.password}` : 'No password set for this event'}</div>
             <div class="note-meta">${e.discordRoleId ? `🔓 Unlocks Discord: ${e.discordRoleLabel || 'Role ' + e.discordRoleId}` : 'No Discord area unlocked by this event'}</div>
             <div class="note-meta">👥 ${e.rosterCount ? `${e.rosterCount} driver(s) signed up (shown as cards under Available Races)` : 'No signup roster uploaded yet'}</div>
             <div class="note-meta" style="color:${hasBriefing ? 'var(--ifwl-green)' : 'var(--ifwl-amber)'};font-weight:700">${hasBriefing ? '📋 Raceday briefing attached' : '⚠️ No raceday briefing linked yet'}</div>
@@ -12675,9 +12817,36 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <label class="btn ghost" style="cursor:pointer;margin:0">Upload Roster (CSV/JSON)<input type="file" accept=".csv,.json,text/csv,application/json" data-roster-upload="${e.id}" style="display:none"></label>
           ${hasBriefing ? '' : `<button class="btn ghost" data-goto-briefing="${e.id}">+ Add raceday briefing</button>`}
         </div>
-      </div>
-    `;
+      </div>`;
+    };
+
+    wrap.innerHTML = sgBulkToolbarHtml() + groupList.map(g => {
+      if(g.rounds.length <= 1) return roundRowHtml(g.rounds[0], false);
+      const groupName = g.rounds[0].ownerEventName || g.name || g.rounds[0].title.split(/\s*[-|]\s*/)[0] || 'Series';
+      const liveCount = g.rounds.length;
+      return `
+      <div class="note-item sg-series-group" data-series-group="${g.key}" style="background:#f7f8fa">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer" data-series-toggle="${g.key}">
+          <div><strong>${groupName}</strong> <span class="field-hint">(${liveCount} round${liveCount===1?'':'s'})</span></div>
+          <button class="btn ghost" type="button" data-series-toggle-btn="${g.key}">Show/hide rounds</button>
+        </div>
+        <div data-series-body="${g.key}" class="hidden" style="margin-top:10px">
+          ${g.rounds.map(e => roundRowHtml(e, true)).join('')}
+        </div>
+      </div>`;
     }).join('');
+
+    // ---- series group expand/collapse ----
+    wrap.querySelectorAll('[data-series-toggle-btn]').forEach(btn => btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const key = btn.dataset.seriesToggleBtn;
+      wrap.querySelector(`[data-series-body="${CSS.escape(key)}"]`)?.classList.toggle('hidden');
+    }));
+    wrap.querySelectorAll('[data-series-toggle]').forEach(head => head.addEventListener('click', () => {
+      const key = head.dataset.seriesToggle;
+      wrap.querySelector(`[data-series-body="${CSS.escape(key)}"]`)?.classList.toggle('hidden');
+    }));
+
     wrap.querySelectorAll('[data-roster-upload]').forEach(input => input.addEventListener('change', async () => {
       const file = input.files[0];
       if(!file) return;
@@ -12722,6 +12891,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('sgSeries').value = ev.series || '';
       q('sgNotes').value = ev.notes || '';
       q('sgPassword').value = ev.password || '';
+      q('sgDayOfWeek').value = ev.dayOfWeek || '';
+      q('sgRaceTimeUK').value = ev.raceTimeUK || '';
+      q('sgHostedBy').value = ev.hostedBy || '';
       q('sgDiscordRoleId').value = ev.discordRoleId || '';
       q('sgDiscordRoleLabel').value = ev.discordRoleLabel || '';
       q('sgEventDate').value = ev.eventDateMs ? new Date(ev.eventDateMs).toISOString().slice(0,16) : '';
@@ -12737,6 +12909,46 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('sgSaveStatus').textContent = `Editing this one event only - its password is shown above, separate from every other event.`;
       q('simgridEventsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }));
+
+    sgWireBulkToolbar(wrap);
+  }
+
+  // ✅ ADDED: "Delete selected" toolbar for the multi-select checkboxes -
+  // addresses "im having to delete 1 by 1 at the omoent." Sits above the
+  // (grouped) event list; count updates live as rounds are ticked.
+  function sgBulkToolbarHtml(){
+    return `<div class="note-item" id="sgBulkToolbar" style="display:flex;align-items:center;gap:10px;background:#fff">
+      <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="checkbox" id="sgSelectAllCheck" style="width:auto"> Select all</label>
+      <button class="btn ghost" id="sgBulkDeleteBtn" type="button" disabled>Delete selected (0)</button>
+      <span class="field-hint" id="sgBulkStatus"></span>
+    </div>`;
+  }
+  function sgWireBulkToolbar(wrap){
+    const updateCount = () => {
+      const n = wrap.querySelectorAll('.sg-bulk-select:checked').length;
+      const btn = q('sgBulkDeleteBtn');
+      if(btn){ btn.disabled = !n; btn.textContent = `Delete selected (${n})`; }
+    };
+    wrap.querySelectorAll('.sg-bulk-select').forEach(cb => cb.addEventListener('change', updateCount));
+    q('sgSelectAllCheck')?.addEventListener('change', (e) => {
+      wrap.querySelectorAll('.sg-bulk-select').forEach(cb => { cb.checked = e.target.checked; });
+      updateCount();
+    });
+    q('sgBulkDeleteBtn')?.addEventListener('click', async () => {
+      const ids = [...wrap.querySelectorAll('.sg-bulk-select:checked')].map(cb => cb.dataset.selectEvent);
+      if(!ids.length) return;
+      if(!confirm(`Delete ${ids.length} round(s)? Drivers will stop seeing them in Available Races.`)) return;
+      const btn = q('sgBulkDeleteBtn');
+      btn.disabled = true; btn.textContent = 'Deleting…';
+      try{
+        await window.IFWL_SimgridAPI.bulkDeleteSimgridEvents(ids);
+        await renderSimgridEventList();
+      }catch(e){
+        const status = q('sgBulkStatus');
+        if(status) status.textContent = `Delete failed: ${e.message}`;
+        btn.disabled = false;
+      }
+    });
   }
 
   let sgEditingEventId = null;
@@ -12746,6 +12958,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     sgEditingEventImageUrl = '';
     q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
     q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
+    q('sgDayOfWeek').value = ''; q('sgRaceTimeUK').value = ''; q('sgHostedBy').value = '';
     q('sgDiscordRoleId').value = ''; q('sgDiscordRoleLabel').value = '';
     q('sgSeries').value = '';
     q('sgEventImageInput').value = '';
@@ -12767,10 +12980,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const eventDateMs = q('sgEventDate').value ? new Date(q('sgEventDate').value).getTime() : 0;
     const eventDateLabel = q('sgEventDateLabel').value.trim();
     const password = q('sgPassword').value.trim();
+    const dayOfWeek = q('sgDayOfWeek').value;
+    const raceTimeUK = q('sgRaceTimeUK').value.trim();
+    const hostedBy = q('sgHostedBy').value.trim();
     const discordRoleId = q('sgDiscordRoleId').value.trim();
     const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
     if(!title || !simgridLink || !tiers.length){ q('sgSaveStatus').textContent = 'Title, link and at least one tier are required.'; return; }
     if(discordRoleId && !/^\d{5,25}$/.test(discordRoleId)){ q('sgSaveStatus').textContent = 'Discord Role ID should be the numeric role ID (Copy Role ID in Discord), not a role name.'; return; }
+    if(raceTimeUK && !/^([01]\d|2[0-3]):[0-5]\d$/.test(raceTimeUK)){ q('sgSaveStatus').textContent = 'Time should be 24h HH:MM, e.g. 20:00.'; return; }
 
     // Keep the existing image on an edit unless a new file was chosen -
     // saving other fields should never silently wipe out a set image.
@@ -12784,7 +13001,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, imageUrl, discordRoleId, discordRoleLabel });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, imageUrl, discordRoleId, discordRoleLabel });
       const wasEditing = !!sgEditingEventId;
       sgResetForm();
       q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
@@ -12947,8 +13164,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         // treatment as platform/series/tiers/notes/image above.
         const discordRoleId = q('sgDiscordRoleId').value.trim();
         const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
+        const dayOfWeek = q('sgDayOfWeek').value;
+        const raceTimeUK = q('sgRaceTimeUK').value.trim();
+        const hostedBy = q('sgHostedBy').value.trim();
         if(!tiers.length){ status.innerHTML = '<div class="empty">Select at least one tier below first - it applies to every round being added.</div>'; return; }
         if(discordRoleId && !/^\d{5,25}$/.test(discordRoleId)){ status.innerHTML = '<div class="empty">Discord Role ID should be the numeric role ID (Copy Role ID in Discord), not a role name.</div>'; return; }
+        if(raceTimeUK && !/^([01]\d|2[0-3]):[0-5]\d$/.test(raceTimeUK)){ status.innerHTML = '<div class="empty">Time should be 24h HH:MM, e.g. 20:00.</div>'; return; }
 
         // One shared image (if chosen) applies to every round in this batch,
         // same as platform/series/tiers/notes above - uploaded once, reused.
@@ -12982,6 +13203,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           try{
             await window.IFWL_SimgridAPI.saveSimgridEvent({
               title, simgridLink: url, platform, series, tiers, notes, password, imageUrl,
+              dayOfWeek, raceTimeUK, hostedBy,
               discordRoleId, discordRoleLabel,
               eventDateMs,
               eventDateLabel: eventDateMs ? '' : (r.dateText || title)
