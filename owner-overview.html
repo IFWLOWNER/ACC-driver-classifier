@@ -511,6 +511,51 @@ async function saveOwnerEvent(id, fields){ return await apiPost('ownerOverviewEv
 async function deleteOwnerEvent(id){ return await apiPost('ownerOverviewEventDelete', { id }); }
 async function pushOwnerEventRounds(id, roundIds){ return await apiPost('ownerOverviewPushRounds', { id, roundIds }); }
 async function unpushOwnerEventRound(id, roundId){ return await apiPost('ownerOverviewUnpushRound', { id, roundId }); }
+
+/* ---- Season Planner event cover image upload (rtLicenceImageUpload, kind=ownerEvent) ---- */
+const UPLOAD_FN = 'https://rtlicenceimageupload-703021152109.europe-west2.run.app';
+async function uploadOwnerEventImage(file){
+  if(file.size > 5*1024*1024) throw new Error('That file is over 5MB. Please choose a smaller image.');
+  const token = window.IFWL_AUTH?.sessionToken() || '';
+  const form = new FormData();
+  form.append('file', file);
+  form.append('kind', 'ownerEvent');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  let r;
+  try{
+    r = await fetch(`${UPLOAD_FN}?token=${encodeURIComponent(token)}&kind=ownerEvent`, { method:'POST', body: form, signal: controller.signal });
+  }catch(err){
+    if(err.name === 'AbortError') throw new Error('Upload timed out after 30s - check the Cloud Function logs for rtLicenceImageUpload.');
+    throw err;
+  }finally{
+    clearTimeout(timeout);
+  }
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d?.error || 'Upload failed');
+  return d.url;
+}
+
+/* ---- UK-local time -> viewer's own local time, for raceTimeUK display ----
+   Mirrors ukLocalDateTimeToUtcMs on the backend: finds how far Europe/London's
+   wall-clock differs from UTC on TODAY's date (so it's DST-correct), applies
+   that to the "HH:MM" staff entered, then reads it back in the viewer's own
+   timezone via toLocaleTimeString. Good enough for a schedule display - not
+   meant for exact-instant math. */
+function convertUkTimeToViewerLocal(hhmm){
+  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(hhmm||'').trim())) return '';
+  try{
+    const now = new Date();
+    const todayIso = now.toISOString().slice(0,10);
+    const guessMs = Date.parse(`${todayIso}T${hhmm}:00Z`);
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/London', hour:'2-digit', minute:'2-digit', hour12:false });
+    const londonParts = fmt.formatToParts(new Date(guessMs)).reduce((a,p)=>{a[p.type]=p.value;return a},{});
+    const londonHhmm = `${londonParts.hour}:${londonParts.minute}`;
+    const offsetMinutes = ((Number(hhmm.slice(0,2))*60+Number(hhmm.slice(3))) - (Number(londonHhmm.slice(0,2))*60+Number(londonHhmm.slice(3))));
+    const correctedMs = guessMs - offsetMinutes*60000;
+    return new Date(correctedMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  }catch(e){ return hhmm; }
+}
 </script>
 
 <script>
@@ -921,15 +966,19 @@ window.addEventListener('ifwl-owner-ready', () => {
       ? tierList.map(t => `<label class="tier-check ${((draft.visibleTiers||[]).includes(t.name))?'checked':''}"><input type="checkbox" data-tier-check="${escHtml(t.name)}" ${((draft.visibleTiers||[]).includes(t.name))?'checked':''}> ${escHtml(t.name)}</label>`).join('')
       : `<span class="sub">No licence tiers configured.</span>`;
 
+    const DAY_OF_WEEK_OPTS = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const scheduleRows = (draft.schedule||[]).map((r, i) => `
       <tr data-round-idx="${i}">
         <td><input type="text" data-round-field="week" value="${escHtml(r.week||'')}" placeholder="Round 1"></td>
         <td><input type="date" data-round-field="date" value="${escHtml(r.date||'')}"></td>
+        <td><select data-round-field="dayOfWeek" style="min-width:64px">${DAY_OF_WEEK_OPTS.map(d => `<option value="${d}" ${d===(r.dayOfWeek||'')?'selected':''}>${d||'-'}</option>`).join('')}</select></td>
         <td><input type="text" data-round-field="track" value="${escHtml(r.track||'')}" placeholder="Track"></td>
         <td><input type="text" data-round-field="practiceTime" value="${escHtml(r.practiceTime||'')}" placeholder="19:00"></td>
         <td><input type="text" data-round-field="quallyTime" value="${escHtml(r.quallyTime||'')}" placeholder="19:30"></td>
         <td><input type="text" data-round-field="race1" value="${escHtml(r.race1||'')}" placeholder="20:00"></td>
         <td><input type="text" data-round-field="race2" value="${escHtml(r.race2||'')}" placeholder=""></td>
+        <td><input type="text" data-round-field="raceTimeUK" value="${escHtml(r.raceTimeUK||'')}" placeholder="20:00" title="UK local time - converted to each viewer's own timezone" style="min-width:64px"></td>
+        <td><input type="text" data-round-field="hostedBy" value="${escHtml(r.hostedBy||'GPortal')}" placeholder="GPortal" style="min-width:80px"></td>
         <td><input type="text" data-round-field="password" value="${escHtml(r.password||'')}" placeholder="e.g. ifwl2026" style="min-width:100px"></td>
         <td><button class="btn ghost" data-remove-round="${i}" type="button" style="padding:4px 8px">&times;</button></td>
       </tr>`).join('');
@@ -968,10 +1017,24 @@ window.addEventListener('ifwl-owner-ready', () => {
       <div class="form-row"><label>Notes (Owner Overview only)</label><textarea id="fldNotes">${escHtml(draft.notes||'')}</textarea></div>
 
       <div class="form-row">
+        <label>Cover image</label>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div id="eventImagePreviewWrap" style="width:120px;height:68px;border-radius:8px;overflow:hidden;background:var(--panel-alt);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            ${draft.imageUrl ? `<img id="eventImagePreview" src="${escHtml(draft.imageUrl)}" style="width:100%;height:100%;object-fit:cover">` : `<span class="sub" id="eventImagePreview" style="font-size:11px">No image</span>`}
+          </div>
+          <div>
+            <input type="file" id="eventImageInput" accept="image/png,image/jpeg" style="display:none">
+            <button class="btn ghost" id="eventImageUploadBtn" type="button">Upload image</button>
+            <p class="sub" style="margin:4px 0 0">Shown on the driver-facing Available Races card. JPEG/PNG, up to 5MB.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
         <label>Round schedule</label>
         <div style="overflow-x:auto"><table class="mini-table" id="scheduleTable">
-          <thead><tr><th>Week</th><th>Date</th><th>Track</th><th>Practice</th><th>Qually</th><th>Race 1</th><th>Race 2</th><th>Password</th><th></th></tr></thead>
-          <tbody id="scheduleBody">${scheduleRows || '<tr><td colspan="9" class="sub">No rounds yet.</td></tr>'}</tbody>
+          <thead><tr><th>Week</th><th>Date</th><th>Day</th><th>Track</th><th>Practice</th><th>Qually</th><th>Race 1</th><th>Race 2</th><th>Time (UK)</th><th>Hosted by</th><th>Password</th><th></th></tr></thead>
+          <tbody id="scheduleBody">${scheduleRows || '<tr><td colspan="12" class="sub">No rounds yet.</td></tr>'}</tbody>
         </table></div>
         <button class="btn ghost" id="addRoundBtn" type="button">+ Add round</button>
       </div>
@@ -1040,6 +1103,7 @@ window.addEventListener('ifwl-owner-ready', () => {
     }
     body.querySelectorAll('#scheduleBody [data-round-field]').forEach(inp => {
       inp.addEventListener('input', readScheduleFromDom);
+      inp.addEventListener('change', readScheduleFromDom);
     });
     body.querySelectorAll('[data-remove-round]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1048,10 +1112,33 @@ window.addEventListener('ifwl-owner-ready', () => {
         renderEventEditor(draft);
       });
     });
+    const imgInput = q('eventImageInput');
+    const imgUploadBtn = q('eventImageUploadBtn');
+    if(imgUploadBtn && imgInput){
+      imgUploadBtn.addEventListener('click', () => imgInput.click());
+      imgInput.addEventListener('change', async () => {
+        const file = imgInput.files && imgInput.files[0];
+        if(!file) return;
+        imgUploadBtn.disabled = true; imgUploadBtn.textContent = 'Uploading…';
+        try{
+          const url = await uploadOwnerEventImage(file);
+          draft.imageUrl = url;
+          const wrap = q('eventImagePreviewWrap');
+          if(wrap) wrap.innerHTML = `<img id="eventImagePreview" src="${escHtml(url)}" style="width:100%;height:100%;object-fit:cover">`;
+          toast('Image uploaded - remember to Save changes.');
+        }catch(e){
+          toast(`Image upload failed: ${e.message}`, true);
+        }finally{
+          imgUploadBtn.disabled = false; imgUploadBtn.textContent = 'Upload image';
+          imgInput.value = '';
+        }
+      });
+    }
+
     q('addRoundBtn').addEventListener('click', () => {
       readScheduleFromDom();
       draft.schedule = draft.schedule || [];
-      draft.schedule.push({ id:'rnd_'+Date.now(), week:`Round ${draft.schedule.length+1}`, date:'', name:'', dlcName:'', track:'', practiceTime:'', quallyTime:'', race1:'', race2:'', conditions:'', misc:'', password:'', pushedSimgridEventId:'', pushedAtMs:0 });
+      draft.schedule.push({ id:'rnd_'+Date.now(), week:`Round ${draft.schedule.length+1}`, date:'', name:'', dlcName:'', track:'', practiceTime:'', quallyTime:'', race1:'', race2:'', conditions:'', misc:'', password:'', dayOfWeek:'', raceTimeUK:'', hostedBy:'GPortal', pushedSimgridEventId:'', pushedAtMs:0 });
       renderEventEditor(draft);
     });
 
@@ -1095,7 +1182,7 @@ window.addEventListener('ifwl-owner-ready', () => {
         readScheduleFromDom();
         pushBtn.disabled = true; pushBtn.textContent = 'Saving changes first…';
         try{
-          const saved = await saveOwnerEvent(draft.id, { name: q('fldName').value, startDate: q('fldStartDate').value, notes: q('fldNotes').value, visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+          const saved = await saveOwnerEvent(draft.id, { name: q('fldName').value, startDate: q('fldStartDate').value, notes: q('fldNotes').value, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
           Object.assign(draft, saved.event);
           pushBtn.textContent = 'Pushing…';
           const result = await pushOwnerEventRounds(draft.id, roundIds);
@@ -1135,7 +1222,7 @@ window.addEventListener('ifwl-owner-ready', () => {
       draft.notes = q('fldNotes').value;
       q('saveEventBtn').disabled = true; q('saveEventBtn').textContent = 'Saving…';
       try{
-        const result = await saveOwnerEvent(draft.id, { name: draft.name, startDate: draft.startDate, notes: draft.notes, visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+        const result = await saveOwnerEvent(draft.id, { name: draft.name, startDate: draft.startDate, notes: draft.notes, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
         const idx = ownerEventsCache.findIndex(x => x.id === draft.id);
         if(idx >= 0) ownerEventsCache[idx] = result.event;
         closeModal();
