@@ -12888,16 +12888,26 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       wrap.querySelector(`[data-series-body="${CSS.escape(key)}"]`)?.classList.toggle('hidden');
     }));
     // ✅ ADDED: "Select all in series" - ticks every round's checkbox
-    // within this one group (and expands it so the selection is visible),
-    // so staff can select a whole series in one click before using the
-    // bulk toolbar's Delete or Set Platform actions below, instead of
-    // ticking 10 rounds one at a time.
+    // within this one group, so staff can select a whole series in one
+    // click before using the bulk toolbar's Delete or Set Platform actions
+    // below, instead of ticking 10 rounds one at a time.
+    // ✅ FIXED: this used to also force the group open
+    // (`body.classList.remove('hidden')`), which meant every round's own
+    // Edit/Delete buttons popped into view directly under the checkbox the
+    // instant it was ticked - a follow-up click anywhere near there (e.g.
+    // reaching for "Set platform for selected" in the toolbar above, or a
+    // second tap on a touch screen) could land on one of those buttons
+    // instead, silently loading a different event into the form above and
+    // overwriting whatever was being worked on (title, image, etc.) - this
+    // matches what was reported ("all reverts to nothing... picture goes
+    // missing"). Selecting no longer changes what's expanded - "Show/hide
+    // rounds" is the only thing that opens a group now, so there's nothing
+    // new for a stray click to hit.
     wrap.querySelectorAll('[data-select-group]').forEach(cb => cb.addEventListener('change', (ev) => {
       ev.stopPropagation();
       const key = cb.dataset.selectGroup;
       const body = wrap.querySelector(`[data-series-body="${CSS.escape(key)}"]`);
       if(!body) return;
-      if(cb.checked) body.classList.remove('hidden');
       body.querySelectorAll('.sg-bulk-select').forEach(round => { round.checked = cb.checked; });
       const n = wrap.querySelectorAll('.sg-bulk-select:checked').length;
       const delBtn = q('sgBulkDeleteBtn');
@@ -12940,9 +12950,21 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     // editing - directly addresses "no way to tell which password belongs
     // to which round". Editing and saving updates only this one record,
     // never touches any other event.
+    // ✅ FIXED: a click on the wrong round's Edit button (e.g. a mis-click
+    // while working the bulk toolbar) used to silently overwrite whatever
+    // was already in the form above - including an uploaded image, with no
+    // way back short of re-typing everything. Now, if the form looks like
+    // it has something in progress for a DIFFERENT event (or an unsaved new
+    // event) than the one just clicked, it asks first.
     wrap.querySelectorAll('[data-edit-event]').forEach(btn => btn.addEventListener('click', () => {
       const ev = (window.__sgEventsCache || []).find(x => x.id === btn.dataset.editEvent);
       if(!ev) return;
+      if(sgFormHasUnsavedWork() && sgEditingEventId !== ev.id){
+        const msg = sgEditingEventId
+          ? `You're already editing another event above - switching to "${ev.title}" will discard those unsaved changes. Continue?`
+          : `The form above has unsaved details for a new event - switching to "${ev.title}" will discard them. Continue?`;
+        if(!confirm(msg)) return;
+      }
       sgEditingEventId = ev.id;
       q('sgTitle').value = ev.title || '';
       q('sgLink').value = ev.simgridLink || '';
@@ -13045,6 +13067,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   let sgEditingEventId = null;
   let sgEditingEventImageUrl = '';
+  // ✅ ADDED: true when the Add/Edit Event form above has something in it
+  // worth not losing silently - either mid-edit of an existing event, or a
+  // new-event draft with a title/link already typed in. Used to guard
+  // against a stray click (Edit on the wrong round, etc.) wiping it out.
+  function sgFormHasUnsavedWork(){
+    if(sgEditingEventId) return true;
+    return !!(q('sgTitle')?.value.trim() || q('sgLink')?.value.trim());
+  }
   function sgResetForm(){
     sgEditingEventId = null;
     sgEditingEventImageUrl = '';
