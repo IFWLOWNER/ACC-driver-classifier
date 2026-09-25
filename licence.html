@@ -1203,6 +1203,9 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .race-event-card .rec-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:auto;padding-top:4px}
 .race-event-card .rec-actions .btn.purple{margin-left:auto}
 .race-event-card.rec-flash{box-shadow:0 0 0 3px var(--ifwl-teal),var(--shadow)}
+.race-event-card-locked{opacity:.72}
+.race-event-card-locked:hover{opacity:1}
+.race-event-card-locked .rec-thumb-wrap{filter:grayscale(.45)}
 /* ✅ ADDED: weekly M-T-W-T-F-S-S overview strip above Available Races */
 .arw-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:18px;overflow-x:auto}
 @media(max-width:820px){.arw-strip{grid-template-columns:repeat(7,minmax(88px,1fr))}}
@@ -1216,6 +1219,7 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .arw-chip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1px solid var(--ifwl-line);background:var(--panel-bg);border-radius:8px;padding:5px 7px;font-size:10.5px;font-weight:700;color:var(--text-primary);cursor:pointer;text-align:left;line-height:1.25}
 .arw-chip:hover{border-color:var(--ifwl-teal)}
 .arw-chip-time{font-size:9.5px;font-weight:600;color:var(--text-muted)}
+.arw-chip-locked{opacity:.65}
 .platform-badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;background:rgba(31,214,189,.14);color:var(--ifwl-teal)}
 .points-pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:10.5px;font-weight:900;text-transform:uppercase;background:rgba(255,178,56,.16);color:var(--ifwl-amber)}
 body:not(.licence-gold) .gold-only-field{display:none!important}
@@ -6295,7 +6299,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="arw-day-col">
         <div class="arw-day-head">${d.label}<span class="arw-day-sub">${d.key}</span></div>
         <div class="arw-day-body">
-          ${byDay[d.key].length ? byDay[d.key].map(e => `<button type="button" class="arw-chip" data-arw-jump="${e.id}">${e.title}${e.raceTimeUK ? `<span class="arw-chip-time">${ifwlConvertUkTimeToViewerLocal(e.raceTimeUK)}</span>` : ''}</button>`).join('') : '<span class="arw-day-empty">&ndash;</span>'}
+          ${byDay[d.key].length ? byDay[d.key].map(e => `<button type="button" class="arw-chip${e.eligible===false ? ' arw-chip-locked' : ''}" data-arw-jump="${e.id}">${e.eligible===false ? '🔒 ' : ''}${e.title}${e.raceTimeUK ? `<span class="arw-chip-time">${ifwlConvertUkTimeToViewerLocal(e.raceTimeUK)}</span>` : ''}</button>`).join('') : '<span class="arw-day-empty">&ndash;</span>'}
         </div>
       </div>`;
     const wrap = document.createElement('div');
@@ -6349,13 +6353,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const endedBadge = staffAll && e.ended
         ? `<div class="rec-row warn"><span class="rec-row-icon">⚠️</span>Past its drop-off window - not currently shown to drivers</div>`
         : '';
+      // ✅ ADDED: every driver now sees every active race regardless of
+      // their own tier (so a Provisional driver can see a Pro-Am race
+      // exists and knows what to aim for) - `eligible` says whether THIS
+      // driver's current tier actually qualifies for it. Ineligible cards
+      // still show image/date/rounds/hosted-by/day/time/notes, same as an
+      // eligible-but-unassigned one, but the password never appears (and
+      // never will, server-side) and the actions that only make sense once
+      // you can actually join (View invite / Unlock Discord) are hidden -
+      // they'd just 403 anyway.
+      const notYetLicensed = !staffAll && e.eligible === false;
       // ✅ ADDED: Day of week / Time (converted to this viewer's own
-      // timezone) / Server hosted by - shown to every eligible driver
-      // regardless of whether they're assigned to the event, same as the
-      // image/date/rounds/hosted-by. Only the password (above) is gated
-      // behind assignment, enforced server-side in myAvailableRaces.
+      // timezone) / Server hosted by - shown to every driver regardless of
+      // eligibility or roster assignment, same as the image/date/rounds/
+      // hosted-by. Only the password is gated (behind eligibility, and then
+      // behind roster assignment if a roster exists), enforced server-side
+      // in myAvailableRaces.
       const scheduleBits = [e.dayOfWeek, e.raceTimeUK ? ifwlConvertUkTimeToViewerLocal(e.raceTimeUK) : ''].filter(Boolean).join(' &middot; ');
-      return `<div class="race-event-card" data-race-card="${e.id}">
+      return `<div class="race-event-card${notYetLicensed ? ' race-event-card-locked' : ''}" data-race-card="${e.id}">
         <div class="rec-thumb-wrap">
           <img src="${e.imageUrl || e.simgridImageUrl || placeholder}" alt="">
           ${dateStr ? `<span class="rec-ribbon left live">📅 ${dateStr}</span>` : ''}
@@ -6368,17 +6383,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             ${endedBadge}
             ${scheduleBits ? `<div class="rec-row"><span class="rec-row-icon">🗓️</span>${scheduleBits}</div>` : ''}
             <div class="rec-row"><span class="rec-row-icon">🖥️</span>Hosted by ${e.hostedBy || 'GPortal'}</div>
-            ${e.password ? `<div class="rec-row"><span class="rec-row-icon">🔒</span>Password: <code>${e.password}</code></div>` : ''}
+            ${notYetLicensed
+              ? `<div class="rec-row warn"><span class="rec-row-icon">🔒</span>Requires ${(e.tiers||[]).length ? (e.tiers.length === 1 ? `the ${e.tiers[0]} licence` : `one of: ${e.tiers.join(', ')}`) : 'a different licence tier'} - password hidden until you're licensed for it</div>`
+              : (e.password ? `<div class="rec-row"><span class="rec-row-icon">🔒</span>Password: <code>${e.password}</code></div>` : '')}
             ${e.notes ? `<div class="rec-row"><span class="rec-row-icon">📝</span>${e.notes}</div>` : ''}
           </div>
           <div class="rec-actions">
             ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
-            ${(!staffAll && e.discordRoleId) ? (
+            ${(!staffAll && !notYetLicensed && e.discordRoleId) ? (
               e.discordRoleUnlocked
                 ? `<span class="btn ghost" style="font-size:11px;opacity:.8;pointer-events:none">🔓 ${e.discordRoleLabel || 'Discord area'} unlocked</span>`
                 : `<button class="btn teal" data-unlock-discord="${e.id}" style="font-size:11px">Unlock ${e.discordRoleLabel ? `"${e.discordRoleLabel}"` : 'this area'} on Discord</button>`
             ) : ''}
-            ${e.simgridLink ? `<a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>` : ''}
+            ${(e.simgridLink && !notYetLicensed) ? `<a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>` : ''}
           </div>
         </div>
       </div>`;
