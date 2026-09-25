@@ -509,6 +509,7 @@ async function importPlannerEvents(eventIds){ return await apiPost('ownerOvervie
 async function resyncOwnerEvent(id){ return await apiPost('ownerOverviewEventResync', { id }); }
 async function saveOwnerEvent(id, fields){ return await apiPost('ownerOverviewEventSave', Object.assign({ id }, fields)); }
 async function deleteOwnerEvent(id){ return await apiPost('ownerOverviewEventDelete', { id }); }
+async function duplicateOwnerEvent(id){ return await apiPost('ownerOverviewDuplicateEvent', { id }); }
 async function pushOwnerEventRounds(id, roundIds){ return await apiPost('ownerOverviewPushRounds', { id, roundIds }); }
 async function unpushOwnerEventRound(id, roundId){ return await apiPost('ownerOverviewUnpushRound', { id, roundId }); }
 
@@ -1022,6 +1023,11 @@ window.addEventListener('ifwl-owner-ready', () => {
         </select>
         <p class="sub" style="margin:4px 0 0">This is what Push actually uses when publishing rounds to the licence system - it's guessed from the event name on import, but always double-check it here before pushing (a mis-guess used to mean fixing every round by hand afterwards).</p>
       </div>
+      <div class="form-row">
+        <label>SimGrid event link</label>
+        <input type="url" id="fldSimgridLink" placeholder="https://thesimgrid.com/championships/..." value="${escHtml(draft.simgridLink||'')}">
+        <p class="sub" style="margin:4px 0 0">Applied to every round when you push - this is what gives drivers a working "View invite" link. One championship link covers a whole series; if this event actually needs a different link per round, set those individually afterwards in Staff SimGrid Events.</p>
+      </div>
       <div class="form-row"><label>Visible to licence tier(s)</label><div class="tier-check-list" id="tierCheckList">${tierChecks}</div></div>
       <div class="form-row"><label>Notes (Owner Overview only)</label><textarea id="fldNotes">${escHtml(draft.notes||'')}</textarea></div>
 
@@ -1071,6 +1077,7 @@ window.addEventListener('ifwl-owner-ready', () => {
       <div class="modal-footer">
         <div style="display:flex;gap:8px">
           <button class="btn" id="deleteEventBtn" type="button">Delete</button>
+          <button class="btn ghost" id="duplicateEventBtn" type="button" title="Makes an independent copy - useful when one real event needs pushing twice (e.g. Console and PC separately), since a round can only ever be linked to one pushed licence-system event at a time.">Duplicate event</button>
           ${draft.importedFromPlannerId ? `<button class="btn" id="resyncEventBtn" type="button">Re-sync from planner</button>` : ''}
         </div>
         <button class="btn primary" id="saveEventBtn" type="button">Save changes</button>
@@ -1161,6 +1168,31 @@ window.addEventListener('ifwl-owner-ready', () => {
       }catch(e){ toast(`Delete failed: ${e.message}`, true); }
     });
 
+    // ✅ ADDED: "Duplicate event" - a genuinely one-off event that needs
+    // pushing to two audiences (e.g. one shared Console & PC Multiclass
+    // round split into separate Console and PC licence-tier pushes) used to
+    // get overwritten - pushing it a second time under the other platform
+    // stomped the SAME simgrid_events doc the first push created, since
+    // each schedule row only ever tracks one pushedSimgridEventId. This
+    // makes a fully independent copy (own schedule, all rounds un-pushed)
+    // so each can be set to a different platform and pushed on its own
+    // without ever touching the other's live rounds again.
+    q('duplicateEventBtn').addEventListener('click', async () => {
+      if(!confirm(`Duplicate "${draft.name || '(untitled event)'}"? This makes a separate copy with its own rounds, not yet pushed to the licence system - useful when this one event needs publishing twice (e.g. once as Console, once as PC).`)) return;
+      const btn = q('duplicateEventBtn');
+      btn.disabled = true; btn.textContent = 'Duplicating…';
+      try{
+        const result = await duplicateOwnerEvent(draft.id);
+        ownerEventsCache.push(result.event);
+        toast(`Duplicated as "${result.event.name}" - set its platform (and SimGrid link, if different) below, then push it separately.`);
+        renderEventEditor(JSON.parse(JSON.stringify(result.event)));
+        if(ownerEventsCache.__loaded) renderOwnerEvents();
+      }catch(e){
+        toast(`Duplicate failed: ${e.message}`, true);
+        btn.disabled = false; btn.textContent = 'Duplicate event';
+      }
+    });
+
     const resyncBtn = q('resyncEventBtn');
     if(resyncBtn){
       resyncBtn.addEventListener('click', async () => {
@@ -1191,7 +1223,7 @@ window.addEventListener('ifwl-owner-ready', () => {
         readScheduleFromDom();
         pushBtn.disabled = true; pushBtn.textContent = 'Saving changes first…';
         try{
-          const saved = await saveOwnerEvent(draft.id, { name: q('fldName').value, startDate: q('fldStartDate').value, notes: q('fldNotes').value, platform: q('fldPlatform').value, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+          const saved = await saveOwnerEvent(draft.id, { name: q('fldName').value, startDate: q('fldStartDate').value, notes: q('fldNotes').value, platform: q('fldPlatform').value, simgridLink: q('fldSimgridLink').value||'', imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
           Object.assign(draft, saved.event);
           pushBtn.textContent = 'Pushing…';
           const result = await pushOwnerEventRounds(draft.id, roundIds);
@@ -1230,9 +1262,10 @@ window.addEventListener('ifwl-owner-ready', () => {
       draft.startDate = q('fldStartDate').value;
       draft.notes = q('fldNotes').value;
       draft.platform = q('fldPlatform').value;
+      draft.simgridLink = q('fldSimgridLink').value;
       q('saveEventBtn').disabled = true; q('saveEventBtn').textContent = 'Saving…';
       try{
-        const result = await saveOwnerEvent(draft.id, { name: draft.name, startDate: draft.startDate, notes: draft.notes, platform: draft.platform, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+        const result = await saveOwnerEvent(draft.id, { name: draft.name, startDate: draft.startDate, notes: draft.notes, platform: draft.platform, simgridLink: draft.simgridLink||'', imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
         const idx = ownerEventsCache.findIndex(x => x.id === draft.id);
         if(idx >= 0) ownerEventsCache[idx] = result.event;
         closeModal();
