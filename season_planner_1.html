@@ -805,12 +805,21 @@
         <div style="margin-top:6px;">${lockedBadge}</div>
         <div class="evMeta">${ev.startDate ? "Starts " + escapeHtml(formatDate(ev.startDate)) : "Start date TBC"} · ${roundCount} round${roundCount === 1 ? "" : "s"}</div>
       `;
+      const btnRow = document.createElement("div");
+      btnRow.className = "row";
+      btnRow.style.marginTop = "10px";
+      const dupBtn = document.createElement("button");
+      dupBtn.className = "small ghost"; dupBtn.textContent = "⧉ Duplicate"; dupBtn.type = "button";
+      dupBtn.disabled = !isStaff;
+      dupBtn.title = "Makes a full copy of this event - rules, points, platforms, mods and every round - as a new draft you can edit independently.";
+      dupBtn.addEventListener("click", (e) => { e.stopPropagation(); duplicateEvent(ev.id); });
+      btnRow.appendChild(dupBtn);
       const removeBtn = document.createElement("button");
       removeBtn.className = "small ghost"; removeBtn.textContent = "Remove"; removeBtn.type = "button";
-      removeBtn.style.marginTop = "10px";
       removeBtn.disabled = !isStaff;
       removeBtn.addEventListener("click", (e) => { e.stopPropagation(); removeEvent(ev.id); });
-      card.appendChild(removeBtn);
+      btnRow.appendChild(removeBtn);
+      card.appendChild(btnRow);
       card.addEventListener("click", () => openEventPanel(ev.id));
       grid.appendChild(card);
     });
@@ -839,6 +848,42 @@
     editState.events = editState.events.filter(e => e.id !== id);
     markDirty();
     if (currentEventId === id) closeEventPanel(); else renderEventsList();
+  }
+
+  // ✅ ADDED: full copy of one event/series - rules, points, platforms, mods
+  // and every round in its schedule - as a new, independent draft. Useful
+  // for a series that's basically a repeat of another (same rules/points,
+  // different name/dates) instead of rebuilding it from scratch, and for
+  // splitting one real event into two separate pushes downstream (e.g. a
+  // Console & PC Multiclass event that League Owners Overview needs to
+  // push once as Console and once as PC - duplicate it here first so each
+  // copy can carry its own name/platform all the way through).
+  // Every nested id (rounds, rules, points, platforms, mods) is
+  // regenerated so the copy never shares identity with the original -
+  // same convention "Load from another event" already uses when copying
+  // rules across events. The copy always starts as an unlocked Draft, even
+  // if the original was locked in, since it hasn't been reviewed on its
+  // own yet.
+  function duplicateEvent(id) {
+    if (!isStaff) return;
+    const src = (editState.events || []).find(e => e.id === id);
+    if (!src) return;
+    const clone = JSON.parse(JSON.stringify(src));
+    clone.id = newId("evt");
+    clone.name = `${src.name || "(untitled event)"} (Copy)`;
+    clone.locked = false; clone.lockedBy = ""; clone.lockedAt = null;
+    clone.unlockedBy = ""; clone.unlockedAt = null;
+    (clone.rules || []).forEach(r => { r.id = newId("rul"); });
+    (clone.points || []).forEach(p => { p.id = newId("pts"); });
+    (clone.platforms || []).forEach(p => { p.id = newId("plt"); });
+    (clone.mods || []).forEach(m => { m.id = newId("mod"); });
+    (clone.schedule || []).forEach(r => { r.id = newId("rnd"); });
+    editState.events = editState.events || [];
+    editState.events.push(clone);
+    markDirty();
+    renderEventsList();
+    openEventPanel(clone.id);
+    toast(`Duplicated as "${clone.name}" - still a draft, not locked in.`);
   }
 
   // ---------- event panel ----------
