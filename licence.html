@@ -4464,6 +4464,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
     return apiPost('staffSimgridEventBulkDelete', { eventIds });
   }
+  // ✅ ADDED: fixes several already-pushed rounds' platform in one go -
+  // the League Owners Overview "Push" used to guess "Console + PC" for
+  // everything (a season-wide list, not per-series), so a whole series
+  // could come in wrong; this is the fast fix without editing every round.
+  async function bulkSetPlatformSimgridEvents(eventIds, platform){
+    if(USE_DEMO_FALLBACK){
+      const idSet = new Set(eventIds);
+      const all = demoGet('simgridEvents', []).map(e => idSet.has(e.id) ? {...e, platform} : e);
+      demoSet('simgridEvents', all);
+      return { ok:true, updatedCount: eventIds.length, platform };
+    }
+    return apiPost('staffSimgridEventBulkSetPlatform', { eventIds, platform });
+  }
   async function uploadEventRoster(eventId, entries){
     return apiPost('staffEventRosterUpload', { eventId, entries });
   }
@@ -4474,7 +4487,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(USE_DEMO_FALLBACK) return { ok:true };
     return apiPost('unlockEventDiscordRole', { eventId });
   }
-  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, bulkDeleteSimgridEvents, uploadEventRoster, unlockEventDiscordRole };
+  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, bulkDeleteSimgridEvents, bulkSetPlatformSimgridEvents, uploadEventRoster, unlockEventDiscordRole };
 
   // Server contract:
   //   ?enduranceConfigGet=1                        (GET,  public - entry fee + prize pool split)
@@ -12849,9 +12862,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const liveCount = g.rounds.length;
       return `
       <div class="note-item sg-series-group" data-series-group="${g.key}" style="background:#f7f8fa">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer" data-series-toggle="${g.key}">
-          <div><strong>${groupName}</strong> <span class="field-hint">(${liveCount} round${liveCount===1?'':'s'})</span></div>
-          <button class="btn ghost" type="button" data-series-toggle-btn="${g.key}">Show/hide rounds</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px;cursor:pointer" data-series-toggle="${g.key}">
+            <div><strong>${groupName}</strong> <span class="field-hint">(${liveCount} round${liveCount===1?'':'s'})</span></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label class="btn ghost" style="cursor:pointer;margin:0;font-size:11px"><input type="checkbox" data-select-group="${g.key}" style="width:auto;margin-right:4px">Select all in series</label>
+            <button class="btn ghost" type="button" data-series-toggle-btn="${g.key}">Show/hide rounds</button>
+          </div>
         </div>
         <div data-series-body="${g.key}" class="hidden" style="margin-top:10px">
           ${g.rounds.map(e => roundRowHtml(e, true)).join('')}
@@ -12868,6 +12886,24 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     wrap.querySelectorAll('[data-series-toggle]').forEach(head => head.addEventListener('click', () => {
       const key = head.dataset.seriesToggle;
       wrap.querySelector(`[data-series-body="${CSS.escape(key)}"]`)?.classList.toggle('hidden');
+    }));
+    // ✅ ADDED: "Select all in series" - ticks every round's checkbox
+    // within this one group (and expands it so the selection is visible),
+    // so staff can select a whole series in one click before using the
+    // bulk toolbar's Delete or Set Platform actions below, instead of
+    // ticking 10 rounds one at a time.
+    wrap.querySelectorAll('[data-select-group]').forEach(cb => cb.addEventListener('change', (ev) => {
+      ev.stopPropagation();
+      const key = cb.dataset.selectGroup;
+      const body = wrap.querySelector(`[data-series-body="${CSS.escape(key)}"]`);
+      if(!body) return;
+      if(cb.checked) body.classList.remove('hidden');
+      body.querySelectorAll('.sg-bulk-select').forEach(round => { round.checked = cb.checked; });
+      const n = wrap.querySelectorAll('.sg-bulk-select:checked').length;
+      const delBtn = q('sgBulkDeleteBtn');
+      if(delBtn){ delBtn.disabled = !n; delBtn.textContent = `Delete selected (${n})`; }
+      const platBtn = q('sgBulkPlatformBtn');
+      if(platBtn) platBtn.disabled = !n;
     }));
 
     wrap.querySelectorAll('[data-roster-upload]').forEach(input => input.addEventListener('change', async () => {
@@ -12941,17 +12977,27 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   // addresses "im having to delete 1 by 1 at the omoent." Sits above the
   // (grouped) event list; count updates live as rounds are ticked.
   function sgBulkToolbarHtml(){
-    return `<div class="note-item" id="sgBulkToolbar" style="display:flex;align-items:center;gap:10px;background:#fff">
+    return `<div class="note-item" id="sgBulkToolbar" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff">
       <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer"><input type="checkbox" id="sgSelectAllCheck" style="width:auto"> Select all</label>
       <button class="btn ghost" id="sgBulkDeleteBtn" type="button" disabled>Delete selected (0)</button>
+      <span style="display:flex;align-items:center;gap:6px;border-left:1px solid var(--ifwl-line);padding-left:10px;margin-left:2px">
+        <select id="sgBulkPlatformSelect" style="width:auto">
+          <option value="both">Console + PC</option>
+          <option value="console">Console only</option>
+          <option value="pc">PC only</option>
+        </select>
+        <button class="btn ghost" id="sgBulkPlatformBtn" type="button" disabled>Set platform for selected</button>
+      </span>
       <span class="field-hint" id="sgBulkStatus"></span>
     </div>`;
   }
   function sgWireBulkToolbar(wrap){
     const updateCount = () => {
       const n = wrap.querySelectorAll('.sg-bulk-select:checked').length;
-      const btn = q('sgBulkDeleteBtn');
-      if(btn){ btn.disabled = !n; btn.textContent = `Delete selected (${n})`; }
+      const delBtn = q('sgBulkDeleteBtn');
+      if(delBtn){ delBtn.disabled = !n; delBtn.textContent = `Delete selected (${n})`; }
+      const platBtn = q('sgBulkPlatformBtn');
+      if(platBtn) platBtn.disabled = !n;
     };
     wrap.querySelectorAll('.sg-bulk-select').forEach(cb => cb.addEventListener('change', updateCount));
     q('sgSelectAllCheck')?.addEventListener('change', (e) => {
@@ -12971,6 +13017,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         const status = q('sgBulkStatus');
         if(status) status.textContent = `Delete failed: ${e.message}`;
         btn.disabled = false;
+      }
+    });
+    // ✅ ADDED: fast fix for rounds that were already pushed with the wrong
+    // platform (League Owners Overview's Push used to guess "Console + PC"
+    // for every series, since the season plan's platforms list isn't
+    // per-series) - select the rounds (or a whole series via "Select all
+    // in series" above), pick the right platform, apply once.
+    q('sgBulkPlatformBtn')?.addEventListener('click', async () => {
+      const ids = [...wrap.querySelectorAll('.sg-bulk-select:checked')].map(cb => cb.dataset.selectEvent);
+      if(!ids.length) return;
+      const platform = q('sgBulkPlatformSelect').value;
+      const platformLabel = platform === 'console' ? 'Console only' : platform === 'pc' ? 'PC only' : 'Console + PC';
+      if(!confirm(`Set ${ids.length} round(s) to "${platformLabel}"?`)) return;
+      const btn = q('sgBulkPlatformBtn');
+      btn.disabled = true; btn.textContent = 'Updating…';
+      try{
+        await window.IFWL_SimgridAPI.bulkSetPlatformSimgridEvents(ids, platform);
+        await renderSimgridEventList();
+      }catch(e){
+        const status = q('sgBulkStatus');
+        if(status) status.textContent = `Platform update failed: ${e.message}`;
+        btn.disabled = false; btn.textContent = 'Set platform for selected';
       }
     });
   }
