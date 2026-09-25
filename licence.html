@@ -3667,6 +3667,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div style="display:flex;gap:10px">
         <div class="field-group" style="flex:1"><label>Day of week</label><select id="sgDayOfWeek">
           <option value="">Not set</option>
+          <option value="Daily">Every day</option>
           <option value="Mon">Monday</option>
           <option value="Tue">Tuesday</option>
           <option value="Wed">Wednesday</option>
@@ -3678,7 +3679,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="field-group" style="flex:1"><label>Time (UK local, 24h)</label><input type="text" id="sgRaceTimeUK" placeholder="e.g. 20:00"></div>
         <div class="field-group" style="flex:1"><label>Server hosted by</label><input type="text" id="sgHostedBy" placeholder="GPortal"></div>
       </div>
-      <div class="field-hint" style="margin:-8px 0 10px">Day of week / Time (converted to each driver's own timezone) / Hosted by feed the Available Races weekly calendar. Time defaults to GPortal-style UK scheduling - leave blank if this event only runs on an exact date.</div>
+      <div class="field-hint" style="margin:-8px 0 10px">Day of week / Time (converted to each driver's own timezone) / Hosted by feed the Available Races weekly calendar. Time defaults to GPortal-style UK scheduling - leave blank if this event only runs on an exact date. "Every day" (for always-on servers like Licence Obtainment) shows this event under every day on the weekly calendar.</div>
+      <div class="field-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="sgPinned" style="width:auto"> Pin to top of Available Races (always shown first, ahead of every dated race)</label></div>
       <div class="field-group"><label>Available to which tiers?</label><div id="sgTierChecks"></div></div>
       <div style="display:flex;gap:10px">
         <div class="field-group" style="flex:1">
@@ -6291,6 +6293,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   function renderAvailableRacesWeeklyStrip(events){
     const byDay = { Mon:[], Tue:[], Wed:[], Thu:[], Fri:[], Sat:[], Sun:[], other:[] };
     events.forEach(e => {
+      // ✅ ADDED: "Daily" (e.g. the always-on Licence Obtainment servers)
+      // goes under every day column, not just one - and never falls into
+      // "Unscheduled" since it genuinely does run every day.
+      if(e.dayOfWeek === 'Daily'){ AVAILABLE_RACES_WEEK_DAYS.forEach(d => byDay[d.key].push(e)); return; }
       let day = e.dayOfWeek || '';
       if(!day && e.eventDateMs) day = AVAILABLE_RACES_WEEKDAY_FROM_JSDAY[new Date(e.eventDateMs).getDay()];
       (byDay[day] || byDay.other).push(e);
@@ -12911,6 +12917,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('sgDayOfWeek').value = ev.dayOfWeek || '';
       q('sgRaceTimeUK').value = ev.raceTimeUK || '';
       q('sgHostedBy').value = ev.hostedBy || '';
+      q('sgPinned').checked = !!ev.pinned;
       q('sgDiscordRoleId').value = ev.discordRoleId || '';
       q('sgDiscordRoleLabel').value = ev.discordRoleLabel || '';
       q('sgEventDate').value = ev.eventDateMs ? new Date(ev.eventDateMs).toISOString().slice(0,16) : '';
@@ -12976,6 +12983,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
     q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
     q('sgDayOfWeek').value = ''; q('sgRaceTimeUK').value = ''; q('sgHostedBy').value = '';
+    q('sgPinned').checked = false;
     q('sgDiscordRoleId').value = ''; q('sgDiscordRoleLabel').value = '';
     q('sgSeries').value = '';
     q('sgEventImageInput').value = '';
@@ -13000,6 +13008,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const dayOfWeek = q('sgDayOfWeek').value;
     const raceTimeUK = q('sgRaceTimeUK').value.trim();
     const hostedBy = q('sgHostedBy').value.trim();
+    const pinned = q('sgPinned').checked;
     const discordRoleId = q('sgDiscordRoleId').value.trim();
     const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
     if(!title || !simgridLink || !tiers.length){ q('sgSaveStatus').textContent = 'Title, link and at least one tier are required.'; return; }
@@ -13018,7 +13027,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, imageUrl, discordRoleId, discordRoleLabel });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, pinned, imageUrl, discordRoleId, discordRoleLabel });
       const wasEditing = !!sgEditingEventId;
       sgResetForm();
       q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
