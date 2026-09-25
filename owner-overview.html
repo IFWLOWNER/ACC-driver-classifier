@@ -1013,6 +1013,15 @@ window.addEventListener('ifwl-owner-ready', () => {
         <div class="form-row"><label>Event name</label><input type="text" id="fldName" value="${escHtml(draft.name||'')}"></div>
         <div class="form-row"><label>Start date</label><input type="date" id="fldStartDate" value="${escHtml(draft.startDate||'')}"></div>
       </div>
+      <div class="form-row">
+        <label>Platform</label>
+        <select id="fldPlatform">
+          <option value="both" ${(draft.platform||'both')==='both'?'selected':''}>Console + PC</option>
+          <option value="console" ${draft.platform==='console'?'selected':''}>Console only</option>
+          <option value="pc" ${draft.platform==='pc'?'selected':''}>PC only</option>
+        </select>
+        <p class="sub" style="margin:4px 0 0">This is what Push actually uses when publishing rounds to the licence system - it's guessed from the event name on import, but always double-check it here before pushing (a mis-guess used to mean fixing every round by hand afterwards).</p>
+      </div>
       <div class="form-row"><label>Visible to licence tier(s)</label><div class="tier-check-list" id="tierCheckList">${tierChecks}</div></div>
       <div class="form-row"><label>Notes (Owner Overview only)</label><textarea id="fldNotes">${escHtml(draft.notes||'')}</textarea></div>
 
@@ -1182,7 +1191,7 @@ window.addEventListener('ifwl-owner-ready', () => {
         readScheduleFromDom();
         pushBtn.disabled = true; pushBtn.textContent = 'Saving changes first…';
         try{
-          const saved = await saveOwnerEvent(draft.id, { name: q('fldName').value, startDate: q('fldStartDate').value, notes: q('fldNotes').value, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+          const saved = await saveOwnerEvent(draft.id, { name: q('fldName').value, startDate: q('fldStartDate').value, notes: q('fldNotes').value, platform: q('fldPlatform').value, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
           Object.assign(draft, saved.event);
           pushBtn.textContent = 'Pushing…';
           const result = await pushOwnerEventRounds(draft.id, roundIds);
@@ -1220,9 +1229,10 @@ window.addEventListener('ifwl-owner-ready', () => {
       draft.name = q('fldName').value;
       draft.startDate = q('fldStartDate').value;
       draft.notes = q('fldNotes').value;
+      draft.platform = q('fldPlatform').value;
       q('saveEventBtn').disabled = true; q('saveEventBtn').textContent = 'Saving…';
       try{
-        const result = await saveOwnerEvent(draft.id, { name: draft.name, startDate: draft.startDate, notes: draft.notes, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
+        const result = await saveOwnerEvent(draft.id, { name: draft.name, startDate: draft.startDate, notes: draft.notes, platform: draft.platform, imageUrl: draft.imageUrl||'', visibleTiers: draft.visibleTiers||[], schedule: draft.schedule||[] });
         const idx = ownerEventsCache.findIndex(x => x.id === draft.id);
         if(idx >= 0) ownerEventsCache[idx] = result.event;
         closeModal();
