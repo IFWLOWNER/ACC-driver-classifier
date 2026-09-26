@@ -240,6 +240,12 @@ body:not(.owner-access) .owner-only-tab{display:none!important}
 body:not(.commentator-access):not(.owner-access) .commentator-only-tab{display:none!important}
 body:not(.ops-access) .ops-only-tab{display:none!important}
 body:not(.headmod-access):not(.owner-access) .headmod-only-tab{display:none!important}
+/* ✅ ADDED: visible to Owner, Ops Manager OR Head Moderator (owner-access
+   is already implied by both ops-access and headmod-access, so no separate
+   :not(.owner-access) needed here) - used for the Licence Database nav tab
+   and its "Message selected" bulk action, which Head Moderator can use
+   read/message-only even without the wider ops-access tab set. */
+body:not(.ops-access):not(.headmod-access) .ops-or-headmod-tab{display:none!important}
 body:not(.discord-logged-in) .logged-in-tab,body:not(.discord-logged-in) .logged-in-tab-group{display:none!important}
 
 .view-panel{display:none}
@@ -1635,7 +1641,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <summary>Drivers &amp; Licences</summary>
         <div class="staff-accordion-items">
           <button data-view="staffLicenceManagement" class="ops-only-tab" type="button">Licence Management</button>
-          <button data-view="staffLicenceDatabase" class="ops-only-tab" type="button">Licence Database</button>
+          <button data-view="staffLicenceDatabase" class="ops-or-headmod-tab" type="button">Licence Database</button>
           <button data-view="staffAlerts" class="ops-only-tab" type="button">Staff Alerts</button>
           <button data-view="staffRequests" type="button">Licence Requests</button>
           <button data-view="staffTierManage" class="ops-only-tab" type="button">Manage Licence Tiers</button>
@@ -4137,7 +4143,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   <section class="panel view-panel" data-view="staffLicenceDatabase" id="licenceDatabasePanel">
     <div class="panel-head"><div><h3>Staff: Licence Database</h3><small>Every driver, ranked by pace, with everything else staff need to know</small></div><button class="btn ghost" id="licDbRefreshBtn" type="button">Refresh</button></div>
-    <div class="staff-only-note">Overview loads instantly. Consistency/Race Risk/pace ranking requires scanning every driver's session history - click "Load full stats" when you actually need the ranking, rather than every time this tab opens.</div>
+    <div class="staff-only-note">Overview loads instantly. Consistency/Race Risk/pace ranking requires scanning every driver's session history - click "Load full stats" when you actually need the ranking, rather than every time this tab opens. "Status" shows <strong>Banned</strong> (an active ban right now) and/or <strong>Unlinked</strong> (no ACC in-game driver name has been matched to this profile yet, so their session/lap data can't be attributed to them) - or "-" if neither applies.</div>
     <div id="licDbOverview" class="licdb-overview"><div class="empty">Loading overview&hellip;</div></div>
     <div class="dir-toolbar" style="margin-top:12px">
       <input type="text" id="licDbSearch" placeholder="Search by name or licence number...">
@@ -4150,13 +4156,32 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       </select>
       <button class="btn purple" id="licDbLoadStatsBtn" type="button">Load full stats &amp; rank by pace</button>
     </div>
+    <!-- ✅ ADDED: bulk-action toolbar for the checkbox column below. The
+         whole toolbar only shows for Owner/Ops Manager/Head Moderator
+         (ops-or-headmod-tab), but "Reset points" further narrows to
+         Owner/Ops Manager only (ops-only-tab) - Head Moderator can select
+         and message drivers but never reset points. -->
+    <div class="dir-toolbar ops-or-headmod-tab" id="licDbBulkToolbar" style="margin-top:8px;align-items:center;gap:10px">
+      <span class="field-hint" id="licDbSelectCount" style="margin:0">0 selected</span>
+      <button class="btn ghost ops-only-tab" id="licDbBulkResetBtn" type="button" disabled>Reset points to 0 for selected</button>
+      <button class="btn ghost ops-or-headmod-tab" id="licDbBulkMessageBtn" type="button" disabled>Message selected</button>
+    </div>
+    <div id="licDbBulkComposeBox" class="hidden ops-or-headmod-tab" style="border:1px solid var(--ifwl-line);border-radius:10px;padding:14px;margin-top:8px">
+      <h4 id="licDbBulkComposeTitle" style="margin:0 0 10px"></h4>
+      <div class="field-group"><label>Subject</label><input type="text" id="licDbBulkSubject" placeholder="e.g. Please update your ACC driver name"></div>
+      <div class="field-group"><label>Message</label><textarea id="licDbBulkText" style="min-height:80px" placeholder="Your message..."></textarea></div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0 0 10px"><input type="checkbox" id="licDbBulkAllowReplies" style="width:auto"> Allow these drivers to reply</label>
+      <button class="btn teal" id="licDbBulkComposeSendBtn" type="button">Send</button>
+      <button class="btn ghost" id="licDbBulkComposeCancelBtn" type="button">Cancel</button>
+      <span class="save-status" id="licDbBulkComposeStatus"></span>
+    </div>
     <div class="table-wrap">
       <table class="dir-table">
         <thead><tr>
-          <th></th><th>Driver</th><th>Tier</th><th>Points</th><th>Platform</th><th>Status</th>
+          <th class="ops-or-headmod-tab"><input type="checkbox" id="licDbSelectAll" title="Select all"></th><th></th><th>Driver</th><th>Tier</th><th>Points</th><th>Platform</th><th>Status</th>
           <th>PC laps</th><th>Console laps</th><th id="licDbScoreHead">Overall</th><th id="licDbConsHead">Consistency</th><th id="licDbRiskHead">Race Risk</th>
         </tr></thead>
-        <tbody id="licDbBody"><tr><td colspan="11" class="empty">Loading&hellip;</td></tr></tbody>
+        <tbody id="licDbBody"><tr><td colspan="12" class="empty">Loading&hellip;</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -4563,6 +4588,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     myReply: (threadId, text) => apiPost('myInboxReply', { threadId, text }),
     staffSend: (driverId, subject, text) => apiPost('staffMessageSend', { driverId, subject, text }),
     staffSendAll: (subject, text, allowReplies) => apiPost('staffMessageSendAll', { subject, text, allowReplies }),
+    // ✅ ADDED: targeted version of staffSendAll - one thread each, but only
+    // to the driverIds given (Licence Database "Message selected"). Owner/
+    // Ops Manager or Head Moderator - see staffLicenceBulkMessage in index.js.
+    staffSendSelected: (driverIds, subject, text, allowReplies) => apiPost('staffLicenceBulkMessage', { driverIds, subject, text, allowReplies }),
     staffList: () => apiGet('staffInboxList'),
     staffThread: (threadId) => apiGet('staffInboxThread', `&threadId=${encodeURIComponent(threadId)}`),
     staffReply: (threadId, text) => apiPost('staffInboxReply', { threadId, text })
@@ -10918,6 +10947,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(USE_DEMO_FALLBACK()) return (demoGet('notes', {})[id] || []);
     return (await window.IFWL_Api.apiGet('staffLicenceNoteList', `&driverId=${encodeURIComponent(id)}`)).notes || [];
   }
+  // ✅ ADDED: Licence Database "Reset points for selected" - Owner/Ops
+  // Manager only (see staffLicenceBulkResetPoints in index.js). Sets each
+  // selected driver's licencePoints to 0 via the shared points-change core,
+  // so it's logged in their pointsHistory the same as any other adjustment.
+  async function staffBulkResetPoints(driverIds){
+    if(USE_DEMO_FALLBACK()){
+      const all = demoGet('profiles', {});
+      driverIds.forEach(id => { if(all[id]) all[id].licencePoints = 0; });
+      demoSet('profiles', all);
+      return { ok:true, reset: driverIds, failed: [] };
+    }
+    return window.IFWL_Api.apiPost('staffLicenceBulkResetPoints', { driverIds });
+  }
   async function staffSaveProfile(id, patch){
     if(USE_DEMO_FALLBACK()){
       const all = demoGet('profiles', {});
@@ -14698,12 +14740,18 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   let licDbStatsMap = new Map(); // discordId -> performance stats, populated only after "Load full stats"
   let licDbStatsLoaded = false;
   let licDbNoLicenceTierName = 'No Licence';
+  // ✅ ADDED: checkbox multi-select state for the bulk toolbar (reset points
+  // / message selected) - a Set of discordIds, persisted across a
+  // renderLicDbTable() re-render (search/filter/load-stats) but cleared on
+  // a full renderLicenceDatabase() reload.
+  let licDbSelected = new Set();
 
   async function renderLicenceDatabase(){
     const overviewBox = q('licDbOverview');
     const body = q('licDbBody');
     overviewBox.innerHTML = '<div class="empty">Loading overview&hellip;</div>';
-    body.innerHTML = '<tr><td colspan="11" class="empty">Loading&hellip;</td></tr>';
+    body.innerHTML = '<tr><td colspan="12" class="empty">Loading&hellip;</td></tr>';
+    licDbSelected.clear();
     licDbStatsLoaded = false;
     licDbStatsMap = new Map();
     q('licDbScoreHead').textContent = 'Overall';
@@ -14789,7 +14837,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       });
     }
 
-    if(!rows.length){ body.innerHTML = '<tr><td colspan="11" class="empty">No matches.</td></tr>'; return; }
+    // Selection only ever holds ids of rows currently on screen after a
+    // search/filter change - drop anything that scrolled out of view so
+    // "select all" and the count stay accurate to what's visible.
+    const visibleIds = new Set(rows.map(p => p.discordId));
+    [...licDbSelected].forEach(id => { if(!visibleIds.has(id)) licDbSelected.delete(id); });
+
+    if(!rows.length){ body.innerHTML = '<tr><td colspan="12" class="empty">No matches.</td></tr>'; updateLicDbBulkToolbar(); return; }
 
     body.innerHTML = rows.map((p, i) => {
       const l = licDbLapMap.get(p.discordId) || {};
@@ -14801,6 +14855,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       if(p.banActive) statusBits.push('<span class="licdb-ban">Banned</span>');
       if(!(p.accDriverNames || []).length) statusBits.push('<span class="field-hint">Unlinked</span>');
       return `<tr>
+        <td class="ops-or-headmod-tab"><input type="checkbox" class="licdb-row-check" data-id="${p.discordId}"${licDbSelected.has(p.discordId) ? ' checked' : ''}></td>
         <td><button class="licdb-expand-btn" data-licdb-expand="${p.discordId}" data-row="${i}">&#9660;</button></td>
         <td>${p.name} <span class="field-hint mono">(${p.licenceNumber})</span></td>
         <td><span class="tier-pill" style="background:transparent;border:none;padding:0">${p.tier}</span></td>
@@ -14813,8 +14868,14 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <td class="mono">${stats?.consistencyAvg != null ? stats.consistencyAvg + '%' : '-'}</td>
         <td class="mono">${stats?.riskAvg != null ? stats.riskAvg + '%' : '-'}</td>
       </tr>
-      <tr class="licdb-detail-row hidden" id="licdbDetail${p.discordId}"><td colspan="11" class="empty">Loading detail&hellip;</td></tr>`;
+      <tr class="licdb-detail-row hidden" id="licdbDetail${p.discordId}"><td colspan="12" class="empty">Loading detail&hellip;</td></tr>`;
     }).join('');
+
+    body.querySelectorAll('.licdb-row-check').forEach(cb => cb.addEventListener('change', () => {
+      if(cb.checked) licDbSelected.add(cb.dataset.id); else licDbSelected.delete(cb.dataset.id);
+      updateLicDbBulkToolbar();
+    }));
+    updateLicDbBulkToolbar();
 
     body.querySelectorAll('[data-licdb-expand]').forEach(btn => btn.addEventListener('click', async () => {
       const id = btn.dataset.licdbExpand;
@@ -14838,6 +14899,88 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       }catch(e){ detailRow.querySelector('td').innerHTML = `Could not load: ${e.message}`; }
     }));
   }
+
+  // ✅ ADDED: keeps the bulk toolbar (count + button enabled state) and the
+  // header "select all" checkbox in sync with licDbSelected, called after
+  // every render and every checkbox change.
+  function updateLicDbBulkToolbar(){
+    const n = licDbSelected.size;
+    const countEl = q('licDbSelectCount');
+    if(countEl) countEl.textContent = n === 1 ? '1 selected' : `${n} selected`;
+    const resetBtn = q('licDbBulkResetBtn'), msgBtn = q('licDbBulkMessageBtn');
+    if(resetBtn) resetBtn.disabled = n === 0;
+    if(msgBtn) msgBtn.disabled = n === 0;
+    const selectAll = q('licDbSelectAll');
+    const rowChecks = [...document.querySelectorAll('.licdb-row-check')];
+    if(selectAll) selectAll.checked = rowChecks.length > 0 && rowChecks.every(cb => cb.checked);
+  }
+
+  q('licDbSelectAll')?.addEventListener('change', (e) => {
+    document.querySelectorAll('.licdb-row-check').forEach(cb => {
+      cb.checked = e.target.checked;
+      if(e.target.checked) licDbSelected.add(cb.dataset.id); else licDbSelected.delete(cb.dataset.id);
+    });
+    updateLicDbBulkToolbar();
+  });
+
+  // ✅ ADDED: "Reset points to 0 for selected" - Owner/Ops Manager only
+  // (staffLicenceBulkResetPoints in index.js enforces this server-side too;
+  // the button is additionally hidden from non-Ops staff via ops-only-tab).
+  q('licDbBulkResetBtn')?.addEventListener('click', async () => {
+    const ids = [...licDbSelected];
+    if(!ids.length) return;
+    const names = ids.map(id => licDbProfiles.find(p => p.discordId === id)?.name || id).slice(0, 8).join(', ') + (ids.length > 8 ? `, +${ids.length - 8} more` : '');
+    if(!confirm(`Reset licence points to 0 for ${ids.length} driver(s)?\n\n${names}\n\nThis is logged in each driver's points history and cannot be undone from here.`)) return;
+    const btn = q('licDbBulkResetBtn');
+    btn.disabled = true; btn.textContent = 'Resetting...';
+    try{
+      const result = await staffBulkResetPoints(ids);
+      (result.reset || []).forEach(id => {
+        const p = licDbProfiles.find(x => x.discordId === id);
+        if(p) p.licencePoints = 0;
+      });
+      licDbSelected.clear();
+      renderLicDbTable();
+      if((result.failed || []).length) alert(`${result.failed.length} driver(s) could not be reset:\n` + result.failed.map(f => `${f.driverId}: ${f.error}`).join('\n'));
+    }catch(e){ alert('Could not reset points: ' + e.message); }
+    finally{ btn.disabled = false; btn.textContent = 'Reset points to 0 for selected'; }
+  });
+
+  // ✅ ADDED: "Message selected" - Owner/Ops Manager or Head Moderator (see
+  // staffLicenceBulkMessage in index.js and staffSendSelected above). Reuses
+  // the same inline compose-box pattern as the Head Moderator area
+  // (headModComposeBox) rather than a separate modal component.
+  q('licDbBulkMessageBtn')?.addEventListener('click', () => {
+    const ids = [...licDbSelected];
+    if(!ids.length) return;
+    q('licDbBulkComposeTitle').textContent = `Message ${ids.length} selected driver${ids.length === 1 ? '' : 's'}`;
+    q('licDbBulkSubject').value = '';
+    q('licDbBulkText').value = '';
+    q('licDbBulkAllowReplies').checked = false;
+    q('licDbBulkComposeStatus').textContent = '';
+    q('licDbBulkComposeBox').classList.remove('hidden');
+    q('licDbBulkComposeBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  q('licDbBulkComposeCancelBtn')?.addEventListener('click', () => q('licDbBulkComposeBox').classList.add('hidden'));
+  q('licDbBulkComposeSendBtn')?.addEventListener('click', async () => {
+    const ids = [...licDbSelected];
+    const subject = q('licDbBulkSubject').value.trim();
+    const text = q('licDbBulkText').value.trim();
+    const allowReplies = q('licDbBulkAllowReplies').checked;
+    const statusEl = q('licDbBulkComposeStatus');
+    if(!ids.length){ statusEl.textContent = 'Nothing selected.'; return; }
+    if(!subject || !text){ statusEl.textContent = 'Subject and message are both required.'; return; }
+    const btn = q('licDbBulkComposeSendBtn');
+    btn.disabled = true; statusEl.textContent = 'Sending...';
+    try{
+      const result = await window.IFWL_InboxAPI.staffSendSelected(ids, subject, text, allowReplies);
+      statusEl.textContent = `Sent to ${result.sentTo} driver(s).` + ((result.missing || []).length ? ` (${result.missing.length} not found)` : '');
+      licDbSelected.clear();
+      renderLicDbTable();
+      setTimeout(() => q('licDbBulkComposeBox').classList.add('hidden'), 1500);
+    }catch(e){ statusEl.textContent = 'Could not send: ' + e.message; }
+    finally{ btn.disabled = false; }
+  });
 
   q('licDbSearch')?.addEventListener('input', renderLicDbTable);
   q('licDbFilter')?.addEventListener('change', renderLicDbTable);
