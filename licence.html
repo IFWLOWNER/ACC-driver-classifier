@@ -629,6 +629,11 @@ body:not(.staff-access) #staffPanel,body:not(.staff-access) #tierManagePanel,bod
 .qual-upsell a{color:#92600a;font-weight:800;text-decoration:none}
 .qual-chart-wrap{margin-top:14px}
 .qual-chart-wrap .qual-chart-sub{color:var(--text-muted);font-size:12px;margin:0 0 10px}
+/* ✅ ADDED: Top 10 leaderboard on Your Qualification Ranking (Gold/staff only) */
+.qual-top10-wrap{margin-top:14px}
+.qual-top10-wrap .qual-top10-head{font-size:13px;margin-bottom:4px}
+.qual-top10-wrap tr.qual-top10-me{background:rgba(31,214,189,.08)}
+.qual-top10-wrap tr.qual-top10-me td{font-weight:800}
 
 /* ✅ ADDED: LMU sub-licence self-select panel */
 .lmu-disclaimer{margin:0 0 18px;padding:14px 16px;border-radius:12px;background:rgba(255,178,56,.08);border:1px solid rgba(255,178,56,.3);font-size:13px;line-height:1.55;color:#7a5a1a}
@@ -7200,6 +7205,68 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   window.sessionCarInfo = sessionCarInfo;
   window.buildSessionStatsTableHtml = buildSessionStatsTableHtml;
 
+  // ✅ ADDED: Top 10 leaderboard on Your Qualification Ranking - Gold/staff
+  // only, same gate as Recommended Tier/Consistency/Gap to Best on this
+  // card. Shows the 10 fastest drivers on this server (by the same pace
+  // ranking that already decides everyone's rank/recommended tier), each
+  // with the car tied to their fastest lap, their consistency, and - the
+  // actual point of this table - a time gap between YOUR best lap and
+  // theirs, so it reads as "here's exactly how much you need to find to
+  // catch #4", not just a bare list of names. Standard motorsport gap
+  // convention: positive = you're behind (slower), negative = you're
+  // ahead of them.
+  async function buildQualTop10Html(standings, myIndex, serverId, isGoldOrStaff){
+    if(!isGoldOrStaff) return '';
+    const top = standings.slice(0, 10);
+    if(!top.length) return '';
+
+    const myRow = myIndex >= 0 ? standings[myIndex] : null;
+    const myBestMs = (myRow && Number.isFinite(myRow.bestLapMs)) ? myRow.bestLapMs : null;
+
+    let carCatalog = [];
+    try{ carCatalog = (await window.IFWL_BopAPI.fetchBopTrackerData()).carCatalog || []; }
+    catch(e){ /* rows just fall back to a plain car-model number below */ }
+    const platformKey = serverId.startsWith('console') ? 'console' : 'pc';
+
+    const gapText = (theirMs) => {
+      if(myBestMs == null || !Number.isFinite(theirMs)) return '-';
+      const gapSec = (myBestMs - theirMs) / 1000;
+      if(Math.abs(gapSec) < 0.0005) return 'Even';
+      return `${gapSec > 0 ? '+' : ''}${gapSec.toFixed(3)}s`;
+    };
+
+    const rows = top.map((r, i) => {
+      const rank = i + 1;
+      const isMe = i === myIndex;
+      const car = sessionCarInfo(carCatalog, r.bestLapCarModel, platformKey);
+      const carCell = car
+        ? `<div class="sd-car-cell">${car.imageUrl ? `<img class="sd-car-thumb" src="${car.imageUrl}" alt="" loading="lazy">` : ''}<span class="sd-car-name">${car.name}</span></div>`
+        : (r.bestLapCarModel != null ? `<span class="field-hint">Car model ${r.bestLapCarModel}</span>` : `<span class="field-hint">-</span>`);
+      return `<tr class="${isMe ? 'qual-top10-me' : ''}">
+        <td class="mono">#${rank}</td>
+        <td>${r.driver}${isMe ? ' <span class="field-hint">(you)</span>' : ''}</td>
+        <td class="mono">${r.bestLapMs ? window.IFWLStats.msTime(r.bestLapMs) : '-'}</td>
+        <td>${carCell}</td>
+        <td class="mono">${r.consistencyAvg != null ? r.consistencyAvg + '%' : '-'}</td>
+        <td class="mono">${isMe ? '&mdash;' : gapText(r.bestLapMs)}</td>
+      </tr>`;
+    }).join('');
+
+    const note = myBestMs == null
+      ? `<p class="field-hint" style="margin-top:6px">Set a valid lap on this server to see your gap to each of these.</p>`
+      : `<p class="field-hint" style="margin-top:6px">Gap is your best lap vs theirs - positive means you're behind, negative means you're ahead of them.</p>`;
+
+    return `<div class="qual-top10-wrap">
+      <div class="qual-top10-head"><strong>Top 10${top.length < standings.length ? ` of ${standings.length}` : ''}</strong></div>
+      <div style="overflow-x:auto"><table class="sd-table">
+        <thead><tr><th>#</th><th>Driver</th><th>Best lap</th><th>Car</th><th>Consistency</th><th>Gap to you</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      ${note}
+    </div>`;
+  }
+  window.buildQualTop10Html = buildQualTop10Html;
+
   // ✅ ADDED: the lap-time chart on Your Qualification Ranking, tier-gated -
   //   Bronze/below -> nothing (returns '')
   //   Silver       -> their own lap-time line, no field reference lines
@@ -7273,6 +7340,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </div>`
       : '';
 
+    const top10Section = await buildQualTop10Html(standings, myIndex, serverId, isGoldOrStaff);
     const chartSection = await buildQualChartSection(serverId, accDriverNames, isGoldOrStaff, isSilverOnly);
 
     return `<div class="qual-standing-card">
@@ -7280,6 +7348,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       <div class="qual-standing-grid">${rankCell}${tierBox}${consistencyBox}${gapBox}</div>
       ${upsell}
       ${rookieNote}
+      ${top10Section}
       ${chartSection}
     </div>`;
   }
