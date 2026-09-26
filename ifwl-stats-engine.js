@@ -551,6 +551,17 @@
         else if(avgGapPct <= cs.amPct) recommendedTier = 'GT3 Amateur';
       }
 
+      // ✅ ADDED: this driver's single fastest lap on this server (raw ms,
+      // not the % gap above) plus the car it was set in - avgGapPct is a
+      // relative percentage, useful for the tier recommendation, but not
+      // enough on its own to show an actual time gap between two specific
+      // drivers (e.g. "you're 1.234s off #3"). Used by the Top 10
+      // leaderboard on Your Qualification Ranking.
+      const validEntryRows = entry.rows.filter(r => isValidLap(r.bestLap));
+      const bestRow = validEntryRows.length
+        ? validEntryRows.reduce((a, b) => (a.bestLap <= b.bestLap ? a : b))
+        : null;
+
       standings.push({
         driver: entry.driver,
         totalLaps,
@@ -559,7 +570,9 @@
         consistencyAvg: Number.isFinite(summary.avgConsistency) ? Math.round(summary.avgConsistency * 10) / 10 : null,
         riskAvg: Number.isFinite(summary.avgRisk) ? Math.round(summary.avgRisk * 10) / 10 : null,
         sessionCount: summary.sessionCount,
-        recommendedTier
+        recommendedTier,
+        bestLapMs: bestRow ? bestRow.bestLap : null,
+        bestLapCarModel: bestRow && bestRow.carModel != null ? bestRow.carModel : null
       });
     }
 
