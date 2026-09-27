@@ -1618,6 +1618,8 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   //   ?myMarketplaceListings=1&token=...     (GET,  your own listings, this season)
   //   ?listPartsForSale=1&token=...          (POST, {partType, quantity|partIds, pricePerUnit})
   //   ?cancelMarketplaceListing=1&token=...  (POST, {listingId})
+  //   ?restockMarketplaceListing=1&token=... (POST, {listingId, quantity} - tops up an existing
+  //                                            listing from inventory; 30-min-per-listing cooldown)
   //   ?purchaseMarketplaceListing=1&token=...(POST, {listingId, quantity})
   //   ?staffMarketplaceOverview=1&token=...  (GET,  Owner-only)
   //   ?staffVoidMarketplaceTransaction=1&token=... (POST, Owner-only, {transactionId, reason})
@@ -1636,6 +1638,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     return apiPost('listPartsForSale', body);
   }
   async function cancelMarketplaceListing(listingId){ return apiPost('cancelMarketplaceListing', { listingId }); }
+  // ✅ ADDED: tops up an existing active listing from inventory (see
+  // restockMarketplaceListing in rtgate.js) - server picks the actual units
+  // for durable parts (highest condition first, matching the listing's
+  // tier), tyres/fuel just add the quantity. 30-minute-per-listing cooldown
+  // enforced server-side; a rejected call surfaces as a normal apiPost error.
+  async function restockMarketplaceListing(listingId, quantity){ return apiPost('restockMarketplaceListing', { listingId, quantity }); }
   async function purchaseMarketplaceListing(listingId, quantity){ return apiPost('purchaseMarketplaceListing', { listingId, quantity }); }
   async function fetchIfwlTreasury(){ return apiGet('ifwlTreasury'); }
   // ✅ ADDED: manual crafting - pay cash from your balance to make stock on
@@ -1651,7 +1659,7 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
   async function saveMyShopProfile(patch){ return apiPost('updateLicenceProfile', patch); }
   async function saveListingOffers(listingId, offers){ return apiPost('saveListingOffers', { listingId, offers }); }
   async function fetchCareerShopPublicView(sellerId){ return apiGet('careerShopPublicView', `&sellerId=${encodeURIComponent(sellerId)}`); }
-  window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury, craftPart, fetchPartsMarketplaceImages, saveMyShopProfile, saveListingOffers, fetchCareerShopPublicView };
+  window.IFWL_MarketplaceAPI = { fetchMyPartsInventory, fetchMarketplaceListings, fetchMyMarketplaceListings, listPartsForSale, cancelMarketplaceListing, restockMarketplaceListing, purchaseMarketplaceListing, fetchIfwlTreasury, craftPart, fetchPartsMarketplaceImages, saveMyShopProfile, saveListingOffers, fetchCareerShopPublicView };
 
   // ✅ ADDED: Driver Backing / Sponsorship Contracts data layer. Backend
   // actions (see rtgate.js, near ifwlTreasury):
@@ -2989,6 +2997,22 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
     // are per-listing (a driver picks which specific stock a promo applies
     // to), saved via saveListingOffers and actually enforced at checkout
     // server-side (computeBestOfferDiscount in rtgate.js), not just cosmetic.
+    // ✅ ADDED: how much of a listing's partType (+ tier, for durable parts)
+    // is sitting in inventory right now and could be added to that SAME
+    // listing via Restock, instead of opening a brand new listing.
+    const listingAvailableToRestock = (l) => {
+      if(l.partType === 'tyre') return inventory.tyreInventoryCount || 0;
+      if(l.partType === 'fuel') return inventory.fuelInventoryLitres || 0;
+      const tier = listingTier(l) || 1;
+      return (partsByType[l.partType] || []).filter(p => ([1,2,3].includes(Number(p.tier)) ? Number(p.tier) : 1) === tier).length;
+    };
+    // ✅ ADDED: Restock - anti-botting cooldown, enforced server-side in
+    // restockMarketplaceListing (this is display-only, so a stale client
+    // clock can't be used to dodge it - the server rejects early regardless).
+    // Mirrors the 30-minute-per-listing cooldown agreed for this feature.
+    const RESTOCK_COOLDOWN_MS = 30 * 60 * 1000;
+    const restockReadyAtMs = (l) => (Number(l.lastRestockAtMs || l.createdAtMs) || 0) + RESTOCK_COOLDOWN_MS;
+
     const myListingsHtml = myListings.length ? `
       <div class="shop-receipt-list">
         ${myListings.map(l => {
@@ -2996,6 +3020,13 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
           const tier = listingTier(l);
           const bogo = (l.offers || []).find(o => o.type === 'bogo');
           const bulk = (l.offers || []).find(o => o.type === 'bulk');
+          const restockAvailable = listingAvailableToRestock(l);
+          const readyAtMs = restockReadyAtMs(l);
+          const onCooldown = Date.now() < readyAtMs;
+          const restockDisabled = !restockAvailable || onCooldown;
+          const restockHint = onCooldown
+            ? `Restock ready ${new Date(readyAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            : (restockAvailable ? `${restockAvailable}${l.partType === 'fuel' ? 'L' : ''} available to add` : 'Nothing in inventory to add');
           return `<div class="shop-receipt-row" style="align-items:center;gap:12px;flex-wrap:wrap">
             ${mktPartImg(l.partType, 48, tier)}
             <div style="flex:1;min-width:0">
@@ -3003,6 +3034,12 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
               <div class="shop-receipt-meta">In stock: ${remaining}${l.partType === 'fuel' ? 'L' : ''}${listingPriceHtml(l)}${tier ? ` &middot; ${CS_TIER_LIFE_PCT[tier]}% life` : ''}</div>
               <div class="shop-receipt-meta">Status: ${l.status}</div>
               ${mktOfferBadgesHtml(l.offers)}
+              ${l.status === 'active' ? `
+              <div class="row" style="gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap">
+                <input type="number" min="1" max="${restockAvailable}" placeholder="Qty" data-restock-qty="${l.id}" style="width:70px" ${restockDisabled ? 'disabled' : ''}>
+                <button class="btn ghost" data-restock-listing="${l.id}" ${restockDisabled ? 'disabled' : ''}>Restock</button>
+                <span class="field-hint" data-restock-status="${l.id}" style="margin:0">${restockHint}</span>
+              </div>` : ''}
             </div>
             <div class="row" style="gap:6px">
               ${l.status === 'active' ? `<button class="btn ghost" data-edit-offers="${l.id}" type="button">🎁 Offers</button>` : ''}
@@ -3129,6 +3166,28 @@ main{padding:0 8% 60px;max-width:1200px;margin:0 auto}
         btn.disabled = true;
         try{ await window.IFWL_MarketplaceAPI.cancelMarketplaceListing(btn.dataset.cancelListing); await renderMyShopSection(); }
         catch(e){ alert('Could not cancel: ' + e.message); btn.disabled = false; }
+      });
+    });
+    // ✅ ADDED: Restock - tops up an EXISTING active listing from inventory
+    // instead of opening a new one (price/offers untouched). Server enforces
+    // a 30-minute-per-listing cooldown (see restockMarketplaceListing in
+    // rtgate.js) so this can't be scripted into an always-full listing while
+    // the seller is AFK - a 429 here means the cooldown hasn't cleared yet.
+    box.querySelectorAll('[data-restock-listing]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const listingId = btn.dataset.restockListing;
+        const qtyEl = box.querySelector(`[data-restock-qty="${listingId}"]`);
+        const statusEl = box.querySelector(`[data-restock-status="${listingId}"]`);
+        const qty = Math.max(1, Math.round(Number(qtyEl?.value) || 0));
+        if(!qty){ if(statusEl) statusEl.textContent = 'Enter a quantity to add.'; return; }
+        btn.disabled = true;
+        try{
+          await window.IFWL_MarketplaceAPI.restockMarketplaceListing(listingId, qty);
+          await renderMyShopSection();
+        }catch(e){
+          if(statusEl) statusEl.textContent = e.message;
+          btn.disabled = false;
+        }
       });
     });
 
