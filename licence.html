@@ -6538,6 +6538,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
               ? `<div class="rec-row warn"><span class="rec-row-icon">🔒</span>Requires ${(e.tiers||[]).length ? (e.tiers.length === 1 ? `the ${e.tiers[0]} licence` : `one of: ${e.tiers.join(', ')}`) : 'a different licence tier'} - password hidden until you're licensed for it</div>`
               : needsLmuSub
                 ? (() => {
+                    // ✅ ADDED: the pre-existing LMU sub-licence system has
+                    // always required a driver to be off "No Licence" on
+                    // their MAIN tier before touching any sub-licence at
+                    // all (same gate the driver-facing LMU tab already
+                    // shows) - without this check here, a driver still on
+                    // No Licence would see a "Get & unlock" button that
+                    // silently does nothing (the server resets
+                    // lmuSubLicences to empty for them rather than erroring).
+                    if (e.lmuMainTierOk === false) {
+                      return `<div class="rec-row warn"><span class="rec-row-icon">🔒</span>LMU sub-licences unlock once you're off "No Licence" on your main IFWL tier</div>`;
+                    }
                     const names = (e.lmuRequiredTiers || []).map(t => t.name).filter(Boolean);
                     const allGated = (e.lmuRequiredTiers || []).length > 0 && (e.lmuRequiredTiers || []).every(t => t.gated);
                     return `<div class="rec-row warn"><span class="rec-row-icon">🔒</span>Requires ${names.length > 1 ? 'any of: ' + names.join(', ') : `the <strong>${names[0] || 'required'}</strong> LMU sub-licence`} - ${allGated ? 'staff approval needed' : 'one click to get it'}</div>`;
@@ -6547,7 +6558,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           </div>
           <div class="rec-actions">
             ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
-            ${needsLmuSub ? (() => {
+            ${(needsLmuSub && e.lmuMainTierOk !== false) ? (() => {
               const missing = (e.lmuRequiredTiers || []).filter(t => !t.held);
               const openOnes = missing.filter(t => !t.gated);
               const gatedOnes = missing.filter(t => t.gated);
@@ -13173,7 +13184,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:88px;height:56px;object-fit:cover;border-radius:8px;flex:none">` : ''}
           <div style="flex:1;min-width:0">
             <strong>${e.title}</strong>${e.game === 'lmu' ? ' <span class="field-hint" style="color:var(--ifwl-purple);font-weight:700">[LMU]</span>' : ''}${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
-            <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}${e.game === 'lmu' ? ` &middot; LMU sub-licence${(e.lmuRequiredTierIds||[]).length === 1 ? '' : 's'}: ${(e.lmuRequiredTierIds||[]).length ? e.lmuRequiredTierIds.map(id => currentTiers.find(t => t.id === id)?.name || id).join(' or ') : '<em>none selected</em>'}` : ''}</div>
+            <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}${e.game === 'lmu' ? ` &middot; LMU sub-licence${(e.lmuRequiredTierIds||[]).length === 1 ? '' : 's'}: ${(e.lmuRequiredTierIds||[]).length ? e.lmuRequiredTierIds.map(id => sgLmuTiersCache.find(t => t.id === id)?.name || id).join(' or ') : '<em>none selected</em>'}` : ''}</div>
             <div class="note-meta">📅 ${dateStr}${scheduleBits ? ` &middot; 🗓️ ${scheduleBits}` : ''} &middot; 🖥️ ${e.hostedBy || 'GPortal'}</div>
             <div class="note-meta">${e.password ? `🔒 This event's password: ${e.password}` : 'No password set for this event'}</div>
             <div class="note-meta" style="${e.simgridLink ? '' : 'color:var(--ifwl-amber);font-weight:700'}">${e.simgridLink ? `🔗 <a href="${e.simgridLink}" target="_blank" rel="noopener">SimGrid event link</a>` : "⚠️ No SimGrid event link set - driver's \"View invite\" button won't show"}</div>
