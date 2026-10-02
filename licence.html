@@ -2071,11 +2071,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
          one never clobbers another tab's content. -->
     <div class="races-tab-bar">
       <button type="button" class="races-tab active" data-races-tab="acc">ACC Events</button>
+      <!-- ✅ ADDED: LMU - its own tab for Staff SimGrid Events created with
+           Game = LMU. Hidden by default (toggled by updateLmuRacesTabVisibility()
+           below) since most leagues won't have any LMU events yet; unlike
+           AC Rally/RL 3v3 this doesn't need a MutationObserver to detect
+           emptiness, since LMU events arrive in the same fetch as ACC ones. -->
+      <button type="button" class="races-tab hidden" data-races-tab="lmu" id="lmuRacesTabBtn">LMU</button>
       <button type="button" class="races-tab" data-races-tab="acrally" id="acRallyTabBtn">AC Rally</button>
       <button type="button" class="races-tab" data-races-tab="rl3v3" id="rl3v3TabBtn">RL 3v3</button>
     </div>
     <div class="races-tab-panel" data-races-panel="acc">
       <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
+    </div>
+    <div class="races-tab-panel hidden" data-races-panel="lmu">
+      <div id="lmuRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
     </div>
     <div class="races-tab-panel hidden" data-races-panel="acrally">
       <div id="acRallyDriverBoard"></div>
@@ -3675,6 +3684,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         </select></div>
       </div>
       <div class="field-hint" style="margin:-8px 0 10px">Series drives the tabs above the event list below - same 6 series as the Entrylist Builder.</div>
+      <!-- ✅ ADDED: Game - which Available Races tab this event shows under.
+           ACC is the default/existing behaviour (unchanged). LMU events show
+           under their own "LMU" tab instead, and additionally gate the
+           invite/password behind an LMU sub-licence (not the main tier
+           ladder above, which still applies as a baseline) - a driver who
+           doesn't hold it sees a "Request" action instead, same self-select/
+           staff-approval split as the driver-facing LMU tab already uses. -->
+      <div class="field-group">
+        <label>Game</label>
+        <select id="sgGame">
+          <option value="acc">ACC (Available Races)</option>
+          <option value="lmu">LMU (its own Available Races tab)</option>
+        </select>
+      </div>
+      <div class="field-group hidden" id="sgLmuTierGroup">
+        <label>Required LMU sub-licence</label>
+        <select id="sgLmuTierSelect"><option value="">No sub-licences set up yet - add one in Manage Licence Tiers first</option></select>
+        <div class="field-hint">A driver must hold this LMU sub-licence to see the invite link/password. If they don't, they see a "Request" button instead - self-selected instantly if this sub-licence isn't staff-approval-gated, or a request sent to staff if it is (same as the driver-facing LMU tab).</div>
+      </div>
       <div style="display:flex;gap:10px">
         <div class="field-group" style="flex:1"><label>Day of week</label><select id="sgDayOfWeek">
           <option value="">Not set</option>
@@ -6407,18 +6435,31 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   let availableRacesStaffAllMode = false;
-  function renderAvailableRaces(events, staffAll){
-    availableRacesStaffAllMode = !!staffAll;
-    const body = q('availableRacesBody');
-    const subtitle = q('availableRacesSubtitle');
-    if(subtitle){
-      subtitle.textContent = staffAll
-        ? 'Staff view - every active race across every tier, including any past their normal 4h drop-off window'
-        : 'Invite-only SimGrid events open to your current licence tier';
+  // ✅ CHANGED: bodyId lets this same function render into either the ACC
+  // tab's #availableRacesBody (default - every existing caller is
+  // unaffected) or the new LMU tab's #lmuRacesBody, so the LMU tab gets the
+  // exact same card layout/weekly-strip/roster-toggle/Discord-unlock
+  // behaviour for free instead of a parallel copy. The shared panel-head
+  // (subtitle + staff toggle) sits above BOTH tabs, so it's only touched
+  // when rendering the default ACC body - rendering the LMU tab leaves
+  // whatever the ACC render last set there alone.
+  function renderAvailableRaces(events, staffAll, bodyId){
+    bodyId = bodyId || 'availableRacesBody';
+    const isAccBody = bodyId === 'availableRacesBody';
+    if(isAccBody) availableRacesStaffAllMode = !!staffAll;
+    const body = q(bodyId);
+    if(!body) return;
+    if(isAccBody){
+      const subtitle = q('availableRacesSubtitle');
+      if(subtitle){
+        subtitle.textContent = staffAll
+          ? 'Staff view - every active race across every tier, including any past their normal 4h drop-off window'
+          : 'Invite-only SimGrid events open to your current licence tier';
+      }
+      const toggle = q('availableRacesStaffToggle');
+      if(toggle) toggle.textContent = staffAll ? 'Show only my tier' : 'Show ALL races (staff)';
     }
-    const toggle = q('availableRacesStaffToggle');
-    if(toggle) toggle.textContent = staffAll ? 'Show only my tier' : 'Show ALL races (staff)';
-    if(!events.length){ body.innerHTML = `<div class="empty">${staffAll ? 'No active SimGrid events at all.' : 'No invite-only races available for your current tier yet.'}</div>`; return; }
+    if(!events.length){ body.innerHTML = `<div class="empty">${staffAll ? 'No active SimGrid events at all.' : (isAccBody ? 'No invite-only races available for your current tier yet.' : 'No LMU events available yet.')}</div>`; return; }
     const placeholder = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><rect width="120" height="68" fill="#1a2027"/></svg>');
     // ✅ CHANGED: cards now render into a responsive grid (.race-event-grid)
     // instead of one long stacked list, each card its own self-contained
@@ -6449,7 +6490,16 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       // never will, server-side) and the actions that only make sense once
       // you can actually join (View invite / Unlock Discord) are hidden -
       // they'd just 403 anyway.
+      // ✅ CHANGED: notYetLicensed still means the same thing as before
+      // (password/invite/Discord-unlock all stay hidden) - but it can now
+      // be true for two different reasons, which need two different
+      // messages/CTAs: tierLocked (the driver's main IFWL tier doesn't
+      // qualify, the original meaning) vs needsLmuSub (an LMU-game event
+      // whose required LMU sub-licence this driver doesn't hold yet, even
+      // though their main tier is fine).
       const notYetLicensed = !staffAll && e.eligible === false;
+      const needsLmuSub = notYetLicensed && e.needsLmuSubLicence === true;
+      const tierLocked = notYetLicensed && !needsLmuSub;
       // ✅ ADDED: Day of week / Time (converted to this viewer's own
       // timezone) / Server hosted by - shown to every driver regardless of
       // eligibility or roster assignment, same as the image/date/rounds/
@@ -6470,13 +6520,20 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
             ${endedBadge}
             ${scheduleBits ? `<div class="rec-row"><span class="rec-row-icon">🗓️</span>${scheduleBits}</div>` : ''}
             <div class="rec-row"><span class="rec-row-icon">🖥️</span>Hosted by ${e.hostedBy || 'GPortal'}</div>
-            ${notYetLicensed
+            ${tierLocked
               ? `<div class="rec-row warn"><span class="rec-row-icon">🔒</span>Requires ${(e.tiers||[]).length ? (e.tiers.length === 1 ? `the ${e.tiers[0]} licence` : `one of: ${e.tiers.join(', ')}`) : 'a different licence tier'} - password hidden until you're licensed for it</div>`
-              : (e.password ? `<div class="rec-row"><span class="rec-row-icon">🔒</span>Password: <code>${e.password}</code></div>` : '')}
+              : needsLmuSub
+                ? `<div class="rec-row warn"><span class="rec-row-icon">🔒</span>Requires the <strong>${e.lmuRequiredTierName || 'required'}</strong> LMU sub-licence - ${e.lmuRequiredTierGated ? 'staff approval needed' : 'one click to get it'}</div>`
+                : (e.password ? `<div class="rec-row"><span class="rec-row-icon">🔒</span>Password: <code>${e.password}</code></div>` : '')}
             ${e.notes ? `<div class="rec-row"><span class="rec-row-icon">📝</span>${e.notes}</div>` : ''}
           </div>
           <div class="rec-actions">
             ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
+            ${needsLmuSub ? (
+              e.lmuRequiredTierGated
+                ? `<button class="btn purple" data-lmu-goto-request="${e.id}" style="font-size:11px">Request ${e.lmuRequiredTierName || 'sub-licence'} access</button>`
+                : `<button class="btn purple" data-lmu-instant-request="${e.id}" data-lmu-tier="${e.lmuRequiredTierId}" style="font-size:11px">Get ${e.lmuRequiredTierName || 'sub-licence'} &amp; unlock</button>`
+            ) : ''}
             ${(!staffAll && !notYetLicensed && e.discordRoleId) ? (
               e.discordRoleUnlocked
                 ? `<span class="btn ghost" style="font-size:11px;opacity:.8;pointer-events:none">🔓 ${e.discordRoleLabel || 'Discord area'} unlocked</span>`
@@ -6538,6 +6595,70 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         }
       });
     });
+
+    // ✅ ADDED: LMU sub-licence request CTAs on a locked LMU card (see
+    // needsLmuSub above). Two paths, matching the existing driver-facing
+    // LMU tab's own open-vs-gated split exactly:
+    // - Non-gated sub-licence: one click adds it to lmuSubLicences via the
+    //   normal saveMyProfile path (which already syncs the Discord role -
+    //   see syncSubLicenceDiscordRoles server-side) and re-renders both
+    //   Available Races tabs, so the card unlocks immediately in place.
+    // - Staff-approval-gated sub-licence: there's already a richer
+    //   request flow (reason textarea, pending/declined status) on the
+    //   dedicated driver-facing LMU tab - rather than duplicate it here,
+    //   this just takes the driver straight there.
+    body.querySelectorAll('[data-lmu-goto-request]').forEach(btn => {
+      btn.addEventListener('click', () => switchView('lmu'));
+    });
+    body.querySelectorAll('[data-lmu-instant-request]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const tierId = btn.dataset.lmuTier;
+        if(!tierId) return;
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Requesting…';
+        try{
+          const mine = new Set(currentProfile?.lmuSubLicences || []);
+          mine.add(tierId);
+          currentProfile = await saveMyProfile({ lmuSubLicences: [...mine] });
+          await reloadAvailableRacesBothTabs();
+        }catch(e){
+          alert('Could not get that sub-licence: ' + e.message);
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      });
+    });
+  }
+
+  // ✅ ADDED: re-fetches and re-renders both Available Races tabs (ACC +
+  // LMU) together - used after an instant LMU sub-licence self-select so
+  // the newly-unlocked card updates immediately without a full page
+  // reload. See fetchAvailableRaces/renderAvailableRaces and the split-by-
+  // game logic at the main init call site below.
+  async function reloadAvailableRacesBothTabs(){
+    const events = await fetchAvailableRaces(availableRacesStaffAllMode);
+    const accEvents = events.filter(e => e.game !== 'lmu');
+    const lmuEvents = events.filter(e => e.game === 'lmu');
+    renderAvailableRaces(accEvents, availableRacesStaffAllMode, 'availableRacesBody');
+    renderAvailableRaces(lmuEvents, availableRacesStaffAllMode, 'lmuRacesBody');
+    updateLmuRacesTabVisibility(lmuEvents);
+  }
+
+  // ✅ ADDED: hides the "LMU" tab button entirely when there are zero LMU
+  // events - unlike AC Rally/RL 3v3 (which need a MutationObserver since
+  // their boards populate separately/async), LMU events arrive in the same
+  // fetch as ACC ones, so a synchronous check here is enough. If the LMU
+  // tab happens to be the active one when it empties out (e.g. staff
+  // deactivate the last LMU event while a driver has that tab open),
+  // falls back to the ACC tab rather than leaving an empty tab stranded
+  // active.
+  function updateLmuRacesTabVisibility(lmuEvents){
+    const tabBtn = q('lmuRacesTabBtn');
+    if(!tabBtn) return;
+    const hasAny = Array.isArray(lmuEvents) && lmuEvents.length > 0;
+    tabBtn.classList.toggle('hidden', !hasAny);
+    if(!hasAny && tabBtn.classList.contains('active')) switchRacesTab('acc');
   }
 
   let raceResultsCache = [];
@@ -9254,7 +9375,17 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     myPeerRatingsGiven = myRatingsGiven || {};
     renderTicketData(ticketInfo);
     renderCardStats(perfStats);
-    renderAvailableRaces(availableRaces);
+    // ✅ CHANGED: split the one fetched list by game - "lmu" events render
+    // into their own dedicated tab (hidden entirely until at least one
+    // exists), everything else (the default/unset "acc" game) renders into
+    // the original ACC Events tab exactly as before.
+    {
+      const accEvents = availableRaces.filter(e => e.game !== 'lmu');
+      const lmuEvents = availableRaces.filter(e => e.game === 'lmu');
+      renderAvailableRaces(accEvents, false, 'availableRacesBody');
+      renderAvailableRaces(lmuEvents, false, 'lmuRacesBody');
+      updateLmuRacesTabVisibility(lmuEvents);
+    }
     renderAcRallyDriverBoard(); // fire-and-forget - independent of the SimGrid list above
     renderRlDriverBoard(); // fire-and-forget - independent of the SimGrid list above
     // ✅ ADDED: "Show ALL races (staff)" toggle - only ever visible via the
@@ -9268,7 +9399,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         const nextMode = !availableRacesStaffAllMode;
         availableRacesStaffToggleBtn.disabled = true;
         try{
-          renderAvailableRaces(await fetchAvailableRaces(nextMode), nextMode);
+          const all = await fetchAvailableRaces(nextMode);
+          const accEvents = all.filter(e => e.game !== 'lmu');
+          const lmuEvents = all.filter(e => e.game === 'lmu');
+          renderAvailableRaces(accEvents, nextMode, 'availableRacesBody');
+          renderAvailableRaces(lmuEvents, nextMode, 'lmuRacesBody');
+          updateLmuRacesTabVisibility(lmuEvents);
         }catch(e){
           console.warn('Could not load all races for staff view', e);
         }finally{
@@ -12880,7 +13016,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('sgTierChecks').innerHTML = sorted.map(t =>
       `<label style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;margin-bottom:6px;font-size:12px;font-weight:700;color:var(--text-muted)"><input type="checkbox" value="${t.name}" class="sg-tier-check"> ${t.name}</label>`
     ).join('');
+    // ✅ ADDED: LMU sub-licence picker for the Game=LMU field group above -
+    // same tiers (lmuSubLicence:true) the driver-facing LMU tab lists,
+    // whichever ladder they're attached to doesn't matter here since a
+    // sub-licence is deliberately NOT part of the main ladder.
+    const lmuTiers = (tiers || []).filter(t => t.lmuSubLicence).sort((a,b)=>(a.order??0)-(b.order??0));
+    const lmuSelect = q('sgLmuTierSelect');
+    if(lmuSelect){
+      lmuSelect.innerHTML = lmuTiers.length
+        ? `<option value="">Select a sub-licence...</option>` + lmuTiers.map(t => `<option value="${t.id}">${t.name}${t.lmuGated ? ' (staff-approved)' : ''}</option>`).join('')
+        : `<option value="">No sub-licences set up yet - add one in Manage Licence Tiers first</option>`;
+    }
   }
+  // ✅ ADDED: show the "Required LMU sub-licence" field only when Game=LMU
+  // is selected - ACC events (the default, and every pre-existing event)
+  // never show or use it.
+  function updateSgLmuTierGroupVisibility(){
+    q('sgLmuTierGroup')?.classList.toggle('hidden', q('sgGame')?.value !== 'lmu');
+  }
+  q('sgGame')?.addEventListener('change', updateSgLmuTierGroupVisibility);
 
   // Mirrors ENTRYLIST_SERIES_CATALOG in rtgate.js - a small fixed constant
   // duplicated here rather than fetched, since it's not staff-editable data.
@@ -12983,8 +13137,8 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
           <input type="checkbox" class="sg-bulk-select" data-select-event="${e.id}" style="width:auto;margin-top:4px">
           ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:88px;height:56px;object-fit:cover;border-radius:8px;flex:none">` : ''}
           <div style="flex:1;min-width:0">
-            <strong>${e.title}</strong>${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
-            <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}</div>
+            <strong>${e.title}</strong>${e.game === 'lmu' ? ' <span class="field-hint" style="color:var(--ifwl-purple);font-weight:700">[LMU]</span>' : ''}${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
+            <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}${e.game === 'lmu' ? ` &middot; LMU sub-licence: ${e.lmuRequiredTierId ? (currentTiers.find(t => t.id === e.lmuRequiredTierId)?.name || e.lmuRequiredTierId) : '<em>none selected</em>'}` : ''}</div>
             <div class="note-meta">📅 ${dateStr}${scheduleBits ? ` &middot; 🗓️ ${scheduleBits}` : ''} &middot; 🖥️ ${e.hostedBy || 'GPortal'}</div>
             <div class="note-meta">${e.password ? `🔒 This event's password: ${e.password}` : 'No password set for this event'}</div>
             <div class="note-meta" style="${e.simgridLink ? '' : 'color:var(--ifwl-amber);font-weight:700'}">${e.simgridLink ? `🔗 <a href="${e.simgridLink}" target="_blank" rel="noopener">SimGrid event link</a>` : "⚠️ No SimGrid event link set - driver's \"View invite\" button won't show"}</div>
@@ -13118,6 +13272,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       q('sgLink').value = ev.simgridLink || '';
       q('sgPlatform').value = ev.platform || 'both';
       q('sgSeries').value = ev.series || '';
+      q('sgGame').value = ev.game || 'acc';
+      updateSgLmuTierGroupVisibility();
+      q('sgLmuTierSelect').value = ev.lmuRequiredTierId || '';
       q('sgNotes').value = ev.notes || '';
       q('sgPassword').value = ev.password || '';
       q('sgDayOfWeek').value = ev.dayOfWeek || '';
@@ -13294,6 +13451,9 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     q('sgPinned').checked = false;
     q('sgDiscordRoleId').value = ''; q('sgDiscordRoleLabel').value = '';
     q('sgSeries').value = '';
+    q('sgGame').value = 'acc';
+    updateSgLmuTierGroupVisibility();
+    q('sgLmuTierSelect').value = '';
     q('sgEventImageInput').value = '';
     q('sgEventImagePreview').innerHTML = '';
     q('sgRoundsPreview').classList.add('hidden');
@@ -13319,6 +13479,13 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     const pinned = q('sgPinned').checked;
     const discordRoleId = q('sgDiscordRoleId').value.trim();
     const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
+    // ✅ ADDED: Game + its LMU sub-licence requirement - see the field group
+    // above. lmuRequiredTierId is only meaningful (and only sent) when
+    // Game=LMU; switching back to ACC on an edit clears it rather than
+    // leaving a stale requirement behind on an event that no longer shows
+    // under the LMU tab.
+    const game = q('sgGame').value === 'lmu' ? 'lmu' : 'acc';
+    const lmuRequiredTierId = game === 'lmu' ? q('sgLmuTierSelect').value : '';
     // ✅ FIXED: a SimGrid link used to be required on every save, including
     // a plain edit of an event that already exists (e.g. a round pushed
     // from League Owners Overview, which never has one until it's set here
@@ -13328,6 +13495,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!title || (!sgEditingEventId && !simgridLink) || !tiers.length){ q('sgSaveStatus').textContent = sgEditingEventId ? 'Title and at least one tier are required.' : 'Title, link and at least one tier are required.'; return; }
     if(discordRoleId && !/^\d{5,25}$/.test(discordRoleId)){ q('sgSaveStatus').textContent = 'Discord Role ID should be the numeric role ID (Copy Role ID in Discord), not a role name.'; return; }
     if(raceTimeUK && !/^([01]\d|2[0-3]):[0-5]\d$/.test(raceTimeUK)){ q('sgSaveStatus').textContent = 'Time should be 24h HH:MM, e.g. 20:00.'; return; }
+    if(game === 'lmu' && !lmuRequiredTierId){ q('sgSaveStatus').textContent = 'Pick which LMU sub-licence this event requires (or add one in Manage Licence Tiers first).'; return; }
 
     // Keep the existing image on an edit unless a new file was chosen -
     // saving other fields should never silently wipe out a set image.
@@ -13341,7 +13509,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, pinned, imageUrl, discordRoleId, discordRoleLabel });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, pinned, imageUrl, discordRoleId, discordRoleLabel, game, lmuRequiredTierId });
       const wasEditing = !!sgEditingEventId;
       sgResetForm();
       q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
