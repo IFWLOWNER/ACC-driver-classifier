@@ -14174,8 +14174,25 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       const control = !profile
         ? `<input type="text" class="grid-unlink-search" data-uid="${uid}" data-accname="${s.driver}" placeholder="Search driver to link...">
            <div class="unlink-results" id="gridLinkResults${uid}"></div>`
-        : `<select id="gridTierSelect${uid}">${tierOptions.replace(`value="${s.recommendedTier}"`, `value="${s.recommendedTier}" selected`)}</select>
-           <button class="btn teal" style="width:100%" data-grid-assign="${uid}" data-driver="${profile.discordId}" data-gap="${s.avgGapPct ?? '?'}" data-laps="${s.totalLaps}">Assign</button>`;
+        : (() => {
+            // ✅ FIXED: the engine's recommendedTier is always a fixed English label
+            // ("GT3 Pro" etc) but the live ladder uses its own names ("IFWL-GT-Pro"),
+            // so the old exact-match pre-select never matched and every dropdown fell
+            // back to the FIRST option on the ladder. Resolve the label to the real
+            // ladder tier first (same helper the Grid PDF uses); if nothing on the
+            // ladder matches (e.g. Rookie Class), force an explicit choice instead of
+            // silently defaulting to the wrong tier.
+            const recName = resolveNewTierMeta(tiers, s.recommendedTier).name;
+            const hasRec = sortedTiers.some(t => t.name === recName);
+            const opts = (hasRec ? '' : '<option value="" selected disabled>Choose tier...</option>')
+              + tierOptions.replace(`value="${recName}"`, `value="${recName}" selected`);
+            // ✅ ADDED: Discord tier roles are granted per the driver's profile platform;
+            // a blank platform means NO role is granted. Fill it from the grid they
+            // qualified on - only ever when it is blank, never overwriting a set value.
+            const fillPlatform = profile.platform ? '' : (platform === 'Console' ? 'console' : 'pc');
+            return `<select id="gridTierSelect${uid}">${opts}</select>
+           <button class="btn teal" style="width:100%" data-grid-assign="${uid}" data-driver="${profile.discordId}" data-gap="${s.avgGapPct ?? '?'}" data-laps="${s.totalLaps}" data-set-platform="${fillPlatform}">Assign</button>`;
+          })();
       return `<div class="qual-grid-driver">
         <div class="qgd-name">${s.driver}${profile ? '' : ' <span class="field-hint">(unlinked)</span>'}</div>
         ${profile ? `<div class="field-hint">Licence: ${profile.name} (${profile.licenceNumber})</div>` : ''}
@@ -14209,9 +14226,28 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
     const notYetHtml = `<div class="qual-grid-col">
       <div class="qual-grid-col-head"><h4>Not Yet Qualified</h4><div class="qual-grid-sof"><span>${notYet.length} driver${notYet.length===1?'':'s'}</span></div></div>
-      ${notYet.length ? notYet.map(s => {
+      ${notYet.length ? notYet.map((s, ni) => {
+        // ✅ CHANGED: Not Yet Qualified drivers can now be assigned (or linked)
+        // manually, same controls as the tier columns - the automatic lap count
+        // can miss people (laps split across two ACC names, name mismatches,
+        // laps outside the qualifying window), and staff need to be able to
+        // place someone they know has qualified. Never pre-selects a tier:
+        // staff must choose one explicitly.
         const p = byAccName.get(window.IFWLStats.driverNameKey(s.driver));
-        return `<div class="qual-grid-driver"><div class="qgd-name">${s.driver}</div>${p ? `<div class="field-hint">Licence: ${p.name} (${p.licenceNumber})</div>` : ''}<div class="qgd-stats"><span>${s.totalLaps}/15 laps</span></div></div>`;
+        const uid = `nq${ni}`;
+        const stats = `<div class="qgd-stats">
+          <span>${s.totalLaps}/15 laps</span>
+          <span>Gap ${s.avgGapPct != null ? '+' + s.avgGapPct + '%' : '-'}</span>
+          <span>Consistency ${s.consistencyAvg != null ? s.consistencyAvg + '%' : '-'}</span>
+          <span>Risk ${s.riskAvg != null ? s.riskAvg + '%' : '-'}</span>
+        </div>`;
+        const control = !p
+          ? `<input type="text" class="grid-unlink-search" data-uid="${uid}" data-accname="${s.driver}" placeholder="Search driver to link...">
+             <div class="unlink-results" id="gridLinkResults${uid}"></div>`
+          : `<select id="gridTierSelect${uid}"><option value="" selected disabled>Choose tier...</option>${tierOptions}</select>
+             <button class="btn teal" style="width:100%" data-grid-assign="${uid}" data-driver="${p.discordId}" data-gap="${s.avgGapPct ?? '?'}" data-laps="${s.totalLaps}" data-manual="1" data-set-platform="${p.platform ? '' : (platform === 'Console' ? 'console' : 'pc')}">Assign</button>`;
+        return `<div class="qual-grid-driver"><div class="qgd-name">${s.driver}${p ? '' : ' <span class="field-hint">(unlinked)</span>'}</div>${p ? `<div class="field-hint">Licence: ${p.name} (${p.licenceNumber})</div>` : ''}${stats}${control}
+          <button class="btn-view-sessions" data-view-sessions="grid${uid}" data-driver-label="${s.driver}" data-acc-names="${(p?.accDriverNames || [s.driver]).join('|')}">View Sessions</button></div>`;
       }).join('') : '<div class="qual-grid-empty">Everyone with any laps has reached 15.</div>'}
     </div>`;
 
@@ -14256,10 +14292,15 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         const assignBtn = e.target.closest('[data-grid-assign]');
         if(assignBtn){
           const chosenTier = q(`gridTierSelect${assignBtn.dataset.gridAssign}`).value;
-          const reason = `Qualified via IFWL ${platform} Licence server: ${assignBtn.dataset.laps} laps, gap +${assignBtn.dataset.gap}%`;
+          if(!chosenTier){ alert('Choose a tier for this driver first.'); return; }
+          const reason = assignBtn.dataset.manual
+            ? `Manually placed by staff from Not Yet Qualified (IFWL ${platform} Licence server: ${assignBtn.dataset.laps}/15 laps recorded)`
+            : `Qualified via IFWL ${platform} Licence server: ${assignBtn.dataset.laps} laps, gap +${assignBtn.dataset.gap}%`;
           assignBtn.disabled = true; assignBtn.textContent = 'Assigning...';
           try{
-            await staffSaveProfile(assignBtn.dataset.driver, { tier: chosenTier, reason });
+            const patch = { tier: chosenTier, reason };
+            if(assignBtn.dataset.setPlatform) patch.platform = assignBtn.dataset.setPlatform;
+            await staffSaveProfile(assignBtn.dataset.driver, patch);
             assignBtn.textContent = 'Assigned';
           }catch(err){ alert('Could not assign: ' + err.message); assignBtn.disabled = false; assignBtn.textContent = 'Assign'; }
           return;
