@@ -1161,8 +1161,14 @@ body:not(.licence-gold):not(.staff-access) .race-detailed-col{display:none!impor
 .staff-notice{border-radius:14px;padding:14px 16px;margin:14px 18px 0;font-size:13px;font-weight:600;line-height:1.55}
 .staff-notice p{margin:0}
 .staff-notice button{margin-top:10px}
-.staff-notice.tier{background:linear-gradient(90deg,rgba(31,214,189,.14),transparent);border-left:5px solid var(--ifwl-teal);color:#d7f5ef}
-.staff-notice.ban{background:linear-gradient(90deg,rgba(255,84,100,.16),transparent);border-left:5px solid var(--ifwl-red);color:#ffd7da}
+.staff-notice.tier{background:#e6f8f4;border:1px solid rgba(15,140,122,.28);border-left:5px solid #0f8c7a;color:#0b3d36}
+.staff-notice.tier strong{color:#062a25}
+.staff-notice.ban{background:#fdecee;border:1px solid rgba(200,40,60,.28);border-left:5px solid #c8283c;color:#5c0f19}
+.staff-notice.ban strong{color:#3d0710}
+body.theme-dark .staff-notice.tier{background:linear-gradient(90deg,rgba(31,214,189,.14),transparent);border:0;border-left:5px solid var(--ifwl-teal);color:#d7f5ef}
+body.theme-dark .staff-notice.tier strong{color:#fff}
+body.theme-dark .staff-notice.ban{background:linear-gradient(90deg,rgba(255,84,100,.16),transparent);border:0;border-left:5px solid var(--ifwl-red);color:#ffd7da}
+body.theme-dark .staff-notice.ban strong{color:#fff}
 /* ✅ CHANGED: Available Races event cards - rebuilt from a cramped
    thumbnail-left list row into a proper vertical browse card (image on
    top, ribbons overlaid on it, title + info rows + actions below) -
@@ -3576,6 +3582,12 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <button class="btn teal" id="saveTiersBtn" type="button">Save tier list</button>
         <span class="save-status" id="tierSaveStatus"></span>
       </div>
+      <div class="owner-only-tab" id="lmuRepairBox" style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line,rgba(128,128,128,.3))">
+        <strong>Repair: LMU licence set as main licence</strong>
+        <p style="margin:6px 0 10px;font-size:13px;color:var(--text-muted)">Finds drivers whose main licence was replaced by an LMU add-on licence, puts their last real main licence back, keeps the LMU licence as an add-on and fixes their Discord roles. Owner only.</p>
+        <button class="btn ghost" id="lmuRepairScanBtn" type="button">Scan for affected drivers</button>
+        <div id="lmuRepairOut" style="margin-top:12px"></div>
+      </div>
       <!-- ✅ ADDED: manual bulk Discord role push - a driver's tier/platform
            change is supposed to grant/revoke their Discord role automatically
            (syncTierDiscordRoles in rtgate.js), but that's only guaranteed to
@@ -4508,7 +4520,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(USE_DEMO_FALLBACK) return { locked:!!locked };
     return apiPost('licenceRequestLockSave', { locked: !!locked });
   }
-  window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest, fetchMyLmuRequests, submitLmuRequest, fetchAllLmuRequests, reviewLmuRequest, fetchRequestLock, saveRequestLock };
+  async function repairLmuMainTier(payload){
+    return apiPost('staffLmuMainTierRepair', payload || {});
+  }
+  window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest, fetchMyLmuRequests, submitLmuRequest, fetchAllLmuRequests, reviewLmuRequest, fetchRequestLock, saveRequestLock, repairLmuMainTier };
   window.IFWL_USE_DEMO_FALLBACK = USE_DEMO_FALLBACK;
   window.IFWL_Api = { apiGet, apiPost };
 
@@ -6316,8 +6331,11 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       ? `<div class="request-card"><span class="request-status-pill ${last.status}">${last.status}</span><strong style="display:block;margin-top:8px">${last.requestedTier}</strong>${last.staffNote ? `<p style="color:var(--text-muted);font-size:13px;margin:6px 0 0">Staff note: ${last.staffNote}</p>` : ''}</div>`
       : '';
 
-    const currentOrder = findTier(currentProfile?.tier || 'No Licence').order ?? 0;
-    const above = [...currentTiers].filter(t => (t.order ?? 0) > currentOrder).sort((a,b)=>(a.order??0)-(b.order??0));
+    // LMU add-on licences are never a main-licence request target and never
+    // count as the driver's current main tier.
+    const curTierObj = findTier(currentProfile?.tier || 'No Licence');
+    const currentOrder = curTierObj && !curTierObj.lmuSubLicence ? (curTierObj.order ?? 0) : 0;
+    const above = mainLadderTiers(currentTiers).filter(t => (t.order ?? 0) > currentOrder).sort((a,b)=>(a.order??0)-(b.order??0));
     populateTierSelect(q('requestTierSelect'));
     if(above.length){
       q('requestTierSelect').innerHTML = above.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
@@ -13035,6 +13053,51 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     }
   }
 
+  function escRepair(x){ return String(x == null ? '' : x).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function initLmuRepair(){
+    const scanBtn = q('lmuRepairScanBtn');
+    const out = q('lmuRepairOut');
+    if(!scanBtn || !out) return;
+    let mains = [];
+    async function scan(){
+      out.innerHTML = '<small>Scanning...</small>';
+      scanBtn.disabled = true;
+      try{
+        const r = await window.IFWL_RequestAPI.repairLmuMainTier({ apply:false });
+        mains = r.mainTiers || [];
+        const rows = r.affected || [];
+        if(!rows.length){ out.innerHTML = '<div class="notice-card" style="margin:0">No drivers affected - every main licence is a real main tier.</div>'; return; }
+        out.innerHTML = '<div style="overflow-x:auto"><table class="data-table" style="width:100%;font-size:13px"><thead><tr><th></th><th>Driver</th><th>Main licence now</th><th>Restore to</th></tr></thead><tbody>' +
+          rows.map(a => {
+            const opts = (a.restoreTo ? '' : '<option value="">Choose...</option>') + mains.map(m => `<option value="${escRepair(m)}"${m === a.restoreTo ? ' selected' : ''}>${escRepair(m)}</option>`).join('');
+            return `<tr data-did="${escRepair(a.driverId)}"><td><input type="checkbox" class="lmuRepairChk" checked></td><td>${escRepair(a.name || a.driverId)}<br><small>${escRepair(a.driverId)}</small></td><td>${escRepair(a.currentTier)}<br><small>kept as add-on</small></td><td><select class="lmuRepairSel">${opts}</select>${a.uncertain ? '<br><small style="color:var(--ifwl-amber,#b5750a)">no earlier main licence found - pick one</small>' : ''}</td></tr>`;
+          }).join('') +
+          '</tbody></table></div><button class="btn teal" id="lmuRepairApplyBtn" type="button" style="margin-top:10px">Repair selected drivers</button><span class="save-status" id="lmuRepairStatus"></span>';
+        q('lmuRepairApplyBtn').addEventListener('click', apply);
+      }catch(e){ out.innerHTML = '<div class="notice-card" style="margin:0">Scan failed: ' + escRepair(e.message) + '</div>'; }
+      finally{ scanBtn.disabled = false; }
+    }
+    async function apply(){
+      const trs = [...out.querySelectorAll('tbody tr')].filter(tr => tr.querySelector('.lmuRepairChk').checked);
+      if(!trs.length) return;
+      const driverIds = trs.map(tr => tr.dataset.did);
+      const overrides = {};
+      trs.forEach(tr => { const v = tr.querySelector('.lmuRepairSel').value; if(v) overrides[tr.dataset.did] = v; });
+      if(!confirm('Repair ' + driverIds.length + ' driver(s)? Their main licence will be restored and Discord roles updated.')) return;
+      const btn = q('lmuRepairApplyBtn'); const st = q('lmuRepairStatus');
+      btn.disabled = true; st.textContent = 'Working...';
+      try{
+        const r = await window.IFWL_RequestAPI.repairLmuMainTier({ apply:true, driverIds, overrides });
+        const ok = (r.results || []).filter(x => x.ok).length;
+        const bad = (r.results || []).filter(x => !x.ok);
+        st.textContent = `Repaired ${ok}` + (bad.length ? `, ${bad.length} failed: ` + bad.map(b => b.error).join('; ') : '');
+        await scan();
+        const st2 = q('lmuRepairStatus'); if(st2) st2.textContent = `Repaired ${ok}` + (bad.length ? `, ${bad.length} failed` : '');
+      }catch(e){ st.textContent = 'Failed: ' + e.message; btn.disabled = false; }
+    }
+    scanBtn.addEventListener('click', scan);
+  }
+
   async function renderRequestQueue(){
     const body = q('requestQueueBody');
     if(!body) return;
@@ -18795,6 +18858,7 @@ Flashing Headlights:
     staffPanelsInited = true;
     initTierManager();
     initNewQualifiers();
+    initLmuRepair();
     renderRequestQueue();
     renderLmuRequestQueue();
     // ✅ FIXED: these used to fire in parallel (neither awaited) - since
