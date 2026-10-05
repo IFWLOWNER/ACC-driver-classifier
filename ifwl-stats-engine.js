@@ -336,12 +336,23 @@
     };
   }
 
-  function computePaceScores(allRows){
+  // ✅ ADDED: optional refBestByTrack ({track: ms}) - a FROZEN reference
+  // (see the Licence Grid lock). When given, it overrides the live fastest
+  // lap per track, so adding newcomers (who may be quicker than everyone
+  // already placed) can never shift the gap % of drivers already issued a
+  // licence. Tracks missing from it fall back to the live best as before.
+  // Omitted/null = exactly the old behaviour.
+  function computePaceScores(allRows, refBestByTrack){
     const bestByTrack = new Map();
     for(const r of allRows){
       if(!isValidLap(r.bestLap)) continue;
       const cur = bestByTrack.get(r.track);
       if(!cur || r.bestLap < cur) bestByTrack.set(r.track, r.bestLap);
+    }
+    if(refBestByTrack){
+      for(const [track, ms] of Object.entries(refBestByTrack)){
+        if(isValidLap(ms)) bestByTrack.set(track, Number(ms));
+      }
     }
     const gapsByDriver = new Map();
     for(const r of allRows){
@@ -533,8 +544,18 @@
       byDriver.get(key).rows.push(r);
     }
 
+    // ✅ ADDED: lockedField = { bestByTrack:{track:ms}, drivers:[{k, cls}] } -
+    // the paused/frozen field. Locked drivers keep their issued class and
+    // still occupy their seats against the proMax/amMax caps; the pace gap
+    // is measured against the frozen reference laps; only drivers NOT in
+    // the locked set compete for whatever seats are left. Omitted = the
+    // original fully-dynamic behaviour, unchanged.
+    const lf = opts.lockedField && Array.isArray(opts.lockedField.drivers) ? opts.lockedField : null;
+    const lockedByKey = new Map();
+    if(lf) lf.drivers.forEach(d => lockedByKey.set(d.k, d));
+
     // Pace scored only against other drivers on THIS server, not the whole site
-    const paceScores = computePaceScores(rows);
+    const paceScores = computePaceScores(rows, lf ? lf.bestByTrack : null);
 
     const standings = [];
     for(const [key, entry] of byDriver.entries()){
@@ -562,8 +583,13 @@
         ? validEntryRows.reduce((a, b) => (a.bestLap <= b.bestLap ? a : b))
         : null;
 
+      const lockedEntry = lockedByKey.get(key);
+      if(lockedEntry && lockedEntry.cls) recommendedTier = lockedEntry.cls;
+
       standings.push({
         driver: entry.driver,
+        key,
+        locked: !!lockedEntry,
         totalLaps,
         qualified: totalLaps >= minLaps,
         avgGapPct,
@@ -584,17 +610,21 @@
     // threshold, not dumped straight to Beginner regardless of pace.
     const byGapAsc = (a, b) => (a.avgGapPct ?? 999) - (b.avgGapPct ?? 999);
 
-    const proEligible = standings.filter(s => s.recommendedTier === 'GT3 Pro').sort(byGapAsc);
-    if(cs.proMax != null && proEligible.length > cs.proMax){
-      proEligible.slice(cs.proMax).forEach(s => {
+    // Seats already taken by the locked field come off the cap first.
+    const lockedCount = cls => lf ? lf.drivers.filter(d => d.cls === cls).length : 0;
+    const proEligible = standings.filter(s => !s.locked && s.recommendedTier === 'GT3 Pro').sort(byGapAsc);
+    const proSeats = cs.proMax != null ? Math.max(0, cs.proMax - lockedCount('GT3 Pro')) : null;
+    if(proSeats != null && proEligible.length > proSeats){
+      proEligible.slice(proSeats).forEach(s => {
         s.recommendedTier = (s.avgGapPct != null && s.avgGapPct <= cs.amPct) ? 'GT3 Amateur' : 'GT3 Beginner';
         s.capBumpedFrom = 'GT3 Pro';
       });
     }
 
-    const amEligible = standings.filter(s => s.recommendedTier === 'GT3 Amateur').sort(byGapAsc);
-    if(cs.amMax != null && amEligible.length > cs.amMax){
-      amEligible.slice(cs.amMax).forEach(s => {
+    const amEligible = standings.filter(s => !s.locked && s.recommendedTier === 'GT3 Amateur').sort(byGapAsc);
+    const amSeats = cs.amMax != null ? Math.max(0, cs.amMax - lockedCount('GT3 Amateur')) : null;
+    if(amSeats != null && amEligible.length > amSeats){
+      amEligible.slice(amSeats).forEach(s => {
         s.recommendedTier = 'GT3 Beginner';
         s.capBumpedFrom = s.capBumpedFrom || 'GT3 Amateur';
       });
@@ -605,7 +635,7 @@
     // recommended Rookie Class instead, with how far past the cutoff they
     // currently are so the driver-facing card can explain it constructively.
     standings.forEach(s => {
-      if(s.recommendedTier === 'GT3 Beginner' && s.avgGapPct != null && s.avgGapPct > cs.cutoffPct){
+      if(!s.locked && s.recommendedTier === 'GT3 Beginner' && s.avgGapPct != null && s.avgGapPct > cs.cutoffPct){
         s.recommendedTier = 'Rookie Class';
         s.rookieGapPct = Math.round((s.avgGapPct - cs.cutoffPct) * 100) / 100;
       }
@@ -706,7 +736,25 @@
     return races;
   }
 
-  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, computeTierLapAverages, listRaceResultsInRange };
+  // ✅ ADDED: fastest valid lap per track on one server within an optional
+  // qualification window - the reference the Licence Grid lock freezes.
+  async function computeServerBestByTrack(serverId, opts = {}){
+    const allRows = await buildAllRows(!!opts.force);
+    let rows = allRows.filter(r => r.serverId === serverId);
+    if(opts.qualWindow && opts.qualWindow.startMs){
+      const { startMs, endMs } = opts.qualWindow;
+      const effectiveEnd = endMs || Date.now();
+      rows = rows.filter(r => { const ts = fileTimestamp(r); return ts >= startMs && ts <= effectiveEnd; });
+    }
+    const best = {};
+    for(const r of rows){
+      if(!isValidLap(r.bestLap)) continue;
+      if(best[r.track] === undefined || r.bestLap < best[r.track]) best[r.track] = r.bestLap;
+    }
+    return best;
+  }
+
+  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, computeServerBestByTrack, computeTierLapAverages, listRaceResultsInRange };
 
   // =======================================================
   // ✅ ADDED: Race Results detail view (ported from livetimings.html so the
