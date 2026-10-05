@@ -3641,6 +3641,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
 
   <section class="panel view-panel" data-view="staffRequests" id="requestQueuePanel">
     <div class="panel-head"><div><h3>Staff: Licence Requests</h3><small>Members asking for a manual tier review</small></div><span class="badge purple">Staff only</span></div>
+    <div id="requestLockBar" style="margin:0 18px 12px"></div>
     <div id="requestQueueBody" class="panel-body"><div class="empty">Loading requests...</div></div>
     <!-- ✅ ADDED: LMU sub-licence requests (Hypercar, LMP3, ...) - a separate
          queue from the main-ladder one above, see renderLmuRequestQueue(). -->
@@ -4461,7 +4462,19 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
   }
 
   window.IFWL_TierAPI = { DEFAULT_TIERS, fetchTierList, saveTierList };
-  window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest, fetchMyLmuRequests, submitLmuRequest, fetchAllLmuRequests, reviewLmuRequest };
+  // ✅ ADDED: league owner lock on request reviews (see getLicenceRequestLock
+  // in rtgate.js). Any licence staff can READ it (to show the locked state);
+  // only the Owner role can change it - enforced server-side.
+  async function fetchRequestLock(){
+    if(USE_DEMO_FALLBACK) return { locked:false };
+    try{ return await apiGet('licenceRequestLockGet'); }
+    catch(e){ console.warn('licenceRequestLockGet failed', e.message); return { locked:false }; }
+  }
+  async function saveRequestLock(locked){
+    if(USE_DEMO_FALLBACK) return { locked:!!locked };
+    return apiPost('licenceRequestLockSave', { locked: !!locked });
+  }
+  window.IFWL_RequestAPI = { fetchMyRequests, submitLicenceRequest, fetchAllRequests, reviewRequest, fetchMyLmuRequests, submitLmuRequest, fetchAllLmuRequests, reviewLmuRequest, fetchRequestLock, saveRequestLock };
   window.IFWL_USE_DEMO_FALLBACK = USE_DEMO_FALLBACK;
   window.IFWL_Api = { apiGet, apiPost };
 
@@ -12948,9 +12961,50 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     return `🖥️ Server data: <strong style="color:var(--ifwl-amber,#ffb238)">Licence servers only</strong> &middot; ${list}`;
   }
 
+  // ✅ ADDED: league owner lock. When on, every staff role except the Owner
+  // sees "Locked out by league owner" instead of Approve/Decline on both
+  // queues (the server refuses them too - this is just the honest UI).
+  let reqLockState = { locked:false, lockedByName:'', lockedAtMs:0 };
+  function reqIsRealOwner(){
+    return !!(window.IFWL_REAL_OWNER !== undefined ? window.IFWL_REAL_OWNER : window.IFWL_OWNER);
+  }
+  function reqLockedForMe(){ return reqLockState.locked && !reqIsRealOwner(); }
+  const REQ_LOCKED_HTML = '<div class="req-meta" style="margin-top:10px;padding:9px 12px;border-radius:8px;border:1px solid #e8a73a;background:rgba(255,178,56,.12);font-weight:700;color:var(--ifwl-amber,#b5750a)">🔒 Locked out by league owner &mdash; only the league owner can review this request</div>';
+  async function loadReqLock(){
+    const st = await window.IFWL_RequestAPI.fetchRequestLock();
+    reqLockState = { locked: !!st.locked, lockedByName: st.lockedByName || '', lockedAtMs: Number(st.lockedAtMs || 0) };
+    renderReqLockBar();
+    return reqLockState;
+  }
+  function renderReqLockBar(){
+    const bar = q('requestLockBar');
+    if(!bar) return;
+    const since = reqLockState.lockedAtMs ? ` (since ${new Date(reqLockState.lockedAtMs).toLocaleString()}${reqLockState.lockedByName ? ' by ' + reqLockState.lockedByName : ''})` : '';
+    if(reqIsRealOwner()){
+      bar.innerHTML = reqLockState.locked
+        ? `<div class="notice-card" style="border-left-color:var(--ifwl-amber);margin:0"><strong>🔒 Owner-only approvals are ON</strong>${since}<p style="margin:6px 0 10px;font-size:13px">Other staff can see requests but cannot approve or decline them. You can still review everything below.</p><button class="btn teal" id="reqLockToggleBtn" type="button">Unlock &mdash; let staff review requests again</button></div>`
+        : `<div class="notice-card" style="margin:0"><strong>Staff approvals are ON</strong><p style="margin:6px 0 10px;font-size:13px">Any Owner, Ops Manager or Steward can approve or decline requests. Turn on owner-only mode to lock everyone else out.</p><button class="btn purple" id="reqLockToggleBtn" type="button">🔒 Lock &mdash; only I can approve requests</button></div>`;
+      const btn = q('reqLockToggleBtn');
+      if(btn) btn.addEventListener('click', async () => {
+        const next = !reqLockState.locked;
+        if(!confirm(next ? 'Lock licence request approvals so only YOU (league owner) can approve or decline? Other staff will see "Locked out by league owner".' : 'Unlock licence request approvals for all staff again?')) return;
+        btn.disabled = true;
+        try{
+          await window.IFWL_RequestAPI.saveRequestLock(next);
+          await Promise.all([renderRequestQueue(), renderLmuRequestQueue()]);
+        }catch(e){ alert('Could not change the lock: ' + e.message); btn.disabled = false; }
+      });
+    } else if(reqLockState.locked){
+      bar.innerHTML = `<div class="notice-card" style="border-left-color:var(--ifwl-amber);margin:0"><strong>🔒 Locked out by league owner</strong>${since}<p style="margin:6px 0 0;font-size:13px">Licence requests can currently only be approved or declined by the league owner. You can still view them.</p></div>`;
+    } else {
+      bar.innerHTML = '';
+    }
+  }
+
   async function renderRequestQueue(){
     const body = q('requestQueueBody');
     if(!body) return;
+    await loadReqLock();
     const tiers = await window.IFWL_TierAPI.fetchTierList();
     const findColor = name => (tiers.find(t=>t.name===name) || {color:'#93a1a9'}).color;
     const all = await window.IFWL_RequestAPI.fetchAllRequests();
@@ -12981,10 +13035,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <div class="req-meta">🏁 Says they're racing: <strong>${reqCurrentRaceLabel(r.currentRace)}</strong>${suggestion ? ` &middot; ${suggestion}` : ''}</div>
         ${footprint ? `<div class="req-meta">${footprint}</div>` : ''}
         <p style="color:var(--text-muted);font-size:13px;margin:8px 0 0">${r.reason}</p>
-        <div class="req-actions">
+        ${reqLockedForMe() ? REQ_LOCKED_HTML : `<div class="req-actions">
           <button class="btn teal" data-decision="approved">Approve</button>
           <button class="btn ghost" data-decision="declined">Decline</button>
-        </div>
+        </div>`}
       </div>
     `;
     }).join('');
@@ -13001,7 +13055,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       try{
         await window.IFWL_RequestAPI.reviewRequest(driverId, requestId, decision, staffNote);
         await renderRequestQueue();
-      }catch(e){ alert('Could not review request: ' + e.message); btn.disabled = false; }
+      }catch(e){ alert('Could not review request: ' + e.message); btn.disabled = false; if(/locked out by league owner/i.test(e.message)){ renderRequestQueue(); renderLmuRequestQueue(); } }
     }));
   }
 
@@ -13014,6 +13068,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
     if(!body) return;
     const tiers = await window.IFWL_TierAPI.fetchTierList();
     const findColor = id => (tiers.find(t=>t.id===id) || {color:'#93a1a9'}).color;
+    await loadReqLock();
     const pending = await window.IFWL_RequestAPI.fetchAllLmuRequests();
     if(!pending.length){ body.innerHTML = '<div class="empty">No pending LMU sub-licence requests.</div>'; return; }
 
@@ -13023,10 +13078,10 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
         <strong style="display:block;margin-top:8px">${r.driverName} &mdash; <span style="color:${findColor(r.tierId)}">${r.tierName}</span></strong>
         <div class="req-meta">submitted ${new Date(r.submittedAt).toLocaleString()}</div>
         <p style="color:var(--text-muted);font-size:13px;margin:8px 0 0">${r.reason}</p>
-        <div class="req-actions">
+        ${reqLockedForMe() ? REQ_LOCKED_HTML : `<div class="req-actions">
           <button class="btn teal" data-decision="approved">Approve</button>
           <button class="btn ghost" data-decision="declined">Decline</button>
-        </div>
+        </div>`}
       </div>
     `).join('');
 
@@ -13042,7 +13097,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       try{
         await window.IFWL_RequestAPI.reviewLmuRequest(requestId, decision, staffNote);
         await renderLmuRequestQueue();
-      }catch(e){ alert('Could not review request: ' + e.message); btn.disabled = false; }
+      }catch(e){ alert('Could not review request: ' + e.message); btn.disabled = false; if(/locked out by league owner/i.test(e.message)){ renderRequestQueue(); renderLmuRequestQueue(); } }
     }));
   }
 
@@ -15239,7 +15294,7 @@ body:not(.licence-silver-plus) .silver-only-field{display:none!important}
       try{
         const full = await staffFetchProfile(id);
         const history = (full.tierHistory || []).slice(-5).reverse()
-          .map(h => `${h.tier} &mdash; ${h.reason || 'No reason given'} <span class="field-hint">(${h.setBy || '-'}, ${new Date(h.dateMs || 0).toLocaleDateString()})</span>`)
+          .map(h => `${h.tier} &mdash; ${h.reason || 'No reason given'} <span class="field-hint">(${h.staffName ? 'staff: ' + h.staffName : (h.setBy || '-')}, ${new Date(h.dateMs || 0).toLocaleDateString()})</span>`)
           .join('<br>');
         detailRow.querySelector('td').innerHTML = `
           <strong>ACC name(s):</strong> ${(full.accDriverNames || []).join(', ') || 'None linked'}<br>
