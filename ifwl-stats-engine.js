@@ -23,7 +23,8 @@
   const manifestUrl = 'data/manifest.json';
   const sessionNames = { FP:'Practice', FP1:'Practice 1', FP2:'Practice 2', Q:'Qualifying', R:'Race' };
   const serverLabels = {
-    'console-proam': 'IFWL | CONSOLE PRO AM',
+    'console-proam': 'IFWL | CONSOLE PRO',
+    'console-am': 'IFWL | CONSOLE AMATEUR',
     'console-beginner': 'IFWL | CONSOLE BEGINNER',
     'pc-proam': 'IFWL | PC PRO AM',
     'pc-beginner': 'IFWL | PC BEGINNER',
