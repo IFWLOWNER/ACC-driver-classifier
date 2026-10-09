@@ -4880,7 +4880,10 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     if(USE_DEMO_FALLBACK) return { ok:true };
     return apiPost('unlockEventDiscordRole', { eventId });
   }
-  window.IFWL_SimgridAPI = { fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, bulkDeleteSimgridEvents, bulkSetPlatformSimgridEvents, bulkSetSimgridLinkSimgridEvents, bulkRenameSimgridEvents, bulkSetLmuSimgridEvents, uploadEventRoster, unlockEventDiscordRole };
+  async function clearEventRoster(eventId, moveToEventId){
+    return apiPost('staffEventRosterClear', { eventId, moveToEventId: moveToEventId || '' });
+  }
+  window.IFWL_SimgridAPI = { clearEventRoster, fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, bulkDeleteSimgridEvents, bulkSetPlatformSimgridEvents, bulkSetSimgridLinkSimgridEvents, bulkRenameSimgridEvents, bulkSetLmuSimgridEvents, uploadEventRoster, unlockEventDiscordRole };
 
   // Server contract:
   //   ?enduranceConfigGet=1                        (GET,  public - entry fee + prize pool split)
@@ -14091,6 +14094,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn ghost" data-edit-event="${e.id}">Edit</button>
           <button class="btn ghost" data-delete-event="${e.id}">Delete</button>
+          ${e.rosterCount ? `<button class="btn ghost" data-roster-move="${e.id}">Move roster to another event</button><button class="btn ghost" data-roster-clear="${e.id}" style="color:var(--ifwl-red)">Remove roster (${e.rosterCount})</button>` : ''}
           <label class="btn ghost" style="cursor:pointer;margin:0">Upload Roster (CSV/JSON)<input type="file" accept=".csv,.json,text/csv,application/json" data-roster-upload="${e.id}" style="display:none"></label>
           ${hasBriefing ? '' : `<button class="btn ghost" data-goto-briefing="${e.id}">+ Add raceday briefing</button>`}
         </div>
@@ -14173,6 +14177,33 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         alert(`Roster uploaded - ${result.rosterCount} driver(s) saved. Drivers will now see this as cards under Available Races.`);
         await renderSimgridEventList();
       }catch(e){ alert('Could not upload roster: ' + e.message); input.value = ''; }
+    }));
+    wrap.querySelectorAll('[data-roster-clear]').forEach(btn => btn.addEventListener('click', async () => {
+      const ev = (window.__sgEventsCache || []).find(x => x.id === btn.dataset.rosterClear);
+      if(!confirm(`Remove the uploaded roster (${ev?.rosterCount || '?'} drivers) from "${ev?.title || 'this event'}"? Drivers will stop seeing the signed-up cards for it. You can re-upload a roster afterwards.`)) return;
+      try{ await window.IFWL_SimgridAPI.clearEventRoster(btn.dataset.rosterClear); await renderSimgridEventList(); }
+      catch(e){ alert('Could not remove roster: ' + e.message); }
+    }));
+    wrap.querySelectorAll('[data-roster-move]').forEach(btn => btn.addEventListener('click', () => {
+      const srcId = btn.dataset.rosterMove;
+      const events = (window.__sgEventsCache || []);
+      const src = events.find(x => x.id === srcId);
+      const others = events.filter(x => x.id !== srcId);
+      if(!others.length){ alert('There are no other events to move it to.'); return; }
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(5,8,12,.74);display:flex;align-items:center;justify-content:center;padding:16px';
+      ov.innerHTML = `<div style="background:var(--panel-bg,#fff);color:var(--text-primary,#111);border-radius:16px;padding:20px;width:min(520px,100%);box-shadow:0 30px 80px rgba(0,0,0,.5)">
+        <h4 style="margin:0 0 8px">Move roster</h4>
+        <div class="field-hint">Moves the ${src?.rosterCount || ''} driver(s) from <b>${escRepair(src?.title || '')}</b> onto the event you pick (replacing any roster already on it) and removes it from this one.</div>
+        <select id="rosterMoveSel" style="width:100%;margin:12px 0;padding:9px;border-radius:8px">${others.map(o => `<option value="${o.id}">${escRepair(o.title)}${o.rosterCount ? ' (already has ' + o.rosterCount + ' - will be replaced)' : ''}</option>`).join('')}</select>
+        <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" type="button" id="rosterMoveCancel">Cancel</button><button class="btn teal" type="button" id="rosterMoveGo">Move roster</button></div></div>`;
+      document.body.appendChild(ov);
+      ov.querySelector('#rosterMoveCancel').onclick = () => ov.remove();
+      ov.querySelector('#rosterMoveGo').onclick = async () => {
+        const dst = ov.querySelector('#rosterMoveSel').value;
+        try{ await window.IFWL_SimgridAPI.clearEventRoster(srcId, dst); ov.remove(); await renderSimgridEventList(); }
+        catch(e){ alert('Could not move roster: ' + e.message); }
+      };
     }));
     wrap.querySelectorAll('[data-delete-event]').forEach(btn => btn.addEventListener('click', async () => {
       if(!confirm('Delete this event? Drivers will stop seeing it in Available Races.')) return;
