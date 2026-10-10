@@ -4427,6 +4427,14 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
       <div class="field-group"><label>Race season starts</label><input type="date" id="homeSeasonStartInput"></div>
       <button class="btn teal" id="homeSettingsSaveBtn" type="button">Save Home settings</button>
       <span class="save-status" id="homeSettingsStatus"></span>
+      <hr style="border-color:var(--ifwl-line);margin:22px 0 16px">
+      <h4 style="margin:0 0 6px">Live Timings: maintenance mode</h4>
+      <div class="field-hint" style="margin-bottom:10px">Switch this on while you are working on the Live Timings page. Everyone who opens it sees a big yellow "IFWL are making some updates" notice instead of the page. Owner and Ops Managers who are logged in can still get through to check their work.</div>
+      <div class="field-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ltMaintCheck" style="width:auto"> Live Timings is in maintenance mode</label></div>
+      <div class="field-group"><label>Message (optional)</label><textarea id="ltMaintMessage" maxlength="400" placeholder="Leave blank for: IFWL are making some updates to this page - please check back another time." style="min-height:60px"></textarea></div>
+      <button class="btn teal" id="ltMaintSaveBtn" type="button">Save maintenance mode</button>
+      <span class="save-status" id="ltMaintStatus"></span>
+      <div class="field-hint" id="ltMaintInfo" style="margin-top:8px"></div>
     </div>
   </section>
 
@@ -5051,6 +5059,18 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     return apiPost('staffHomeSettingsSave', data);
   }
   window.IFWL_HomeSettingsAPI = { fetchHomeSettings, saveHomeSettings };
+
+  // Server contract: ?liveTimingsStatusGet=1 (public) -> {maintenance, message, updatedAtMs}
+  //                  ?staffLiveTimingsMaintenanceSave=1 {enabled, message} (Owner/Ops)
+  async function fetchLiveTimingsMaintenance(){
+    const r = await fetch(`${FN}?liveTimingsStatusGet=1`, {cache:'no-store'});
+    if(!r.ok) throw new Error('liveTimingsStatusGet ' + r.status);
+    return await r.json();
+  }
+  async function saveLiveTimingsMaintenance(data){
+    return apiPost('staffLiveTimingsMaintenanceSave', data);
+  }
+  window.IFWL_LiveTimingsMaintAPI = { fetchLiveTimingsMaintenance, saveLiveTimingsMaintenance };
 
   // ✅ ADDED: Owner's Emergency Standards Clause - read-only here. Enabled/
   // disabled by Owner directly on headsteward.html (a separate Firebase-Auth
@@ -16425,6 +16445,31 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         window.renderHomeNextRace?.();
         q('homeSettingsStatus').textContent = 'Saved - live for drivers now.';
       }catch(e){ q('homeSettingsStatus').textContent = 'Could not save: ' + e.message; }
+    });
+
+    // Live Timings maintenance mode
+    const ltInfo = (m) => {
+      q('ltMaintInfo').textContent = m.maintenance
+        ? 'Maintenance mode is ON - the public Live Timings page is currently showing the yellow notice.'
+        : 'Maintenance mode is OFF - Live Timings is open as normal.';
+    };
+    try{
+      const lt = await window.IFWL_LiveTimingsMaintAPI.fetchLiveTimingsMaintenance();
+      q('ltMaintCheck').checked = !!lt.maintenance;
+      q('ltMaintMessage').value = lt.message || '';
+      ltInfo(lt);
+    }catch(e){
+      q('ltMaintInfo').textContent = 'Could not read the current setting yet (the backend may not be deployed).';
+    }
+    q('ltMaintSaveBtn').addEventListener('click', async () => {
+      const enabled = q('ltMaintCheck').checked;
+      const message = q('ltMaintMessage').value.trim();
+      q('ltMaintStatus').textContent = 'Saving...';
+      try{
+        const r = await window.IFWL_LiveTimingsMaintAPI.saveLiveTimingsMaintenance({ enabled, message });
+        q('ltMaintStatus').textContent = enabled ? 'Saved - Live Timings is now closed to visitors.' : 'Saved - Live Timings is open.';
+        ltInfo({ maintenance: !!r.maintenance });
+      }catch(e){ q('ltMaintStatus').textContent = 'Could not save: ' + e.message; }
     });
   }
 
