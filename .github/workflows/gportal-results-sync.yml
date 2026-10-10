@@ -173,6 +173,20 @@ jobs:
 
             mkdir -p "data/results/$SERVER_ID"
 
+            # Login diagnostics (no secret values are printed - only lengths and
+            # yes/no flags). Handy when a server says "530 Login incorrect": it shows
+            # whether a secret is empty, or has a stray space/newline pasted in.
+            diag () {
+              case "$2" in
+                "") echo "  $1: EMPTY (secret not set / wrong name)";;
+                *)  W=""; case "$2" in " "*|*" "|*$'\n'*|*$'\r'*) W=" - WARNING: leading/trailing space or line break";; esac
+                    echo "  $1: ${#2} characters$W";;
+              esac
+            }
+            echo "Login check (secrets are masked in logs):"
+            diag "host" "$FTP_HOST"; diag "port" "$FTP_PORT"; diag "user" "$FTP_USER"; diag "password" "$FTP_PASSWORD"; diag "results path" "$FTP_RESULTS_PATH"
+            case "$FTP_USER" in *-*) echo "  user starts with: ${FTP_USER%%-*}-...";; esac
+
             # Note: fail-exit is intentionally NOT set on this listing session. If a
             # single server is briefly unreachable, we want to log it and move on to
             # the next server rather than aborting the whole scheduled run.
