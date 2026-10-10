@@ -293,7 +293,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 - <<'PY'
-          import json, os, posixpath, ftplib
+          import json, os, re, posixpath, ftplib
           from datetime import datetime, timezone
           from pathlib import Path
 
@@ -329,6 +329,11 @@ jobs:
               if parent and parent != "/":
                   c.append(posixpath.join(parent, "cfg", "entrylist.json"))
               c += ["/cfg/entrylist.json", "cfg/entrylist.json"]
+              # Assetto Hosting (PC) may keep it alongside the results rather than in cfg/.
+              if rp:
+                  c.append(posixpath.join(rp, "entrylist.json"))
+              if parent:
+                  c.append(posixpath.join(parent, "entrylist.json"))
               seen, res = set(), []
               for p in c:
                   if p not in seen:
@@ -336,9 +341,64 @@ jobs:
               return res
 
           def parse_mdtm(resp):
-              # "213 20261009134900" or "213 20261009134900.123" -> UTC datetime
-              stamp = resp.split()[-1].split(".")[0]
-              return datetime.strptime(stamp, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+              # "213 20261009134900" / "213 20261009134900.123" / "modify=20261009134900;" -> UTC datetime
+              m = re.search(r"(\d{14})", resp)
+              if not m:
+                  m2 = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})", resp)
+                  if not m2:
+                      raise ValueError("unrecognised time format: " + resp[:60])
+                  return datetime(*[int(x) for x in m2.groups()], tzinfo=timezone.utc)
+              return datetime.strptime(m.group(1), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+
+          MONTHS = {m: i + 1 for i, m in enumerate(["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"])}
+
+          def parse_list_line(line, fname):
+              # Unix-style "-rw-r--r-- 1 u g 0 Oct  9 13:49 entrylist.json" or "... Oct 9 2025 entrylist.json".
+              # LIST times carry no timezone, so this is treated as UTC (approximate).
+              m = re.search(r"(\w{3})\s+(\d{1,2})\s+(\d{4}|\d{1,2}:\d{2})\s+" + re.escape(fname) + r"\s*$", line)
+              if not m:
+                  return None
+              mon = MONTHS.get(m.group(1).lower())
+              if not mon:
+                  return None
+              day = int(m.group(2))
+              now = datetime.now(timezone.utc)
+              if ":" in m.group(3):
+                  hh, mm = [int(x) for x in m.group(3).split(":")]
+                  dt = datetime(now.year, mon, day, hh, mm, tzinfo=timezone.utc)
+                  if dt > now:
+                      dt = dt.replace(year=now.year - 1)
+                  return dt
+              return datetime(int(m.group(3)), mon, day, tzinfo=timezone.utc)
+
+          def modified_time(ftp, path, label):
+              # Try the precise commands first, then fall back to the directory listing.
+              notes = []
+              try:
+                  return parse_mdtm(ftp.voidcmd("MDTM " + path)), "mdtm"
+              except Exception as e:
+                  notes.append("MDTM: " + str(e)[:80])
+              try:
+                  resp = ftp.sendcmd("MLST " + path)
+                  m = re.search(r"modify=(\d{14})", resp)
+                  if m:
+                      return parse_mdtm(m.group(1)), "mlst"
+                  notes.append("MLST: no modify fact")
+              except Exception as e:
+                  notes.append("MLST: " + str(e)[:80])
+              try:
+                  lines = []
+                  ftp.retrlines("LIST " + path, lines.append)
+                  fname = posixpath.basename(path)
+                  for line in lines:
+                      dt = parse_list_line(line, fname)
+                      if dt:
+                          return dt, "list (time zone assumed UTC)"
+                  notes.append("LIST: could not read a date from: " + " | ".join(l[:90] for l in lines[:2]))
+              except Exception as e:
+                  notes.append("LIST: " + str(e)[:80])
+              print(f"{label}: could not read modified time - " + "; ".join(notes))
+              return None, None
 
           def check_server(prefix):
               host = os.environ.get(prefix + "_HOST", "").strip()
@@ -358,29 +418,25 @@ jobs:
                           size = ftp.size(path)
                       except ftplib.error_perm:
                           pass
-                      modified = None
-                      try:
-                          modified = parse_mdtm(ftp.voidcmd("MDTM " + path))
-                      except Exception:
+                      if size is None:
+                          # no SIZE support (or no such file) - only carry on if the file really exists
                           try:
-                              d, n = posixpath.split(path)
-                              for name, facts in ftp.mlsd(d or ".", facts=["modify", "size"]):
-                                  if name == n:
-                                      if "modify" in facts:
-                                          modified = parse_mdtm("213 " + facts["modify"])
-                                      if size is None and "size" in facts:
-                                          size = int(facts["size"])
+                              ftp.voidcmd("MDTM " + path)
                           except Exception:
-                              pass
-                      if size is None and modified is None:
-                          continue
+                              continue
+                      modified, basis = modified_time(ftp, path, prefix)
                       return {
                           "found": True,
                           "path": path,
                           "modifiedAt": modified.isoformat() if modified else None,
                           "sizeBytes": size,
+                          "timeBasis": basis,
                           "isEmpty": (size == 0) if size is not None else False,
                       }
+                  try:
+                      print(f"{prefix}: not found. Folders/files at the FTP root: " + ", ".join(sorted(ftp.nlst("."))[:25]))
+                  except Exception as e:
+                      print(f"{prefix}: not found, and could not list the FTP root ({str(e)[:60]})")
                   return {"found": False, "error": "entrylist.json not found in any expected location"}
               finally:
                   try:
