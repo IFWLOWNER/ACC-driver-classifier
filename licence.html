@@ -2859,7 +2859,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
 
         <div class="scout-checkbox-row">
           <label><input type="checkbox" id="scoutServerBeginner" checked> Beginner</label>
-          <label><input type="checkbox" id="scoutServerProam" checked> Pro-Am</label>
+          <label><input type="checkbox" id="scoutServerProam" checked> Pro / Amateur</label>
           <label><input type="checkbox" id="scoutServerMonday"> Monday Funday</label>
         </div>
 
@@ -3930,7 +3930,8 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         </select></div>
         <div class="field-group" style="flex:1"><label>Series</label><select id="sgSeries">
           <option value="">Unassigned / general</option>
-          <option value="pc_pro_am">PC Pro-Am</option>
+          <option value="pc_pro">PC Pro</option>
+          <option value="pc_pro_am">PC Amateur</option>
           <option value="pc_beginner">PC Beginner</option>
           <option value="pc_monday_funday">PC Monday Funday</option>
           <option value="console_pro_am">Console Pro-Am</option>
@@ -4127,7 +4128,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         <div class="field-group" style="flex:1"><label>🛞 Tyre rule</label><input type="text" id="rdiTyreRule" list="rdiTyreList" placeholder="e.g. Mandatory tyre change: YES"></div>
       </div>
       <div class="field-hint" style="margin-bottom:10px">Password isn't set here - drivers are always pointed to Racing &gt; My Races for the password shown on their event, so it's never duplicated or goes stale.</div>
-      <datalist id="rdiSeriesList"><option value="SEASON 4 | Console Pro"><option value="SEASON 4 | Console Amateur"><option value="SEASON 4 | Console Beginner"><option value="SEASON 4 | Console Monday Funday"><option value="SEASON 4 | PC Pro-Am"><option value="SEASON 4 | PC Beginner"><option value="SEASON 4 | PC Monday Funday"></datalist>
+      <datalist id="rdiSeriesList"><option value="SEASON 4 | Console Pro"><option value="SEASON 4 | Console Amateur"><option value="SEASON 4 | Console Beginner"><option value="SEASON 4 | Console Monday Funday"><option value="SEASON 4 | PC Pro"><option value="SEASON 4 | PC Amateur"><option value="SEASON 4 | PC Beginner"><option value="SEASON 4 | PC Monday Funday"></datalist>
       <datalist id="rdiConditionsList"><option value="Dry (Day)"><option value="Dry (Night)"><option value="Wet (Day)"><option value="Wet (Night)"><option value="Variable weather"></datalist>
       <datalist id="rdiRaceLengthList"><option value="20 Minutes"><option value="30 Minutes"><option value="45 Minutes"><option value="60 Minutes"><option value="90 Minutes"><option value="120 Minutes"></datalist>
       <datalist id="rdiPitList"><option value="No mandatory pit stop"><option value="1 Mandatory Pit Stop"><option value="2 Mandatory Pit Stops"></datalist>
@@ -6908,7 +6909,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // that don't expose it yet).
   const ENTRYLIST_SERVER_BY_SERIES = {
     console_pro_am: 'console-proam', console_beginner: 'console-beginner', console_monday_funday: 'console-monday-funday',
-    pc_pro_am: 'pc-proam', pc_beginner: 'pc-beginner', pc_monday_funday: 'pc-monday-funday'
+    pc_pro: 'pc-pro', pc_pro_am: 'pc-proam', pc_beginner: 'pc-beginner', pc_monday_funday: 'pc-monday-funday'
   };
   // Which race server an event runs on: the event's Series if staff set one,
   // otherwise a best guess from its platform + title (so an event whose Series
@@ -6920,7 +6921,8 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     const t = String(e.title || '').toLowerCase();
     if(/monday|multiclass|funday/.test(t)) return plat + '-monday-funday';
     if(/beginner/.test(t)) return plat + '-beginner';
-    if(/\bpro\b|pro-am|pro am/.test(t)) return plat + '-proam';
+    if(/amateur|\bam\b|pro-am|pro am/.test(t)) return plat === 'pc' ? 'pc-proam' : 'console-proam';
+    if(/\bpro\b/.test(t)) return plat === 'pc' ? 'pc-pro' : 'console-proam';
     return '';
   }
   let entrylistStatusPromise = null, entrylistStatusAt = 0;
@@ -9325,7 +9327,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
      ===================================================================== */
   const HOME_DEFAULT_SETTINGS = { qualMode:'auto', seasonStartDate:'2026-10-12' };
   const HOME_SERIES_LABELS = {
-    pc_pro_am:'PC Pro-Am', pc_beginner:'PC Beginner', pc_monday_funday:'PC Monday Funday',
+    pc_pro:'PC Pro', pc_pro_am:'PC Amateur', pc_beginner:'PC Beginner', pc_monday_funday:'PC Monday Funday',
     console_pro_am:'Console Pro', console_pro:'Console Pro', console_amateur:'Console Amateur',
     console_beginner:'Console Beginner', console_monday_funday:'Console Monday Funday'
   };
@@ -11710,7 +11712,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     if(!track) return { results: [], sessionsScanned: 0 };
     const servers = [];
     if(q('scoutServerBeginner')?.checked) servers.push('beginner');
-    if(q('scoutServerProam')?.checked) servers.push('proam');
+    if(q('scoutServerProam')?.checked) servers.push('proam', 'pro', 'am');
     if(q('scoutServerMonday')?.checked) servers.push('monday-funday');
     if(!servers.length) return { results: [], sessionsScanned: 0 };
 
@@ -14048,7 +14050,8 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // Mirrors ENTRYLIST_SERIES_CATALOG in rtgate.js - a small fixed constant
   // duplicated here rather than fetched, since it's not staff-editable data.
   const SG_SERIES_CATALOG = [
-    { id: 'pc_pro_am',             label: 'PC Pro-Am' },
+    { id: 'pc_pro',                label: 'PC Pro' },
+    { id: 'pc_pro_am',             label: 'PC Amateur' },
     { id: 'pc_beginner',           label: 'PC Beginner' },
     { id: 'pc_monday_funday',      label: 'PC Monday Funday' },
     { id: 'console_pro_am',        label: 'Console Pro-Am' },
