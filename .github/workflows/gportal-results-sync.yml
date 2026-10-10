@@ -288,13 +288,15 @@ jobs:
 
       - name: Check entrylist last-updated times
         # Read-only: asks each server's FTP when its entrylist last changed
-        # (console: cfg/entrylist.json; PC: newest *_entrylist.json in the
-        # results folder) so the Available Races page can show it. Never
-        # fails the run - if a server is unreachable the previous reading is kept.
+        # (console: cfg/entrylist.json; PC: compares the per-session
+        # *_entrylist.json copies in the results folder) so the Available Races
+        # page can show it. Never fails the run - if a server is unreachable
+        # the previous reading is kept.
         continue-on-error: true
         run: |
           python3 - <<'PY'
-          import json, os, re, posixpath, ftplib
+          import json, os, re, io, hashlib, posixpath, ftplib
+          from zoneinfo import ZoneInfo
           from datetime import datetime, timezone
           from pathlib import Path
 
@@ -315,6 +317,13 @@ jobs:
           # PC (Assetto Hosting) servers keep their entrylists as timestamped files
           # in the results folder (e.g. 261009_194431_entrylist.json), so for those the
           # newest one is the reading. G-Portal console servers use cfg/entrylist.json.
+          # Time zone each host's clock / file names use. If a time on the site looks an
+          # hour out, change the relevant entry (e.g. to "Europe/London").
+          SERVER_TZ = {sid: "UTC" for sid in [
+              "console-proam", "console-beginner", "console-monday-funday", "console-am", "console-licence",
+              "pc-proam", "pc-beginner", "pc-monday-funday", "pc-licence",
+          ]}
+
           SNAPSHOT_FIRST = {"pc-proam", "pc-beginner", "pc-monday-funday", "pc-licence"}
 
           out_path = Path("data/entrylist-status.json")
@@ -358,9 +367,9 @@ jobs:
 
           MONTHS = {m: i + 1 for i, m in enumerate(["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"])}
 
-          def parse_list_line(line, fname):
+          def parse_list_line(line, fname, tz=timezone.utc):
               # Unix-style "-rw-r--r-- 1 u g 0 Oct  9 13:49 entrylist.json" or "... Oct 9 2025 entrylist.json".
-              # LIST times carry no timezone, so this is treated as UTC (approximate).
+              # LIST times carry no timezone, so the host's zone from SERVER_TZ is applied.
               m = re.search(r"(\w{3})\s+(\d{1,2})\s+(\d{4}|\d{1,2}:\d{2})\s+" + re.escape(fname) + r"\s*$", line)
               if not m:
                   return None
@@ -371,13 +380,13 @@ jobs:
               now = datetime.now(timezone.utc)
               if ":" in m.group(3):
                   hh, mm = [int(x) for x in m.group(3).split(":")]
-                  dt = datetime(now.year, mon, day, hh, mm, tzinfo=timezone.utc)
+                  dt = datetime(now.year, mon, day, hh, mm, tzinfo=tz)
                   if dt > now:
                       dt = dt.replace(year=now.year - 1)
-                  return dt
-              return datetime(int(m.group(3)), mon, day, tzinfo=timezone.utc)
+                  return dt.astimezone(timezone.utc)
+              return datetime(int(m.group(3)), mon, day, tzinfo=tz).astimezone(timezone.utc)
 
-          def modified_time(ftp, path, label):
+          def modified_time(ftp, path, label, tz=timezone.utc):
               # Try the precise commands first, then fall back to listing the folder
               # (some hosts only report times that way).
               notes = []
@@ -400,10 +409,10 @@ jobs:
                       ftp.retrlines("LIST " + target, lines.append)
                       for line in lines:
                           if line.rstrip().endswith(fname):
-                              dt = parse_list_line(line, fname)
+                              dt = parse_list_line(line, fname, tz)
                               if dt:
                                   print(f"{label}: listing line: ...{line.rstrip()[-40:]}")
-                                  return dt, "list (time zone assumed UTC)"
+                                  return dt, "list (host zone)"
                       notes.append(f"LIST {target}: {len(lines)} line(s), none readable"
                                    + ((" e.g. " + lines[0][:70]) if lines else ""))
                   except Exception as e:
@@ -411,34 +420,75 @@ jobs:
               print(f"{label}: could not read modified time - " + "; ".join(notes))
               return None, None
 
-          def latest_snapshot(ftp, results_path, label):
-              rp = (results_path or "").strip() or "."
-              names = ftp.nlst(rp)
-              pat = re.compile(r"^(\d{6})_(\d{6})_entrylist\.json$")
-              best = None
-              for n in names:
-                  base = posixpath.basename(n.rstrip("/"))
-                  m = pat.match(base)
-                  if m and (best is None or base > best[0]):
-                      best = (base, n, m)
-              if not best:
-                  return None
-              base, full, m = best
-              ymd, hms = m.group(1), m.group(2)
-              # file names carry the server's clock; treated as UTC (approximate)
-              when = datetime.strptime("20" + ymd + hms, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
-              size = None
+          def snapshot_content_key(raw):
+              # entrylist files from Assetto Hosting are often UTF-16; compare parsed
+              # content so formatting/encoding differences don't count as a change.
               try:
-                  size = ftp.size(full)
+                  if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+                      txt = raw.decode("utf-16")
+                  elif len(raw) > 1 and raw[1:2] == b"\x00":
+                      txt = raw.decode("utf-16-le")
+                  else:
+                      txt = raw.decode("utf-8-sig", "replace")
+                  return json.dumps(json.loads(txt), sort_keys=True)
               except Exception:
-                  pass
+                  return hashlib.sha256(raw).hexdigest()
+
+          def snapshot_time(base, tz):
+              m = re.match(r"^(\d{6})_(\d{6})_entrylist\.json$", base)
+              naive = datetime.strptime("20" + m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+              return naive.replace(tzinfo=tz).astimezone(timezone.utc)
+
+          MAX_SNAPSHOTS_TO_COMPARE = 40
+
+          def latest_snapshot(ftp, results_path, label, server_id=None):
+              # Every session writes a copy of the entrylist into the results folder, so
+              # the newest file's date is just "last session". To find when the entrylist
+              # actually CHANGED, walk back through the copies until the content differs.
+              rp = (results_path or "").strip() or "."
+              tz = ZoneInfo(SERVER_TZ.get(server_id, "UTC"))
+              pat = re.compile(r"^\d{6}_\d{6}_entrylist\.json$")
+              found = []
+              for n in ftp.nlst(rp):
+                  base = posixpath.basename(n.rstrip("/"))
+                  if pat.match(base):
+                      found.append((base, n))
+              if not found:
+                  return None
+              found.sort(reverse=True)
+              def fetch(full):
+                  buf = io.BytesIO()
+                  ftp.retrbinary("RETR " + full, buf.write)
+                  return buf.getvalue()
+              newest_base, newest_full = found[0]
+              newest_raw = fetch(newest_full)
+              newest_key = snapshot_content_key(newest_raw)
+              prev_base = newest_base          # the copy just NEWER than the one being examined
+              changed_at = None
+              oldest_base = newest_base
+              for base, full in found[1:MAX_SNAPSHOTS_TO_COMPARE]:
+                  oldest_base = base
+                  try:
+                      key = snapshot_content_key(fetch(full))
+                  except Exception:
+                      continue
+                  if key != newest_key:
+                      changed_at = snapshot_time(prev_base, tz)   # first copy carrying the current content
+                      break
+                  prev_base = base
+              at_least = changed_at is None
+              if at_least:
+                  changed_at = snapshot_time(prev_base, tz)       # oldest copy examined with the same content
+              size = len(newest_raw)
               return {
                   "found": True,
-                  "path": full,
-                  "modifiedAt": when.isoformat(),
+                  "path": newest_full,
+                  "modifiedAt": changed_at.isoformat(),
+                  "lastSessionAt": snapshot_time(newest_base, tz).isoformat(),
+                  "unchangedForAtLeast": at_least,
                   "sizeBytes": size,
-                  "timeBasis": "session file name (server clock, treated as UTC)",
-                  "isEmpty": (size == 0) if size is not None else False,
+                  "timeBasis": "session file names (" + SERVER_TZ.get(server_id, "UTC") + ")",
+                  "isEmpty": False,
               }
 
           def check_server(prefix, server_id=None):
@@ -455,7 +505,7 @@ jobs:
               try:
                   if server_id in SNAPSHOT_FIRST:
                       try:
-                          snap = latest_snapshot(ftp, results_path, prefix)
+                          snap = latest_snapshot(ftp, results_path, prefix, server_id)
                       except Exception as e:
                           snap = None
                           print(f"{prefix}: could not list the results folder ({str(e)[:60]})")
@@ -481,7 +531,7 @@ jobs:
                                   exists = False
                           if not exists:
                               continue
-                      modified, basis = modified_time(ftp, path, prefix)
+                      modified, basis = modified_time(ftp, path, prefix, ZoneInfo(SERVER_TZ.get(server_id, "UTC")))
                       return {
                           "found": True,
                           "path": path,
