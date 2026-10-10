@@ -6910,6 +6910,19 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     console_pro_am: 'console-proam', console_beginner: 'console-beginner', console_monday_funday: 'console-monday-funday',
     pc_pro_am: 'pc-proam', pc_beginner: 'pc-beginner', pc_monday_funday: 'pc-monday-funday'
   };
+  // Which race server an event runs on: the event's Series if staff set one,
+  // otherwise a best guess from its platform + title (so an event whose Series
+  // was left on "Unassigned" still gets its entrylist line).
+  function entrylistServerFor(e){
+    if(ENTRYLIST_SERVER_BY_SERIES[e.series]) return ENTRYLIST_SERVER_BY_SERIES[e.series];
+    const plat = e.platform === 'pc' ? 'pc' : e.platform === 'console' ? 'console' : '';
+    if(!plat) return '';
+    const t = String(e.title || '').toLowerCase();
+    if(/monday|multiclass|funday/.test(t)) return plat + '-monday-funday';
+    if(/beginner/.test(t)) return plat + '-beginner';
+    if(/\bpro\b|pro-am|pro am/.test(t)) return plat + '-proam';
+    return '';
+  }
   let entrylistStatusPromise = null, entrylistStatusAt = 0;
   function loadEntrylistStatus(){
     if(entrylistStatusPromise && Date.now() - entrylistStatusAt < 5 * 60 * 1000) return entrylistStatusPromise;
@@ -7052,7 +7065,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
                   })()
                 : (e.password ? `<div class="rec-row"><span class="rec-row-icon">🔒</span>Password: <code>${e.password}</code></div>` : '')}
             ${e.notes ? `<div class="rec-row"><span class="rec-row-icon">📝</span>${e.notes}</div>` : ''}
-            ${ENTRYLIST_SERVER_BY_SERIES[e.series] ? `<div class="rec-row" data-entrylist-server="${ENTRYLIST_SERVER_BY_SERIES[e.series]}" style="display:none"></div>` : ''}
+            ${entrylistServerFor(e) ? `<div class="rec-row" data-entrylist-server="${entrylistServerFor(e)}" style="display:none"></div>` : ''}
           </div>
           <div class="rec-actions">
             ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
