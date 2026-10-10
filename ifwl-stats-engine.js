@@ -26,7 +26,9 @@
     'console-proam': 'IFWL | CONSOLE PRO',
     'console-am': 'IFWL | CONSOLE AMATEUR',
     'console-beginner': 'IFWL | CONSOLE BEGINNER',
-    'pc-proam': 'IFWL | PC PRO AM',
+    'pc-pro': 'IFWL | PC PRO',
+    // Former Pro-Am server, now the Amateur server (id kept so history stays attached).
+    'pc-proam': 'IFWL | PC AMATEUR',
     'pc-beginner': 'IFWL | PC BEGINNER',
     'pc-monday-funday': 'IFWL | PC MONDAY FUNDAY',
     'console-monday-funday': 'IFWL | CONSOLE MONDAY FUNDAY',
@@ -1311,7 +1313,7 @@
     const id = String(serverId || '');
     if(id.includes('beginner')) return 'Beginner';
     if(id.includes('monday-funday')) return 'Monday Funday';
-    if(id.includes('proam')) return 'Pro-Am';
+    if(id.includes('proam') || /-pro$/.test(id)) return 'Pro-Am';
     return 'Unknown';
   }
   function conditionLabel(row){ return row?.wet ? 'wet' : 'dry'; }
