@@ -287,8 +287,9 @@ jobs:
           done
 
       - name: Check entrylist last-updated times
-        # Read-only: asks each server's FTP when cfg/entrylist.json last changed
-        # (and how big it is) so the Available Races page can show it. Never
+        # Read-only: asks each server's FTP when its entrylist last changed
+        # (console: cfg/entrylist.json; PC: newest *_entrylist.json in the
+        # results folder) so the Available Races page can show it. Never
         # fails the run - if a server is unreachable the previous reading is kept.
         continue-on-error: true
         run: |
@@ -310,6 +311,11 @@ jobs:
               "pc-monday-funday": "PC_MONDAY_FUNDAY",
               "pc-licence": "PC_LICENCE",
           }
+
+          # PC (Assetto Hosting) servers keep their entrylists as timestamped files
+          # in the results folder (e.g. 261009_194431_entrylist.json), so for those the
+          # newest one is the reading. G-Portal console servers use cfg/entrylist.json.
+          SNAPSHOT_FIRST = {"pc-proam", "pc-beginner", "pc-monday-funday", "pc-licence"}
 
           out_path = Path("data/entrylist-status.json")
           now_iso = datetime.now(timezone.utc).isoformat()
@@ -372,35 +378,70 @@ jobs:
               return datetime(int(m.group(3)), mon, day, tzinfo=timezone.utc)
 
           def modified_time(ftp, path, label):
-              # Try the precise commands first, then fall back to the directory listing.
+              # Try the precise commands first, then fall back to listing the folder
+              # (some hosts only report times that way).
               notes = []
+              fname = posixpath.basename(path)
+              folder = posixpath.dirname(path) or "."
               try:
                   return parse_mdtm(ftp.voidcmd("MDTM " + path)), "mdtm"
               except Exception as e:
-                  notes.append("MDTM: " + str(e)[:80])
+                  notes.append("MDTM: " + str(e)[:60])
               try:
-                  resp = ftp.sendcmd("MLST " + path)
-                  m = re.search(r"modify=(\d{14})", resp)
-                  if m:
-                      return parse_mdtm(m.group(1)), "mlst"
-                  notes.append("MLST: no modify fact")
+                  for name, facts in ftp.mlsd(folder, facts=["modify", "size"]):
+                      if name == fname and "modify" in facts:
+                          return parse_mdtm(facts["modify"]), "mlsd"
+                  notes.append("MLSD: no modify fact for the file")
               except Exception as e:
-                  notes.append("MLST: " + str(e)[:80])
-              try:
-                  lines = []
-                  ftp.retrlines("LIST " + path, lines.append)
-                  fname = posixpath.basename(path)
-                  for line in lines:
-                      dt = parse_list_line(line, fname)
-                      if dt:
-                          return dt, "list (time zone assumed UTC)"
-                  notes.append("LIST: could not read a date from: " + " | ".join(l[:90] for l in lines[:2]))
-              except Exception as e:
-                  notes.append("LIST: " + str(e)[:80])
+                  notes.append("MLSD: " + str(e)[:60])
+              for target in (folder, path):
+                  try:
+                      lines = []
+                      ftp.retrlines("LIST " + target, lines.append)
+                      for line in lines:
+                          if line.rstrip().endswith(fname):
+                              dt = parse_list_line(line, fname)
+                              if dt:
+                                  print(f"{label}: listing line: ...{line.rstrip()[-40:]}")
+                                  return dt, "list (time zone assumed UTC)"
+                      notes.append(f"LIST {target}: {len(lines)} line(s), none readable"
+                                   + ((" e.g. " + lines[0][:70]) if lines else ""))
+                  except Exception as e:
+                      notes.append(f"LIST {target}: " + str(e)[:60])
               print(f"{label}: could not read modified time - " + "; ".join(notes))
               return None, None
 
-          def check_server(prefix):
+          def latest_snapshot(ftp, results_path, label):
+              rp = (results_path or "").strip() or "."
+              names = ftp.nlst(rp)
+              pat = re.compile(r"^(\d{6})_(\d{6})_entrylist\.json$")
+              best = None
+              for n in names:
+                  base = posixpath.basename(n.rstrip("/"))
+                  m = pat.match(base)
+                  if m and (best is None or base > best[0]):
+                      best = (base, n, m)
+              if not best:
+                  return None
+              base, full, m = best
+              ymd, hms = m.group(1), m.group(2)
+              # file names carry the server's clock; treated as UTC (approximate)
+              when = datetime.strptime("20" + ymd + hms, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+              size = None
+              try:
+                  size = ftp.size(full)
+              except Exception:
+                  pass
+              return {
+                  "found": True,
+                  "path": full,
+                  "modifiedAt": when.isoformat(),
+                  "sizeBytes": size,
+                  "timeBasis": "session file name (server clock, treated as UTC)",
+                  "isEmpty": (size == 0) if size is not None else False,
+              }
+
+          def check_server(prefix, server_id=None):
               host = os.environ.get(prefix + "_HOST", "").strip()
               if not host:
                   return {"found": False, "error": "not configured"}
@@ -412,6 +453,14 @@ jobs:
               ftp.connect(host, port, timeout=30)
               ftp.login(user, password)
               try:
+                  if server_id in SNAPSHOT_FIRST:
+                      try:
+                          snap = latest_snapshot(ftp, results_path, prefix)
+                      except Exception as e:
+                          snap = None
+                          print(f"{prefix}: could not list the results folder ({str(e)[:60]})")
+                      if snap:
+                          return snap
                   for path in candidates(results_path):
                       size = None
                       try:
@@ -420,9 +469,17 @@ jobs:
                           pass
                       if size is None:
                           # no SIZE support (or no such file) - only carry on if the file really exists
+                          exists = False
                           try:
                               ftp.voidcmd("MDTM " + path)
+                              exists = True
                           except Exception:
+                              try:
+                                  folder = posixpath.dirname(path) or "."
+                                  exists = posixpath.basename(path) in [posixpath.basename(n) for n in ftp.nlst(folder)]
+                              except Exception:
+                                  exists = False
+                          if not exists:
                               continue
                       modified, basis = modified_time(ftp, path, prefix)
                       return {
@@ -434,7 +491,9 @@ jobs:
                           "isEmpty": (size == 0) if size is not None else False,
                       }
                   try:
-                      print(f"{prefix}: not found. Folders/files at the FTP root: " + ", ".join(sorted(ftp.nlst("."))[:25]))
+                      names = [posixpath.basename(n.rstrip("/")) for n in ftp.nlst(".")]
+                      others = sorted(n for n in names if not re.match(r"^\d{6}_\d{6}_", n))
+                      print(f"{prefix}: not found. {len(names)} item(s) at the FTP root; ignoring result files, these remain: " + (", ".join(others[:40]) or "(nothing else)"))
                   except Exception as e:
                       print(f"{prefix}: not found, and could not list the FTP root ({str(e)[:60]})")
                   return {"found": False, "error": "entrylist.json not found in any expected location"}
@@ -447,7 +506,7 @@ jobs:
           servers = {}
           for server_id, prefix in SERVERS.items():
               try:
-                  rec = check_server(prefix)
+                  rec = check_server(prefix, server_id)
               except Exception as e:
                   rec = {"found": False, "error": type(e).__name__ + ": " + str(e)[:120]}
               if rec.get("found"):
