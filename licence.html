@@ -6900,6 +6900,51 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     return wrap;
   }
 
+  // ✅ ADDED: "Entrylist last updated" line on each Available Races card.
+  // data/entrylist-status.json is written by the GitHub Actions results sync
+  // (it reads cfg/entrylist.json's modified time over FTP, roughly every 2
+  // hours). Shown only for series that map to one of those servers, and
+  // quietly omitted if there's no reading for that server (e.g. PC hosts
+  // that don't expose it yet).
+  const ENTRYLIST_SERVER_BY_SERIES = {
+    console_pro_am: 'console-proam', console_beginner: 'console-beginner', console_monday_funday: 'console-monday-funday',
+    pc_pro_am: 'pc-proam', pc_beginner: 'pc-beginner', pc_monday_funday: 'pc-monday-funday'
+  };
+  let entrylistStatusPromise = null, entrylistStatusAt = 0;
+  function loadEntrylistStatus(){
+    if(entrylistStatusPromise && Date.now() - entrylistStatusAt < 5 * 60 * 1000) return entrylistStatusPromise;
+    entrylistStatusAt = Date.now();
+    entrylistStatusPromise = fetch('data/entrylist-status.json?_=' + Math.floor(Date.now() / 60000), { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    return entrylistStatusPromise;
+  }
+  function entrylistAgoText(ms){
+    const m = Math.floor((Date.now() - ms) / 60000);
+    if(m < 2) return 'just now';
+    if(m < 60) return m + ' min ago';
+    const hr = Math.floor(m / 60);
+    if(hr < 48) return hr + 'h ago';
+    return Math.floor(hr / 24) + ' days ago';
+  }
+  async function fillEntrylistRows(container){
+    const rows = container.querySelectorAll('[data-entrylist-server]');
+    if(!rows.length) return;
+    const status = await loadEntrylistStatus();
+    if(!status || !status.servers) return;
+    rows.forEach(row => {
+      const s = status.servers[row.dataset.entrylistServer];
+      if(!s || !s.found) return;
+      const ms = s.modifiedAt ? Date.parse(s.modifiedAt) : NaN;
+      let html;
+      if(s.isEmpty) html = 'Entrylist is empty right now' + (isNaN(ms) ? '' : ` (last changed ${new Date(ms).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})})`);
+      else if(!isNaN(ms)) html = `Entrylist last updated: <strong>${new Date(ms).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</strong> <span style="color:var(--text-muted)">(${entrylistAgoText(ms)})</span>`;
+      else return;
+      row.innerHTML = `<span class="rec-row-icon">📋</span>${html}`;
+      row.title = 'Read from the race server. Refreshes about every 2 hours.';
+      row.style.display = '';
+    });
+  }
+
   let availableRacesStaffAllMode = false;
   // ✅ CHANGED: bodyId lets this same function render into either the ACC
   // tab's #availableRacesBody (default - every existing caller is
@@ -7007,6 +7052,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
                   })()
                 : (e.password ? `<div class="rec-row"><span class="rec-row-icon">🔒</span>Password: <code>${e.password}</code></div>` : '')}
             ${e.notes ? `<div class="rec-row"><span class="rec-row-icon">📝</span>${e.notes}</div>` : ''}
+            ${ENTRYLIST_SERVER_BY_SERIES[e.series] ? `<div class="rec-row" data-entrylist-server="${ENTRYLIST_SERVER_BY_SERIES[e.series]}" style="display:none"></div>` : ''}
           </div>
           <div class="rec-actions">
             ${rosterCount ? `<button class="btn ghost" data-toggle-roster="${e.id}" style="font-size:11px">Drivers signed up (${rosterCount}) &darr;</button>` : ''}
@@ -7040,6 +7086,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     // driver-facing weekly planner).
     if(!staffAll) body.insertBefore(renderAvailableRacesWeeklyStrip(events), body.firstChild);
 
+    fillEntrylistRows(body);
     body.querySelectorAll('[data-toggle-roster]').forEach(btn => {
       const eventId = btn.dataset.toggleRoster;
       const container = q(`eventRoster_${eventId}`);
