@@ -286,6 +286,144 @@ jobs:
             fi
           done
 
+      - name: Check entrylist last-updated times
+        # Read-only: asks each server's FTP when cfg/entrylist.json last changed
+        # (and how big it is) so the Available Races page can show it. Never
+        # fails the run - if a server is unreachable the previous reading is kept.
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import json, os, posixpath, ftplib
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          # server id -> env var prefix used in the workflow's env block. Licence
+          # (qualification) servers are included too - harmless, and handy later.
+          SERVERS = {
+              "console-proam": "CONSOLE_PROAM",
+              "console-beginner": "CONSOLE_BEGINNER",
+              "console-monday-funday": "CONSOLE_MONDAY_FUNDAY",
+              "console-am": "CONSOLE_AM",
+              "console-licence": "CONSOLE_LICENCE",
+              "pc-proam": "PC_PROAM",
+              "pc-beginner": "PC_BEGINNER",
+              "pc-monday-funday": "PC_MONDAY_FUNDAY",
+              "pc-licence": "PC_LICENCE",
+          }
+
+          out_path = Path("data/entrylist-status.json")
+          now_iso = datetime.now(timezone.utc).isoformat()
+          try:
+              previous = json.loads(out_path.read_text(encoding="utf-8")).get("servers", {})
+          except Exception:
+              previous = {}
+
+          def candidates(results_path):
+              # ACC dedicated servers keep entrylist.json in <server root>/cfg/. We don't
+              # know exactly where each host's FTP root sits relative to the results
+              # folder, so try the folder next to the results path first, then the
+              # usual spots.
+              rp = (results_path or "").strip().rstrip("/")
+              c = []
+              parent = posixpath.dirname(rp) if rp else ""
+              if parent and parent != "/":
+                  c.append(posixpath.join(parent, "cfg", "entrylist.json"))
+              c += ["/cfg/entrylist.json", "cfg/entrylist.json"]
+              seen, res = set(), []
+              for p in c:
+                  if p not in seen:
+                      seen.add(p); res.append(p)
+              return res
+
+          def parse_mdtm(resp):
+              # "213 20261009134900" or "213 20261009134900.123" -> UTC datetime
+              stamp = resp.split()[-1].split(".")[0]
+              return datetime.strptime(stamp, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+
+          def check_server(prefix):
+              host = os.environ.get(prefix + "_HOST", "").strip()
+              if not host:
+                  return {"found": False, "error": "not configured"}
+              port = int(os.environ.get(prefix + "_PORT", "21") or 21)
+              user = os.environ.get(prefix + "_USER", "")
+              password = os.environ.get(prefix + "_PASSWORD", "")
+              results_path = os.environ.get(prefix + "_RESULTS_PATH", "")
+              ftp = ftplib.FTP()
+              ftp.connect(host, port, timeout=30)
+              ftp.login(user, password)
+              try:
+                  for path in candidates(results_path):
+                      size = None
+                      try:
+                          size = ftp.size(path)
+                      except ftplib.error_perm:
+                          pass
+                      modified = None
+                      try:
+                          modified = parse_mdtm(ftp.voidcmd("MDTM " + path))
+                      except Exception:
+                          try:
+                              d, n = posixpath.split(path)
+                              for name, facts in ftp.mlsd(d or ".", facts=["modify", "size"]):
+                                  if name == n:
+                                      if "modify" in facts:
+                                          modified = parse_mdtm("213 " + facts["modify"])
+                                      if size is None and "size" in facts:
+                                          size = int(facts["size"])
+                          except Exception:
+                              pass
+                      if size is None and modified is None:
+                          continue
+                      return {
+                          "found": True,
+                          "path": path,
+                          "modifiedAt": modified.isoformat() if modified else None,
+                          "sizeBytes": size,
+                          "isEmpty": (size == 0) if size is not None else False,
+                      }
+                  return {"found": False, "error": "entrylist.json not found in any expected location"}
+              finally:
+                  try:
+                      ftp.quit()
+                  except Exception:
+                      ftp.close()
+
+          servers = {}
+          for server_id, prefix in SERVERS.items():
+              try:
+                  rec = check_server(prefix)
+              except Exception as e:
+                  rec = {"found": False, "error": type(e).__name__ + ": " + str(e)[:120]}
+              if rec.get("found"):
+                  rec["checkedAt"] = now_iso
+                  servers[server_id] = rec
+                  print(f"{server_id}: entrylist {rec['path']} modified {rec['modifiedAt']} size {rec['sizeBytes']}")
+              else:
+                  # keep the last known good reading so a brief outage doesn't blank the site
+                  old = previous.get(server_id)
+                  if old and old.get("found"):
+                      old["stale"] = True
+                      old["lastError"] = rec.get("error", "")
+                      servers[server_id] = old
+                      print(f"{server_id}: check failed ({rec.get('error')}) - keeping previous reading")
+                  else:
+                      rec["checkedAt"] = now_iso
+                      servers[server_id] = rec
+                      print(f"{server_id}: not available ({rec.get('error')})")
+
+          def strip(d):
+              return {k: {kk: vv for kk, vv in v.items() if kk != "checkedAt"} for k, v in d.items()}
+
+          # Only rewrite the file when something real changed, so the 2-hourly sync
+          # doesn't create a pointless commit every run.
+          if strip(servers) == strip(previous):
+              print("Entrylist readings unchanged - leaving data/entrylist-status.json as is.")
+          else:
+              Path("data").mkdir(exist_ok=True)
+              out_path.write_text(json.dumps({"updatedAt": now_iso, "servers": servers}, indent=2), encoding="utf-8")
+              print("Wrote data/entrylist-status.json")
+          PY
+
       - name: Build manifest file
         run: |
           python3 - <<'PY'
@@ -403,7 +541,7 @@ jobs:
           git config user.name "IFWL Results Bot"
           git config user.email "actions@github.com"
 
-          git add -A data/results data/manifest.json data/raceteam-manifest.json
+          git add -A data/results data/manifest.json data/raceteam-manifest.json data/entrylist-status.json
 
           if git diff --cached --quiet; then
             echo "No result file changes to commit."
