@@ -6933,6 +6933,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   }
   function entrylistAgoText(ms){
     const m = Math.floor((Date.now() - ms) / 60000);
+    if(m < -2) return ''; // in the future = a server clock / time zone mismatch, so don't claim a relative time
     if(m < 2) return 'just now';
     if(m < 60) return m + ' min ago';
     const hr = Math.floor(m / 60);
@@ -6950,7 +6951,11 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
       const ms = s.modifiedAt ? Date.parse(s.modifiedAt) : NaN;
       let html;
       if(s.isEmpty) html = 'Entrylist is empty right now' + (isNaN(ms) ? '' : ` (last changed ${new Date(ms).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})})`);
-      else if(!isNaN(ms)) html = `Entrylist last updated: <strong>${new Date(ms).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</strong> <span style="color:var(--text-muted)">(${entrylistAgoText(ms)})</span>`;
+      else if(!isNaN(ms)){
+        const when = new Date(ms).toLocaleString([], {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+        const ago = entrylistAgoText(ms);
+        html = `${s.unchangedForAtLeast ? 'Entrylist unchanged since' : 'Entrylist last updated:'} <strong>${when}</strong>${ago ? ` <span style="color:var(--text-muted)">(${ago})</span>` : ''}`;
+      }
       else return;
       row.innerHTML = `<span class="rec-row-icon">📋</span>${html}`;
       row.title = 'Read from the race server. Refreshes about every 2 hours.';
