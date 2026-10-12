@@ -4435,6 +4435,16 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
       <button class="btn teal" id="ltMaintSaveBtn" type="button">Save maintenance mode</button>
       <span class="save-status" id="ltMaintStatus"></span>
       <div class="field-hint" id="ltMaintInfo" style="margin-top:8px"></div>
+      <hr style="border-color:var(--ifwl-line);margin:22px 0 16px">
+      <h4 style="margin:0 0 6px">Auto licence placement</h4>
+      <div class="field-hint" style="margin-bottom:10px">New joiners can start on Provisional instead of No Licence, and qualified drivers can be placed on their tier automatically. Placement uses exactly the same pace, seat-cap and Rookie rules as the New Qualifiers panel, measured against the locked field, so you must lock the PC / Console field there first. It runs every 30 minutes while a Qualification Window is set.</div>
+      <div class="field-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="apJoinerCheck" style="width:auto"> New licences start on Provisional (instead of No Licence)</label></div>
+      <div class="field-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="apAutoCheck" style="width:auto"> Automatically place drivers once they finish their 15 laps</label></div>
+      <div class="field-group"><label>Wait this many hours after a driver's last lap before placing them</label><input type="number" id="apSettleHours" min="0" max="72" step="1" style="max-width:120px"><div class="field-hint">Stops anyone being placed mid-session while they are still improving. Default 2.</div></div>
+      <div class="field-group"><label>Most drivers to place in one run</label><input type="number" id="apMaxPerRun" min="1" max="200" step="1" style="max-width:120px"></div>
+      <button class="btn teal" id="apSaveBtn" type="button">Save auto placement</button>
+      <span class="save-status" id="apStatus"></span>
+      <div class="field-hint" id="apLastRun" style="margin-top:10px;white-space:pre-line"></div>
     </div>
   </section>
 
@@ -5072,6 +5082,13 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   }
   window.IFWL_LiveTimingsMaintAPI = { fetchLiveTimingsMaintenance, saveLiveTimingsMaintenance };
 
+  // Server contract: ?autoPlacementGet=1 (Owner/Ops) -> {settings:{newJoinerProvisional,autoPlaceEnabled,settleHours,maxPerRun}, lastRun}
+  //                  ?staffAutoPlacementSave=1 {newJoinerProvisional,autoPlaceEnabled,settleHours,maxPerRun} (Owner/Ops)
+  window.IFWL_AutoPlacementAPI = {
+    fetchAutoPlacement: () => apiGet('autoPlacementGet'),
+    saveAutoPlacement: (data) => apiPost('staffAutoPlacementSave', data)
+  };
+
   // ✅ ADDED: Owner's Emergency Standards Clause - read-only here. Enabled/
   // disabled by Owner directly on headsteward.html (a separate Firebase-Auth
   // app on the same Firestore project) - this just surfaces the current
@@ -5488,8 +5505,15 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // today (e.g. two different rounds both raceday today).
   async function checkRacedayNotifications(){
     let notifications = [];
+    // ✅ ADDED: the forced 60s read is once per calendar day - once a driver
+    // has read ONE briefing today (server says so via alreadyReadToday, or
+    // they just acknowledged one earlier in this queue) every further
+    // briefing today gets an instant Skip button instead.
+    let readToday = false;
     try{
-      notifications = (await apiGet('myRacedayNotifications')).notifications || [];
+      const resp = await apiGet('myRacedayNotifications');
+      notifications = resp.notifications || [];
+      readToday = resp.alreadyReadToday === true;
     }catch(e){ console.warn('Could not check raceday notifications', e); return; }
     if(!notifications.length) return;
 
@@ -5512,6 +5536,9 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
       if(window.IFWL_STAFF){
         btn.disabled = false;
         btn.textContent = queue.length ? `Skip (staff) - next briefing (${queue.length} more)` : 'Skip (staff) - close';
+      }else if(readToday){
+        btn.disabled = false;
+        btn.textContent = queue.length ? `Skip - next briefing (${queue.length} more)` : 'Skip - close';
       }else{
         // ✅ FIXED: this used to always start the 60s timer fresh, so a
         // driver who left the page (or clicked through to My Career / My
@@ -5546,6 +5573,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         if(btn.disabled) return;
         if(timer) clearInterval(timer);
         try{ await apiPost('myRacedayAcknowledge', { infoId: n.id }); }catch(e){ console.warn('Could not acknowledge raceday info', e); }
+        readToday = true;
         modal.classList.add('hidden');
         if(queue.length) showNext();
       };
@@ -5553,6 +5581,33 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     showNext();
   }
   window.checkRacedayNotifications = checkRacedayNotifications;
+
+  // ✅ ADDED: on-demand, read-only raceday briefing for one event - the
+  // "📋 Raceday briefing" button on each Available Races card. Reuses the
+  // same modal as the forced notification, but there is no timer and
+  // nothing is acknowledged; just a Close button.
+  async function openRacedayBriefing(eventId, fallbackTitle){
+    const modal = q('racedayInfoModal');
+    const body = q('racedayInfoBody');
+    const btn = q('racedayInfoDismissBtn');
+    if(!modal || !body || !btn) return;
+    body.innerHTML = '<div class="empty">Loading briefing&hellip;</div>';
+    btn.disabled = false;
+    btn.textContent = 'Close';
+    btn.onclick = () => modal.classList.add('hidden');
+    modal.classList.remove('hidden');
+    try{
+      const briefings = (await apiGet('myRacedayBriefings', '&eventId=' + encodeURIComponent(eventId))).briefings || [];
+      if(!briefings.length){ body.innerHTML = `<h3 style="margin-top:0">${fallbackTitle || 'Raceday briefing'}</h3><div class="empty">No briefing has been added for this event yet.</div>`; return; }
+      body.innerHTML = briefings.map(n => {
+        const stripHtml = window.rdiQuickFactsStripHtml ? window.rdiQuickFactsStripHtml(n.quickFacts || {}) : '';
+        return `<h3 style="margin-top:0">${n.title}</h3>` + stripHtml + renderRacedayMarkdown(n.content) + renderVideoEmbeds(n.videoLinks || []);
+      }).join('<hr style="margin:22px 0">');
+    }catch(e){
+      body.innerHTML = `<div class="empty">Could not load the briefing: ${e.message || e}</div>`;
+    }
+  }
+  window.openRacedayBriefing = openRacedayBriefing;
 
   async function applySeasonalOverlays(){
     const cardImg = q('seasonalOverlayImg');
@@ -7114,6 +7169,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
                 ? `<span class="btn ghost" style="font-size:11px;opacity:.8;pointer-events:none">🔓 ${e.discordRoleLabel || 'Discord area'} unlocked</span>`
                 : `<button class="btn teal" data-unlock-discord="${e.id}" style="font-size:11px">Unlock ${e.discordRoleLabel ? `"${e.discordRoleLabel}"` : 'this area'} on Discord</button>`
             ) : ''}
+            ${(e.hasBriefing && !notYetLicensed) ? `<button class="btn teal" data-view-briefing="${e.id}" style="font-size:11px">📋 Raceday briefing</button>` : ''}
             ${(e.simgridLink && !notYetLicensed) ? `<a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>` : ''}
           </div>
         </div>
@@ -7154,6 +7210,12 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     // eligibility re-check. Idempotent, so no harm if clicked more than
     // once; on success the button becomes a plain "unlocked" indicator
     // rather than re-fetching the whole list just for this one field.
+    body.querySelectorAll('[data-view-briefing]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ev = events.find(x => x.id === btn.dataset.viewBriefing);
+        window.openRacedayBriefing(btn.dataset.viewBriefing, ev && ev.title);
+      });
+    });
     body.querySelectorAll('[data-unlock-discord]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const eventId = btn.dataset.unlockDiscord;
@@ -16445,6 +16507,44 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         window.renderHomeNextRace?.();
         q('homeSettingsStatus').textContent = 'Saved - live for drivers now.';
       }catch(e){ q('homeSettingsStatus').textContent = 'Could not save: ' + e.message; }
+    });
+
+    // Auto licence placement
+    const apEsc = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const apShowLastRun = (lr, enabled) => {
+      const box = q('apLastRun');
+      if(!box) return;
+      if(!lr){ box.textContent = 'No placement check has run yet. It runs every 30 minutes once a Qualification Window is set.'; return; }
+      const when = lr.atMs ? new Date(lr.atMs).toLocaleString() : 'unknown time';
+      const line = d => `  - ${d.name} (${d.platform}): ${d.from || 'baseline'} -> ${d.tier}  [${d.laps} laps, gap ${d.gap > 0 ? '+' : ''}${d.gap}%]`;
+      const parts = [`Last check: ${when}`];
+      if((lr.placed || []).length) parts.push(`Placed ${lr.placed.length}:\n` + lr.placed.slice(0, 30).map(line).join('\n'));
+      if((lr.wouldPlace || []).length) parts.push(`Waiting (would be placed if auto-placement were on) - ${lr.wouldPlace.length}:\n` + lr.wouldPlace.slice(0, 30).map(line).join('\n'));
+      if(!(lr.placed || []).length && !(lr.wouldPlace || []).length) parts.push('Nobody was waiting to be placed.');
+      (lr.notes || []).forEach(n => parts.push('Note: ' + n));
+      box.textContent = parts.join('\n');
+    };
+    try{
+      const ap = await window.IFWL_AutoPlacementAPI.fetchAutoPlacement();
+      q('apJoinerCheck').checked = ap.settings.newJoinerProvisional !== false;
+      q('apAutoCheck').checked = ap.settings.autoPlaceEnabled === true;
+      q('apSettleHours').value = ap.settings.settleHours;
+      q('apMaxPerRun').value = ap.settings.maxPerRun;
+      apShowLastRun(ap.lastRun, ap.settings.autoPlaceEnabled);
+    }catch(e){
+      q('apLastRun').textContent = 'Could not read the current setting yet (the backend may not be deployed, or this needs Owner / Ops Manager).';
+    }
+    q('apSaveBtn').addEventListener('click', async () => {
+      q('apStatus').textContent = 'Saving...';
+      try{
+        const r = await window.IFWL_AutoPlacementAPI.saveAutoPlacement({
+          newJoinerProvisional: q('apJoinerCheck').checked,
+          autoPlaceEnabled: q('apAutoCheck').checked,
+          settleHours: Number(q('apSettleHours').value),
+          maxPerRun: Number(q('apMaxPerRun').value)
+        });
+        q('apStatus').textContent = r.settings.autoPlaceEnabled ? 'Saved - qualified drivers will now be placed automatically (next run within 30 minutes).' : 'Saved - auto-placement is off (the preview below still updates every 30 minutes).';
+      }catch(e){ q('apStatus').textContent = 'Could not save: ' + e.message; }
     });
 
     // Live Timings maintenance mode
