@@ -14189,8 +14189,74 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // per-round checkbox + a "Delete selected" bulk action above the list. A
   // round with neither (a genuinely standalone manual add) still renders as
   // its own flat card, unchanged from before.
+  // ✅ ADDED: click-to-edit date/time on each round (Staff: SimGrid Events).
+  // Click the date -> date + time boxes (UK time) with a Save button right
+  // there; several rounds can be left open and saved together with the
+  // series' "Save all date changes" button. Updates the card in place so the
+  // series stays open. See staffSimgridEventSetDates in rtgate.js.
+  const sgDateEdits = new Map(); // eventId -> { date, time, groupKey }
+  function sgUkParts(ms){
+    const p = new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/London', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false })
+      .formatToParts(new Date(ms)).reduce((a, x) => { a[x.type] = x.value; return a; }, {});
+    return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour === '24' ? '00' : p.hour}:${p.minute}` };
+  }
+  function sgDateLineInner(e){
+    const dateStr = e.eventDateMs ? new Date(e.eventDateMs).toLocaleString() : (e.eventDateLabel || 'No date set');
+    const scheduleBits = [e.dayOfWeek, e.raceTimeUK ? `${e.raceTimeUK} UK` : ''].filter(Boolean).join(' ');
+    return `📅 <span class="sg-date-chip" data-edit-date="${e.id}" title="Click to change the date and time" style="cursor:pointer;border-bottom:1px dashed currentColor;font-weight:700">${dateStr} ✎</span>${scheduleBits ? ` &middot; 🗓️ ${scheduleBits}` : ''} &middot; 🖥️ ${e.hostedBy || 'GPortal'}`;
+  }
+  function sgDateEditorInner(e){
+    const cur = sgDateEdits.get(e.id) || {};
+    return `📅 <input type="date" data-date-input="${e.id}" value="${cur.date || ''}" style="width:auto;padding:4px 6px">
+      <input type="time" data-time-input="${e.id}" value="${cur.time || ''}" style="width:auto;padding:4px 6px">
+      <span class="field-hint">UK time</span>
+      <button class="btn teal" type="button" data-save-date="${e.id}" style="padding:4px 12px;font-size:12px">Save</button>
+      <button class="btn ghost" type="button" data-cancel-date="${e.id}" style="padding:4px 10px;font-size:12px">Cancel</button>
+      <span class="field-hint" data-date-status="${e.id}"></span>`;
+  }
+  function sgRefreshGroupSaveButtons(wrap){
+    wrap.querySelectorAll('[data-save-group-dates]').forEach(btn => {
+      const key = btn.dataset.saveGroupDates;
+      const n = [...sgDateEdits.values()].filter(v => v.groupKey === key).length;
+      btn.classList.toggle('hidden', n === 0);
+      btn.textContent = `Save all date changes (${n})`;
+    });
+  }
+  async function sgSaveDates(wrap, ids){
+    const events = window.__sgEventsCache || [];
+    const updates = [];
+    for(const id of ids){
+      const ed = sgDateEdits.get(id);
+      if(!ed) continue;
+      if(!ed.date){ const st = wrap.querySelector(`[data-date-status="${CSS.escape(id)}"]`); if(st) st.textContent = 'Pick a date first.'; return; }
+      updates.push({ eventId: id, date: ed.date, time: ed.time });
+    }
+    if(!updates.length) return;
+    wrap.querySelectorAll('[data-save-date],[data-save-group-dates]').forEach(b => { b.disabled = true; });
+    try{
+      const r = await window.IFWL_Api.apiPost('staffSimgridEventSetDates', { updates });
+      (r.results || []).forEach(res => {
+        const e = events.find(x => x.id === res.eventId);
+        if(res.ok && e){
+          e.eventDateMs = res.eventDateMs; e.eventDateLabel = ''; e.dayOfWeek = res.dayOfWeek; e.raceTimeUK = res.raceTimeUK;
+          sgDateEdits.delete(res.eventId);
+          const line = wrap.querySelector(`[data-date-line="${CSS.escape(res.eventId)}"]`);
+          if(line) line.innerHTML = sgDateLineInner(e) + ' <span class="field-hint" style="color:var(--ifwl-green);font-weight:700">saved ✓</span>';
+        }else{
+          const st = wrap.querySelector(`[data-date-status="${CSS.escape(res.eventId)}"]`);
+          if(st) st.textContent = res.error || 'Could not save.';
+        }
+      });
+    }catch(err){
+      ids.forEach(id => { const st = wrap.querySelector(`[data-date-status="${CSS.escape(id)}"]`); if(st) st.textContent = 'Could not save: ' + err.message; });
+    }
+    wrap.querySelectorAll('[data-save-date],[data-save-group-dates]').forEach(b => { b.disabled = false; });
+    sgRefreshGroupSaveButtons(wrap);
+  }
+
   function sgRenderEventListBody(events){
     const wrap = q('sgEventList');
+    sgDateEdits.clear();
     // Ascending date order within the active tab - the next upcoming event
     // sits at the top, same as before, just scoped to one series at a time.
     const filtered = sgActiveSeriesTab === 'all'
@@ -14233,7 +14299,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
           <div style="flex:1;min-width:0">
             <strong>${e.title}</strong>${e.game === 'lmu' ? ' <span class="field-hint" style="color:var(--ifwl-purple);font-weight:700">[LMU]</span>' : ''}${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
             <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}${e.game === 'lmu' ? ` &middot; LMU sub-licence${(e.lmuRequiredTierIds||[]).length === 1 ? '' : 's'}: ${(e.lmuRequiredTierIds||[]).length ? e.lmuRequiredTierIds.map(id => sgLmuTiersCache.find(t => t.id === id)?.name || id).join(' or ') : '<em>none selected</em>'}` : ''}</div>
-            <div class="note-meta">📅 ${dateStr}${scheduleBits ? ` &middot; 🗓️ ${scheduleBits}` : ''} &middot; 🖥️ ${e.hostedBy || 'GPortal'}</div>
+            <div class="note-meta sg-date-line" data-date-line="${e.id}">${sgDateLineInner(e)}</div>
             <div class="note-meta">${e.password ? `🔒 This event's password: ${e.password}` : 'No password set for this event'}</div>
             <div class="note-meta" style="${e.simgridLink ? '' : 'color:var(--ifwl-amber);font-weight:700'}">${e.simgridLink ? `🔗 <a href="${e.simgridLink}" target="_blank" rel="noopener">SimGrid event link</a>` : "⚠️ No SimGrid event link set - driver's \"View invite\" button won't show"}</div>
             <div class="note-meta">${e.discordRoleId ? `🔓 Unlocks Discord: ${e.discordRoleLabel || 'Role ' + e.discordRoleId}` : 'No Discord area unlocked by this event'}</div>
@@ -14262,6 +14328,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
             <div><strong>${groupName}</strong> <span class="field-hint">(${liveCount} round${liveCount===1?'':'s'})</span></div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn teal hidden" type="button" data-save-group-dates="${g.key}" style="font-size:11px">Save all date changes (0)</button>
             <label class="btn ghost" style="cursor:pointer;margin:0;font-size:11px"><input type="checkbox" data-select-group="${g.key}" style="width:auto;margin-right:4px">Select all in series</label>
             <button class="btn ghost" type="button" data-series-toggle-btn="${g.key}">Show/hide rounds</button>
           </div>
@@ -14271,6 +14338,50 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         </div>
       </div>`;
     }).join('');
+
+    // ---- click-to-edit date/time ----
+    wrap.onclick = (ev) => {
+      const chip = ev.target.closest('[data-edit-date]');
+      if(chip){
+        const id = chip.dataset.editDate;
+        const e = (window.__sgEventsCache || []).find(x => x.id === id);
+        const line = wrap.querySelector(`[data-date-line="${CSS.escape(id)}"]`);
+        if(!e || !line || sgDateEdits.has(id)) return;
+        const parts = e.eventDateMs ? sgUkParts(e.eventDateMs) : { date: '', time: e.raceTimeUK || '' };
+        const groupKey = line.closest('[data-series-group]')?.dataset.seriesGroup || '';
+        sgDateEdits.set(id, { date: parts.date, time: parts.time, groupKey });
+        line.innerHTML = sgDateEditorInner(e);
+        sgRefreshGroupSaveButtons(wrap);
+        return;
+      }
+      const saveBtn = ev.target.closest('[data-save-date]');
+      if(saveBtn) return sgSaveDates(wrap, [saveBtn.dataset.saveDate]);
+      const cancelBtn = ev.target.closest('[data-cancel-date]');
+      if(cancelBtn){
+        const id = cancelBtn.dataset.cancelDate;
+        sgDateEdits.delete(id);
+        const e = (window.__sgEventsCache || []).find(x => x.id === id);
+        const line = wrap.querySelector(`[data-date-line="${CSS.escape(id)}"]`);
+        if(e && line) line.innerHTML = sgDateLineInner(e);
+        sgRefreshGroupSaveButtons(wrap);
+        return;
+      }
+      const groupBtn = ev.target.closest('[data-save-group-dates]');
+      if(groupBtn){
+        const key = groupBtn.dataset.saveGroupDates;
+        const ids = [...sgDateEdits.entries()].filter(([, v]) => v.groupKey === key).map(([id]) => id);
+        return sgSaveDates(wrap, ids);
+      }
+    };
+    wrap.oninput = (ev) => {
+      const di = ev.target.closest('[data-date-input]');
+      const ti = ev.target.closest('[data-time-input]');
+      const id = (di && di.dataset.dateInput) || (ti && ti.dataset.timeInput);
+      if(!id || !sgDateEdits.has(id)) return;
+      const cur = sgDateEdits.get(id);
+      if(di) cur.date = di.value;
+      if(ti) cur.time = ti.value;
+    };
 
     // ---- series group expand/collapse ----
     wrap.querySelectorAll('[data-series-toggle-btn]').forEach(btn => btn.addEventListener('click', (ev) => {
