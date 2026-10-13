@@ -259,6 +259,9 @@
         // the BOP TRACKer car catalog (pcCarModelId/consoleCarModelId) to
         // show the car name + image without a second data source.
         carModel: l.car?.carModel,
+        // ✅ ADDED: ACC's car class for this entry ("GT3", "GT4", ...) - used to
+        // work out CLASS position in multiclass races (see classPositionInRows).
+        carGroup: l.car?.carGroup || '',
         bestLap: l.timing?.bestLap || 0,
         lapCount: l.timing?.lapCount || 0,
         lapObjects: lm.lapObjects,
@@ -757,7 +760,28 @@
     return best;
   }
 
-  window.IFWLStats = { computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, computeServerBestByTrack, computeTierLapAverages, listRaceResultsInRange };
+  // ✅ ADDED: class position for race payouts. rows = one race's rows in finishing
+  // order; returns the 1-based position of rows[idx] among entries of the SAME car
+  // class (same fallback as rtgate.js ifwlCarClassOfLine: carGroup, else GT4 =
+  // model 50-61, GT2 = 80-89, else GT3). In a single-class race this equals the
+  // overall position.
+  function carClassOfRow(r){
+    const g = String(r?.carGroup || '').trim().toUpperCase();
+    if(g && g !== 'FREE') return g;
+    const m = Number(r?.carModel);
+    if(Number.isFinite(m)){
+      if(m >= 50 && m <= 61) return 'GT4';
+      if(m >= 80 && m <= 89) return 'GT2';
+      return 'GT3';
+    }
+    return '';
+  }
+  function classPositionInRows(rows, idx){
+    const cls = carClassOfRow(rows[idx]);
+    return rows.slice(0, idx + 1).filter(r => carClassOfRow(r) === cls).length;
+  }
+
+  window.IFWLStats = { classPositionInRows, carClassOfRow, computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, computeServerBestByTrack, computeTierLapAverages, listRaceResultsInRange };
 
   // =======================================================
   // ✅ ADDED: Race Results detail view (ported from livetimings.html so the
