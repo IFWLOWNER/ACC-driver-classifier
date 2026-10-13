@@ -3230,6 +3230,22 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
            an empty accDriverNames field or a name that doesn't match how
            ACC recorded it in the race file. -->
       <div id="resDiagnoseResult" style="margin-top:12px"></div>
+
+      <!-- ✅ ADDED: one-off CLASS-position payout correction for multiclass
+           races that were settled on overall position (e.g. Monday Night
+           Multiclass, PC + Console). Always Preview first. -->
+      <div class="notice-card" style="margin-top:22px;border-left-color:var(--ifwl-amber,#f5a524)">
+        <strong>Correct multiclass payouts (class position)</strong>
+        <div class="field-hint" style="margin-top:6px">Re-prices already-paid multiclass races so each driver is paid for their position <em>in their own class</em> (e.g. a GT4 winner who finished P22 overall is paid the P1 prize, not the P22 one). Only the difference is paid, the driver's race ledger entry is amended in place, and every driver is only ever corrected once per race. Single-class races are never touched. Drivers with a Driver Backing contract on that race are listed but skipped.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+          <div class="field-group" style="min-width:160px"><label for="ccFrom">Races since (date)</label><input type="date" id="ccFrom"></div>
+          <div class="field-group" style="min-width:160px"><label for="ccTo">Up to (optional)</label><input type="date" id="ccTo"></div>
+          <button class="btn" id="ccPreviewBtn" type="button">Preview corrections</button>
+          <button class="btn purple" id="ccApplyBtn" type="button" disabled>Apply these corrections</button>
+        </div>
+        <div id="ccClassPick" style="margin-top:10px"></div>
+        <div id="ccResult" style="margin-top:12px"></div>
+      </div>
     </div>
   </section>
 
@@ -5289,7 +5305,11 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   async function diagnoseRaceEarningsMatching(){
     return apiPost('staffDiagnoseRaceEarningsMatching', {});
   }
-  window.IFWL_RaceEarningsSettlementAPI = { runRaceEarningsSettlement, diagnoseRaceEarningsMatching };
+  // ✅ ADDED: one-off class-position payout correction (preview or apply).
+  async function runClassPayoutCorrection(payload){
+    return apiPost('staffRunClassPayoutCorrection', payload || {});
+  }
+  window.IFWL_RaceEarningsSettlementAPI = { runRaceEarningsSettlement, diagnoseRaceEarningsMatching, runClassPayoutCorrection };
 
   // ✅ ADDED: IFWL Career Shop data layer. Mirrors the Seasonal Costs
   // pattern above (catalog fetch/save, cached, invalidated on save) plus a
@@ -19235,6 +19255,74 @@ Flashing Headlights:
         result.innerHTML = `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Could not run diagnostic</strong><div class="field-hint" style="margin-top:6px">${e.message}</div></div>`;
       }
     };
+
+    // ✅ ADDED: class-position payout correction (preview first, then apply).
+    (function(){
+      if(!q('ccPreviewBtn')) return;
+      const esc2 = (x) => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const money = (n) => (n < 0 ? '-' : '+') + '£' + Math.abs(Math.round(n)).toLocaleString();
+      const pad = (n) => String(n).padStart(2,'0');
+      // default "since" = most recent Monday (Monday Night Multiclass)
+      const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      q('ccFrom').value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+      let lastPreview = null;
+      const pickedClasses = () => Array.from(document.querySelectorAll('#ccClassPick input[data-cc-class]:checked')).map(x => x.getAttribute('data-cc-class'));
+      const payload = (apply) => ({ fromDate: q('ccFrom').value, toDate: q('ccTo').value || '', classes: pickedClasses(), apply: !!apply });
+      const err = (e) => `<div class="notice-card" style="border-left-color:var(--ifwl-red);background:rgba(255,84,100,.08)"><strong>Could not run correction</strong><div class="field-hint" style="margin-top:6px">${esc2(e.message)}</div></div>`;
+      const sec = 'color:var(--text-secondary,#9fb0b6)';
+      const render = (r, applied) => {
+        if(r.ok === false){ q('ccResult').innerHTML = `<div class="notice-card">${r.error === 'no_season_window' ? 'No Season Window is set.' : esc2(r.error)}</div>`; return; }
+        const races = (r.races||[]).map(x => `${esc2(x.track||'race')} (${(x.counts||[]).map(c => esc2(c.cls||'?') + ' x' + c.n).join(', ')})`).join(' &middot; ') || 'none';
+        const rows = (r.corrections||[]).map(c => `<tr>
+            <td>${esc2(c.driver)}</td><td>${esc2(c.carClass)}</td>
+            <td>P${c.overall} &rarr; <strong>P${c.classPos}</strong></td>
+            <td style="${sec}">£${Math.round(c.oldGross).toLocaleString()} &rarr; £${Math.round(c.newGross).toLocaleString()}${c.approx ? ' <span title="Driver had perk/shop/sponsor bonuses - new figure is scaled from the old one">~</span>' : ''}</td>
+            <td style="color:${c.delta>=0?'var(--ifwl-green)':'var(--ifwl-red)'}"><strong>${money(c.delta)}</strong></td></tr>`).join('') || `<tr><td colspan="5" style="${sec}">Nothing to correct</td></tr>`;
+        const skipped = (r.skipped||[]).map(c => `<tr><td>${esc2(c.driver)}</td><td>${esc2(c.carClass)}</td><td>P${c.overall} &rarr; P${c.classPos}</td><td colspan="2" style="${sec}">${esc2(c.reason)}</td></tr>`).join('');
+        q('ccResult').innerHTML = `
+          <div class="notice-card" style="${applied ? 'border-left-color:var(--ifwl-green);background:rgba(51,217,155,.08)' : ''}">
+            ${applied ? '<strong>✅ Applied</strong> - ' : '<strong>Preview only - nothing has been paid yet.</strong> '}
+            ${(r.corrections||[]).length} driver correction${(r.corrections||[]).length===1?'':'s'}, net ${money(r.totalDelta||0)}.
+            <div class="field-hint" style="margin-top:6px">Multiclass races found: ${races}</div>
+          </div>
+          <div class="table-wrap" style="margin-top:10px"><table class="dir-table"><thead><tr><th>Driver</th><th>Class</th><th>Position</th><th>Gross prize</th><th>Pays</th></tr></thead><tbody>${rows}</tbody></table></div>
+          ${skipped ? `<h5 style="margin:16px 0 8px">Skipped - not changed</h5><div class="table-wrap"><table class="dir-table"><tbody>${skipped}</tbody></table></div>` : ''}
+          <div class="field-hint" style="margin-top:8px">GT3 drivers who finished behind GT4 cars also move up a class place, so they show small positive corrections too. Tick only the classes you want in the box above to limit it (e.g. GT4 only), then preview again.</div>`;
+      };
+      q('ccPreviewBtn').onclick = async () => {
+        if(!q('ccFrom').value){ q('ccResult').innerHTML = '<div class="notice-card">Pick the date to look from first.</div>'; return; }
+        q('ccApplyBtn').disabled = true;
+        q('ccResult').innerHTML = '<div class="field-hint">Reading race results&hellip; this can take a little while.</div>';
+        try{
+          const r = await window.IFWL_RaceEarningsSettlementAPI.runClassPayoutCorrection(payload(false));
+          lastPreview = r;
+          // class tick-boxes: keep whatever was ticked, otherwise tick everything seen
+          const prev = pickedClasses();
+          const seen = r.classesSeen || [];
+          q('ccClassPick').innerHTML = seen.length ? '<div class="field-hint" style="margin-bottom:4px">Classes to correct:</div>' + seen.map(c => `<label style="margin-right:14px"><input type="checkbox" data-cc-class="${esc2(c)}" ${(!prev.length || prev.includes(c)) ? 'checked' : ''}> ${esc2(c || '?')}</label>`).join('') : '';
+          render(r, false);
+          q('ccApplyBtn').disabled = !((r.corrections||[]).length);
+        }catch(e){ q('ccResult').innerHTML = err(e); }
+      };
+      q('ccApplyBtn').onclick = async () => {
+        if(!lastPreview) return;
+        // re-run the preview with the CURRENT class ticks so what is shown is exactly what is paid
+        let r;
+        try{
+          r = await window.IFWL_RaceEarningsSettlementAPI.runClassPayoutCorrection(payload(false));
+        }catch(e){ q('ccResult').innerHTML = err(e); return; }
+        const n = (r.corrections||[]).length;
+        if(!n){ render(r, false); q('ccApplyBtn').disabled = true; return; }
+        if(!confirm(`Pay ${n} driver correction${n===1?'':'s'}, net ${money(r.totalDelta||0)}? Each driver's balance changes by the amount shown and this cannot be run twice for the same race.`)) { render(r, false); return; }
+        q('ccApplyBtn').disabled = true;
+        q('ccResult').innerHTML = '<div class="field-hint">Applying&hellip;</div>';
+        try{
+          const done = await window.IFWL_RaceEarningsSettlementAPI.runClassPayoutCorrection(payload(true));
+          lastPreview = null;
+          render(done, true);
+        }catch(e){ q('ccResult').innerHTML = err(e); }
+      };
+    })();
   }
 
   // ✅ ADDED: BOP TRACKer staff panel - upload/replace the BOP file (with
