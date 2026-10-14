@@ -1234,6 +1234,19 @@ body.theme-dark .staff-notice.ban strong{color:#fff}
 .races-tab:hover{color:var(--text-primary)}
 .races-tab.active{color:var(--ifwl-teal);border-bottom-color:var(--ifwl-teal)}
 .races-tab-panel.hidden{display:none}
+.races-tab-count{display:inline-block;margin-left:6px;min-width:18px;padding:1px 6px;border-radius:999px;background:var(--surface-alt);border:1px solid var(--ifwl-line);font-size:10px;font-weight:800;color:var(--text-muted);letter-spacing:0;text-align:center}
+.races-tab.active .races-tab-count{color:var(--ifwl-teal);border-color:var(--ifwl-teal)}
+.races-pick-prompt{padding:26px 14px;text-align:center;color:var(--text-muted);font-size:13px;border:1px dashed var(--ifwl-line);border-radius:12px;margin-top:14px}
+.races-cal-title{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:6px 0 8px}
+.races-cal-title h4{margin:0;font-size:14px}
+.races-cal-title small{color:var(--text-muted);font-size:11px}
+.arw-chip-game{font-size:8.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:1px 5px;border-radius:5px;background:var(--surface-alt);border:1px solid var(--ifwl-line);color:var(--text-muted)}
+.arw-chip-game.g-acc{color:var(--ifwl-teal);border-color:var(--ifwl-teal)}
+.arw-chip-game.g-lmu{color:var(--ifwl-purple,#a56bff);border-color:var(--ifwl-purple,#a56bff)}
+.arw-chip-game.g-raceroom{color:#f5a623;border-color:#f5a623}
+.arw-chip-game.g-acrally{color:#ff6b57;border-color:#ff6b57}
+.arw-chip-game.g-rocketleague{color:#4aa8ff;border-color:#4aa8ff}
+.arw-chip-dim{opacity:.38}
 /* Live Now boards reuse .race-event-card but build it as a raw <img> +
    <div> pair rather than the .rec-thumb-wrap/.rec-body structure below -
    these two rules keep that older markup shape looking right at the new
@@ -2279,28 +2292,34 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
          Each board still renders into its own container
          (renderAcRallyDriverBoard() / the RL equivalent) so refreshing
          one never clobbers another tab's content. -->
-    <div class="races-tab-bar">
-      <button type="button" class="races-tab active" data-races-tab="acc">ACC Events</button>
-      <!-- ✅ ADDED: LMU - its own tab for Staff SimGrid Events created with
-           Game = LMU. Hidden by default (toggled by updateLmuRacesTabVisibility()
-           below) since most leagues won't have any LMU events yet; unlike
-           AC Rally/RL 3v3 this doesn't need a MutationObserver to detect
-           emptiness, since LMU events arrive in the same fetch as ACC ones. -->
-      <button type="button" class="races-tab hidden" data-races-tab="lmu" id="lmuRacesTabBtn">LMU</button>
+    <!-- Unified calendar: every event on every game, Monday to Sunday. Pick a
+         game below to fill in that game's actual race cards. -->
+    <div class="races-cal-title"><h4>This week &middot; all games</h4><small>Tap an event to jump to its card</small></div>
+    <div id="racesCalendar"></div>
+    <div class="races-tab-bar" id="racesGameBar">
+      <button type="button" class="races-tab" data-races-tab="acc" id="accRacesTabBtn">ACC</button>
+      <button type="button" class="races-tab" data-races-tab="lmu" id="lmuRacesTabBtn">LMU</button>
       <button type="button" class="races-tab" data-races-tab="acrally" id="acRallyTabBtn">AC Rally</button>
-      <button type="button" class="races-tab" data-races-tab="rl3v3" id="rl3v3TabBtn">RL 3v3</button>
+      <button type="button" class="races-tab" data-races-tab="rl3v3" id="rl3v3TabBtn">Rocket League</button>
+      <button type="button" class="races-tab" data-races-tab="raceroom" id="raceroomTabBtn">RaceRoom</button>
     </div>
-    <div class="races-tab-panel" data-races-panel="acc">
+    <div class="races-pick-prompt" id="racesPickPrompt">Pick a game above to see its races.</div>
+    <div class="races-tab-panel hidden" data-races-panel="acc">
       <div id="availableRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
     </div>
     <div class="races-tab-panel hidden" data-races-panel="lmu">
       <div id="lmuRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
     </div>
     <div class="races-tab-panel hidden" data-races-panel="acrally">
+      <div id="acRallyRacesBody" class="panel-body"></div>
       <div id="acRallyDriverBoard"></div>
     </div>
     <div class="races-tab-panel hidden" data-races-panel="rl3v3">
+      <div id="rlRacesBody" class="panel-body"></div>
       <div id="rlDriverBoard"></div>
+    </div>
+    <div class="races-tab-panel hidden" data-races-panel="raceroom">
+      <div id="raceroomRacesBody" class="panel-body"><div class="empty">Loading&hellip;</div></div>
     </div>
   </section>
 
@@ -3968,6 +3987,9 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         <select id="sgGame">
           <option value="acc">ACC (Available Races)</option>
           <option value="lmu">LMU (its own Available Races tab)</option>
+          <option value="raceroom">RaceRoom (its own Available Races tab)</option>
+          <option value="acrally">AC Rally (its own Available Races tab)</option>
+          <option value="rocketleague">Rocket League (its own Available Races tab)</option>
         </select>
       </div>
       <div class="field-group hidden" id="sgLmuTierGroup">
@@ -6910,25 +6932,19 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // event, and bounces the user back to ACC Events if they were sitting on
   // a tab that just went empty - same spirit as the old #liveNowSection
   // :has() auto-hide, just extended to hide the tab button too.
-  function switchRacesTab(tab){
-    document.querySelectorAll('.races-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.racesTab === tab));
-    document.querySelectorAll('.races-tab-panel').forEach(panel => panel.classList.toggle('hidden', panel.dataset.racesPanel !== tab));
+  // Nothing is selected on open - the calendar above shows everything, and a
+  // game button (or a calendar chip) fills in that game's race cards.
+  let activeRacesTab = '';
+  function switchRacesTab(tab, toggle){
+    if(toggle && tab === activeRacesTab) tab = '';
+    activeRacesTab = tab || '';
+    document.querySelectorAll('.races-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.racesTab === activeRacesTab));
+    document.querySelectorAll('.races-tab-panel').forEach(panel => panel.classList.toggle('hidden', panel.dataset.racesPanel !== activeRacesTab));
+    const prompt = document.getElementById('racesPickPrompt');
+    if(prompt) prompt.classList.toggle('hidden', !!activeRacesTab);
+    if(typeof renderRacesCalendar === 'function') renderRacesCalendar();
   }
-  function racesTabEmptyWatch(boardId, tabBtnId){
-    const board = document.getElementById(boardId);
-    const tabBtn = document.getElementById(tabBtnId);
-    if(!board || !tabBtn) return;
-    const update = () => {
-      const hasContent = board.children.length > 0;
-      tabBtn.style.display = hasContent ? '' : 'none';
-      if(!hasContent && tabBtn.classList.contains('active')) switchRacesTab('acc');
-    };
-    update();
-    new MutationObserver(update).observe(board, { childList: true });
-  }
-  document.querySelectorAll('.races-tab').forEach(btn => btn.addEventListener('click', () => switchRacesTab(btn.dataset.racesTab)));
-  racesTabEmptyWatch('acRallyDriverBoard', 'acRallyTabBtn');
-  racesTabEmptyWatch('rlDriverBoard', 'rl3v3TabBtn');
+  document.querySelectorAll('.races-tab').forEach(btn => btn.addEventListener('click', () => switchRacesTab(btn.dataset.racesTab, true)));
 
   // ✅ ADDED: converts a "HH:MM" staff entered as UK LOCAL time into this
   // viewer's own local time, purely for display - mirrors the server's
@@ -6961,39 +6977,84 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // actually falls on (viewer-local), so older events still slot in
   // somewhere sensible. Undated/no-day events show in a trailing
   // "Unscheduled" column rather than being silently dropped.
-  function renderAvailableRacesWeeklyStrip(events){
+  // ---- Unified calendar: ALL events on ALL games (SimGrid events of every
+  // game + the AC Rally / Rocket League knockout boards), Monday to Sunday.
+  const RACES_GAME_META = {
+    acc:          { label:'ACC',           tab:'acc',      body:'availableRacesBody' },
+    lmu:          { label:'LMU',           tab:'lmu',      body:'lmuRacesBody' },
+    acrally:      { label:'AC Rally',      tab:'acrally',  body:'acRallyRacesBody' },
+    rocketleague: { label:'Rocket League', tab:'rl3v3',    body:'rlRacesBody' },
+    raceroom:     { label:'RaceRoom',      tab:'raceroom', body:'raceroomRacesBody' }
+  };
+  const racesGameOf = (e) => RACES_GAME_META[e && e.game] ? e.game : 'acc';
+  let racesCalSg = [], racesCalAcr = [], racesCalRl = [];
+
+  function racesBoardCalItems(events, game){
+    return (events || []).map(ev => {
+      const openRound = (ev.rounds || []).find(r => r.status === 'open' && r.scheduledAtMs);
+      const ms = Number(ev.scheduledAtMs || (openRound && openRound.scheduledAtMs) || 0);
+      return { id:'board-' + game + '-' + (ev.id || ev.title), title: ev.title || (RACES_GAME_META[game].label + ' knockout'), game, board:true, eventDateMs: ms, dayOfWeek:'', raceTimeUK:'' };
+    });
+  }
+
+  function renderRacesCalendar(){
+    const host = q('racesCalendar');
+    if(!host) return;
+    const items = [].concat(racesCalSg || [], racesBoardCalItems(racesCalAcr, 'acrally'), racesBoardCalItems(racesCalRl, 'rocketleague'));
     const byDay = { Mon:[], Tue:[], Wed:[], Thu:[], Fri:[], Sat:[], Sun:[], other:[] };
-    events.forEach(e => {
-      // ✅ ADDED: "Daily" (e.g. the always-on Licence Obtainment servers)
-      // goes under every day column, not just one - and never falls into
-      // "Unscheduled" since it genuinely does run every day.
+    items.forEach(e => {
+      // "Daily" (e.g. the always-on Licence Obtainment servers) goes under every day column.
       if(e.dayOfWeek === 'Daily'){ AVAILABLE_RACES_WEEK_DAYS.forEach(d => byDay[d.key].push(e)); return; }
       let day = e.dayOfWeek || '';
       if(!day && e.eventDateMs) day = AVAILABLE_RACES_WEEKDAY_FROM_JSDAY[new Date(e.eventDateMs).getDay()];
       (byDay[day] || byDay.other).push(e);
     });
+    const timeOf = (e) => e.raceTimeUK ? ifwlConvertUkTimeToViewerLocal(e.raceTimeUK) : (e.board && e.eventDateMs ? new Date(e.eventDateMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '');
+    const chip = (e) => {
+      const g = racesGameOf(e);
+      const dim = activeRacesTab && RACES_GAME_META[g].tab !== activeRacesTab;
+      const t = timeOf(e);
+      return `<button type="button" class="arw-chip${e.eligible===false ? ' arw-chip-locked' : ''}${dim ? ' arw-chip-dim' : ''}" data-arw-jump="${e.id}" data-arw-game="${g}"><span class="arw-chip-game g-${g}">${RACES_GAME_META[g].label}</span>${e.eligible===false ? '🔒 ' : ''}${e.title}${t ? `<span class="arw-chip-time">${t}</span>` : ''}</button>`;
+    };
     const dayCol = (d) => `
       <div class="arw-day-col">
         <div class="arw-day-head">${d.label}<span class="arw-day-sub">${d.key}</span></div>
-        <div class="arw-day-body">
-          ${byDay[d.key].length ? byDay[d.key].map(e => `<button type="button" class="arw-chip${e.eligible===false ? ' arw-chip-locked' : ''}" data-arw-jump="${e.id}">${e.eligible===false ? '🔒 ' : ''}${e.title}${e.raceTimeUK ? `<span class="arw-chip-time">${ifwlConvertUkTimeToViewerLocal(e.raceTimeUK)}</span>` : ''}</button>`).join('') : '<span class="arw-day-empty">&ndash;</span>'}
-        </div>
+        <div class="arw-day-body">${byDay[d.key].length ? byDay[d.key].map(chip).join('') : '<span class="arw-day-empty">&ndash;</span>'}</div>
       </div>`;
     const wrap = document.createElement('div');
     wrap.className = 'arw-strip';
     wrap.innerHTML = AVAILABLE_RACES_WEEK_DAYS.map(dayCol).join('') + (byDay.other.length ? `
       <div class="arw-day-col arw-day-col-other">
         <div class="arw-day-head">&hellip;<span class="arw-day-sub">Unscheduled</span></div>
-        <div class="arw-day-body">${byDay.other.map(e => `<button type="button" class="arw-chip" data-arw-jump="${e.id}">${e.title}</button>`).join('')}</div>
+        <div class="arw-day-body">${byDay.other.map(chip).join('')}</div>
       </div>` : '');
     wrap.querySelectorAll('[data-arw-jump]').forEach(btn => btn.addEventListener('click', () => {
-      const card = document.querySelector(`[data-race-card="${btn.dataset.arwJump}"]`);
-      if(!card) return;
-      card.scrollIntoView({ behavior:'smooth', block:'center' });
-      card.classList.add('rec-flash');
-      setTimeout(() => card.classList.remove('rec-flash'), 1600);
+      const game = btn.dataset.arwGame || 'acc';
+      const id = btn.dataset.arwJump;
+      switchRacesTab(RACES_GAME_META[game].tab);
+      const target = id.startsWith('board-')
+        ? (document.getElementById(game === 'acrally' ? 'acRallyDriverBoard' : 'rlDriverBoard'))
+        : document.querySelector(`[data-race-card="${id}"]`);
+      if(!target) return;
+      target.scrollIntoView({ behavior:'smooth', block:'center' });
+      target.classList.add('rec-flash');
+      setTimeout(() => target.classList.remove('rec-flash'), 1600);
     }));
-    return wrap;
+    host.innerHTML = '';
+    host.appendChild(wrap);
+    updateRacesTabCounts();
+  }
+
+  function updateRacesTabCounts(){
+    const counts = { acc:0, lmu:0, acrally:0, rocketleague:0, raceroom:0 };
+    (racesCalSg || []).forEach(e => { counts[racesGameOf(e)]++; });
+    counts.acrally += (racesCalAcr || []).length;
+    counts.rocketleague += (racesCalRl || []).length;
+    Object.keys(RACES_GAME_META).forEach(g => {
+      const btn = document.querySelector(`.races-tab[data-races-tab="${RACES_GAME_META[g].tab}"]`);
+      if(!btn) return;
+      btn.innerHTML = `${RACES_GAME_META[g].label}<span class="races-tab-count">${counts[g]}</span>`;
+    });
   }
 
   // ✅ ADDED: "Entrylist last updated" line on each Available Races card.
@@ -7085,7 +7146,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
       const toggle = q('availableRacesStaffToggle');
       if(toggle) toggle.textContent = staffAll ? 'Show only my tier' : 'Show ALL races (staff)';
     }
-    if(!events.length){ body.innerHTML = `<div class="empty">${staffAll ? 'No active SimGrid events at all.' : (isAccBody ? 'No invite-only races available for your current tier yet.' : 'No LMU events available yet.')}</div>`; return; }
+    if(!events.length){ body.innerHTML = `<div class="empty">${staffAll ? 'No active SimGrid events at all.' : (isAccBody ? 'No invite-only races available for your current tier yet.' : 'No events for this game yet.')}</div>`; return; }
     const placeholder = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="68"><rect width="120" height="68" fill="#1a2027"/></svg>');
     // ✅ CHANGED: cards now render into a responsive grid (.race-event-grid)
     // instead of one long stacked list, each card its own self-contained
@@ -7200,7 +7261,6 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     // clicking a race under its day scrolls straight to its full card
     // below. Skipped in staff-all mode (that view is an audit list, not a
     // driver-facing weekly planner).
-    if(!staffAll) body.insertBefore(renderAvailableRacesWeeklyStrip(events), body.firstChild);
 
     fillEntrylistRows(body);
     body.querySelectorAll('[data-toggle-roster]').forEach(btn => {
@@ -7294,29 +7354,18 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // the newly-unlocked card updates immediately without a full page
   // reload. See fetchAvailableRaces/renderAvailableRaces and the split-by-
   // game logic at the main init call site below.
+  // Splits one fetched list by game, renders each game's cards into its own
+  // panel, and refreshes the unified calendar + button counts.
+  function renderAllAvailableRaces(events, staffAll){
+    racesCalSg = events;
+    Object.keys(RACES_GAME_META).forEach(g => {
+      renderAvailableRaces(events.filter(e => racesGameOf(e) === g), staffAll, RACES_GAME_META[g].body);
+    });
+    renderRacesCalendar();
+  }
   async function reloadAvailableRacesBothTabs(){
     const events = await fetchAvailableRaces(availableRacesStaffAllMode);
-    const accEvents = events.filter(e => e.game !== 'lmu');
-    const lmuEvents = events.filter(e => e.game === 'lmu');
-    renderAvailableRaces(accEvents, availableRacesStaffAllMode, 'availableRacesBody');
-    renderAvailableRaces(lmuEvents, availableRacesStaffAllMode, 'lmuRacesBody');
-    updateLmuRacesTabVisibility(lmuEvents);
-  }
-
-  // ✅ ADDED: hides the "LMU" tab button entirely when there are zero LMU
-  // events - unlike AC Rally/RL 3v3 (which need a MutationObserver since
-  // their boards populate separately/async), LMU events arrive in the same
-  // fetch as ACC ones, so a synchronous check here is enough. If the LMU
-  // tab happens to be the active one when it empties out (e.g. staff
-  // deactivate the last LMU event while a driver has that tab open),
-  // falls back to the ACC tab rather than leaving an empty tab stranded
-  // active.
-  function updateLmuRacesTabVisibility(lmuEvents){
-    const tabBtn = q('lmuRacesTabBtn');
-    if(!tabBtn) return;
-    const hasAny = Array.isArray(lmuEvents) && lmuEvents.length > 0;
-    tabBtn.classList.toggle('hidden', !hasAny);
-    if(!hasAny && tabBtn.classList.contains('active')) switchRacesTab('acc');
+    renderAllAvailableRaces(events, availableRacesStaffAllMode);
   }
 
   let raceResultsCache = [];
@@ -8567,6 +8616,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     // over to Racing > AC Rally Results instead of lingering under Available
     // Races forever - completed events already have their own home there.
     const activeEvents = events.filter((ev) => ev.status !== 'completed');
+    racesCalAcr = activeEvents; renderRacesCalendar();
     if(!activeEvents.length){ wrap.innerHTML = ''; return; }
 
     wrap.innerHTML = `<h4 style="margin:14px 0 8px">AC Rally Knockout</h4>` + activeEvents.map(acRallyDriverCardHtml).join('');
@@ -8918,6 +8968,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     // ✅ FIXED: same as AC Rally's driver board - a finalised event moves to
     // Racing > RL 3v3 Results instead of lingering under Available Races.
     const activeEvents = events.filter((ev) => ev.status !== 'completed');
+    racesCalRl = activeEvents; renderRacesCalendar();
     if(!activeEvents.length){ wrap.innerHTML = ''; return; }
 
     wrap.innerHTML = `<h4 style="margin:14px 0 8px">RL 3v3 Knockout</h4>` + activeEvents.map(rlDriverCardHtml).join('');
@@ -10393,13 +10444,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     // into their own dedicated tab (hidden entirely until at least one
     // exists), everything else (the default/unset "acc" game) renders into
     // the original ACC Events tab exactly as before.
-    {
-      const accEvents = availableRaces.filter(e => e.game !== 'lmu');
-      const lmuEvents = availableRaces.filter(e => e.game === 'lmu');
-      renderAvailableRaces(accEvents, false, 'availableRacesBody');
-      renderAvailableRaces(lmuEvents, false, 'lmuRacesBody');
-      updateLmuRacesTabVisibility(lmuEvents);
-    }
+    renderAllAvailableRaces(availableRaces, false);
     renderAcRallyDriverBoard(); // fire-and-forget - independent of the SimGrid list above
     renderRlDriverBoard(); // fire-and-forget - independent of the SimGrid list above
     // ✅ ADDED: "Show ALL races (staff)" toggle - only ever visible via the
@@ -10414,11 +10459,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         availableRacesStaffToggleBtn.disabled = true;
         try{
           const all = await fetchAvailableRaces(nextMode);
-          const accEvents = all.filter(e => e.game !== 'lmu');
-          const lmuEvents = all.filter(e => e.game === 'lmu');
-          renderAvailableRaces(accEvents, nextMode, 'availableRacesBody');
-          renderAvailableRaces(lmuEvents, nextMode, 'lmuRacesBody');
-          updateLmuRacesTabVisibility(lmuEvents);
+          renderAllAvailableRaces(all, nextMode);
         }catch(e){
           console.warn('Could not load all races for staff view', e);
         }finally{
@@ -14329,7 +14370,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
           <input type="checkbox" class="sg-bulk-select" data-select-event="${e.id}" style="width:auto;margin-top:4px">
           ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:88px;height:56px;object-fit:cover;border-radius:8px;flex:none">` : ''}
           <div style="flex:1;min-width:0">
-            <strong>${e.title}</strong>${e.game === 'lmu' ? ' <span class="field-hint" style="color:var(--ifwl-purple);font-weight:700">[LMU]</span>' : ''}${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
+            <strong>${e.title}</strong>${(e.game && e.game !== 'acc') ? ` <span class="field-hint" style="color:var(--ifwl-purple);font-weight:700">[${({lmu:'LMU',raceroom:'RaceRoom',acrally:'AC Rally',rocketleague:'Rocket League'})[e.game] || e.game}]</span>` : ''}${ended ? ' <span class="field-hint">(no longer shown to drivers - date has passed)</span>' : ''}
             <div class="note-meta">${sgSeriesLabel(e.series)} &middot; ${(e.platform||'both')==='both'?'Console + PC':(e.platform==='console'?'Console':'PC')} &middot; ${(e.tiers||[]).join(', ')}${e.game === 'lmu' ? ` &middot; LMU sub-licence${(e.lmuRequiredTierIds||[]).length === 1 ? '' : 's'}: ${(e.lmuRequiredTierIds||[]).length ? e.lmuRequiredTierIds.map(id => sgLmuTiersCache.find(t => t.id === id)?.name || id).join(' or ') : '<em>none selected</em>'}` : ''}</div>
             <div class="note-meta sg-date-line" data-date-line="${e.id}">${sgDateLineInner(e)}</div>
             <div class="note-meta">${e.password ? `🔒 This event's password: ${e.password}` : 'No password set for this event'}</div>
@@ -14790,7 +14831,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     // under the LMU tab. An event can require ANY ONE of several
     // sub-licences (ticking more than one covers a multiclass round like
     // "Hypercar & LMP3's").
-    const game = q('sgGame').value === 'lmu' ? 'lmu' : 'acc';
+    const game = ['lmu','raceroom','acrally','rocketleague'].includes(q('sgGame').value) ? q('sgGame').value : 'acc';
     const lmuRequiredTierIds = game === 'lmu'
       ? [...(q('sgLmuTierChecks')?.querySelectorAll('.sg-lmu-tier-check:checked') || [])].map(cb => cb.value)
       : [];
