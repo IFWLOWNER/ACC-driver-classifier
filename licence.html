@@ -20376,7 +20376,7 @@ Flashing Headlights:
         <div class="field-hint">Everything useful is combined onto the account you KEEP; the other licence is archived, deleted, and its Discord ID blocked so it can't come back. Ratings given by / about the deleted account are removed.</div>
         <div class="field-group" style="margin-top:10px"><label>Other account's Discord ID</label><input type="text" id="olcMOther" value="${E(otherId || '')}" placeholder="Discord ID of the other licence" inputmode="numeric"></div>
         <div id="olcMOtherInfo" class="field-hint"></div>
-        <div class="field-group"><label>Which account do you want to KEEP?</label><select id="olcMKeep"><option value="current">Keep THIS one: ${E(s.name)} (${E(s.licenceNumber)})</option><option value="other">Keep the OTHER one</option><option value="new">Neither - move this licence to a NEW Discord ID that has no licence yet</option></select></div>
+        <div class="field-group"><label>Which account do you want to KEEP?</label><select id="olcMKeep"><option value="current">Keep THIS one: ${E(s.name)} (${E(s.licenceNumber)})</option><option value="other">Keep the OTHER one</option><option value="swap">Keep the OTHER licence, but put it on THIS Discord account (use when the other licence\'s Discord login is lost)</option><option value="new">Neither - move this licence to a NEW Discord ID that has no licence yet</option></select></div>
         <div class="field-group" id="olcMNewWrap" style="display:none"><label>New Discord ID (this licence moves here)</label><input type="text" id="olcMNew" inputmode="numeric"></div>
         <div class="field-group"><label>Tier rule</label><select id="olcMTier"><option value="higher">Keep the higher tier of the two</option><option value="target">Keep the kept account's tier</option><option value="source">Use the removed account's tier</option></select></div>
         <div class="opt"><input type="checkbox" id="olcMCareer"><label for="olcMCareer">Add career shop balances together (only if both are on the same season)</label></div>
@@ -20391,11 +20391,12 @@ Flashing Headlights:
       let other = null, need = '';
       const ids = () => {
         const keep = $('olcMKeep').value;
+        if(keep === 'swap') return { keepId:$('olcMOther').value.trim(), toId:r.discordId };
         if(keep === 'new') return { sourceId:r.discordId, targetId:$('olcMNew').value.trim(), createTarget:true };
         if(keep === 'other') return { sourceId:r.discordId, targetId:$('olcMOther').value.trim(), createTarget:false };
         return { sourceId:$('olcMOther').value.trim(), targetId:r.discordId, createTarget:false };
       };
-      const body = () => ({ action:'merge', ...ids(), tierRule:$('olcMTier').value, addCareerBalance:$('olcMCareer').checked, moveNotes:$('olcMNotes').checked, repointRelated:$('olcMRepoint').checked, archive:$('olcMArchive').checked, block:$('olcMBlock').checked, confirmLicenceNumber:$('olcMConfirm').value.trim() });
+      const body = () => ({ action:($('olcMKeep').value === 'swap' ? 'reassign' : 'merge'), ...ids(), tierRule:$('olcMTier').value, addCareerBalance:$('olcMCareer').checked, moveNotes:$('olcMNotes').checked, repointRelated:$('olcMRepoint').checked, archive:$('olcMArchive').checked, block:$('olcMBlock').checked, confirmLicenceNumber:$('olcMConfirm').value.trim() });
       const setNeed = () => {
         const keep = $('olcMKeep').value;
         need = keep === 'current' ? (other ? other.licenceNumber : '') : s.licenceNumber;
@@ -20413,6 +20414,9 @@ Flashing Headlights:
         const p = x.plan;
         const line = d => `${E(d.name || '(no name)')} ${E(d.licenceNumber || '')} ${d.discordId ? '<span style="color:var(--text-muted)">ID ' + E(d.discordId) + '</span>' : ''}`;
         $('olcMPlan').innerHTML = `<b>Preview - nothing has been changed yet</b><div style="margin:6px 0"><span style="color:var(--ifwl-green)">KEEP:</span> ${line(p.target)}<br><span style="color:var(--ifwl-red)">REMOVE:</span> ${line(p.source)}</div>${p.changes.length ? `<table class="olc-kv">${p.changes.map(c => `<tr><td>${E(c.field)}</td><td>${c.from == null || c.from === '' ? '<i>empty</i>' : fmtVal(c.field, c.from)} &rarr; <b>${c.to == null ? '' : (typeof c.to === 'object' ? E(JSON.stringify(c.to)) : E(String(c.to)))}</b> <span style="color:var(--text-muted)">(${E(c.rule || '')})</span></td></tr>`).join('')}</table>` : '<div>No field changes on the kept account.</div>'}${p.repoint.length ? '<div>Re-pointed: ' + p.repoint.map(x => E(x.label) + ' x' + x.count).join(', ') + '</div>' : ''}${p.notesCopied.length ? '<div>Copied: ' + p.notesCopied.map(x => E(x.name) + ' x' + x.count).join(', ') + '</div>' : ''}<div>Removed licence: ${p.deleteSource.archive ? 'archived, ' : '<b>NOT archived</b>, '}${p.deleteSource.block ? 'Discord ID blocked' : 'not blocked'}.</div>`;
+        if($('olcMKeep').value === 'swap'){
+          $('olcMPlan').innerHTML += `<div style="margin-top:8px;padding:8px;border-left:3px solid var(--ifwl-amber,#f5a524)"><b>Then:</b> the kept licence is moved onto <b>this</b> Discord account (ID ${E(r.discordId)}). The other Discord ID's copy is archived (the block option above is not used here), and this account's own licence is merged into it first.${x.reassign && x.reassign.targetBlocked ? ' <span style="color:var(--ifwl-red)">This Discord ID is on the block list - it will be unblocked.</span>' : ''}</div>`;
+        }
       };
       const pv = debounce(async () => {
         const oid = $('olcMOther').value.trim();
