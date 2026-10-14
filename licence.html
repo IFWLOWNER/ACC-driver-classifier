@@ -3941,6 +3941,47 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   <section class="panel view-panel" data-view="staffSimgridEvents" id="simgridEventsPanel">
     <div class="panel-head"><div><h3>Staff: SimGrid Events</h3><small>Invite-only races unlocked by licence tier</small></div><span class="badge purple">Staff only</span></div>
     <div class="panel-body">
+      <!-- ✅ ADDED: Discord weekly schedule post -->
+      <div class="note-item" id="schedPostCard" style="margin-bottom:18px">
+        <strong>📅 Discord weekly schedule post</strong>
+        <div class="field-hint" style="margin:4px 0 10px">Posts a schedule image of every event in the next 7 days, with a link to the Licence Centre, into the licence bot Discord channel.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn ghost" id="schedPreviewBtn" type="button">Preview image</button>
+          <button class="btn purple" id="schedPostBtn" type="button">Post to Discord now</button>
+        </div>
+        <div class="field-hint" id="schedPostStatus" style="margin-top:8px"></div>
+        <div id="schedPreviewWrap" class="hidden" style="margin-top:10px">
+          <img id="schedPreviewImg" alt="Schedule preview" style="max-width:100%;border-radius:10px;border:1px solid var(--ifwl-line)">
+          <div class="field-hint" style="margin-top:8px">Text that goes with it:</div>
+          <div id="schedPreviewText" style="white-space:pre-wrap;font-size:12px;background:var(--surface-alt);border:1px solid var(--ifwl-line);border-radius:8px;padding:10px;margin-top:4px"></div>
+        </div>
+        <hr style="border:none;border-top:1px solid var(--ifwl-line);margin:14px 0">
+        <label style="display:flex;gap:8px;align-items:center;font-weight:700"><input type="checkbox" id="schedAutoEnabled" style="width:auto"> Post automatically every week</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">
+          <select id="schedAutoDay" style="width:auto">
+            <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
+          </select>
+          <input type="time" id="schedAutoTime" value="12:00" style="width:auto">
+          <span class="field-hint">UK time</span>
+          <button class="btn teal" id="schedAutoSaveBtn" type="button">Save</button>
+        </div>
+        <div class="field-hint" id="schedAutoInfo" style="margin-top:8px"></div>
+        <details style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--ifwl-teal)">One-time setup for automatic posting</summary>
+          <div class="field-hint" style="margin-top:8px;line-height:1.55">
+            1. Google Cloud Console &rarr; <strong>Cloud Scheduler</strong> &rarr; <strong>Create job</strong>.<br>
+            2. Region <strong>europe-west2</strong>, frequency <code>*/15 * * * *</code>, time zone <strong>Europe/London</strong>.<br>
+            3. Target type <strong>HTTP</strong>, method <strong>GET</strong>, URL = the link below. Leave auth as None.<br>
+            4. Save. After that, the day, time and on/off switch above are all you ever change here.
+          </div>
+          <input type="text" id="schedTickUrl" readonly style="width:100%;margin-top:8px;font-size:11px">
+          <div style="display:flex;gap:10px;margin-top:8px">
+            <button class="btn ghost" id="schedCopyUrlBtn" type="button">Copy link</button>
+            <button class="btn ghost" id="schedRotateKeyBtn" type="button">Make a new key</button>
+          </div>
+          <div class="field-hint" style="margin-top:6px">Treat the link like a password. Making a new key stops the old Scheduler link working - paste the new one into the job.</div>
+        </details>
+      </div>
       <div class="field-group"><label>Event title</label><input type="text" id="sgTitle" placeholder="e.g. IFWL Beginner Invitational - Round 3"></div>
       <div class="field-group">
         <label>SimGrid event link</label>
@@ -4940,6 +4981,15 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   async function clearEventRoster(eventId, moveToEventId){
     return apiPost('staffEventRosterClear', { eventId, moveToEventId: moveToEventId || '' });
   }
+  // ✅ ADDED: Discord weekly schedule post (Staff: SimGrid Events). Server side is
+  // in rtgate.js (staffEventSchedule* + eventScheduleTick).
+  window.IFWL_SchedulePostAPI = {
+    get: () => apiGet('staffEventScheduleGet'),
+    save: (settings) => apiPost('staffEventScheduleSave', settings),
+    preview: () => apiPost('staffEventSchedulePreview', {}),
+    postNow: () => apiPost('staffEventSchedulePost', {}),
+    tickUrl: (key) => `${FN}?eventScheduleTick=1&key=${encodeURIComponent(key)}`
+  };
   window.IFWL_SimgridAPI = { clearEventRoster, fetchAvailableRaces, fetchAllSimgridEvents, saveSimgridEvent, deleteSimgridEvent, bulkDeleteSimgridEvents, bulkSetPlatformSimgridEvents, bulkSetSimgridLinkSimgridEvents, bulkRenameSimgridEvents, bulkSetLmuSimgridEvents, uploadEventRoster, unlockEventDiscordRole };
 
   // Server contract:
@@ -10767,7 +10817,15 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   document.querySelectorAll('.staff-accordion-group > summary').forEach(summary => {
     summary.addEventListener('click', (e) => e.stopPropagation());
   });
-  switchView('home'); // default view on load
+  {
+    // Deep link from the Discord schedule post: licence.html?view=availableRaces
+    let startView = 'home';
+    try{
+      const wanted = new URLSearchParams(location.search).get('view');
+      if(wanted && /^[A-Za-z]+$/.test(wanted) && document.querySelector(`.view-panel[data-view="${wanted}"]`) && !wanted.startsWith('staff')) startView = wanted;
+    }catch(e){}
+    switchView(startView); // default view on load
+  }
 
   // ✅ ADDED: homepage system status banner - runs regardless of login state,
   // since staff messaging like "this feature is in beta" is useful to show
@@ -14201,6 +14259,75 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     q('sgLmuTierGroup')?.classList.toggle('hidden', q('sgGame')?.value !== 'lmu');
   }
   q('sgGame')?.addEventListener('change', updateSgLmuTierGroupVisibility);
+
+  // ---- Discord weekly schedule post (Staff: SimGrid Events) ----
+  (function(){
+    const api = () => window.IFWL_SchedulePostAPI;
+    if(!q('schedPostCard')) return;
+    const status = (t, bad) => { const el = q('schedPostStatus'); el.textContent = t || ''; el.style.color = bad ? 'var(--ifwl-red)' : ''; };
+    function showSettings(st){
+      q('schedAutoEnabled').checked = !!st.enabled;
+      q('schedAutoDay').value = String(st.dayOfWeek);
+      q('schedAutoTime').value = String(st.hour).padStart(2,'0') + ':' + String(st.minute).padStart(2,'0');
+      q('schedTickUrl').value = st.tickKey ? api().tickUrl(st.tickKey) : '';
+      q('schedAutoInfo').textContent = st.lastPostedAtMs
+        ? `Last post: ${new Date(st.lastPostedAtMs).toLocaleString()} (${st.lastResult || st.lastPostedBy || ''})`
+        : 'Nothing posted yet.';
+    }
+    let loaded = false;
+    async function load(){
+      try{ showSettings((await api().get()).settings); loaded = true; }
+      catch(e){ q('schedAutoInfo').textContent = 'Could not load schedule settings: ' + e.message; }
+    }
+    // load when the panel is first opened
+    document.querySelectorAll('[data-view="staffSimgridEvents"]').forEach(el => el.addEventListener('click', () => { if(!loaded && document.body.classList.contains('staff-access')) load(); }));
+    setTimeout(() => { if(!loaded && document.body.classList.contains('staff-access')) load(); }, 2500);
+
+    q('schedPreviewBtn').addEventListener('click', async () => {
+      const b = q('schedPreviewBtn'); b.disabled = true; status('Building the preview...');
+      try{
+        const r = await api().preview();
+        q('schedPreviewImg').src = 'data:image/png;base64,' + r.imageBase64;
+        q('schedPreviewText').textContent = r.text;
+        q('schedPreviewWrap').classList.remove('hidden');
+        status(r.eventCount ? `${r.eventCount} event(s) in the next 7 days` + (r.alwaysOpen ? ` plus ${r.alwaysOpen} always-open.` : '.') : 'No dated events in the next 7 days - the image will be mostly empty.');
+      }catch(e){ status('Preview failed: ' + e.message, true); }
+      b.disabled = false;
+    });
+    q('schedPostBtn').addEventListener('click', async () => {
+      if(!confirm('Post the weekly schedule to the licence bot Discord channel now?')) return;
+      const b = q('schedPostBtn'); b.disabled = true; status('Posting to Discord...');
+      try{
+        const r = await api().postNow();
+        status(`Posted to Discord (${r.eventCount} event${r.eventCount === 1 ? '' : 's'}).`);
+        showSettings(r.settings);
+      }catch(e){ status('Post failed: ' + e.message, true); }
+      b.disabled = false;
+    });
+    q('schedAutoSaveBtn').addEventListener('click', async () => {
+      const [hh, mm] = (q('schedAutoTime').value || '12:00').split(':').map(Number);
+      try{
+        const r = await api().save({ enabled: q('schedAutoEnabled').checked, dayOfWeek: Number(q('schedAutoDay').value), hour: hh, minute: mm });
+        showSettings(r.settings);
+        status(r.settings.enabled ? 'Saved - automatic posting is ON (needs the one-time Cloud Scheduler job below).' : 'Saved - automatic posting is OFF.');
+      }catch(e){ status('Save failed: ' + e.message, true); }
+    });
+    q('schedCopyUrlBtn').addEventListener('click', async () => {
+      const v = q('schedTickUrl').value;
+      if(!v) return;
+      try{ await navigator.clipboard.writeText(v); status('Link copied.'); }
+      catch(e){ q('schedTickUrl').select(); status('Press Ctrl+C to copy the selected link.'); }
+    });
+    q('schedRotateKeyBtn').addEventListener('click', async () => {
+      if(!confirm('Make a new key? The current Cloud Scheduler link will stop working until you paste the new one.')) return;
+      try{
+        const cur = (await api().get()).settings;
+        const r = await api().save({ enabled: cur.enabled, dayOfWeek: cur.dayOfWeek, hour: cur.hour, minute: cur.minute, rotateKey: true });
+        showSettings(r.settings);
+        status('New key made - update the Cloud Scheduler job with the new link.');
+      }catch(e){ status('Failed: ' + e.message, true); }
+    });
+  })();
 
   // Mirrors ENTRYLIST_SERIES_CATALOG in rtgate.js - a small fixed constant
   // duplicated here rather than fetched, since it's not staff-editable data.
