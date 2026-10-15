@@ -255,6 +255,23 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
 .pill.act-console{background:#ece6ff;color:#5b3fc4}
 .pill.act-both{background:#e1f6f1;color:#0c7a66}
 
+/* ---------- Seasons editor ---------- */
+.sc-bar{flex-wrap:wrap;gap:8px;align-items:center}
+.sc-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px}
+.sc-card.bad{border-color:var(--red);box-shadow:0 0 0 2px var(--red-tint)}
+.sc-grid{display:grid;grid-template-columns:minmax(140px,1.2fr) minmax(90px,.8fr) repeat(4,minmax(130px,1fr));gap:10px;align-items:end}
+.sc-grid label,.sc-brk label{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-mute);margin-bottom:4px}
+.sc-grid .search-input,.sc-brk .search-input{min-width:0;width:100%;box-sizing:border-box;padding:8px 10px}
+.sc-meta{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:10px;font-size:12px;font-weight:700}
+.sc-meta .ok{color:var(--green)} .sc-meta .warn{color:var(--amber)} .sc-meta .err{color:var(--red)}
+.sc-meta label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;font-size:12px;text-transform:none;letter-spacing:0;color:var(--text);margin:0}
+.sc-brk{display:grid;grid-template-columns:minmax(140px,1.4fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end;margin-top:10px;padding:10px;border:1px dashed var(--line-strong);border-radius:9px;background:var(--panel-alt)}
+.sc-note{margin-top:10px}
+.sc-spacer{flex:1}
+.sc-problems{background:var(--red-tint);color:var(--red);border:1px solid rgba(194,53,42,.3);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;font-weight:700}
+.sc-problems ul{margin:4px 0 0 18px;padding:0}
+@media (max-width:980px){.sc-grid{grid-template-columns:1fr 1fr}.sc-brk{grid-template-columns:1fr 1fr}}
+
 </style>
 </head>
 <body class="login-wall-open">
@@ -302,6 +319,7 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
   <button class="tab-btn" data-tab="career" type="button">Career Progression</button>
   <button class="tab-btn" data-tab="careerctl" type="button">Career Control</button>
   <button class="tab-btn" data-tab="season" type="button">Season In Progress</button>
+  <button class="tab-btn" data-tab="seasoncal" type="button">Seasons</button>
   <button class="tab-btn" data-tab="staff" type="button">Staff <span class="count" id="countStaff">&hellip;</span></button>
 </nav>
 
@@ -383,6 +401,27 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
     <h3 class="cc-h">Drivers active in this window</h3>
     <div id="actGridWrap"><div class="loading-row"><span class="spin"></span>Loading&hellip;</div></div>
     <p class="cc-dim" style="margin-top:10px">&ldquo;Used the system&rdquo; = opened any driver-facing licence page (the site refreshes a driver&rsquo;s profile on each page load) or had a licence created in the window. Only each driver&rsquo;s most recent visit is stored, so this is &ldquo;last seen inside the window&rdquo;, not a count of visits.</p>
+  </section>
+
+  <!-- ============ SEASONS (CALENDAR EDITOR) TAB ============ -->
+  <section class="tab-panel" id="tab-seasoncal">
+    <div class="panel-head">
+      <div>
+        <h2>Seasons</h2>
+        <p class="sub">The season calendar shown on the public Licence Centre &ldquo;Seasons&rdquo; tab: season dates, training weeks, holiday breaks and the plan ahead. Seasons run Monday to Sunday.</p>
+      </div>
+    </div>
+    <div class="panel-toolbar sc-bar">
+      <button class="btn primary" id="scSave" type="button">Save changes</button>
+      <button class="btn" id="scAdd" type="button">+ Add season</button>
+      <button class="btn" id="scGen" type="button" title="Adds the next season using the 11-week pattern: 10 race weeks + training week 6, after a 2-week break">+ Generate next season</button>
+      <button class="btn" id="scReload" type="button">Discard changes</button>
+      <a class="btn" id="scPreview" href="https://ifwlowner.github.io/ACC-driver-classifier/licence.html?view=seasons" target="_blank" rel="noopener">View public tab</a>
+      <span class="cc-dim" id="scState"></span>
+    </div>
+    <div id="scProblems"></div>
+    <div id="scList"><div class="loading-row"><span class="spin"></span>Loading&hellip;</div></div>
+    <p class="cc-dim" style="margin-top:12px">Pattern used so far: 11-week seasons (10 race weeks plus a training week in week 6) with a 2-week break between seasons. Race weeks = Mondays in the season that aren&rsquo;t in a training week or break. This calendar is display-only &mdash; the <strong>Season Window</strong> in the Licence Centre (which sets the Race Results / career date range) is separate.</p>
   </section>
 
   <!-- ============ EVENTS TAB ============ -->
@@ -1695,6 +1734,7 @@ window.addEventListener('ifwl-owner-ready', () => {
      ?ownerOverviewCareerReceipts=1  (GET)
      ?ownerOverviewCancelListing=1   (POST {listingId, reason})
      (Activity tab) ?ownerOverviewPostActivity=1  (POST {text, imageBase64}) - relays the 24h report to Discord
+     (Seasons tab) ?seasonCalendar=1 (GET, public) / ?ownerSeasonCalendarSave=1 (POST {seasons}, Owner only)
    The receipt renderer below is the same one the driver-facing
    Career page uses, so an owner sees exactly what the driver sees.
    ============================================================ */
@@ -2895,6 +2935,201 @@ window.addEventListener('ifwl-owner-ready', () => {
   });
 
   tabLoaders.activity = load;
+})();
+
+</script>
+<script>
+/* ============================================================
+   SEASONS EDITOR TAB  (owner-only)
+   Edits league_meta/seasonCalendar (public Licence Centre "Seasons" tab).
+     ?seasonCalendar=1               (GET)
+     ?ownerSeasonCalendarSave=1      (POST {seasons}, Owner only; the server
+                                       re-validates and rejects overlaps)
+   ============================================================ */
+(() => {
+  const $ = id => document.getElementById(id);
+  const E = escHtml;
+  const DAY = 86400000;
+  const ms = s => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN; };
+  const iso = t => new Date(t).toISOString().slice(0, 10);
+  const add = (s, n) => iso(ms(s) + n * DAY);
+  const dow = s => new Date(ms(s)).getUTCDay();
+  const fmt = s => isNaN(ms(s)) ? '?' : new Date(ms(s)).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  let rows = [], saved = '[]', isDefault = false, uid = 0;
+
+  const blank = () => ({ _k: ++uid, id: '', name: '', group: '', startDate: '', endDate: '', trainingStart: '', trainingEnd: '', breaks: [], planned: false, note: '' });
+  const fromServer = s => Object.assign(blank(), JSON.parse(JSON.stringify(s)), { _k: ++uid });
+  const clean = r => ({ id: r.id, name: r.name, group: r.group, startDate: r.startDate, endDate: r.endDate, trainingStart: r.trainingStart, trainingEnd: r.trainingEnd, breaks: r.breaks.map(b => ({ label: b.label, startDate: b.startDate, endDate: b.endDate })), planned: !!r.planned, note: r.note });
+  const snapshot = () => JSON.stringify(rows.map(clean));
+
+  function raceWeeks(r) {
+    if (isNaN(ms(r.startDate)) || isNaN(ms(r.endDate))) return null;
+    let n = 0;
+    for (let t = ms(r.startDate); t <= ms(r.endDate); t += DAY) {
+      if (new Date(t).getUTCDay() !== 1) continue;
+      const d = iso(t);
+      if (r.trainingStart && r.trainingEnd && d >= r.trainingStart && d <= r.trainingEnd) continue;
+      if (r.breaks.some(b => b.startDate && b.endDate && d >= b.startDate && d <= b.endDate)) continue;
+      n++;
+    }
+    return n;
+  }
+
+  /* returns {errors:[{k,msg}], perRow:{k:[msgs]}} */
+  function validate() {
+    const errors = [], per = {};
+    const push = (r, msg) => { errors.push(`${r.name || 'Unnamed season'}: ${msg}`); (per[r._k] = per[r._k] || []).push(msg); };
+    rows.forEach(r => {
+      if (!r.name.trim()) push(r, 'needs a name');
+      if (isNaN(ms(r.startDate)) || isNaN(ms(r.endDate))) { push(r, 'needs a start and end date'); return; }
+      if (r.endDate < r.startDate) push(r, 'ends before it starts');
+      if (!!r.trainingStart !== !!r.trainingEnd) push(r, 'training week needs both a start and an end');
+      if (r.trainingStart && r.trainingEnd) {
+        if (r.trainingEnd < r.trainingStart) push(r, 'training week ends before it starts');
+        else if (r.trainingStart < r.startDate || r.trainingEnd > r.endDate) push(r, 'training week is outside the season');
+      }
+      r.breaks.forEach(b => {
+        if (!b.startDate || !b.endDate || b.endDate < b.startDate) push(r, `break "${b.label || 'Break'}" needs valid dates`);
+        else if (b.startDate < r.startDate || b.endDate > r.endDate) push(r, `break "${b.label || 'Break'}" is outside the season`);
+      });
+    });
+    const ok = rows.filter(r => !isNaN(ms(r.startDate)) && !isNaN(ms(r.endDate))).slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
+    for (let i = 1; i < ok.length; i++) {
+      if (ok[i].startDate <= ok[i - 1].endDate) {
+        const m = `overlaps ${ok[i - 1].name || 'the previous season'} (${fmt(ok[i - 1].startDate)} to ${fmt(ok[i - 1].endDate)})`;
+        push(ok[i], m);
+      }
+    }
+    return { errors, per };
+  }
+
+  function nextGroup(last) {
+    const m = /^(\d{4})-(\d{2})$/.exec(last.group || '');
+    const inGroup = rows.filter(r => r.group === last.group).length;
+    if (m && inGroup >= 4) { const y = +m[1] + 1; return `${y}-${String(y + 1).slice(2)}`; }
+    return last.group || '';
+  }
+
+  function render() {
+    const v = validate();
+    const sorted = rows.slice().sort((a, b) => (a.startDate || '9').localeCompare(b.startDate || '9'));
+    $('scList').innerHTML = sorted.map((r, idx) => {
+      const rw = raceWeeks(r);
+      const hasDates = !isNaN(ms(r.startDate)) && !isNaN(ms(r.endDate));
+      const monOk = hasDates && dow(r.startDate) === 1, sunOk = hasDates && dow(r.endDate) === 0;
+      const next = sorted[idx + 1];
+      const gap = hasDates && next && !isNaN(ms(next.startDate)) ? Math.round((ms(next.startDate) - ms(r.endDate)) / DAY) - 1 : null;
+      const errs = v.per[r._k] || [];
+      return `<div class="sc-card${errs.length ? ' bad' : ''}" data-k="${r._k}">
+        <div class="sc-grid">
+          <div><label>Season name</label><input class="search-input" data-f="name" value="${E(r.name)}" placeholder="Season 5"></div>
+          <div><label>Year group</label><input class="search-input" data-f="group" value="${E(r.group)}" placeholder="2027-28"></div>
+          <div><label>Starts (Mon)</label><input type="date" class="search-input" data-f="startDate" value="${E(r.startDate)}"></div>
+          <div><label>Ends (Sun)</label><input type="date" class="search-input" data-f="endDate" value="${E(r.endDate)}"></div>
+          <div><label>Training week starts</label><input type="date" class="search-input" data-f="trainingStart" value="${E(r.trainingStart)}"></div>
+          <div><label>Training week ends</label><input type="date" class="search-input" data-f="trainingEnd" value="${E(r.trainingEnd)}"></div>
+        </div>
+        ${r.breaks.map((b, bi) => `<div class="sc-brk" data-bi="${bi}">
+          <div><label>Break name</label><input class="search-input" data-bf="label" value="${E(b.label)}" placeholder="Christmas break"></div>
+          <div><label>Break starts</label><input type="date" class="search-input" data-bf="startDate" value="${E(b.startDate)}"></div>
+          <div><label>Break ends</label><input type="date" class="search-input" data-bf="endDate" value="${E(b.endDate)}"></div>
+          <button class="btn" data-brk-del="${bi}" type="button">Remove</button></div>`).join('')}
+        <div class="sc-note"><label class="cc-dim" style="display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Note (optional, shown on the card)</label><input class="search-input" style="width:100%;box-sizing:border-box" data-f="note" value="${E(r.note)}" maxlength="200"></div>
+        <div class="sc-meta">
+          ${hasDates ? `<span class="${monOk ? 'ok' : 'warn'}">${monOk ? 'Starts on a Monday' : 'Start is a ' + new Date(ms(r.startDate)).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'long' })}</span>
+          <span class="${sunOk ? 'ok' : 'warn'}">${sunOk ? 'Ends on a Sunday' : 'End is a ' + new Date(ms(r.endDate)).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'long' })}</span>
+          <span>${rw} race week${rw === 1 ? '' : 's'}</span>
+          ${gap == null ? '' : `<span class="${gap < 0 ? 'err' : 'cc-dim'}">${gap < 0 ? 'OVERLAPS next season' : 'Gap to next: ' + gap + ' day' + (gap === 1 ? '' : 's') + (gap % 7 === 0 ? ' (' + gap / 7 + ' week' + (gap === 7 ? '' : 's') + ')' : '')}</span>`}` : '<span class="warn">Set the start and end dates</span>'}
+          <label><input type="checkbox" data-f="planned" ${r.planned ? 'checked' : ''}> Planned (draft)</label>
+          <span class="sc-spacer"></span>
+          <button class="btn" data-brk-add type="button">+ Add break</button>
+          <button class="btn" data-xmas type="button" title="Adds a Christmas break (Mon on/after 20 Dec to the first Sunday on/after 7 Jan) inside this season">+ Christmas break</button>
+          <button class="btn" data-del type="button" style="color:var(--red)">Delete season</button>
+        </div>
+        ${errs.length ? `<div class="sc-meta"><span class="err">${errs.map(E).join(' &middot; ')}</span></div>` : ''}
+      </div>`;
+    }).join('') || '<div class="grid-empty">No seasons yet - use + Add season or + Generate next season.</div>';
+    $('scProblems').innerHTML = v.errors.length ? `<div class="sc-problems">Fix before saving:<ul>${v.errors.map(e => `<li>${E(e)}</li>`).join('')}</ul></div>` : '';
+    const dirty = snapshot() !== saved;
+    $('scState').textContent = (dirty ? 'Unsaved changes' : (isDefault ? 'Showing the built-in schedule - press Save to store it' : 'All changes saved'));
+    $('scSave').disabled = !!v.errors.length || (!dirty && !isDefault);
+  }
+
+  function find(el) { const c = el.closest('.sc-card'); return c ? rows.find(r => r._k === +c.dataset.k) : null; }
+
+  $('scList').addEventListener('input', e => {
+    const r = find(e.target); if (!r) return;
+    const brk = e.target.closest('.sc-brk');
+    if (brk && e.target.dataset.bf) r.breaks[+brk.dataset.bi][e.target.dataset.bf] = e.target.value;
+    else if (e.target.dataset.f && e.target.type !== 'checkbox') r[e.target.dataset.f] = e.target.value;
+    $('scState').textContent = 'Unsaved changes';   // full re-render waits for "change" (blur / date picked) so typing keeps focus
+  });
+  $('scList').addEventListener('change', e => {
+    const r = find(e.target); if (!r) return;
+    if (e.target.type === 'checkbox') r.planned = e.target.checked;
+    render();
+  });
+  $('scList').addEventListener('click', e => {
+    const r = find(e.target); if (!r) return;
+    if (e.target.closest('[data-del]')) { if (confirm(`Delete ${r.name || 'this season'} from the calendar?`)) { rows = rows.filter(x => x !== r); render(); } }
+    else if (e.target.closest('[data-brk-add]')) { r.breaks.push({ label: 'Break', startDate: '', endDate: '' }); render(); }
+    else if (e.target.closest('[data-brk-del]')) { r.breaks.splice(+e.target.closest('[data-brk-del]').dataset.brkDel, 1); render(); }
+    else if (e.target.closest('[data-xmas]')) {
+      if (isNaN(ms(r.startDate)) || isNaN(ms(r.endDate))) { toast('Set the season dates first.', true); return; }
+      const y = new Date(ms(r.startDate)).getUTCFullYear();
+      let s = `${y}-12-20`; while (dow(s) !== 1) s = add(s, 1);
+      let en = `${y + 1}-01-07`; while (dow(en) !== 0) en = add(en, 1);
+      if (s < r.startDate || en > r.endDate) { toast('This season doesn\'t span Christmas - add a custom break instead.', true); return; }
+      r.breaks.push({ label: 'Christmas break', startDate: s, endDate: en }); render();
+    }
+  });
+
+  $('scAdd').addEventListener('click', () => { rows.push(blank()); render(); });
+  $('scGen').addEventListener('click', () => {
+    const sorted = rows.filter(r => !isNaN(ms(r.endDate))).sort((a, b) => a.endDate.localeCompare(b.endDate));
+    const last = sorted[sorted.length - 1];
+    const r = blank();
+    if (!last) { rows.push(r); render(); return; }
+    r.startDate = add(last.endDate, 15);               // 2-week break
+    r.endDate = add(r.startDate, 11 * 7 - 1);          // 11 weeks
+    r.trainingStart = add(r.startDate, 5 * 7);          // week 6
+    r.trainingEnd = add(r.trainingStart, 6);
+    const n = parseInt(String(last.name).replace(/\D+/g, ''), 10);
+    r.name = Number.isFinite(n) ? `Season ${n + 1}` : '';
+    r.group = nextGroup(last); r.planned = true;
+    rows.push(r); render();
+    toast(`Added ${r.name || 'a season'} (${fmt(r.startDate)} to ${fmt(r.endDate)}). Add a Christmas break if it spans one.`);
+  });
+
+  async function load() {
+    $('scList').innerHTML = '<div class="loading-row"><span class="spin"></span>Loading&hellip;</div>';
+    try {
+      const d = await apiGet('seasonCalendar');
+      isDefault = !!d.isDefault;
+      rows = (d.seasons || []).map(fromServer);
+      saved = snapshot();
+      render();
+    } catch (e) {
+      $('scList').innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load the calendar: ${E(e.message)}</div></div>`;
+      toast(`Season calendar load failed: ${e.message}`, true);
+    }
+  }
+  $('scReload').addEventListener('click', () => { if (snapshot() === saved || confirm('Discard your unsaved changes?')) load(); });
+  $('scSave').addEventListener('click', async () => {
+    const v = validate(); if (v.errors.length) { toast(v.errors[0], true); return; }
+    $('scSave').disabled = true;
+    try {
+      const d = await apiPost('ownerSeasonCalendarSave', { seasons: rows.map(clean) });
+      isDefault = false;
+      rows = (d.seasons || []).map(fromServer);
+      saved = snapshot();
+      render();
+      toast('Season calendar saved - the public Seasons tab is updated.');
+    } catch (e) { toast(`Save failed: ${e.message}`, true); render(); }
+  });
+  window.addEventListener('beforeunload', e => { if (loadedFlag && snapshot() !== saved) { e.preventDefault(); e.returnValue = ''; } });
+  let loadedFlag = false;
+  tabLoaders.seasoncal = () => { loadedFlag = true; load(); };
 })();
 
 </script>
