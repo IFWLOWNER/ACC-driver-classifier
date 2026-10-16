@@ -60,7 +60,14 @@ input:focus{border-color:var(--teal);box-shadow:0 0 0 4px rgba(14,156,138,.15)}
 .field.good input[type=text],.field.good input[type=tel]{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312875a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;background-size:20px}
 .field.good input[type=text]{padding-right:44px}
 .mono{font-family:var(--font-mono)}
-.numwrap{display:flex;align-items:center;gap:8px}
+.numwrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.numfun{display:none;align-items:center;gap:8px;background:#fff7e6;border:2px solid #f0cf8a;color:#6b4a06;border-radius:14px;padding:6px 12px;font-size:14px;font-weight:700;line-height:1.3;max-width:100%;position:relative}
+.numfun.show{display:inline-flex;animation:funpop .35s cubic-bezier(.2,1.4,.4,1)}
+.numfun .em{font-size:26px;line-height:1}
+.numfun::before{content:"";position:absolute;left:-8px;top:50%;width:12px;height:12px;background:#fff7e6;border-left:2px solid #f0cf8a;border-bottom:2px solid #f0cf8a;transform:translateY(-50%) rotate(45deg)}
+@keyframes funpop{0%{transform:scale(.4) translateX(-12px);opacity:0}100%{transform:scale(1);opacity:1}}
+@media(prefers-reduced-motion:reduce){.numfun.show{animation:none}}
+@media(max-width:520px){.numfun::before{display:none}}
 .numwrap .br{font-family:var(--font-mono);font-size:30px;font-weight:700;color:var(--dim)}
 .numwrap input{font-family:var(--font-mono);font-size:30px;font-weight:700;text-align:center;max-width:150px;letter-spacing:.05em}
 .sugg{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
@@ -474,7 +481,7 @@ function renderStep() {
       <button class="btn primary" id="nextBtn" type="button">${last ? (ST.settings.liveMode ? 'Finish and go to my licence' : 'Finish (test)') : 'Next'}</button>
     </div></div>`);
   wire();
-  if (step === 'name') updateNickPreview();
+  if (step === 'name') { updateNickPreview(); updateNumFun(); }
   refreshFieldStates();
   const first = $('#stepcard input'); if (first && step !== 'review' && step !== 'games') setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (_) {} }, 50);
 }
@@ -485,7 +492,7 @@ function stepName() {
   <div class="field" id="f-number">
     <label for="i-number">Your car number</label>
     <div class="help">Pick the number you want to race with, 0 to 999. Lots of drivers share numbers, so don't worry if it's popular.</div>
-    <div class="numwrap"><span class="br">[</span><input type="tel" id="i-number" data-f="number" value="${esc(S.number == null ? '' : S.number)}" placeholder="81" inputmode="numeric" maxlength="3" autocomplete="off" aria-describedby="e-number"><span class="br">]</span></div>
+    <div class="numwrap"><span class="br">[</span><input type="tel" id="i-number" data-f="number" value="${esc(S.number == null ? '' : S.number)}" placeholder="81" inputmode="numeric" maxlength="3" autocomplete="off" aria-describedby="e-number"><span class="br">]</span><span class="numfun" id="numFun" role="status" aria-live="polite"></span></div>
     <div class="err" id="e-number" role="alert"></div>
   </div>
   ${fieldHtml({ id: 'displayName', label: 'Your racing name', help: 'The name you want on the leaderboards, e.g. <i>Alex Smith</i> or <i>SpeedyAl</i>. This is <b>not</b> your real-name form - that comes next.', ph: 'e.g. Alex Smith', max: 40, cap: 'words' })}
@@ -591,6 +598,34 @@ function fieldState(f) {
 }
 function refreshFieldStates() { (STEP_FIELDS[step] || []).forEach(fieldState); }
 
+// Tongue-in-cheek reactions for certain car numbers. Purely cosmetic - never affects validation.
+const FUN_NUMBERS = {
+  0: ['\uD83D\uDC7B', 'Zero. Fearless, or just no idea?'],
+  1: ['\uD83E\uDD47', 'Number one. Bold. Better back it up.'],
+  13: ['\uD83D\uDC08\u200D\u2B1B', 'Unlucky for some. Hopefully not your tyres.'],
+  24: ['\uD83C\uDFC1', '24 hours of pain. Respect.'],
+  42: ['\uD83E\uDD16', 'The answer to life, the universe and everything.'],
+  69: ['\uD83D\uDE0F', 'I see what you did there.'],
+  88: ['\u26A1', "Great Scott! Don't hit 88 mph in the pit lane."],
+  100: ['\uD83D\uDCAF', 'Keeping it a full hundred.'],
+  404: ['\uD83D\uDD0D', 'Driver not found... in the points.'],
+  420: ['\uD83C\uDF3F', "Nice. Blaze it - just not through the first corner."],
+  500: ['\uD83D\uDCA5', 'Internal Server Error. Like my pit stops.'],
+  666: ['\uD83D\uDE08', "Spooky. Hope you brake better than the devil."],
+  777: ['\uD83C\uDFB0', 'Jackpot. Lucky numbers, unlucky tyres.'],
+  911: ['\uD83D\uDEA8', 'Emergency! Please be the Safety Car, not the cause of it.'],
+  999: ['\uD83D\uDE80', "The highest there is. Nowhere to go but down."]
+};
+function updateNumFun() {
+  const el = $('#numFun'); if (!el) return;
+  const v = S.number === '' || S.number == null ? null : Number(S.number);
+  const f = v !== null && Object.prototype.hasOwnProperty.call(FUN_NUMBERS, v) ? FUN_NUMBERS[v] : null;
+  if (!f) { el.classList.remove('show'); el.textContent = ''; el.dataset.v = ''; return; }
+  if (el.dataset.v === String(v)) return;
+  el.dataset.v = String(v);
+  el.innerHTML = '<span class="em" aria-hidden="true">' + f[0] + '</span><span>' + esc(f[1]) + '</span>';
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
 function updateNickPreview() {
   const p = $('#nickprev'), c = $('#nickcnt'); if (!p) return;
   const nick = '[' + (S.number !== '' && S.number != null ? S.number : '__') + '] - ' + (clean(S.displayName, 40) || 'Your name');
@@ -610,6 +645,7 @@ function wire() {
       setField(f, v);
       if (f === 'number') { touched.displayName && fieldState('displayName'); }
       if (f === 'number' || f === 'displayName') updateNickPreview();
+      if (f === 'number') updateNumFun();
       if (touched[f]) fieldState(f);
     });
     inp.addEventListener('blur', () => { touched[f] = true; if (f === 'displayName' || f === 'firstName' || f === 'lastName' || f === 'namePronunciation' || f === 'simgrid') { inp.value = S[f] = clean(inp.value, f === 'namePronunciation' ? 80 : 60); } fieldState(f); });
