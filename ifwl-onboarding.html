@@ -149,79 +149,6 @@ input:focus{border-color:var(--teal);box-shadow:0 0 0 4px rgba(14,156,138,.15)}
 <main id="app" aria-live="polite"><div class="card center"><div class="spin"></div><p>Loading...</p></div></main>
 <noscript><main><div class="card"><h2>JavaScript needed</h2><p>This page needs JavaScript switched on to work. Please enable it and reload.</p></div></main></noscript>
 
-<!-- PREVIEW BUILD: identical to ifwlonboarding.html except for the shim script below and two changed lines (BASE, token). -->
-<script>
-/* ===== PREVIEW SHIM: only exists in ifwlonboarding-preview.html. It fakes the IFWL server so you can click through the real page offline. ===== */
-(() => {
-  const Q = new URLSearchParams(location.search);
-  const SCEN = Q.get('scenario') || 'new';
-  const MODE = Q.get('mode') || 'test';
-  window.__PREVIEW = { SCEN, MODE };
-  const GAMES = [
-    { key: 'acc', label: 'Assetto Corsa Competizione', platforms: ['xbox', 'pc', 'ps'] },
-    { key: 'lmu', label: 'Le Mans Ultimate', platforms: ['pc'] },
-    { key: 'acevo', label: 'AC EVO', platforms: ['pc'] },
-    { key: 'raceroom', label: 'RaceRoom', platforms: ['pc'] },
-    { key: 'pmr', label: 'PMR', platforms: ['xbox', 'pc', 'ps'] },
-    { key: 'forza', label: 'Forza Motorsport', platforms: ['xbox', 'pc'] }];
-  const RM = { base: ['IFWL Racer'], 'game:acc': ['ACC'], 'game:acc:pc': ['ACC PC'], 'game:acc:xbox': ['ACC Xbox'], 'game:acc:ps': ['ACC PlayStation'], 'game:lmu': ['LMU'], 'platform:pc': ['PC Racer'], 'platform:xbox': ['Xbox Racer'], 'platform:ps': ['PlayStation Racer'], 'input:wheel': ['Wheel'], 'input:controller': ['Controller'] };
-  const EMPTY = { displayName: '', number: null, firstName: '', lastName: '', namePronunciation: '', games: [], steamName: '', steamId: '', xboxGamertag: '', xuid: '', psnName: '', psnId: '', twitch: '', simgrid: '', accNames: [] };
-  const live = MODE === 'live';
-  function status() {
-    const base = { ok: true, inServer: true, settings: { liveMode: live, gateEnabled: false, graceUntilMs: 0, welcomeText: SCEN === 'welcome' ? '' : 'Preview: this note is the optional welcome text you can set in the Owner tab.' }, games: GAMES,
-      me: { id: '123456789012345678', username: 'preview_driver', nick: '', avatar: null }, existingDriver: false, licenceNumber: '', tier: '',
-      state: { complete: false, exempt: false, needs: live, mustComplete: false }, prefill: EMPTY, prefillFromRoles: false, roleMapNames: RM, currentRoles: [], removeUnselected: true };
-    if (SCEN === 'existing') return Object.assign(base, { existingDriver: true, licenceNumber: 'IFWL-0123', tier: 'GT3 Amateur', me: Object.assign(base.me, { username: 'oldtimer', nick: '[44] - Old Timer' }),
-      currentRoles: ['IFWL Racer', 'ACC', 'ACC PC', 'Wheel'], prefillFromRoles: true,
-      prefill: Object.assign({}, EMPTY, { displayName: 'Old Timer', number: 44, games: [{ key: 'acc', platform: 'pc', input: 'wheel' }], steamId: '76561198000000002', simgrid: 'oldtimer', accNames: ['O. Timer'] }) });
-    if (SCEN === 'done') return Object.assign(base, { me: Object.assign(base.me, { nick: '[7] - Finished Driver' }), state: { complete: true, exempt: false, needs: false, mustComplete: false }, settings: Object.assign(base.settings, { liveMode: true }) });
-    if (SCEN === 'notinserver') return { ok: true, inServer: false, settings: base.settings, games: GAMES };
-    return base;
-  }
-  const names = (b) => {
-    const keys = new Set(['base']); (b.games || []).forEach(g => { keys.add('game:' + g.key); keys.add('platform:' + g.platform); keys.add('game:' + g.key + ':' + g.platform); keys.add('input:' + g.input); });
-    const add = new Set(); keys.forEach(k => (RM[k] || []).forEach(n => add.add(n)));
-    const have = new Set(SCEN === 'existing' ? ['IFWL Racer', 'ACC', 'ACC PC', 'Wheel'] : []);
-    const managed = new Set(Object.values(RM).flat());
-    return { add: [...add].filter(n => !have.has(n)), keep: [...add].filter(n => have.has(n)), remove: [...managed].filter(n => have.has(n) && !add.has(n)) };
-  };
-  const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json' } });
-  const realFetch = window.fetch.bind(window);
-  window.fetch = async (url, opts) => {
-    if (!String(url).includes('cloudfunctions.net')) return realFetch(url, opts);
-    const u = new URL(url); const q = u.searchParams; await new Promise(r => setTimeout(r, 350));
-    if (q.get('start')) return J({ url: '#discord-login' });
-    if (q.get('onboardingStatus')) return SCEN === 'expired' ? J({ error: 'Token expired' }, 401) : J(status());
-    if (q.get('onboardingSubmit')) {
-      const b = JSON.parse(opts.body); const n = names(b); const nick = '[' + b.number + '] - ' + b.displayName;
-      const plan = { nick, nickChanges: true, addRoles: n.add, keepRoles: n.keep, removeRoles: n.remove, skippedUnsafe: [] };
-      if (SCEN === 'servererror') return J({ error: 'Preview of a server error - your answers are safe, press Finish to try again.' }, 500);
-      if (!live) return J({ ok: true, testMode: true, plan, nick });
-      if (SCEN === 'manualnick') return J({ ok: true, testMode: false, nick, plan, discord: { nickOk: false, problems: 1 }, needsManualNick: true });
-      return J({ ok: true, testMode: false, nick, plan, discord: { nickOk: true, problems: 0 }, needsManualNick: false, login: { sessionToken: 'PREVIEW', userId: '123456789012345678', nick, onboardingToken: 'PREVIEW' } });
-    }
-    return J({ ok: true });
-  };
-  // Pretend navigation: the real page sends people to Discord / the Licence Centre.
-  function overlay() {
-    const h = location.hash; if (h !== '#licence.html' && h !== '#discord-login') return;
-    const d = document.createElement('div');
-    d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(20,30,50,.85);display:grid;place-items:center;font-family:Inter,Arial,sans-serif;padding:20px';
-    d.innerHTML = '<div style="background:#fff;border-radius:16px;padding:28px;max-width:420px;text-align:center"><h2 style="margin:0 0 8px;font-family:Rajdhani,Arial">' + (h === '#licence.html' ? 'Preview: this is where they land on the Licence Centre' : 'Preview: Discord login would open here') + '</h2><p style="color:#5b6576">Nothing is wrong - the preview just doesn\'t leave this page.</p><button id="pvBack" style="font:700 16px Inter;padding:12px 20px;border-radius:10px;border:0;background:#0e9c8a;color:#fff;cursor:pointer">Back to the preview</button></div>';
-    document.body.appendChild(d); d.querySelector('#pvBack').onclick = () => { d.remove(); history.replaceState(null, '', location.pathname + location.search); };
-  }
-  window.addEventListener('hashchange', overlay); window.addEventListener('DOMContentLoaded', () => { overlay(); bar(); });
-  function bar() {
-    const sc = [['new', 'New member (empty form)'], ['existing', 'Existing driver (pre-filled)'], ['done', 'Already complete'], ['login', 'Logged out (login screen)'], ['expired', 'Login timed out'], ['notinserver', 'Not in the Discord'], ['servererror', 'Submit fails (server error)'], ['manualnick', 'Bot cannot rename (live only)']];
-    const b = document.createElement('div');
-    b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99998;background:#1a2230;color:#fff;font:600 13px Inter,Arial,sans-serif;padding:8px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center';
-    b.innerHTML = '<span style="opacity:.7">PREVIEW (fake data, nothing is saved)</span><label>Scenario <select id="pvS" style="font:inherit;padding:4px">' + sc.map(x => '<option value="' + x[0] + '"' + (x[0] === SCEN ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select></label><label>Mode <select id="pvM" style="font:inherit;padding:4px"><option value="test"' + (live ? '' : ' selected') + '>Test mode</option><option value="live"' + (live ? ' selected' : '') + '>Live mode</option></select></label><button id="pvR" style="font:inherit;padding:4px 10px;cursor:pointer">Restart</button>';
-    document.body.appendChild(b); document.body.style.paddingBottom = '60px';
-    const go = () => { try { Object.keys(localStorage).filter(k => k.startsWith('IFWL_ONBOARD_DRAFT')).forEach(k => localStorage.removeItem(k)); } catch (_) {} location.href = location.pathname + '?scenario=' + $s.value + '&mode=' + $m.value; };
-    const $s = b.querySelector('#pvS'), $m = b.querySelector('#pvM'); $s.onchange = go; $m.onchange = go; b.querySelector('#pvR').onclick = go;
-  }
-})();
-</script>
 <script>
 (() => {
 'use strict';
@@ -233,7 +160,7 @@ input:focus{border-color:var(--teal);box-shadow:0 0 0 4px rgba(14,156,138,.15)}
    ============================================================ */
 const FN = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
 const REDIRECT_URI = location.origin + location.pathname;
-const BASE = '#';
+const BASE = location.origin + location.pathname.replace(/[^\/]*$/, '');
 const LICENCE_URL = BASE + 'licence.html';
 const K = { OB: 'IFWL_ONBOARD_TOKEN', SESS: 'IFWL_PATREON_SESSION', META: 'IFWL_PATREON_META', DRAFT: 'IFWL_ONBOARD_DRAFT:' };
 // "Find my ID" helper sites - change here if one ever disappears.
@@ -248,7 +175,7 @@ const app = $('#app');
 function store(k, v) { try { localStorage.setItem(k, v); return true; } catch (_) { try { sessionStorage.setItem(k, v); return true; } catch (__) { return false; } } }
 function read(k) { try { return localStorage.getItem(k) || sessionStorage.getItem(k) || ''; } catch (_) { return ''; } }
 function drop(k) { try { localStorage.removeItem(k); } catch (_) {} try { sessionStorage.removeItem(k); } catch (_) {} }
-const token = () => (window.__PREVIEW.SCEN === 'login' ? '' : 'PREVIEW');
+const token = () => read(K.OB) || read(K.SESS);
 
 let S = null;            // form state
 let ST = null;           // status from server
