@@ -272,6 +272,28 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
 .sc-problems ul{margin:4px 0 0 18px;padding:0}
 @media (max-width:980px){.sc-grid{grid-template-columns:1fr 1fr}.sc-brk{grid-template-columns:1fr 1fr}}
 
+.ob-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px}
+.ob-card h3{margin:0 0 4px;font-size:15px;font-weight:800}
+.ob-mode{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ob-mode .big{font-size:20px;font-weight:900;letter-spacing:.02em}
+.ob-mode .big.test{color:var(--amber)}.ob-mode .big.live{color:var(--green)}
+.ob-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}
+.ob-row label{font-weight:700;font-size:13px}
+.ob-row input[type=date],.ob-row input[type=text],.ob-row textarea,.ob-row select{border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;background:#fff}
+.ob-row textarea{width:100%;min-height:60px}
+.ob-check{list-style:none;margin:8px 0 0;padding:0}
+.ob-check li{display:flex;gap:10px;align-items:flex-start;padding:5px 0;font-size:13px}
+.ob-check .ic{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:900;color:#fff}
+.ob-check .ic.ok{background:var(--green)}.ob-check .ic.bad{background:var(--red)}.ob-check .ic.todo{background:var(--text-mute)}
+.ob-rm{width:100%;border-collapse:collapse;font-size:13px}
+.ob-rm td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+.ob-rm td:first-child{width:34%;font-weight:700}
+.ob-chip{display:inline-flex;align-items:center;gap:6px;background:var(--brand-tint);color:var(--brand);border-radius:999px;padding:3px 6px 3px 10px;font-size:12px;font-weight:700;margin:2px 4px 2px 0}
+.ob-chip button{border:0;background:none;cursor:pointer;color:inherit;font-size:14px;line-height:1;padding:0 2px}
+.ob-warn{background:var(--amber-tint);border:1px solid #ecd199;color:#6b4a06;border-radius:9px;padding:9px 12px;font-size:12.5px;margin:8px 0}
+.ob-danger{background:var(--red-tint);border:1px solid #f1b5af;color:#8a1f16;border-radius:9px;padding:9px 12px;font-size:12.5px;margin:8px 0}
+.ob-sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;font-size:13px}
+.ob-sw input{width:18px;height:18px}
 </style>
 </head>
 <body class="login-wall-open">
@@ -320,6 +342,7 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
   <button class="tab-btn" data-tab="careerctl" type="button">Career Control</button>
   <button class="tab-btn" data-tab="season" type="button">Season In Progress</button>
   <button class="tab-btn" data-tab="seasoncal" type="button">Seasons</button>
+  <button class="tab-btn" data-tab="onboarding" type="button">Onboarding</button>
   <button class="tab-btn" data-tab="staff" type="button">Staff <span class="count" id="countStaff">&hellip;</span></button>
 </nav>
 
@@ -423,6 +446,19 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
     <div id="scList"><div class="loading-row"><span class="spin"></span>Loading&hellip;</div></div>
     <p class="cc-dim" style="margin-top:12px">Pattern for 2027 onwards: 10-week seasons with no training week and a 2-week break between seasons (Season 1&ndash;4 keep the dates already published). Race weeks = Mondays in the season that aren&rsquo;t in a training week or break. This calendar is display-only &mdash; the <strong>Season Window</strong> in the Licence Centre (which sets the Race Results / career date range) is separate.</p>
   </section>
+
+  <!-- ============ ONBOARDING TAB ============ -->
+  <section class="tab-panel" id="tab-onboarding">
+    <div class="panel-head">
+      <div>
+        <h2>Onboarding</h2>
+        <p class="sub">Controls the new IFWL sign-up page (replaces the IFWL.NET sign-up). It starts in <b>test mode</b>: the page works, but nothing is changed on Discord and nobody is locked out.</p>
+      </div>
+    </div>
+    <div id="obBody"><div class="loading-row"><span class="spin"></span>Loading&hellip;</div></div>
+  </section>
+
+
 
   <!-- ============ EVENTS TAB ============ -->
   <section class="tab-panel" id="tab-events">
@@ -3131,5 +3167,149 @@ window.addEventListener('ifwl-owner-ready', () => {
 })();
 
 </script>
+<script>
+/* ============================================================
+   ONBOARDING TAB  (owner-only)
+     ?ownerOnboardingOverview=1   (GET)   settings, counts, who is done / pending
+     ?ownerOnboardingRoles=1      (GET)   server roles + bot permission check
+     ?ownerOnboardingSettingsSave=1 (POST) modes, grace date, role map (server re-validates every role)
+     ?ownerOnboardingRetryDiscord=1 / ?ownerOnboardingReset=1 / ?ownerOnboardingRemind=1 (POST)
+   ============================================================ */
+(() => {
+  const $ = id => document.getElementById(id);
+  const E = escHtml;
+  const ONB_URL = 'https://ifwlowner.github.io/ACC-driver-classifier/ifwlonboarding.html';
+  let O = null, R = null, rolesErr = '', map = {}, st = {}, dirty = false, sel = new Set(), loaded = false;
+  const fmtD = ms => ms ? new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+  const dateIn = ms => ms ? new Date(ms).toISOString().slice(0, 10) : '';
+  const roleName = id => (R && R.roles.find(r => r.id === id) || {}).name || ('unknown role ' + id);
+  const gameLabel = k => ((O.games || []).find(g => g.key === k) || {}).label || k;
+
+  async function load() {
+    $('obBody').innerHTML = '<div class="loading-row"><span class="spin"></span>Loading&hellip;</div>';
+    try {
+      O = await apiGet('ownerOnboardingOverview');
+      try { R = await apiGet('ownerOnboardingRoles'); rolesErr = ''; } catch (e) { R = null; rolesErr = e.message; }
+      st = JSON.parse(JSON.stringify(O.settings)); map = JSON.parse(JSON.stringify(O.settings.roleMap || {})); dirty = false; sel = new Set();
+      render();
+    } catch (e) {
+      $('obBody').innerHTML = `<div class="grid-wrap"><div class="grid-empty">Could not load onboarding: ${E(e.message)}</div></div>`;
+      toast(`Onboarding load failed: ${e.message}`, true);
+    }
+  }
+
+  function checks() {
+    const out = [];
+    const b = R && R.bot;
+    out.push([!R ? 'bad' : b && b.known ? (b.canManageNicknames ? 'ok' : 'bad') : 'bad', 'The bot can change nicknames (needs the Manage Nicknames permission)' + (!R ? ' - could not check: ' + rolesErr : '')]);
+    out.push([!R ? 'bad' : b && b.known ? (b.canManageRoles ? 'ok' : 'bad') : 'bad', 'The bot can hand out roles (needs the Manage Roles permission)']);
+    const above = R ? R.problems.filter(p => /sit at or above/.test(p)) : [];
+    out.push([!R ? 'todo' : above.length ? 'bad' : 'ok', above.length ? above[0] : 'Every mapped role sits below the bot\'s role in the server\'s role list']);
+    out.push([Object.keys(map).length ? 'ok' : 'todo', Object.keys(map).length ? 'Roles are mapped (' + Object.keys(map).length + ' rules)' : 'No roles mapped yet - sign-ups will only set nicknames until you add some below']);
+    out.push([O.counts.testRuns > 0 ? 'ok' : 'todo', O.counts.testRuns > 0 ? 'A test run has been completed (' + O.counts.testRuns + ')' : 'Open the onboarding page yourself and click through once in test mode']);
+    out.push(['todo', 'In the Discord Developer Portal (OAuth2 > Redirects) add ' + ONB_URL + ' - only needed if people can log in straight from the onboarding page. Do this yourself, the bot cannot.']);
+    return out;
+  }
+
+  function roleOptions(key) {
+    const used = new Set(map[key] || []);
+    const safe = R.roles.filter(r => !used.has(r.id) && !r.danger.length);
+    const bad = R.roles.filter(r => !used.has(r.id) && r.danger.length);
+    return '<option value="">+ add a role&hellip;</option>' + safe.map(r => `<option value="${r.id}">${E(r.name)}</option>`).join('') +
+      (bad.length ? '<optgroup label="Not allowed (unsafe)">' + bad.map(r => `<option disabled>${E(r.name)} - ${E(r.danger.join(', '))}</option>`).join('') + '</optgroup>' : '');
+  }
+
+  function render() {
+    const live = !!st.liveMode;
+    const cks = checks();
+    const badCount = cks.filter(c => c[0] === 'bad').length;
+    let h = '';
+    h += `<div class="ob-card"><div class="ob-mode"><span class="big ${live ? 'live' : 'test'}">${live ? 'LIVE' : 'TEST MODE'}</span>
+      <span class="cc-dim">${live ? 'Drivers who finish the form get their nickname and roles changed for real.' : 'The page works but changes nothing on Discord, and locks nobody out.'}</span></div>
+      <div class="ob-row"><label class="ob-sw"><input type="checkbox" id="obLive" ${live ? 'checked' : ''}> Live mode (the bot really changes nicknames and roles)</label></div>
+      <div class="ob-row"><label class="ob-sw"><input type="checkbox" id="obGate" ${st.gateEnabled ? 'checked' : ''} ${live ? '' : 'disabled'}> Lock the Licence Centre until a driver has finished onboarding (Owner is always exempt)</label></div>
+      <div class="ob-row"><label for="obGrace">Grace period ends</label><input type="date" id="obGrace" value="${dateIn(st.graceUntilMs)}"><span class="cc-dim">Until this date drivers just see a banner. After it, the lock (if on) applies. Blank = lock applies straight away.</span></div>
+      <div class="ob-row"><label class="ob-sw"><input type="checkbox" id="obRemove" ${st.removeUnselected !== false ? 'checked' : ''}> Remove mapped roles that no longer match what the driver ticked</label></div>
+      <div class="ob-row" style="display:block"><label for="obWelcome">Welcome note shown at the top of the page (optional)</label><textarea id="obWelcome" maxlength="600">${E(st.welcomeText || '')}</textarea></div>
+      <div class="ob-row"><button class="btn primary" id="obSave" type="button">Save settings</button><a class="btn" href="${ONB_URL}" target="_blank" rel="noopener">Open onboarding page</a><button class="btn" id="obCopy" type="button">Copy link</button><span class="cc-dim" id="obState">${dirty ? 'Unsaved changes' : (st.updatedBy ? 'Last saved by ' + E(st.updatedBy) + ' ' + fmtD(st.updatedAtMs) : '')}</span></div></div>`;
+
+    h += `<div class="ob-card"><h3>Before you go live</h3><ul class="ob-check">${cks.map(c => `<li><span class="ic ${c[0]}">${c[0] === 'ok' ? '&#10003;' : c[0] === 'bad' ? '!' : '&middot;'}</span><span>${E(c[1])}</span></li>`).join('')}</ul>
+      ${badCount ? '<div class="ob-danger">Fix the red items first - the server refuses to go live while the bot cannot rename people.</div>' : ''}</div>`;
+
+    h += `<div class="ob-card"><h3>Which roles each answer gives</h3><p class="cc-dim">Pick the Discord roles drivers receive. Staff roles, Patreon roles, integration-managed roles and anything with admin/moderation permissions can never be added here (the server blocks them).</p>
+      ${!R ? `<div class="ob-danger">Could not load the server's roles: ${E(rolesErr)}</div>` : `<table class="ob-rm"><tbody>${(O.keys || []).map(k => `<tr><td>${E(k.label)}</td><td><div>${(map[k.key] || []).map(id => `<span class="ob-chip">${E(roleName(id))}<button type="button" data-rm="${E(k.key)}|${id}" aria-label="Remove">&times;</button></span>`).join('') || '<span class="cc-dim">no roles</span>'}</div><select data-add="${E(k.key)}">${roleOptions(k.key)}</select></td></tr>`).join('')}</tbody></table>`}
+      <div class="ob-warn">Roles are only ever added for what a driver ticks. If &ldquo;remove mapped roles&rdquo; is on, a role listed here is also removed when its answer is no longer ticked, so only map roles you want the bot to manage.</div></div>`;
+
+    h += `<div class="ob-card"><h3>Completed (${O.counts.completed})${O.counts.discordPending ? ` &middot; <span style="color:var(--red)">${O.counts.discordPending} need the bot to retry</span>` : ''}</h3>
+      ${O.completed.length ? `<div class="grid-wrap" style="max-height:40vh"><table class="datagrid" style="min-width:700px"><thead><tr><th>Nickname</th><th>#</th><th>Completed</th><th>Games</th><th>Flags</th><th></th></tr></thead><tbody>${O.completed.map(c => `<tr><td>${E(c.nick)}</td><td class="num">${c.number || ''}</td><td>${fmtD(c.completedAtMs)}</td><td class="wrap">${E(c.games.map(g => { const [k, p] = g.split(':'); return gameLabel(k).replace('Assetto Corsa Competizione', 'ACC') + ' (' + p + ')'; }).join(', '))}</td>
+        <td>${c.discordPending ? `<span class="pill red" title="${E((c.discordErrors || []).join(' | '))}">Discord needs retry</span> ` : ''}${c.possibleDuplicateSteam ? '<span class="pill grey" title="Another licence already uses this Steam ID">Same Steam ID as another</span>' : ''}</td>
+        <td>${c.discordPending ? `<button class="btn" data-retry="${c.uid}" type="button">Retry Discord</button> ` : ''}<button class="btn ghost" data-reset="${c.uid}" type="button" title="Delete their onboarding record so they can redo it">Reset</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="cc-dim">Nobody has completed onboarding yet.</div>'}</div>`;
+
+    h += `<div class="ob-card"><h3>Existing drivers who have not onboarded (${O.counts.pending})</h3><p class="cc-dim">Licence holders with no completed onboarding record. Select some and the bot will DM them the link (max 40 at a time, nobody is DM'd twice within 3 days).</p>
+      <div class="ob-row"><button class="btn" id="obPick" type="button">Select the first 40</button><button class="btn primary" id="obRemind" type="button">DM selected a reminder</button><span class="cc-dim" id="obSelCount">0 selected</span></div>
+      ${O.pending.length ? `<div class="grid-wrap" style="max-height:40vh"><table class="datagrid" style="min-width:560px"><thead><tr><th></th><th>Licence name</th><th>Tier</th><th>Last seen</th></tr></thead><tbody>${O.pending.map(p => `<tr><td><input type="checkbox" data-sel="${p.uid}" ${sel.has(p.uid) ? 'checked' : ''}></td><td>${E(p.name)}</td><td>${E(p.tier)}</td><td>${fmtD(p.lastLoginMs)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="cc-dim">Everyone with a licence has onboarded.</div>'}</div>`;
+
+    if (O.tests && O.tests.length) h += `<div class="ob-card"><h3>Test-mode runs (${O.counts.testRuns})</h3><p class="cc-dim">${O.tests.map(t => E(t.nick) + ' (' + fmtD(t.atMs) + ')').join(' &middot; ')}</p></div>`;
+
+    $('obBody').innerHTML = h;
+    wire();
+    updSel();
+  }
+
+  function mark() { dirty = true; const s = $('obState'); if (s) s.textContent = 'Unsaved changes'; }
+  function updSel() { const c = $('obSelCount'); if (c) c.textContent = sel.size + ' selected'; }
+
+  function wire() {
+    $('obLive').addEventListener('change', e => {
+      if (e.target.checked) {
+        const bad = checks().filter(c => c[0] === 'bad').length;
+        if (!confirm('Go LIVE?\n\nFrom the next sign-up the bot will really rename people and change their roles.' + (bad ? '\n\nWARNING: ' + bad + ' item(s) in the checklist are red.' : '') + '\n\nYou still need to press Save.')) { e.target.checked = false; return; }
+      }
+      st.liveMode = e.target.checked; if (!st.liveMode) st.gateEnabled = false; mark(); render();
+    });
+    $('obGate').addEventListener('change', e => {
+      if (e.target.checked && !confirm('Lock the Licence Centre for drivers who have not onboarded?\n\nAfter the grace date they cannot use the Licence Centre until they finish. Owner is exempt.')) { e.target.checked = false; return; }
+      st.gateEnabled = e.target.checked; mark();
+    });
+    $('obGrace').addEventListener('change', e => { st.graceUntilMs = e.target.value ? new Date(e.target.value + 'T23:59:59').getTime() : 0; mark(); });
+    $('obRemove').addEventListener('change', e => { st.removeUnselected = e.target.checked; mark(); });
+    $('obWelcome').addEventListener('input', e => { st.welcomeText = e.target.value; mark(); });
+    $('obCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(ONB_URL); toast('Link copied.'); } catch (_) { prompt('Copy this link:', ONB_URL); } });
+    $('obSave').addEventListener('click', async () => {
+      $('obSave').disabled = true;
+      try {
+        const d = await apiPost('ownerOnboardingSettingsSave', { liveMode: !!st.liveMode, gateEnabled: !!st.gateEnabled, graceUntilMs: st.graceUntilMs || 0, removeUnselected: st.removeUnselected !== false, welcomeText: st.welcomeText || '', roleMap: map });
+        toast(d.settings.liveMode ? 'Saved - onboarding is LIVE.' : 'Saved - onboarding is in test mode.');
+        await load();
+      } catch (e) { toast('Save failed: ' + e.message, true); $('obSave').disabled = false; }
+    });
+    document.querySelectorAll('#obBody [data-add]').forEach(s => s.addEventListener('change', () => { if (!s.value) return; const k = s.dataset.add; (map[k] = map[k] || []).push(s.value); mark(); render(); }));
+    document.querySelectorAll('#obBody [data-rm]').forEach(b => b.addEventListener('click', () => { const [k, id] = b.dataset.rm.split('|'); map[k] = (map[k] || []).filter(x => x !== id); if (!map[k].length) delete map[k]; mark(); render(); }));
+    document.querySelectorAll('#obBody [data-retry]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { const d = await apiPost('ownerOnboardingRetryDiscord', { uid: b.dataset.retry }); toast(d.nickOk && !d.errors.length ? 'Fixed on Discord.' : 'Still failing: ' + (d.errors[0] || 'nickname could not be set'), !(d.nickOk && !d.errors.length)); await load(); }
+      catch (e) { toast('Retry failed: ' + e.message, true); b.disabled = false; }
+    }));
+    document.querySelectorAll('#obBody [data-reset]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Reset this driver\'s onboarding? Their onboarding record is deleted so they can redo it. Their Discord nickname and roles are not touched.')) return;
+      b.disabled = true;
+      try { await apiPost('ownerOnboardingReset', { uid: b.dataset.reset }); toast('Reset.'); await load(); } catch (e) { toast('Reset failed: ' + e.message, true); b.disabled = false; }
+    }));
+    document.querySelectorAll('#obBody [data-sel]').forEach(c => c.addEventListener('change', () => { c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); updSel(); }));
+    $('obPick').addEventListener('click', () => { sel = new Set(O.pending.slice(0, 40).map(p => p.uid)); document.querySelectorAll('#obBody [data-sel]').forEach(c => { c.checked = sel.has(c.dataset.sel); }); updSel(); });
+    $('obRemind').addEventListener('click', async () => {
+      if (!sel.size) { toast('Select some drivers first.', true); return; }
+      if (!confirm(`Send the onboarding link by Discord DM to ${sel.size} driver(s)?`)) return;
+      $('obRemind').disabled = true;
+      try { const d = await apiPost('ownerOnboardingRemind', { uids: [...sel] }); toast(`Sent ${d.sent}, failed ${d.failed} (DMs closed), skipped ${d.skippedRecently} (DM'd in the last 3 days).`); sel = new Set(); render(); }
+      catch (e) { toast('Reminder failed: ' + e.message, true); }
+      $('obRemind').disabled = false;
+    });
+  }
+  window.addEventListener('beforeunload', e => { if (loaded && dirty) { e.preventDefault(); e.returnValue = ''; } });
+  tabLoaders.onboarding = () => { loaded = true; load(); };
+})();
+</script>
+
 </body>
 </html>
