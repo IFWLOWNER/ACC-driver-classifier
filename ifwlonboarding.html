@@ -164,7 +164,7 @@ const BASE = location.origin + location.pathname.replace(/[^\/]*$/, '');
 const LICENCE_URL = BASE + 'licence.html';
 const K = { OB: 'IFWL_ONBOARD_TOKEN', SESS: 'IFWL_PATREON_SESSION', META: 'IFWL_PATREON_META', DRAFT: 'IFWL_ONBOARD_DRAFT:' };
 // "Find my ID" helper sites - change here if one ever disappears.
-const LINKS = { steam: 'https://steamid.io/', xuid: 'https://www.cxkes.me/xbox/xuid', psn: 'https://psn.flipscreen.games/' };
+const LINKS = { steam: 'https://steamid.io/', xuid: 'https://www.cxkes.me/xbox/xuid', psn: 'https://www.psntools.com/psn/checker' };
 const PLAT = { pc: 'PC', xbox: 'Xbox', ps: 'PlayStation' };
 const INPUT = { wheel: 'Wheel', controller: 'Controller', keyboard: 'Keyboard' };
 
@@ -210,6 +210,8 @@ const REAL_RE = /^[\p{L}\p{M}][\p{L}\p{M} .'\-]*$/u;
 const maxName = n => 32 - (String(n == null || n === '' ? '000' : n).length + 7);
 const clean = (s, max) => String(s == null ? '' : s).normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, max || 200);
 const platsUsed = () => new Set(S.games.map(g => g.platform).filter(Boolean));
+const psnIdOk = v => { const t = String(v || ''); return /^\d{8,20}$/.test(t) || /^[0-9a-f]{16}$/i.test(t); };
+const bothNote = () => { const p = platsUsed(); return p.has('pc') && (p.has('xbox') || p.has('ps')) ? '<div class="banner info" id="bothNote"><b>Heads up:</b> because you race on both PC and console, you\'ll get race briefings for both PC and console for certain events. That means you may see more briefings than a driver on one platform.</div>' : '<div id="bothNote"></div>'; };
 const gameDef = k => (ST.games || []).find(g => g.key === k);
 
 const FIELD_STEP = { displayName: 'name', number: 'name', firstName: 'you', lastName: 'you', namePronunciation: 'you', consent: 'you', games: 'games', steamName: 'accounts', steamId: 'accounts', xboxGamertag: 'accounts', xuid: 'accounts', psnName: 'accounts', psnId: 'accounts', simgrid: 'accounts', twitch: 'extras' };
@@ -241,8 +243,8 @@ function check(f) {
       if (!S.games.length) return 'Pick at least one game you race.';
       for (const g of S.games) {
         const d = gameDef(g.key);
-        if (!g.platform) return 'Choose a platform for ' + d.label + '.';
-        if (!g.input) return 'Choose how you play ' + d.label + '.';
+        if (!g.platform) return 'Choose at least one platform for ' + d.label + '.';
+        if (!g.input) return 'Choose how you drive ' + d.label + (d.platforms.length > 1 ? ' on ' + PLAT[g.platform] : '') + '.';
         if (g.platform !== 'pc' && g.input === 'keyboard') return d.label + ': keyboard is only available on PC.';
       }
       return '';
@@ -252,7 +254,7 @@ function check(f) {
     case 'xboxGamertag': return platsUsed().has('xbox') && (!clean(v, 24) || /[<>@]/.test(v)) ? 'Enter your Xbox gamertag.' : '';
     case 'xuid': return platsUsed().has('xbox') && !/^\d{10,20}$/.test(String(v || '')) ? 'Your Xbox ID is a long number (usually 16 digits).' : '';
     case 'psnName': return platsUsed().has('ps') && !/^[A-Za-z][A-Za-z0-9_\-]{2,15}$/.test(clean(v, 24)) ? 'Enter your PSN name (3-16 characters: letters, numbers, - and _).' : '';
-    case 'psnId': return platsUsed().has('ps') && !/^\d{8,20}$/.test(String(v || '')) ? 'Your PSN ID is a long number.' : '';
+    case 'psnId': return platsUsed().has('ps') && !psnIdOk(v) ? 'Your PSN ID is a long number (or a 16-character code). Copy it from the PSN Tools checker.' : '';
     case 'twitch': { const t = twitchClean(v); return t && !/^[A-Za-z0-9_]{3,25}$/.test(t) ? "That doesn't look like a Twitch channel name." : ''; }
     case 'simgrid': { const t = clean(v, 60); if (!t) return 'Enter your SimGrid username.'; if (/^https?:/i.test(t) || /[<>\/]/.test(t)) return 'Enter your SimGrid username, not the link to your profile.'; return ''; }
     case 'namePronunciation': { const t = clean(v, 80); if (!t) return "Tell commentators how to say your name (e.g. 'AL-ex SMITH')."; return /[<>]/.test(t) ? "That has characters we can't accept." : ''; }
@@ -442,26 +444,32 @@ function stepYou() {
 }
 function stepGames() {
   const hint = ST.prefillFromRoles && !touched._gamesTouched ? '<div class="banner info">We ticked these from your Discord roles. Check they\'re right and fill in anything missing.</div>' : '';
-  return `${hint}<p class="lead">Tick every game you race in IFWL. For each one, tell us what you play it on and how.</p>
+  return `${hint}<p class="lead">Tick every game you race in IFWL. For each one, tell us what you play it on and how. If you race a game on both PC and console, tick both.</p>
+  ${bothNote()}
   <div id="gamesBox">${ST.games.map(gameCard).join('')}</div>
   <div class="err" id="e-games" role="alert" style="display:none"></div>`;
 }
 function gameCard(def) {
-  const g = S.games.find(x => x.key === def.key); const on = !!g;
-  const plats = def.platforms;
-  const inputs = g && g.platform && g.platform !== 'pc' ? ['wheel', 'controller'] : ['wheel', 'controller', 'keyboard'];
+  const es = S.games.filter(x => x.key === def.key); const on = es.length > 0;
+  const plats = def.platforms; const multi = plats.length > 1;
+  const has = p => es.some(e => e.platform === p);
+  let opts = '';
+  if (multi) opts += `<div class="lab">What do you play it on? <span class="small" style="font-weight:400">(tick both if you use both)</span></div>
+      <div class="seg" data-seg="platform" data-game="${def.key}">${plats.map(p => '<button type="button" aria-pressed="' + has(p) + '" class="' + (has(p) ? 'sel' : '') + '" data-v="' + p + '">' + (has(p) ? '&#10003; ' : '') + PLAT[p] + '</button>').join('')}</div>`;
+  for (const e of es.filter(x => x.platform || !multi)) {
+    const inputs = e.platform && e.platform !== 'pc' ? ['wheel', 'controller'] : ['wheel', 'controller', 'keyboard'];
+    opts += `<div class="lab">How do you drive${multi ? ' on ' + PLAT[e.platform] : ''}?</div>
+      <div class="seg" data-seg="input" data-game="${def.key}" data-plat="${e.platform}">${inputs.map(p => '<button type="button" class="' + (e.input === p ? 'sel' : '') + '" data-v="' + p + '">' + INPUT[p] + '</button>').join('')}</div>`;
+  }
   return `<div class="game ${on ? 'on' : ''}" data-game="${def.key}">
     <button class="head" type="button" data-toggle="${def.key}" aria-pressed="${on}"><span class="tick">${on ? '&#10003;' : ''}</span><span><span class="gname">${esc(def.label)}</span><br><span class="gsub">${plats.map(p => PLAT[p]).join(' / ')}</span></span></button>
-    <div class="opts">
-      <div class="lab">What do you play it on?</div>
-      <div class="seg" data-seg="platform" data-game="${def.key}">${plats.map(p => '<button type="button" class="' + (g && g.platform === p ? 'sel' : '') + '" data-v="' + p + '">' + PLAT[p] + '</button>').join('')}</div>
-      <div class="lab">How do you drive?</div>
-      <div class="seg" data-seg="input" data-game="${def.key}">${inputs.map(p => '<button type="button" class="' + (g && g.input === p ? 'sel' : '') + '" data-v="' + p + '">' + INPUT[p] + '</button>').join('')}</div>
+    <div class="opts">${opts}
       <div class="gerr"></div>
     </div></div>`;
 }
 function stepAccounts() {
   const p = platsUsed(); let h = '<p class="lead">We need these so we can put you on the server entry lists and match your race results. Copy and paste - don\'t type them out by hand.</p>';
+  if (p.size > 1) h += '<div class="banner info">You race on ' + [...p].map(x => PLAT[x]).join(' and ') + ', so we need the account details for <b>each</b> of them below.</div>';
   h += '<h3 style="margin:6px 0 10px">SimGrid</h3>' + fieldHtml({ id: 'simgrid', label: 'SimGrid username', help: 'The username on your SimGrid profile - just the name, not the link. No account yet? <a href="https://www.thesimgrid.com/" target="_blank" rel="noopener">Make a free one on SimGrid</a> first.', ph: 'e.g. Alex Smith', max: 60 });
   if (p.has('pc')) h += `<h3 style="margin:6px 0 10px">PC &middot; Steam</h3>
     ${fieldHtml({ id: 'steamName', label: 'Steam account name', help: 'The name shown on your Steam profile.', ph: 'e.g. SpeedyAl', max: 64 })}
@@ -471,7 +479,7 @@ function stepAccounts() {
     ${fieldHtml({ id: 'xuid', label: 'Xbox ID (XUID)', help: 'A long number (usually 16 digits). <a href="' + LINKS.xuid + '" target="_blank" rel="noopener">Find my Xbox ID</a> - type your gamertag there and copy the number.', ph: '2535XXXXXXXXXXXX', inputmode: 'numeric', max: 24 })}`;
   if (p.has('ps')) h += `<h3 style="margin:6px 0 10px">PlayStation</h3>
     ${fieldHtml({ id: 'psnName', label: 'PSN name', ph: 'e.g. SpeedyAl', max: 24 })}
-    ${fieldHtml({ id: 'psnId', label: 'PSN ID', help: 'A long number. <a href="' + LINKS.psn + '" target="_blank" rel="noopener">Find my PSN ID</a> - type your PSN name there and copy the number.', ph: 'e.g. 1234567890123456789', inputmode: 'numeric', max: 24 })}`;
+    ${fieldHtml({ id: 'psnId', label: 'PSN ID', help: 'A long ID code. <a href="' + LINKS.psn + '" target="_blank" rel="noopener">Find my PSN ID on PSN Tools</a> - type your PSN name in the checker and copy the long ID it shows for your account (the number or 16-character code, not your name). Paste it here.', ph: 'Paste your PSN ID', max: 30 })}`;
   return h;
 }
 function stepExtras() {
@@ -493,7 +501,8 @@ function rolePlan() {
   return { add: [...add].filter(n => !have.has(n)), keep: [...add].filter(n => have.has(n)), remove, any: managed.size > 0 };
 }
 function stepReview() {
-  const g = S.games.map(x => esc(gameDef(x.key).label) + ' (' + PLAT[x.platform] + ', ' + INPUT[x.input].toLowerCase() + ')').join('<br>');
+  const gk = []; S.games.forEach(x => { if (gk.indexOf(x.key) < 0) gk.push(x.key); });
+  const g = gk.map(k => esc(gameDef(k).label) + ' (' + S.games.filter(x => x.key === k).map(x => PLAT[x.platform] + ', ' + INPUT[x.input].toLowerCase()).join(' + ') + ')').join('<br>');
   const row = (k, v) => v ? '<dt>' + k + '</dt><dd>' + v + '</dd>' : '';
   const p = platsUsed(); const plan = rolePlan();
   const nick = '[ ' + S.number + ' ] - ' + clean(S.displayName, 40);
@@ -511,6 +520,7 @@ function stepReview() {
     <p>Your Discord nickname becomes<br><span class="nick">${esc(nick)}</span></p>
     ${plan.add.length ? '<p class="small" style="margin:0">Roles you will get:</p><ul>' + plan.add.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : (plan.any ? '<p class="small">You already have all the roles you need.</p>' : '<p class="small">No roles are changed right now - only your nickname.</p>')}
     ${plan.remove.length ? '<p class="small" style="margin:0">Roles that will be removed (they no longer match your answers):</p><ul>' + plan.remove.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : ''}
+    ${(() => { const p2 = platsUsed(); return p2.has('pc') && (p2.has('xbox') || p2.has('ps')) ? '<p class="small">You race on PC and console, so you will get race briefings for both for certain events.</p>' : ''; })()}
     <p class="small" style="margin:0">Then we take you straight to your IFWL licence.</p></div>`;
 }
 
@@ -568,7 +578,8 @@ function wire() {
       let v = inp.value;
       if (f === 'number') { v = v.replace(/\D/g, '').slice(0, 3); if (v.length > 1) v = v.replace(/^0+/, '') || '0'; inp.value = v; }
       if (f === 'steamId') { const m = v.match(/7656119\d{10}/); v = m ? m[0] : v.replace(/[^\d]/g, ''); inp.value = v; }
-      if (f === 'xuid' || f === 'psnId') { v = v.replace(/\D/g, ''); inp.value = v; }
+      if (f === 'xuid') { v = v.replace(/\D/g, ''); inp.value = v; }
+      if (f === 'psnId') { v = v.replace(/\s+/g, '').replace(/^0x/i, '').replace(/[^0-9a-fA-F]/g, ''); inp.value = v; }
       setField(f, v);
       if (f === 'number') { touched.displayName && fieldState('displayName'); }
       if (f === 'number' || f === 'displayName') updateNickPreview();
@@ -598,20 +609,25 @@ function addAcc() {
 }
 function toggleGame(key) {
   touched._gamesTouched = true;
-  const i = S.games.findIndex(g => g.key === key);
-  if (i >= 0) S.games.splice(i, 1);
+  if (S.games.some(g => g.key === key)) S.games = S.games.filter(g => g.key !== key);
   else { const d = gameDef(key); S.games.push({ key, platform: d.platforms.length === 1 ? d.platforms[0] : '', input: '' }); }
   saveDraft(); redrawGame(key);
 }
 function pickSeg(seg, v) {
-  const key = seg.dataset.game; const g = S.games.find(x => x.key === key); if (!g) return;
-  g[seg.dataset.seg] = v;
-  if (seg.dataset.seg === 'platform' && v !== 'pc' && g.input === 'keyboard') g.input = '';
+  const key = seg.dataset.game; const es = S.games.filter(x => x.key === key); if (!es.length) return;
+  if (seg.dataset.seg === 'platform') {
+    const ex = es.find(e => e.platform === v);
+    if (ex) { if (es.length === 1) { ex.platform = ''; ex.input = ''; } else S.games.splice(S.games.indexOf(ex), 1); }
+    else { const ph = es.find(e => !e.platform); if (ph) { ph.platform = v; if (v !== 'pc' && ph.input === 'keyboard') ph.input = ''; } else S.games.push({ key, platform: v, input: '' }); }
+  } else {
+    const e = es.find(x => x.platform === seg.dataset.plat) || es[0]; e.input = v;
+  }
   touched.games = true; saveDraft(); redrawGame(key);
 }
 function redrawGame(key) {
   const old = $('.game[data-game="' + key + '"]'); const d = gameDef(key);
   const tmp = document.createElement('div'); tmp.innerHTML = gameCard(d); old.replaceWith(tmp.firstElementChild);
+  const bn = $('#bothNote'); if (bn) { const t2 = document.createElement('div'); t2.innerHTML = bothNote(); bn.replaceWith(t2.firstElementChild); }
   if (touched.games) markGameErrors();
 }
 function markGameErrors() {
@@ -620,7 +636,7 @@ function markGameErrors() {
   document.querySelectorAll('.game').forEach(el => el.classList.remove('bad'));
   if (msg) {
     eg.textContent = msg; eg.style.display = 'block';
-    for (const g of S.games) if (!g.platform || !g.input) { const el = $('.game[data-game="' + g.key + '"]'); if (el) { el.classList.add('bad'); $('.gerr', el).textContent = !g.platform ? 'Choose a platform.' : 'Choose how you drive.'; } }
+    for (const g of S.games) if (!g.platform || !g.input) { const el = $('.game[data-game="' + g.key + '"]'); if (el) { el.classList.add('bad'); const ge = $('.gerr', el); if (ge) ge.textContent = !g.platform ? 'Choose at least one platform.' : 'Choose how you drive' + (g.platform ? ' on ' + PLAT[g.platform] : '') + '.'; } }
   }
 }
 
