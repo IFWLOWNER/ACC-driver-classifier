@@ -1918,6 +1918,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
           <button data-view="staffLicenceDatabase" class="ops-or-headmod-tab" type="button">Licence Database</button>
           <button data-view="staffAlerts" class="ops-only-tab" type="button">Staff Alerts</button>
           <button data-view="staffRequests" type="button">Licence Requests</button>
+          <button data-view="staffRaceUpdates" type="button">Race Updates</button>
           <button data-view="staffTeamApplications" class="ops-only-tab" type="button">Team Applications</button>
           <button data-view="staffTierManage" class="ops-only-tab" type="button">Manage Licence Tiers</button>
           <button data-view="staffNameAudit" type="button">Driver Name Audit</button>
@@ -2029,6 +2030,15 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   </section>
 
   <div class="home-top-row">
+  <!-- RACE UPDATES: confirmed notices live on the driver's profile, directly above the licence card -->
+  <section class="panel view-panel ru-card hidden" data-view="home" id="raceUpdatesPanel">
+    <div class="panel-head">
+      <div class="ru-head"><span id="ruCardIcon"></span><div><h3>Race Updates</h3><small>Official notices from IFWL race control. Tap one to read it again.</small></div></div>
+      <span class="ru-pill ok" id="ruCardPill">All read</span>
+    </div>
+    <div class="panel-body"><div class="ru-list" id="ruCardList"></div><div class="ru-more" id="ruCardMore"></div></div>
+  </section>
+
   <section class="panel view-panel" data-view="home" id="myLicencePanel">
     <div class="panel-head"><div><h3>My Licence</h3><small id="myLicenceSub">Loading your profile&hellip;</small></div><span class="tier-pill" id="myTierPill">-</span></div>
     <!-- ✅ ADDED: tranche 2 - one-click shortcuts to the 4 things drivers
@@ -2420,6 +2430,44 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
           <button class="btn teal" id="jtSubmit" type="submit" style="font-size:13px">Send my application</button>
           <div class="field-hint">Your Discord name is sent with your application automatically. Only the Owner and Ops Manager can read it.</div>
         </form>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="staffRaceUpdates" id="staffRaceUpdatesPanel">
+    <div class="panel-head"><div><h3>Race Updates</h3><small>FIA-style notices every driver must read and confirm. Owner and people the Owner allows (e.g. the Head Steward) can send; all staff can see who has confirmed.</small></div></div>
+    <div class="panel-body">
+      <div id="ruStaffMsg" class="field-hint">Loading&hellip;</div>
+      <div class="ru-two" id="ruStaffWrap" style="display:none">
+        <div>
+          <div class="ru-box" id="ruCompose">
+            <h4>New Race Update</h4>
+            <div class="ru-f"><label>Severity</label>
+              <div class="ru-segs" id="ruSev"><button type="button" class="r on" data-v="red">&#9650; Urgent</button><button type="button" class="o" data-v="orange">&#9650; Important</button><button type="button" class="g" data-v="green">&#9650; For info</button></div></div>
+            <div class="ru-f"><label for="ruTitle">Headline</label><input type="text" id="ruTitle" maxlength="140" placeholder="e.g. Cutting the track at Turn 1 now carries a Standard penalty"></div>
+            <div class="ru-f"><label for="ruBody">The update</label><textarea id="ruBody" maxlength="4000" placeholder="What is changing, and why. Plain text - **double stars** make bold."></textarea></div>
+            <div class="ru-f"><label for="ruKey">Key line <small>(highlighted box, optional)</small></label><input type="text" id="ruKey" maxlength="240" placeholder="e.g. Applies to every race from tonight, Round 3 onwards."></div>
+            <div class="ru-f"><label for="ruEff">Effective</label><input type="text" id="ruEff" maxlength="80" value="Immediately"></div>
+            <div class="ru-f"><label for="ruAud">Who must confirm</label><select id="ruAud"><option value="all">All drivers (PC &amp; Console)</option><option value="pc">PC drivers only</option><option value="console">Console drivers only</option></select></div>
+            <label class="ru-chk"><input type="checkbox" id="ruDisc" checked> Also post a short notice in the Discord licence-updates channel</label>
+            <label class="ru-chk"><input type="checkbox" id="ruMin"> Add a 5-second minimum read time</label>
+            <div id="ruFormErr" class="ru-err" style="text-align:left"></div>
+            <button type="button" class="ru-btn dark" id="ruPreviewBtn">PREVIEW, THEN SEND TO EVERYONE</button>
+            <div class="ru-hint" style="text-align:left">The update number and time stamp are added automatically. A sent update cannot be edited - only withdrawn and replaced, so the record stays honest.</div>
+          </div>
+          <div class="ru-box" id="ruNoSend" style="display:none"><h4>View only</h4><p class="field-hint">You can see what has been sent and who has confirmed it. Only the Owner and the people the Owner has allowed can send Race Updates.</p></div>
+          <div class="ru-box" id="ruSendersBox" style="display:none;margin-top:12px">
+            <h4>Who can send Race Updates</h4>
+            <p class="field-hint">The Owner can always send. Add anyone else (e.g. the Head Steward) by Discord ID. Discord: Developer Mode on, right-click the person, Copy User ID.</p>
+            <div id="ruSenderList"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><input type="text" id="ruSenderId" placeholder="Discord ID" style="flex:1;min-width:150px;border:2px solid var(--ifwl-line,#dde3ec);border-radius:10px;padding:8px 10px;background:var(--surface,#fff);color:inherit"><input type="text" id="ruSenderName" placeholder="Name (e.g. Head Steward)" style="flex:1;min-width:150px;border:2px solid var(--ifwl-line,#dde3ec);border-radius:10px;padding:8px 10px;background:var(--surface,#fff);color:inherit"><button type="button" class="ru-mini" id="ruSenderAdd">Allow</button></div>
+            <div id="ruSenderErr" class="ru-err" style="text-align:left"></div>
+          </div>
+        </div>
+        <div>
+          <div class="ru-box"><h4>Sent updates</h4><div id="ruSentList"></div></div>
+          <div class="ru-box" id="ruTracker" style="margin-top:12px;display:none"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -10680,7 +10728,8 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     window.initMyTrophyCabinetPanel?.();
     initSubmitTicketPanel();
     renderLapProgressBox();
-    checkRacedayNotifications();
+    // Race Updates (must-confirm notices) come first; the raceday briefing waits until they are confirmed.
+    (window.checkRaceUpdates ? window.checkRaceUpdates() : Promise.resolve()).then(() => checkRacedayNotifications());
     // ✅ FIXED: these six fetches (ticket/stats, available races, the full
     // driver directory, your pending request, the calling-card catalog, and
     // your own Peer Ratings given) are all independent of each other, but
@@ -21547,6 +21596,379 @@ Flashing Headlights:
     if (t.dataset.view === 'staffTeamApplications') loadStaff();
   });
   window.addEventListener('ifwl-auth-changed', () => { const p = $('joinTeamPanel'); if (p && p.classList.contains('is-active-view')) loadJoin(); });
+})();
+</script>
+<style id="raceUpdatesStyle">
+/* ===== Race Updates (FIA-style notices) ===== */
+.ru-modal{position:fixed;inset:0;z-index:199990;background:rgba(6,10,18,.78);display:flex;align-items:flex-start;justify-content:center;padding:22px 12px;overflow-y:auto}
+.ru-modal.hidden{display:none!important}
+body.ru-open{overflow:hidden}
+.ru-notice{--c:#d62828;--cbg:#fdecec;width:100%;max-width:580px;margin:auto;background:#fff;color:#16202e;border:7px solid var(--c);border-radius:18px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.ru-notice.orange{--c:#e98a00;--cbg:#fff4e0}
+.ru-notice.green{--c:#2e9e5b;--cbg:#e8f6ee}
+.ru-nh{background:var(--c);color:#fff;display:flex;align-items:center;gap:12px;padding:12px 16px}
+.ru-logo{width:48px;height:48px;flex:none;border-radius:12px;background:#fff;display:grid;place-items:center;overflow:hidden}
+.ru-logo i{display:block;width:36px;height:36px;-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center}
+.ru-logo svg{width:34px;height:34px}
+.ru-nh .t{flex:1;min-width:0}
+.ru-nh .t b{display:block;font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.95}
+.ru-nh .t span{font-size:20px;font-weight:900;letter-spacing:.02em}
+.ru-sevtag{background:#fff;color:var(--c);font-weight:900;font-size:12px;letter-spacing:.08em;padding:5px 10px;border-radius:999px;display:flex;gap:6px;align-items:center;white-space:nowrap}
+.ru-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;background:var(--cbg);padding:10px 16px;font-size:12.5px;border-bottom:1px solid #dde3ec}
+.ru-meta b{display:block;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#5b6779}
+.ru-nb{padding:16px 18px 6px}
+.ru-nb h2{margin:0 0 8px;font-size:19px;line-height:1.25;color:#16202e}
+.ru-nb p{margin:0 0 10px;font-size:14.5px;line-height:1.55;color:#16202e}
+.ru-key{border-left:5px solid var(--c);background:var(--cbg);padding:8px 12px;border-radius:0 10px 10px 0;margin:10px 0;font-weight:600;font-size:14.5px;color:#16202e}
+.ru-pager{display:flex;justify-content:space-between;font-size:12px;color:#5b6779;margin-bottom:8px;font-weight:700}
+.ru-nf{padding:10px 18px 18px}
+.ru-confirm{display:flex;gap:12px;align-items:flex-start;border:2px solid #dde3ec;border-radius:12px;padding:12px;cursor:pointer;font-weight:700;font-size:14px;color:#16202e}
+.ru-confirm input{width:26px;height:26px;flex:none;margin-top:1px;accent-color:var(--c)}
+.ru-btn{display:block;width:100%;margin-top:12px;font:inherit;font-weight:900;font-size:16px;border:0;border-radius:12px;padding:14px;background:var(--c);color:#fff;cursor:pointer;letter-spacing:.02em}
+.ru-btn[disabled]{background:#c4cbd6;cursor:not-allowed}
+.ru-btn.ghost{background:#fff;color:#16202e;border:2px solid #c4cbd6}
+.ru-btn.dark{background:#16202e}
+.ru-hint{font-size:12px;color:#5b6779;text-align:center;margin-top:8px}
+.ru-err{color:#b3261e;font-size:13px;font-weight:700;text-align:center;margin-top:8px}
+.ru-ribbon{background:#16202e;color:#fff;text-align:center;font-weight:800;font-size:12px;letter-spacing:.1em;padding:6px}
+/* profile card */
+.ru-card .panel-body{padding-top:6px}
+.ru-head{display:flex;align-items:center;gap:10px}
+.ru-pill{font-size:12px;font-weight:800;border-radius:999px;padding:3px 10px}
+.ru-pill.ok{background:rgba(46,158,91,.16);color:#2e9e5b}
+.ru-pill.bad{background:rgba(214,40,40,.16);color:#d62828}
+.ru-list{display:grid;gap:8px}
+.ru-item{--c:#d62828;display:flex;gap:12px;align-items:center;border:1px solid var(--ifwl-line,#dde3ec);border-left:6px solid var(--c);border-radius:12px;padding:10px 12px;background:var(--surface,#fff);cursor:pointer;text-align:left;width:100%;font:inherit;color:inherit}
+.ru-item.orange{--c:#e98a00}.ru-item.green{--c:#2e9e5b}
+.ru-item svg{width:30px;height:30px;flex:none}
+.ru-item .tx{flex:1;min-width:0}
+.ru-item .tx b{display:block;font-size:14px}
+.ru-item .tx span{font-size:12px;opacity:.75}
+.ru-item .st{font-size:12px;font-weight:800;color:#2e9e5b;white-space:nowrap;text-align:right}
+.ru-item .st.un{color:#d62828}
+.ru-item.wd{opacity:.6}.ru-item.wd .tx b{text-decoration:line-through}
+.ru-more{font-size:12.5px;margin-top:8px;opacity:.85}
+.ru-more button{all:unset;cursor:pointer;text-decoration:underline}
+/* staff */
+.ru-two{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
+@media(max-width:820px){.ru-two{grid-template-columns:1fr}.ru-meta{grid-template-columns:1fr 1fr}}
+.ru-box{border:1px solid var(--ifwl-line,#dde3ec);border-radius:14px;padding:14px;background:var(--surface,#fff)}
+.ru-box h4{margin:0 0 10px;font-size:15px}
+.ru-f{margin-bottom:11px}.ru-f label{display:block;font-weight:700;font-size:13px;margin-bottom:4px}
+.ru-f input[type=text],.ru-f textarea,.ru-f select{width:100%;font:inherit;border:2px solid var(--ifwl-line,#dde3ec);border-radius:10px;padding:9px 10px;background:var(--surface,#fff);color:inherit}
+.ru-f textarea{min-height:110px;resize:vertical}
+.ru-segs{display:flex;gap:8px}
+.ru-segs button{flex:1;border:2px solid var(--ifwl-line,#dde3ec);border-radius:10px;padding:9px 6px;text-align:center;font:inherit;font-weight:800;font-size:13px;cursor:pointer;background:transparent;color:inherit}
+.ru-segs button.r.on{border-color:#d62828;background:rgba(214,40,40,.14);color:#d62828}
+.ru-segs button.o.on{border-color:#e98a00;background:rgba(233,138,0,.16);color:#c27300}
+.ru-segs button.g.on{border-color:#2e9e5b;background:rgba(46,158,91,.14);color:#2e9e5b}
+.ru-chk{display:flex;gap:8px;align-items:center;font-size:13.5px;margin:6px 0}
+.ru-prog{height:12px;border-radius:999px;background:rgba(128,140,160,.25);overflow:hidden;margin:6px 0 4px}
+.ru-prog i{display:block;height:100%;background:#2e9e5b}
+.ru-tbl{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.ru-tbl td{padding:6px 4px;border-top:1px solid var(--ifwl-line,#dde3ec)}
+.ru-tbl .pend{color:#d62828;font-weight:800;text-align:right}
+.ru-tbl .done{text-align:right;color:#2e9e5b;font-weight:700}
+.ru-sent{display:flex;gap:10px;align-items:center;border:1px solid var(--ifwl-line,#dde3ec);border-left:6px solid var(--c,#d62828);border-radius:10px;padding:8px 10px;margin-bottom:8px;cursor:pointer;width:100%;font:inherit;color:inherit;background:transparent;text-align:left}
+.ru-sent.orange{--c:#e98a00}.ru-sent.green{--c:#2e9e5b}.ru-sent.sel{box-shadow:0 0 0 2px var(--c)}
+.ru-sent b{display:block;font-size:13.5px}.ru-sent span{font-size:12px;opacity:.75}
+.ru-mini{border:2px solid var(--ifwl-line,#dde3ec);border-radius:10px;padding:7px 12px;font:inherit;font-weight:700;font-size:13px;cursor:pointer;background:transparent;color:inherit}
+.ru-mini.danger{border-color:#d62828;color:#d62828}
+</style>
+
+<script>
+/* ============================================================
+   RACE UPDATES - blocking pop-up, profile card, staff send + tracker
+   ============================================================ */
+(() => {
+  const FN = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
+  const LOGO = 'https://ifwlowner.github.io/ACC-driver-classifier/ifwllogo1.png';
+  const $ = (id) => document.getElementById(id);
+  const token = () => (window.IFWL_AUTH && window.IFWL_AUTH.sessionToken && window.IFWL_AUTH.sessionToken()) || '';
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  async function call(action, body, extra) {
+    const opts = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' };
+    const r = await fetch(FN + '?' + action + '=1&token=' + encodeURIComponent(token()) + (extra || ''), opts);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(d.error || ('Request failed (' + r.status + ')')); e.body = d; e.status = r.status; throw e; }
+    return d;
+  }
+  const SEV = {
+    red: { tag: 'URGENT', col: '#d62828', name: 'Urgent' },
+    orange: { tag: 'IMPORTANT', col: '#e98a00', name: 'Important' },
+    green: { tag: 'FOR INFO', col: '#2e9e5b', name: 'For info' }
+  };
+  const sevOf = (u) => SEV[u && u.severity] || SEV.orange;
+  const tri = (col) => '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 4 38 35H2z" fill="' + col + '"/><text x="20" y="31" text-anchor="middle" font-size="19" font-weight="900" fill="#fff" font-family="Arial">!</text></svg>';
+  const fmt = (ms) => {
+    if (!ms) return '';
+    try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms)).replace(',', ' ·') + ' UK'; }
+    catch (_) { return new Date(ms).toLocaleString('en-GB'); }
+  };
+  const pad2 = (n) => String(n).padStart(2, '0');
+  // plain text with **bold** and blank-line paragraphs
+  const rich = (t) => String(t == null ? '' : t).split(/\n{2,}/).map((p) => '<p>' + esc(p).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>') + '</p>').join('');
+
+  // ---- logo: recolour the real IFWL logo if it is a transparent PNG, otherwise fall back to a warning triangle ----
+  let logoMode = null; // 'mask' | 'tri'
+  const logoReady = new Promise((resolve) => {
+    try {
+      const im = new Image(); im.crossOrigin = 'anonymous';
+      im.onload = () => {
+        try {
+          const c = document.createElement('canvas'); c.width = 24; c.height = 24;
+          const g = c.getContext('2d'); g.drawImage(im, 0, 0, 24, 24);
+          const d = g.getImageData(0, 0, 24, 24).data; let clear = 0;
+          for (let i = 3; i < d.length; i += 4) if (d[i] < 40) clear++;
+          logoMode = clear > 30 ? 'mask' : 'tri';
+        } catch (_) { logoMode = 'tri'; }
+        resolve();
+      };
+      im.onerror = () => { logoMode = 'tri'; resolve(); };
+      im.src = LOGO;
+      setTimeout(() => { if (!logoMode) { logoMode = 'tri'; resolve(); } }, 4000);
+    } catch (_) { logoMode = 'tri'; resolve(); }
+  });
+  const logoHtml = (sv) => logoMode === 'mask'
+    ? '<span class="ru-logo"><i style="background:' + sv.col + ';-webkit-mask-image:url(' + LOGO + ');mask-image:url(' + LOGO + ')"></i></span>'
+    : '<span class="ru-logo">' + tri(sv.col) + '</span>';
+
+  // ---- the notice itself (used by the live pop-up, the staff preview and "read again") ----
+  function noticeHtml(u, opts) {
+    const sv = sevOf(u); opts = opts || {};
+    return '<div class="ru-notice ' + esc(u.severity) + '" role="alertdialog" aria-modal="true" aria-label="IFWL Race Update">' +
+      (opts.ribbon ? '<div class="ru-ribbon">' + esc(opts.ribbon) + '</div>' : '') +
+      '<div class="ru-nh">' + logoHtml(sv) +
+        '<div class="t"><b>IFWL Race Update</b><span>Update No. ' + (u.no === '?' ? '(next)' : pad2(u.no || 0)) + '</span></div>' +
+        '<div class="ru-sevtag">&#9650; ' + sv.tag + '</div></div>' +
+      '<div class="ru-meta">' +
+        '<div><b>Issued</b>' + esc(fmt(u.issuedAtMs)) + '</div>' +
+        '<div><b>Issued by</b>' + esc(u.issuedByName || 'IFWL') + '</div>' +
+        '<div><b>Applies to</b>' + esc(u.audienceLabel || 'All drivers') + '</div>' +
+        '<div><b>Effective</b>' + esc(u.effective || 'Immediately') + '</div></div>' +
+      '<div class="ru-nb">' + (opts.pager ? '<div class="ru-pager"><span>' + esc(opts.pager) + '</span><span>' + esc(opts.pagerRight || '') + '</span></div>' : '') +
+        '<h2>' + esc(u.title) + '</h2>' + rich(u.body) +
+        (u.keyLine ? '<div class="ru-key">' + esc(u.keyLine) + '</div>' : '') +
+        (u.status === 'withdrawn' ? '<p><b>This update has been withdrawn.</b> Disregard it unless a replacement has been issued.</p>' : '') +
+        '<p style="font-size:13px;color:#5b6779">Questions? Open a ticket in the Licence Centre or ask staff in Discord. Do not reply to this notice.</p></div>' +
+      '<div class="ru-nf" id="ruFoot"></div></div>';
+  }
+  function modal() {
+    let m = $('ruModal');
+    if (!m) { m = document.createElement('div'); m.id = 'ruModal'; m.className = 'ru-modal hidden'; document.body.appendChild(m); }
+    return m;
+  }
+  function openModal(html) { const m = modal(); m.innerHTML = html; m.classList.remove('hidden'); document.body.classList.add('ru-open'); m.scrollTop = 0; return m; }
+  function closeModal() { const m = $('ruModal'); if (m) { m.classList.add('hidden'); m.innerHTML = ''; } document.body.classList.remove('ru-open'); }
+
+  // ---- state ----
+  let showing = false, history = [], pollTimer = null;
+
+  // ---- must-confirm queue ----
+  function showQueue(list) {
+    return new Promise((resolve) => {
+      let i = 0, timer = null;
+      const step = () => {
+        if (timer) { clearInterval(timer); timer = null; }
+        if (i >= list.length) { closeModal(); showing = false; resolve(); return; }
+        const u = list[i]; const last = i === list.length - 1;
+        openModal(noticeHtml(u, { pager: 'Update ' + (i + 1) + ' of ' + list.length + ' to read', pagerRight: 'Must be confirmed to continue' }));
+        $('ruFoot').innerHTML =
+          '<label class="ru-confirm"><input type="checkbox" id="ruCb"><span>I have read and understood this Race Update and will race accordingly.</span></label>' +
+          '<button type="button" class="ru-btn" id="ruGo" disabled>CONFIRM' + (last ? '' : ' AND CONTINUE') + '</button>' +
+          '<div class="ru-err" id="ruGoErr"></div><div class="ru-hint">Your confirmation and the time you pressed it are saved on your profile.</div>';
+        const cb = $('ruCb'), go = $('ruGo');
+        let left = Math.max(0, Number(u.minReadSec) || 0), busy = false;
+        const label = () => 'CONFIRM' + (last ? '' : ' AND CONTINUE');
+        const refresh = () => { go.disabled = busy || !cb.checked || left > 0; go.textContent = left > 0 ? 'Read for ' + left + 's to continue...' : label(); };
+        if (left > 0) timer = setInterval(() => { left--; refresh(); if (left <= 0) { clearInterval(timer); timer = null; } }, 1000);
+        cb.onchange = refresh; refresh();
+        go.onclick = async () => {
+          if (go.disabled) return;
+          busy = true; refresh(); go.textContent = 'Saving...';
+          try {
+            const r = await call('myRaceUpdateConfirm', { id: u.id });
+            const h = history.find((x) => x.id === u.id); if (h) h.ackedAtMs = r.atMs || Date.now();
+            u.ackedAtMs = r.atMs || Date.now();
+            if (!history.some((x) => x.id === u.id)) history.unshift(u);
+            renderCard();
+            i++; step();
+          } catch (e) {
+            busy = false; refresh();
+            const er = $('ruGoErr'); if (er) er.textContent = (e && e.message ? e.message : 'Could not save') + ' - your answer was not saved, please try again.';
+          }
+        };
+      };
+      step();
+    });
+  }
+
+  // ---- fetch + show ----
+  async function check() {
+    if (showing || !token()) return;
+    let d;
+    try { d = await call('myRaceUpdates'); } catch (e) { return; }
+    history = d.history || [];
+    renderCard();
+    const pend = d.pending || [];
+    if (!pend.length) return;
+    showing = true;
+    await logoReady;
+    pend.forEach((u) => { if (!history.some((h) => h.id === u.id)) history.unshift({ ...u, ackedAtMs: 0 }); });
+    renderCard();
+    await showQueue(pend);
+  }
+  // used by the Home page load: race updates first, then the usual raceday briefing
+  window.checkRaceUpdates = () => check().catch(() => {});
+  window.IFWL_RaceUpdates = { check };
+
+  // ---- profile card ----
+  let showAll = false;
+  function renderCard() {
+    const p = $('raceUpdatesPanel'); if (!p) return;
+    if (!history.length) { p.classList.add('hidden'); return; }
+    p.classList.remove('hidden');
+    const unread = history.filter((u) => !u.ackedAtMs && u.status === 'active').length;
+    const worst = history.find((u) => u.status === 'active') || history[0];
+    $('ruCardIcon').innerHTML = '<span style="display:inline-block;width:26px;height:26px;vertical-align:middle">' + tri(unread ? '#d62828' : sevOf(worst).col) + '</span>';
+    const pill = $('ruCardPill');
+    pill.className = 'ru-pill ' + (unread ? 'bad' : 'ok');
+    pill.textContent = unread ? unread + ' unread - tap to read' : 'All read ✓';
+    pill.style.cursor = unread ? 'pointer' : 'default';
+    pill.onclick = unread ? () => { showing = false; check(); } : null;
+    const rows = showAll ? history : history.slice(0, 3);
+    $('ruCardList').innerHTML = rows.map((u) => {
+      const sv = sevOf(u);
+      return '<button type="button" class="ru-item ' + esc(u.severity) + (u.status === 'withdrawn' ? ' wd' : '') + '" data-id="' + esc(u.id) + '">' + tri(sv.col) +
+        '<span class="tx"><b>No. ' + pad2(u.no) + ' - ' + esc(u.title) + '</b><span>' + sv.tag + ' &middot; ' + esc(fmt(u.issuedAtMs)) + ' &middot; ' + esc(u.issuedByName || '') + (u.status === 'withdrawn' ? ' &middot; WITHDRAWN' : '') + '</span></span>' +
+        (u.ackedAtMs ? '<span class="st">Confirmed<br><small style="font-weight:600;color:inherit;opacity:.8">' + esc(fmt(u.ackedAtMs)) + '</small></span>' : '<span class="st un">Not yet confirmed</span>') + '</button>';
+    }).join('');
+    $('ruCardMore').innerHTML = history.length > 3 ? '<button type="button" id="ruToggleAll">' + (showAll ? 'Show fewer' : 'See all ' + history.length) + '</button>' : '';
+  }
+  document.addEventListener('click', async (ev) => {
+    const it = ev.target.closest && ev.target.closest('#raceUpdatesPanel .ru-item');
+    if (it) {
+      const u = history.find((x) => x.id === it.dataset.id); if (!u) return;
+      await logoReady;
+      openModal(noticeHtml(u, { ribbon: u.ackedAtMs ? 'You confirmed this update on ' + fmt(u.ackedAtMs) : 'Read-only copy' }));
+      $('ruFoot').innerHTML = '<button type="button" class="ru-btn ghost" id="ruClose">Close</button>';
+      $('ruClose').onclick = () => { if (!showing) closeModal(); };
+      return;
+    }
+    if (ev.target && ev.target.id === 'ruToggleAll') { showAll = !showAll; renderCard(); }
+  });
+
+  // ---- staff: send + track ----
+  let ST = { updates: [], canSend: false, isOwner: false, senders: [] }, selSev = 'red', selId = '';
+  const msg = (t) => { const m = $('ruStaffMsg'); if (m) { m.textContent = t || ''; m.style.display = t ? 'block' : 'none'; } };
+  async function loadStaff() {
+    if (!$('ruStaffWrap')) return;
+    msg('Loading...'); $('ruStaffWrap').style.display = 'none';
+    if (!token()) { msg('Log in with Discord first.'); return; }
+    try { ST = await call('staffRaceUpdateList'); }
+    catch (e) { msg(e.status === 403 ? 'Race Updates are for staff only.' : 'Could not load: ' + e.message); return; }
+    msg(''); $('ruStaffWrap').style.display = '';
+    $('ruCompose').style.display = ST.canSend ? '' : 'none';
+    $('ruNoSend').style.display = ST.canSend ? 'none' : '';
+    $('ruSendersBox').style.display = ST.isOwner ? '' : 'none';
+    renderSent(); renderSenders();
+    if (selId && ST.updates.some((u) => u.id === selId)) loadTracker(selId); else { selId = ''; $('ruTracker').style.display = 'none'; }
+  }
+  function renderSent() {
+    const el = $('ruSentList');
+    if (!ST.updates.length) { el.innerHTML = '<div class="field-hint">Nothing sent yet.</div>'; return; }
+    el.innerHTML = ST.updates.map((u) => {
+      const sv = sevOf(u);
+      return '<button type="button" class="ru-sent ' + esc(u.severity) + (u.id === selId ? ' sel' : '') + '" data-id="' + esc(u.id) + '">' + '<span style="width:26px;flex:none;display:inline-block">' + tri(sv.col) + '</span>' +
+        '<span style="flex:1;min-width:0"><b>No. ' + pad2(u.no) + ' - ' + esc(u.title) + '</b><span>' + sv.tag + ' &middot; ' + esc(fmt(u.issuedAtMs)) + ' &middot; ' + esc(u.audienceLabel) + (u.status === 'withdrawn' ? ' &middot; WITHDRAWN' : '') + '</span></span></button>';
+    }).join('');
+  }
+  function renderSenders() {
+    const el = $('ruSenderList'); if (!el) return;
+    el.innerHTML = (ST.senders || []).length ? ST.senders.map((s) => '<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><span style="flex:1">' + esc(s.name || 'Unnamed') + ' <small style="opacity:.7">(' + esc(s.id) + ')</small></span><button type="button" class="ru-mini danger" data-rm="' + esc(s.id) + '">Remove</button></div>').join('') : '<div class="field-hint">Only the Owner can send right now.</div>';
+  }
+  async function loadTracker(id) {
+    selId = id; renderSent();
+    const box = $('ruTracker'); box.style.display = ''; box.innerHTML = '<div class="field-hint">Loading who has confirmed&hellip;</div>';
+    try {
+      const d = await call('staffRaceUpdateTracker', null, '&id=' + encodeURIComponent(id));
+      const u = d.update, tot = d.eligibleTotal || 0, n = d.confirmed.length, pct = tot ? Math.round(n / tot * 100) : 100;
+      box.innerHTML = '<h4>No. ' + pad2(u.no) + ' - who has confirmed</h4>' +
+        '<div style="font-size:13px"><b>' + n + '</b> of <b>' + tot + '</b> drivers confirmed (' + pct + '%)</div><div class="ru-prog"><i style="width:' + pct + '%"></i></div>' +
+        '<div style="font-size:12px;opacity:.75">' + d.pending.length + ' still to log in and confirm</div>' +
+        '<details open style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">Not yet confirmed (' + d.pending.length + ')</summary><table class="ru-tbl">' +
+          (d.pending.slice(0, 300).map((r) => '<tr><td><b>' + esc(r.name) + '</b></td><td class="pend">' + (r.lastLoginMs ? 'last seen ' + esc(new Date(r.lastLoginMs).toLocaleDateString('en-GB')) : 'never logged in') + '</td></tr>').join('') || '<tr><td>Everyone has confirmed.</td><td></td></tr>') + '</table></details>' +
+        '<details style="margin-top:6px"><summary style="cursor:pointer;font-weight:700;font-size:13px">Confirmed (' + n + ')</summary><table class="ru-tbl">' +
+          d.confirmed.slice(0, 400).map((r) => '<tr><td>' + esc(r.name) + '</td><td class="done">' + esc(fmt(r.atMs)) + ' &#10003;</td></tr>').join('') + '</table></details>' +
+        '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="ru-mini" id="ruCsv">Download list (CSV)</button>' +
+        (ST.canSend && u.status === 'active' ? '<button type="button" class="ru-mini" id="ruRemind">Remind unread in Discord</button><button type="button" class="ru-mini danger" id="ruWithdraw">Withdraw</button>' : '') + '</div><div class="ru-err" id="ruTrErr" style="text-align:left"></div>';
+      $('ruCsv').onclick = () => {
+        const rows = [['Name', 'Status', 'Confirmed at (UK)', 'Platform']].concat(d.confirmed.map((r) => [r.name, 'Confirmed', fmt(r.atMs), r.platform]), d.pending.map((r) => [r.name, 'NOT confirmed', '', r.platform]));
+        const csv = rows.map((r) => r.map((c) => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'race-update-' + pad2(u.no) + '-confirmations.csv'; a.click();
+      };
+      const rem = $('ruRemind'); if (rem) rem.onclick = async () => {
+        rem.disabled = true; try { const r = await call('staffRaceUpdateRemind', { id }); $('ruTrErr').style.color = '#2e9e5b'; $('ruTrErr').textContent = r.posted ? 'Reminder posted in Discord (' + r.pending + ' still to confirm).' : 'Nobody is left to remind.'; } catch (e) { $('ruTrErr').textContent = e.message; } rem.disabled = false;
+      };
+      const wd = $('ruWithdraw'); if (wd) wd.onclick = async () => {
+        const reason = window.prompt('Withdraw No. ' + pad2(u.no) + '? Drivers will no longer be asked to confirm it. Optional reason (staff only):', '');
+        if (reason === null) return;
+        try { await call('staffRaceUpdateWithdraw', { id, reason }); await loadStaff(); } catch (e) { $('ruTrErr').textContent = e.message; }
+      };
+    } catch (e) { box.innerHTML = '<div class="ru-err">Could not load: ' + esc(e.message) + '</div>'; }
+  }
+  function formUpdate() {
+    return { severity: selSev, title: $('ruTitle').value.trim(), body: $('ruBody').value.trim(), keyLine: $('ruKey').value.trim(), effective: $('ruEff').value.trim() || 'Immediately',
+      audience: $('ruAud').value, minReadSec: $('ruMin').checked ? 5 : 0, postDiscord: $('ruDisc').checked };
+  }
+  async function previewAndSend() {
+    const f = formUpdate(), err = $('ruFormErr'); err.textContent = '';
+    if (f.title.length < 4) { err.textContent = 'Give it a headline.'; return; }
+    if (f.body.length < 10) { err.textContent = 'Write the update itself.'; return; }
+    await logoReady;
+    const aud = { all: 'All drivers (PC & Console)', pc: 'PC drivers', console: 'Console drivers' }[f.audience];
+    const u = { ...f, no: '?', issuedAtMs: Date.now(), issuedByName: 'You', audienceLabel: aud, status: 'active' };
+    openModal(noticeHtml(u, { ribbon: 'PREVIEW - NOT SENT YET. This is exactly what every driver will see.' }));
+    $('ruFoot').innerHTML = '<div class="ru-err" id="ruSendErr"></div><button type="button" class="ru-btn" id="ruSendNow">SEND TO EVERYONE NOW</button><button type="button" class="ru-btn ghost" id="ruBackEdit">Back to editing</button>' +
+      '<div class="ru-hint">Sending locks every driver in "must confirm" at their next login, and cannot be edited afterwards.</div>';
+    $('ruBackEdit').onclick = () => closeModal();
+    $('ruSendNow').onclick = async () => {
+      const b = $('ruSendNow'); b.disabled = true; b.textContent = 'Sending...';
+      try {
+        const r = await call('staffRaceUpdateSend', f);
+        closeModal();
+        ['ruTitle', 'ruBody', 'ruKey'].forEach((id) => { $(id).value = ''; }); $('ruEff').value = 'Immediately';
+        selId = r.id; await loadStaff(); check();
+      } catch (e) {
+        b.disabled = false; b.textContent = 'SEND TO EVERYONE NOW';
+        const fe = e.body && e.body.fieldErrors ? Object.values(e.body.fieldErrors).join(' ') : '';
+        $('ruSendErr').textContent = (e.message || 'Could not send') + (fe ? ' ' + fe : '');
+      }
+    };
+  }
+  function initStaff() {
+    const seg = $('ruSev'); if (!seg) return;
+    seg.addEventListener('click', (ev) => { const b = ev.target.closest('button[data-v]'); if (!b) return; selSev = b.dataset.v; seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); });
+    $('ruPreviewBtn').onclick = previewAndSend;
+    $('ruSentList').addEventListener('click', (ev) => { const b = ev.target.closest('.ru-sent'); if (b) loadTracker(b.dataset.id); });
+    $('ruSenderAdd').onclick = async () => {
+      const er = $('ruSenderErr'); er.textContent = '';
+      try { const r = await call('staffRaceUpdateSenders', { add: { id: $('ruSenderId').value.trim(), name: $('ruSenderName').value.trim() } }); ST.senders = r.senders; $('ruSenderId').value = ''; $('ruSenderName').value = ''; renderSenders(); }
+      catch (e) { er.textContent = e.message; }
+    };
+    $('ruSenderList').addEventListener('click', async (ev) => {
+      const b = ev.target.closest('[data-rm]'); if (!b) return;
+      try { const r = await call('staffRaceUpdateSenders', { remove: b.dataset.rm }); ST.senders = r.senders; renderSenders(); } catch (e) { $('ruSenderErr').textContent = e.message; }
+    });
+  }
+
+  initStaff();
+  document.addEventListener('click', (ev) => { const t = ev.target.closest && ev.target.closest('[data-view="staffRaceUpdates"]'); if (t && t.tagName === 'BUTTON') loadStaff(); });
+  // re-check on login, when the tab comes back, and every few minutes while the page is open
+  window.addEventListener('ifwl-auth-changed', () => { if (token()) check(); else { history = []; renderCard(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && token()) check(); });
+  pollTimer = setInterval(() => { if (!document.hidden && token()) check(); }, 180000);
+  setTimeout(() => { if (token()) check(); }, 2500); // safety net if the Home hook has not run yet
 })();
 </script>
 </body>
