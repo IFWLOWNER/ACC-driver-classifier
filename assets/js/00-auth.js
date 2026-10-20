@@ -93,6 +93,7 @@
     if(d.onboardingToken&&ob.live&&(!d.sessionToken||ob.mustComplete)){safeStore('IFWL_ONBOARD_TOKEN',d.onboardingToken);showWall('Taking you to IFWL sign-up...');location.replace(AUTH.REDIRECT_URI.replace(/[^\/]*$/,'')+'ifwlonboarding.html');return true}
     /* LOGIN-RETURN hook: logins started from a split page (licence-home.html, licence-races.html ...) come back through licence.html (the one registered Discord return page) and are sent straight back to the page they started on. */
     {let ret='';try{ret=sessionStorage.getItem('IFWL_LOGIN_RETURN')||'';sessionStorage.removeItem('IFWL_LOGIN_RETURN')}catch(_){}
+     if(!ret&&window.IFWL_FORWARD_TO_PAGES)ret='licence-home.html';
      if(ret&&d.sessionToken&&/^licence-[a-z]+\.html$/.test(ret)){showWall('Taking you back...');location.replace(AUTH.REDIRECT_URI.replace(/[^\/]*$/,'')+ret);return true}}
     apply(d)}catch(e){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,e.message)}return true}
   async function verify(){const token=readStore(AUTH.SESSION_KEY);if(!token){apply(null);return}try{const d=await json(AUTH.FUNCTION+`?patreonStatus=1&token=${encodeURIComponent(token)}`);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch{removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}}
