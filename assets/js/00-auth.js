@@ -8,7 +8,7 @@
    with silver/gold-specific helpers this page needs.
    ============================================================ */
 (() => {
-  const AUTH={FUNCTION:'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate',REDIRECT_URI:location.origin+location.pathname,SESSION_KEY:'IFWL_PATREON_SESSION',META_KEY:'IFWL_PATREON_META'};
+  const AUTH={FUNCTION:'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate',REDIRECT_URI:(window.IFWL_AUTH_REDIRECT||location.origin+location.pathname),SESSION_KEY:'IFWL_PATREON_SESSION',META_KEY:'IFWL_PATREON_META'};
   const q=id=>document.getElementById(id);
   const bar=q('ifwlAccountBar'),title=q('ifwlAccountTitle'),text=q('ifwlAccountText'),login=q('discordLoginBtn'),navLogin=q('discordAccountBtn'),logout=q('discordLogoutBtn');
   const wall=q('ifwlLoginWall'),wallMsg=q('loginWallMessage'),wallErr=q('loginWallError'),wallLogin=q('loginWallDiscordBtn'),wallLogout=q('loginWallLogoutBtn');
@@ -86,11 +86,14 @@
     window.dispatchEvent(new CustomEvent('ifwl-auth-changed',{detail:{meta}}));
   }
   async function json(url,opts){const r=await fetch(url,{cache:'no-store',...(opts||{})});const t=await r.text();let d;try{d=JSON.parse(t)}catch{throw new Error('Authentication service returned an invalid response.')}if(!r.ok)throw new Error(d?.error||`Request failed (${r.status})`);return d}
-  async function start(){try{const d=await json(AUTH.FUNCTION+`?start=1&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}`);if(!d.url)throw new Error(d.error||'No Discord login URL returned.');location.href=d.url}catch(e){showWall(null,e.message)}}
+  async function start(){try{if(window.IFWL_LOGIN_RETURN){try{sessionStorage.setItem('IFWL_LOGIN_RETURN',String(window.IFWL_LOGIN_RETURN))}catch(_){}}const d=await json(AUTH.FUNCTION+`?start=1&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}`);if(!d.url)throw new Error(d.error||'No Discord login URL returned.');location.href=d.url}catch(e){showWall(null,e.message)}}
   async function callback(){const p=new URLSearchParams(location.search),code=p.get('code'),error=p.get('error');if(error){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,error);return true}if(!code)return false;showWall('Checking your IFWL Discord and Patreon roles...');try{const d=await json(AUTH.FUNCTION+`?code=${encodeURIComponent(code)}&redirect=${encodeURIComponent(AUTH.REDIRECT_URI)}&issue=1&patreon=1`);history.replaceState({},document.title,AUTH.REDIRECT_URI);if(d.sessionToken)safeStore(AUTH.SESSION_KEY,d.sessionToken);safeStore(AUTH.META_KEY,JSON.stringify(d));
     /* ONBOARDING hook: brand-new members (no roles -> no full session) and drivers who must finish sign-up are sent to the onboarding page instead of being refused. */
     const ob=d.onboarding||{};
     if(d.onboardingToken&&ob.live&&(!d.sessionToken||ob.mustComplete)){safeStore('IFWL_ONBOARD_TOKEN',d.onboardingToken);showWall('Taking you to IFWL sign-up...');location.replace(AUTH.REDIRECT_URI.replace(/[^\/]*$/,'')+'ifwlonboarding.html');return true}
+    /* LOGIN-RETURN hook: logins started from a split page (licence-home.html, licence-races.html ...) come back through licence.html (the one registered Discord return page) and are sent straight back to the page they started on. */
+    {let ret='';try{ret=sessionStorage.getItem('IFWL_LOGIN_RETURN')||'';sessionStorage.removeItem('IFWL_LOGIN_RETURN')}catch(_){}
+     if(ret&&d.sessionToken&&/^licence-[a-z]+\.html$/.test(ret)){showWall('Taking you back...');location.replace(AUTH.REDIRECT_URI.replace(/[^\/]*$/,'')+ret);return true}}
     apply(d)}catch(e){history.replaceState({},document.title,AUTH.REDIRECT_URI);showWall(null,e.message)}return true}
   async function verify(){const token=readStore(AUTH.SESSION_KEY);if(!token){apply(null);return}try{const d=await json(AUTH.FUNCTION+`?patreonStatus=1&token=${encodeURIComponent(token)}`);safeStore(AUTH.META_KEY,JSON.stringify(d));apply(d)}catch{removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);apply(null)}}
   function signout(){removeStore(AUTH.SESSION_KEY);removeStore(AUTH.META_KEY);removeStore('IFWL_ONBOARD_TOKEN');removeStore('IFWL_OB_GATE');apply(null)}
