@@ -261,6 +261,17 @@ body.access-authorised .top-strip,body.access-authorised .nav,body.access-author
 body:not(.staff-access) .staff-only-tab{display:none!important}
 body:not(.owner-access) .owner-only-tab{display:none!important}
 body:not(.commentator-access):not(.owner-access) .commentator-only-tab{display:none!important}
+body.commentator-only #viewTabs > :not(.commentator-only-tab){display:none!important}
+.cw-card-click{cursor:pointer;transition:transform .15s,box-shadow .15s}.cw-card-click:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(20,200,176,.22)}
+#driverOverviewPanel .do-search{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}#driverOverviewPanel .do-search input{flex:2;min-width:220px}#driverOverviewPanel .do-search select{flex:1;min-width:140px}
+.do-hits{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-bottom:14px}
+.do-hit{display:flex;align-items:center;gap:10px;text-align:left;padding:10px 12px;border:1px solid var(--ifwl-line,#dfe5ec);border-radius:12px;background:#fff;cursor:pointer;font:inherit;color:inherit}.do-hit:hover{border-color:var(--ifwl-teal,#14c8b0);box-shadow:0 4px 14px rgba(20,200,176,.18)}
+.do-hit img,.do-hit-av{width:38px;height:38px;border-radius:50%;object-fit:cover;background:#cfd8e0;flex:none}.do-hit-main{flex:1;min-width:0;display:flex;flex-direction:column}.do-hit-main small{opacity:.65}
+.do-head{display:flex;gap:16px;align-items:center;padding:16px;border:2px solid;border-radius:16px;margin:8px 0 14px;background:rgba(127,127,127,.06)}.do-head-av{width:76px;height:76px;border-radius:50%;object-fit:cover;background:#cfd8e0;flex:none}.do-head h4{margin:0 0 6px;font-size:22px}.do-head-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.do-chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(127,127,127,.16)}
+.do-sec{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;opacity:.7;margin:18px 0 8px}
+.do-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}.do-stat{display:flex;flex-direction:column;padding:12px 14px;border-radius:12px;background:rgba(127,127,127,.08)}.do-stat span{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.65}.do-stat strong{font-size:24px;line-height:1.2}.do-stat small{opacity:.6;font-size:11px}
+.do-tbl{width:100%;border-collapse:collapse;font-size:13px}.do-tbl th,.do-tbl td{padding:8px 10px;text-align:left;border-bottom:1px solid rgba(127,127,127,.18);white-space:nowrap}.do-tbl th{font-size:10px;letter-spacing:.1em;text-transform:uppercase;opacity:.65}
+@media(max-width:560px){.do-head{flex-direction:column;text-align:center}.do-head-meta{justify-content:center}}
 body:not(.ops-access) .ops-only-tab{display:none!important}
 body:not(.headmod-access):not(.owner-access) .headmod-only-tab{display:none!important}
 /* ✅ ADDED: visible to Owner, Ops Manager OR Head Moderator (owner-access
@@ -2334,6 +2345,18 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         <button type="button" data-cw-platform="console-licence">Console</button>
       </div>
       <div id="commentatorWatchBody"><div class="empty">Loading&hellip;</div></div>
+    </div>
+  </section>
+
+  <section class="panel view-panel" data-view="commentatorWatch" id="driverOverviewPanel">
+    <div class="panel-head"><div><h3>Driver Overview</h3><small>Search any driver for their full picture: pace, consistency, season record and a highlight sheet for every race</small></div></div>
+    <div class="panel-body">
+      <div class="do-search">
+        <input id="doSearch" type="search" placeholder="Search by driver name, licence number or race name..." autocomplete="off">
+        <select id="doPlatform"><option value="">All platforms</option><option value="pc">PC</option><option value="console">Console</option></select>
+      </div>
+      <div id="doResults"></div>
+      <div id="doDetail"></div>
     </div>
   </section>
 
@@ -4865,7 +4888,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
   // ✅ ADDED: Commentator is its own independent flag - having role
   // 1295114710085271644 makes someone a Commentator regardless of any other
   // role they hold, so this never folds into the staff/tier checks above.
-  function isCommentatorMeta(m){return !!(m && m.commentatorAccess === true)}
+  function isCommentatorMeta(m){return !!(m && (m.commentatorAccess === true || m.commentator === true))}
   // ✅ ADDED: tighter staff tiers for the new nav permission split - Owner
   // only, and Owner+Ops (excluding Steward). Purely a UI-visibility signal;
   // the real enforcement lives server-side in canManageLicencesOwnerOnly/
@@ -4888,6 +4911,8 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     window.IFWL_DETAILED=detailed(meta); window.IFWL_SILVER_PLUS=silverPlus(meta); window.IFWL_GOLD=isGold(meta); window.IFWL_STAFF=staff(meta);
     window.IFWL_OWNER=isOwnerTier(meta); window.IFWL_OPS_PLUS=isOpsOrOwnerTier(meta);
     window.IFWL_COMMENTATOR=isCommentatorMeta(meta);
+    // Commentator-only = a commentator who is not also a racer/staff: their whole site is Drivers to Watch.
+    window.IFWL_COMMENTATOR_ONLY=!!(window.IFWL_COMMENTATOR && !window.IFWL_STAFF && !window.IFWL_OWNER && !(meta&&meta.activeRacer) && !(meta&&meta.patreonGranted));
     window.IFWL_HEAD_MOD=isHeadModMeta(meta);
     // ✅ ADDED: real values captured once, never overwritten by the staff
     // "View As" simulator below - this is how the simulator can restore the
@@ -4905,6 +4930,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     document.body.classList.toggle('owner-access',window.IFWL_OWNER);
     document.body.classList.toggle('ops-access',window.IFWL_OPS_PLUS);
     document.body.classList.toggle('commentator-access',window.IFWL_COMMENTATOR);
+    document.body.classList.toggle('commentator-only',window.IFWL_COMMENTATOR_ONLY);
     document.body.classList.toggle('headmod-access',window.IFWL_HEAD_MOD);
     if(meta){
       const t=meta.patreonTier||meta.tier||meta.role||'Discord';
@@ -6833,7 +6859,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     const outlineClass = d.patreonOutlineTier ? ` dir-card-${d.patreonOutlineTier}` : '';
     const stats = x.stats;
     const pronunciationRow = r.namePronunciation ? `<div class="cw-card-pronunciation">🗣️ ${r.namePronunciation}</div>` : '';
-    return `<div class="cw-card">
+    return `<div class="cw-card cw-card-click" data-do-lic="${r.licenceNumber || ''}" title="Click for full driver overview">
       <div class="dir-card${hasHeader ? ' has-header' : ''}${outlineClass}"${bgStyle}>
         ${d.teamLogoUrl ? `<img class="dir-card-team-logo" style="top:10px" src="${d.teamLogoUrl}" alt="${d.teamName||'Team'}" title="${d.teamName||''}">` : ''}
         <div class="dir-card-overlay">
@@ -6851,7 +6877,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
         <div><span>Consistency</span><strong>${stats?.consistencyAvg != null ? stats.consistencyAvg + '%' : '-'}</strong></div>
         <div><span>Race Risk</span><strong>${stats?.riskAvg != null ? stats.riskAvg + '%' : '-'}</strong></div>
       </div>
-      <div class="cw-card-gap">Gap to best: ${x.s.avgGapPct != null ? '+' + x.s.avgGapPct + '%' : '-'} &middot; ${x.s.totalLaps} laps</div>
+      <div class="cw-card-gap">Gap to best: ${x.s.avgGapPct != null ? '+' + (Math.round(x.s.avgGapPct*100)/100) + '%' : '-'} &middot; ${x.s.totalLaps} laps</div>
     </div>`;
   }
 
@@ -6985,6 +7011,217 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     q('dlPlatformSelect').addEventListener('change', renderDriverLookup);
   }
   window.initDriverLookupPanel = initDriverLookupPanel;
+
+  /* ============================================================
+     COMMENTATOR: DRIVER OVERVIEW
+     Search ANY licensed driver and get the full picture in one place:
+     profile + pronunciation, pace/consistency/risk numbers, season record
+     (wins, podiums, average finish) and a race-by-race table where each
+     race opens that driver's highlight sheet and detailed profile - the
+     same sheet Gold Patreons see. Everything is read from the same public
+     session files and public roster/directory used above; nothing staff-
+     only is touched.
+     ============================================================ */
+  let doInited = false, doBase = null, doReq = 0;
+  const doRaceCache = new Map();
+  const doEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  async function doLoadBase(){
+    if(doBase) return doBase;
+    const [roster, directory] = await Promise.all([ fetchLicenceRosterPublic(), fetchDirectory() ]);
+    try{
+      const guides = (await apiGet('commentatorNamePronunciations')).guides || [];
+      const m = new Map(guides.map(g => [g.licenceNumber, g.namePronunciation]));
+      roster.forEach(r => { if(m.has(r.licenceNumber)) r.namePronunciation = m.get(r.licenceNumber); });
+    }catch(e){ console.warn('Could not load name pronunciation guides', e); }
+    const byNum = new Map(); directory.forEach(d => { if(d.licenceNumber && d.licenceNumber !== '-') byNum.set(d.licenceNumber, d); });
+    const byAcc = new Map(); roster.forEach(r => (r.accDriverNames || []).forEach(n => byAcc.set(window.IFWLStats.driverNameKey(n), r)));
+    doBase = { roster, directory, byNum, byAcc };
+    return doBase;
+  }
+
+  function doAvatarOf(d){
+    return d && d.avatarMode === 'upload' && d.photoUploadUrl ? d.photoUploadUrl : d && d.avatarMode === 'url' && d.avatarUrl ? d.avatarUrl : '';
+  }
+
+  async function doEntryFor(row){
+    const b = await doLoadBase();
+    const re = b.byAcc.get(window.IFWLStats.driverNameKey(row.driver));
+    const d = re ? b.byNum.get(re.licenceNumber) : null;
+    if(!d) return {};
+    const t = findTier(d.tier || 'No Licence');
+    return { tier: d.tier || '', tierColor: (t && t.color) || '', licenceNumber: d.licenceNumber || '', teamName: d.teamName || '', avatarUrl: doAvatarOf(d) };
+  }
+
+  async function doSearchRender(){
+    const box = q('doResults'); if(!box) return;
+    const term = (q('doSearch').value || '').trim().toLowerCase();
+    const plat = q('doPlatform').value;
+    if(term.length < 2){ box.innerHTML = '<div class="empty">Type at least two letters of a driver\'s name, licence number or ACC name.</div>'; return; }
+    box.innerHTML = '<div class="empty">Searching&hellip;</div>';
+    let b; try{ b = await doLoadBase(); }catch(e){ box.innerHTML = `<div class="empty">Could not load: ${doEsc(e.message)}</div>`; return; }
+    const hits = b.roster.filter(r => (!plat || r.platform === plat) && (
+      String(r.name || '').toLowerCase().includes(term) ||
+      String(r.licenceNumber || '').toLowerCase().includes(term) ||
+      (r.accDriverNames || []).some(n => String(n).toLowerCase().includes(term))
+    )).slice(0, 30);
+    if(!hits.length){ box.innerHTML = '<div class="empty">No drivers match that search.</div>'; return; }
+    box.innerHTML = '<div class="do-hits">' + hits.map(r => {
+      const d = b.byNum.get(r.licenceNumber) || {}; const t = findTier(r.tier || 'No Licence'); const av = doAvatarOf(d);
+      return `<button type="button" class="do-hit" data-do-lic="${doEsc(r.licenceNumber)}">
+        ${av ? `<img src="${doEsc(av)}" alt="">` : '<span class="do-hit-av"></span>'}
+        <span class="do-hit-main"><strong>${doEsc(r.name || 'Unnamed')}</strong><small>${doEsc(r.licenceNumber || '-')}${r.platform ? ' &middot; ' + (r.platform === 'console' ? 'Console' : r.platform === 'both' ? 'PC + Console' : 'PC') : ''}</small></span>
+        <span class="tier-pill" style="background:${hexToRgba(t.color,0.18)};color:${t.color};border:1px solid ${hexToRgba(t.color,0.4)}">${doEsc(r.tier || 'No Licence')}</span>
+      </button>`;
+    }).join('') + '</div>';
+  }
+
+  function doStat(label, val, sub){
+    return `<div class="do-stat"><span>${label}</span><strong>${val}</strong>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  }
+
+  async function doOpenOverview(licenceNumber){
+    const detail = q('doDetail'); if(!detail) return;
+    const mine = ++doReq;
+    detail.innerHTML = '<div class="empty">Loading driver overview&hellip;</div>';
+    detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    let b; try{ b = await doLoadBase(); }catch(e){ detail.innerHTML = `<div class="empty">Could not load: ${doEsc(e.message)}</div>`; return; }
+    const r = b.roster.find(x => x.licenceNumber === licenceNumber);
+    if(!r){ detail.innerHTML = '<div class="empty">Driver not found.</div>'; return; }
+    const d = b.byNum.get(r.licenceNumber) || {};
+    const tier = findTier(r.tier || 'No Licence');
+    const av = doAvatarOf(d);
+    const aliases = (r.accDriverNames || []).filter(Boolean);
+    const keys = aliases.map(n => window.IFWLStats.driverNameKey(n));
+    const platLabel = r.platform === 'console' ? 'Console' : r.platform === 'both' ? 'PC + Console' : r.platform === 'pc' ? 'PC' : '';
+    const header = `<div class="do-head" style="border-color:${hexToRgba(tier.color,0.5)}">
+      ${av ? `<img class="do-head-av" src="${doEsc(av)}" alt="">` : '<div class="do-head-av"></div>'}
+      <div class="do-head-main">
+        <h4>${doEsc(r.name || 'Unnamed')}</h4>
+        <div class="do-head-meta"><span class="mono">${doEsc(r.licenceNumber || '-')}</span>
+          <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${doEsc(r.tier || 'No Licence')}</span>
+          ${platLabel ? `<span class="do-chip">${platLabel}</span>` : ''}
+          ${d.teamName ? `<span class="do-chip">${doEsc(d.teamName)}</span>` : ''}</div>
+        ${r.namePronunciation ? `<div class="cw-card-pronunciation" style="margin-top:8px">🗣️ Say it: <strong>${doEsc(r.namePronunciation)}</strong></div>` : ''}
+        ${aliases.length ? `<div class="field-hint" style="margin-top:6px">Race name(s): ${aliases.map(doEsc).join(', ')}</div>` : ''}
+      </div>
+    </div>`;
+    if(!aliases.length){
+      detail.innerHTML = header + '<div class="empty">This driver has not linked a race (ACC) name yet, so there is no race data to show.</div>';
+      return;
+    }
+    detail.innerHTML = header + '<div id="doBody"><div class="empty">Crunching their race history&hellip;</div></div>';
+    const bodyEl = q('doBody');
+
+    let stats = null;
+    try{ stats = await fetchPerformanceStats(r); }catch(e){}
+    if(mine !== doReq) return;
+
+    let season = null;
+    try{ season = await window.IFWL_SeasonAPI.fetchSeasonWindow(); }catch(e){}
+    let races = [];
+    if(season && season.startDate && season.endDate){
+      try{
+        races = await window.IFWLStats.listRaceResultsInRange(new Date(season.startDate + 'T00:00:00Z').getTime(), new Date(season.endDate + 'T23:59:59Z').getTime());
+      }catch(e){ console.warn('Overview: race list failed', e); }
+    }
+    if(mine !== doReq) return;
+
+    const found = [];
+    let done = 0;
+    const total = races.length;
+    const queue = races.slice();
+    const worker = async () => {
+      while(queue.length){
+        const meta = queue.shift();
+        try{
+          let det = doRaceCache.get(meta.file);
+          if(!det){ det = await window.IFWLStats.loadRaceDetail(meta.file); doRaceCache.set(meta.file, det); }
+          const idx = det.rows.findIndex(x => keys.includes(window.IFWLStats.driverNameKey(x.driver)));
+          if(idx >= 0) found.push({ meta, det, idx });
+        }catch(e){ console.warn('Overview: skipped race', meta.file, e.message); }
+        done++;
+        if(mine === doReq && total && q('doProg')) q('doProg').textContent = `Scanned ${done} of ${total} races…`;
+      }
+    };
+    bodyEl.innerHTML = `<div class="empty"><span id="doProg">${total ? 'Scanning ' + total + ' races…' : 'Loading…'}</span></div>`;
+    await Promise.all(Array.from({ length: Math.min(5, Math.max(1, total)) }, worker));
+    if(mine !== doReq) return;
+    found.sort((a, c) => (c.meta.tsMs || 0) - (a.meta.tsMs || 0));
+
+    const pos = found.map(f => Number(f.det.rows[f.idx].racePos)).filter(Number.isFinite);
+    const wins = pos.filter(p => p === 1).length, pods = pos.filter(p => p <= 3).length, top10 = pos.filter(p => p <= 10).length;
+    const avgPos = pos.length ? (pos.reduce((a, c) => a + c, 0) / pos.length).toFixed(1) : '-';
+    const laps = found.reduce((a, f) => a + Number(f.det.rows[f.idx].lapCount || 0), 0);
+    const ms = window.IFWLStats.msTime;
+
+    const tiles = [
+      doStat('Overall score', stats && stats.overallScore != null ? stats.overallScore : '-'),
+      doStat('Consistency', stats && stats.consistencyAvg != null ? stats.consistencyAvg + '%' : '-', 'average, all sessions'),
+      doStat('Race risk', stats && stats.riskAvg != null ? stats.riskAvg + '%' : '-', 'lower is cleaner'),
+      doStat('Gap to best', stats && stats.avgGapPct != null ? '+' + stats.avgGapPct + '%' : '-', 'average pace gap'),
+      doStat('Sessions', stats ? stats.sessionCount : '-', stats && stats.trackCount ? stats.trackCount + ' tracks' : ''),
+      doStat('Last active', stats && stats.mostRecentLabel ? doEsc(stats.mostRecentLabel) : '-')
+    ].join('');
+    const seasonLabel = season && season.label ? doEsc(season.label) : 'Season';
+    const seasonTiles = [
+      doStat('Races', found.length), doStat('Wins', wins), doStat('Podiums', pods), doStat('Top 10', top10),
+      doStat('Avg finish', avgPos === '-' ? '-' : 'P' + avgPos), doStat('Laps', laps)
+    ].join('');
+
+    const rowsHtml = found.length ? found.map((f, i) => {
+      const x = f.det.rows[f.idx];
+      const cons = x.consistencyStats && Number.isFinite(Number(x.consistencyStats.consistency)) ? Math.round(x.consistencyStats.consistency) + '%' : '-';
+      const risk = x.risk && Number.isFinite(Number(x.risk.risk)) ? Math.round(x.risk.risk) + '%' : '-';
+      return `<tr>
+        <td>${doEsc(f.meta.dateLabel)}</td><td>${doEsc(f.meta.track)}</td>
+        <td><strong>P${x.racePos}</strong> <small>of ${f.det.rows.length}</small></td>
+        <td>${doEsc(x.carName || '-')}</td><td class="mono">${x.bestLap ? ms(x.bestLap) : '-'}</td><td>${cons}</td><td>${risk}</td>
+        <td><button class="btn purple do-sheet-btn" type="button" data-do-race="${i}">Sheet</button></td></tr>`;
+    }).join('') : `<tr><td colspan="8"><div class="empty">${total ? 'No races found for this driver in the current season window.' : 'No season window is set, so there is no race list to scan.'}</div></td></tr>`;
+
+    bodyEl.innerHTML = `
+      <div class="do-sec">Performance (all sessions)</div><div class="do-stats">${tiles}</div>
+      <div class="do-sec">${seasonLabel} record</div><div class="do-stats">${seasonTiles}</div>
+      <div class="do-sec">Race by race</div>
+      <div class="table-wrap"><table class="do-tbl"><thead><tr><th>Date</th><th>Track</th><th>Finish</th><th>Car</th><th>Best lap</th><th>Consistency</th><th>Risk</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+      <div id="doSheet"></div>`;
+
+    let sheetReq = 0;
+    const openSheet = async (i) => {
+      const f = found[i]; if(!f) return;
+      const box = q('doSheet'); const m2 = ++sheetReq;
+      box.innerHTML = '<div class="empty">Building driver sheet&hellip;</div>';
+      const row = f.det.rows[f.idx];
+      const platform = f.meta.platform === 'pc' ? 'PC' : f.meta.platform === 'console' ? 'Console' : '';
+      const ctx = { rows: f.det.rows, meta: { track: f.meta.track, serverName: f.meta.serverName, dateLabel: f.meta.dateLabel, platform, seasonLabel: season && season.label ? season.label : '' }, entryFor: doEntryFor };
+      let out = null;
+      if(window.IFWL_DriverSheet){ try{ out = await window.IFWL_DriverSheet.panel(ctx, row, { owner: !!window.IFWL_OWNER }); }catch(e){ console.warn('Driver sheet failed', e); } }
+      if(m2 !== sheetReq) return;
+      box.innerHTML = `<div class="do-sec">${doEsc(f.meta.track)} &middot; ${doEsc(f.meta.dateLabel)}</div>` + (out ? out.html : '') + window.IFWLStats.buildDriverProfileHtml(row);
+      if(out) window.IFWL_DriverSheet.bind(box, out.model, { owner: !!window.IFWL_OWNER });
+    };
+    bodyEl.querySelectorAll('[data-do-race]').forEach(btn => btn.addEventListener('click', () => { openSheet(Number(btn.dataset.doRace)); q('doSheet').scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
+    if(found.length) openSheet(0);
+  }
+  window.IFWL_openDriverOverview = doOpenOverview;
+
+  function initDriverOverviewPanel(){
+    if(doInited || !q('driverOverviewPanel') || !(window.IFWL_COMMENTATOR || window.IFWL_OWNER)) return;
+    doInited = true;
+    let t = null;
+    q('doSearch').addEventListener('input', () => { clearTimeout(t); t = setTimeout(doSearchRender, 250); });
+    q('doPlatform').addEventListener('change', doSearchRender);
+    q('doResults').addEventListener('click', (e) => { const b = e.target.closest('[data-do-lic]'); if(b) doOpenOverview(b.dataset.doLic); });
+    // cards in Drivers to Watch / Driver Lookup open the overview too
+    ['commentatorWatchBody', 'driverLookupBody'].forEach(id => {
+      const el = q(id); if(!el) return;
+      el.addEventListener('click', (e) => { const c = e.target.closest('[data-do-lic]'); if(c && c.dataset.doLic && c.dataset.doLic !== '-') doOpenOverview(c.dataset.doLic); });
+    });
+    doSearchRender();
+  }
+  window.initDriverOverviewPanel = initDriverOverviewPanel;
+  window.addEventListener('ifwl-auth-changed', initDriverOverviewPanel);
 
   document.querySelectorAll('#cwPlatformToggle [data-cw-platform]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -10667,7 +10904,19 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
     q('inboxBackBtn').onclick = () => renderInboxPanel();
   }
 
+  // Commentator-only accounts (a commentator who is not a racer/staff) never go through the
+  // driver licence flow: no licence is issued, no sign-up/rules gates, no onboarding bounce.
+  // Their whole site is Drivers to Watch + Driver Overview + Driver Lookup.
+  async function commentatorOnlyInit(){
+    try{ currentTiers = await window.IFWL_TierAPI.fetchTierList(); }catch(e){}
+    try{ hideDriverLinkGate(); hideLicenceRefusedGate(); }catch(e){}
+    try{ populateTierSelect(q('dlTierSelect'), { includeBlank: true }); }catch(e){}
+    window.initCommentatorPanel?.(); window.initDriverLookupPanel?.(); window.initDriverOverviewPanel?.();
+    window.switchView?.('commentatorWatch');
+  }
+
   async function init(){
+    if(window.IFWL_COMMENTATOR_ONLY){ await commentatorOnlyInit(); return; }
     renderInboxPanel(); // fire-and-forget - also sets the nav unread badge
 
     // ✅ FIXED: the tier ladder and "am I logged in, what's my profile" reads
@@ -10739,6 +10988,9 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
       showRulesGate();
       return;
     }
+
+    // Commentators land on Drivers to Watch (unless they followed a deep link to another page).
+    if(window.IFWL_COMMENTATOR && !new URLSearchParams(location.search).get('view')){ window.switchView?.('commentatorWatch'); }
 
     checkTicketNotice();
     checkInboxNotice();
