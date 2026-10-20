@@ -3107,7 +3107,7 @@ body.patron-home .view-panel[data-view="home"] .panel-head small{letter-spacing:
 
         <div class="scout-checkbox-row">
           <label><input type="checkbox" id="scoutServerBeginner" checked> Beginner</label>
-          <label><input type="checkbox" id="scoutServerProam" checked> Pro / Amateur</label>
+          <label><input type="checkbox" id="scoutServerProam" checked> Pro-Am</label>
           <label><input type="checkbox" id="scoutServerMonday"> Monday Funday</label>
         </div>
 
@@ -22645,6 +22645,9 @@ body.ds-open{overflow:hidden}
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const token = () => (window.IFWL_AUTH && window.IFWL_AUTH.sessionToken && window.IFWL_AUTH.sessionToken()) || '';
   const lapFmt = (ms) => { if (!(ms > 0 && ms < 600000)) return '-'; const t = Math.floor(ms), m = Math.floor(t / 60000), s = Math.floor((t % 60000) / 1000), x = t % 1000; return m + ':' + String(s).padStart(2, '0') + '.' + String(x).padStart(3, '0'); };
+  // PC Pro and Amateur were merged into one Pro-Am series: both server ids (pc-pro, pc-proam) count as one.
+  const groupOf = (id) => (id === 'pc-pro' || id === 'pc-proam') ? 'pc-proam' : id;
+  const groupName = (id, fallback) => groupOf(id) === 'pc-proam' ? 'IFWL | PC PRO-AM' : fallback;
   const nameKey = (n) => String(n || '').trim().toLowerCase();
   const tsOf = (f) => { const m = String(f || '').split('/').pop().match(/^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_/); return m ? Date.UTC(2000 + +m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : 0; };
   const dateFmt = (ms) => ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '-';
@@ -22665,7 +22668,7 @@ body.ds-open{overflow:hidden}
 
   /* ---------- analysis ---------- */
   function analyse(all, serverId, track) {
-    const P = (all || []).filter((r) => r.serverId === serverId && /_(FP|FP1|FP2)\.json$/i.test(String(r.fileName || '')) && (!track || String(r.track || '').toLowerCase() === track));
+    const P = (all || []).filter((r) => groupOf(r.serverId) === serverId && /_(FP|FP1|FP2)\.json$/i.test(String(r.fileName || '')) && (!track || String(r.track || '').toLowerCase() === track));
     if (!P.length) return null;
     const fb = new Map();
     P.forEach((r) => { const t = String(r.track || '').toLowerCase(), b = Number(r.bestLap) || 0; if (b > 0 && (!fb.has(t) || b < fb.get(t))) fb.set(t, b); });
@@ -22972,7 +22975,7 @@ body.ds-open{overflow:hidden}
     let rows; try { rows = await ctx.getRows(); } catch (e) { root.innerHTML = '<div class="empty">Could not load session data: ' + esc(e.message) + '</div>'; return; }
     const isP = (r) => /_(FP|FP1|FP2)\.json$/i.test(String(r.fileName || '')) && !/licence$/i.test(String(r.serverId || ''));
     const pr = rows.filter(isP), ser = new Map();
-    pr.forEach((r) => { let e = ser.get(r.serverId); if (!e) { e = { id: r.serverId, name: r.serverName || r.serverId, drivers: new Set(), files: new Set() }; ser.set(r.serverId, e); } e.drivers.add(nameKey(r.driver)); e.files.add(r.fileName); });
+    pr.forEach((r) => { const gid = groupOf(r.serverId); let e = ser.get(gid); if (!e) { e = { id: gid, name: groupName(gid, r.serverName || gid), drivers: new Set(), files: new Set() }; ser.set(gid, e); } e.drivers.add(nameKey(r.driver)); e.files.add(r.fileName); });
     const series = [...ser.values()].sort((a, b) => b.files.size - a.files.size);
     if (!series.length) { root.innerHTML = '<div class="empty">No practice sessions have been recorded yet.</div>'; return; }
     const TL = ctx.trackLabel || trackLabelDefault;
@@ -22986,7 +22989,7 @@ body.ds-open{overflow:hidden}
     const entryCache = new Map();
     const entry = async (name) => { const k = nameKey(name); if (entryCache.has(k)) return entryCache.get(k); let e = {}; try { e = (ctx.entryFor ? await ctx.entryFor(name) : {}) || {}; } catch (_) {} entryCache.set(k, e); return e; };
     const meta = () => ({ seriesName: (series.find((x) => x.id === S.serverId) || {}).name, platform: platOf(S.serverId), trackLabel: TL, seasonLabel: ctx.seasonLabel ? ctx.seasonLabel() : '' });
-    const fillTracks = () => { const ts = [...new Set(pr.filter((r) => r.serverId === S.serverId).map((r) => String(r.track || '').toLowerCase()))].sort(); $('scTrack').innerHTML = '<option value="">All tracks</option>' + ts.map((t) => '<option value="' + esc(t) + '">' + esc(TL(t)) + '</option>').join(''); S.track = ''; };
+    const fillTracks = () => { const ts = [...new Set(pr.filter((r) => groupOf(r.serverId) === S.serverId).map((r) => String(r.track || '').toLowerCase()))].sort(); $('scTrack').innerHTML = '<option value="">All tracks</option>' + ts.map((t) => '<option value="' + esc(t) + '">' + esc(TL(t)) + '</option>').join(''); S.track = ''; };
     const actions = (kind) => '<div class="ds-actions"><button type="button" class="btn purple" data-sc="png">Save image</button><button type="button" class="btn ghost" data-sc="pdf">Save PDF</button>' + (ctx.owner ? '<button type="button" class="btn ghost" data-sc="discord">Send to Discord</button>' : '') + '<span class="ds-msg" data-sc-msg></span></div>';
     const wire = (box, svgStr, name, text, fname) => box.querySelectorAll('[data-sc]').forEach((b) => { b.onclick = async () => {
       const k = b.dataset.sc, msg = box.querySelector('[data-sc-msg]'), old = b.textContent; b.disabled = true; b.textContent = k === 'discord' ? 'Sending...' : 'Working...'; if (msg) { msg.textContent = ''; msg.style.color = ''; }
