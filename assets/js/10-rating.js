@@ -81,14 +81,14 @@
 
   /* ---------- breakdown page ---------- */
   const PILLAR = {
-    I: { name: 'Integrity', short: 'Stewarding record', cls: 'r', d: 'Starts from a clean slate and grows with every race you complete. Upheld steward decisions take points off, dismissed ones cost nothing.' },
+    I: { name: 'Integrity', short: 'Stewarding record', cls: 'r', d: 'Starts from a clean slate and grows with every race you complete. Licence points from steward decisions take points off; dismissed tickets cost nothing.' },
     F: { name: 'Fair play', short: 'Peer feedback', cls: 'p', d: 'Thumbs up and down from other drivers. Starts in the middle and only the combined effect is ever shown.' },
     W: { name: 'Wheelcraft', short: 'Clean driving', cls: '', d: 'How cleanly you drive: race penalties, track-limit laps and finishing the distance. Your latest races count the most.' },
     L: { name: 'Laps', short: 'Progression', cls: 's', d: 'Finishing races, turning up week after week, a good share of the season and the seasons you have raced.' }
   };
-  function pillarNow(k, d) {
+  function pillarNow(k, d, dg) {
     const x = d[k];
-    if (k === 'I') return 'Base ' + x.base + (x.lost ? ' minus ' + x.lost + ' from upheld decisions (fading)' : ' - nothing deducted');
+    if (k === 'I') return 'Base ' + x.base + (x.lost ? ' minus ' + x.lost + ' from licence points (fading)' : ' - nothing deducted') + (dg ? '. Licence points on your record: ' + dg.licencePointsNow + ' (' + dg.countedPoints + ' counted since the start date' + (dg.beforeStart ? ', ' + dg.beforeStart + ' earlier entr' + (dg.beforeStart === 1 ? 'y' : 'ies') + ' not counted' : '') + ')' : '');
     if (k === 'F') return x.up || x.downWeighted ? 'Overall effect of feedback so far: ' + (x.net >= 0 ? 'positive' : 'negative') : 'No feedback yet - sitting in the middle';
     if (k === 'W') return x.races ? 'Last ' + x.races + ' race' + (x.races === 1 ? '' : 's') + ': ' + x.avgClean + '% clean' : 'No races yet';
     return x.finishes + ' race finish' + (x.finishes === 1 ? '' : 'es') + ', ' + x.streak + ' night streak, ' + x.attendance + '% of ' + (x.seasonName || 'the season') + ' attended, ' + x.seasons + ' season' + (x.seasons === 1 ? '' : 's') + ' raced';
@@ -158,7 +158,7 @@
       + '<div style="margin-top:14px"><div class="rt-bar"><i style="width:' + pctNext + '%"></i></div><div class="rt-barlab"><span>' + (d.building ? d.racesDone + ' of ' + d.racesNeeded + ' races' : (lv.nextAt ? lv.toNext + ' points to ' + esc(lv.nextName) : 'Top level reached')) + '</span><span>' + (d.building ? d.racesNeeded : (lv.nextAt || 1000)) + '</span></div></div></div></div>'
       + '<div class="rt-ladder">' + ladderHtml(levels, d.building ? null : d.score) + '</div></div>'
       + '<div class="rt-grid2"><div class="rt-card"><h3>Where your points come from</h3><div class="rt-pillars">'
-      + d.pillars.map((p) => { const m = PILLAR[p.key]; return '<div class="rt-pl"><div class="rt-h"><b><em>' + p.key + '</em>' + m.name + '</b><span>' + p.value + ' / ' + p.max + '</span></div><div class="rt-d">' + m.d + '</div><div class="rt-bar"><i class="' + m.cls + '" style="width:' + Math.round(p.value / p.max * 100) + '%"></i></div><div class="rt-now">' + esc(pillarNow(p.key, d.detail)) + '</div></div>'; }).join('')
+      + d.pillars.map((p) => { const m = PILLAR[p.key]; return '<div class="rt-pl"><div class="rt-h"><b><em>' + p.key + '</em>' + m.name + '</b><span>' + p.value + ' / ' + p.max + '</span></div><div class="rt-d">' + m.d + '</div><div class="rt-bar"><i class="' + m.cls + '" style="width:' + Math.round(p.value / p.max * 100) + '%"></i></div><div class="rt-now">' + esc(pillarNow(p.key, d.detail, d.diag)) + '</div></div>'; }).join('')
       + '</div></div><div class="rt-card"><h3>What moved your score</h3>' + eventsHtml(d.events) + '</div></div>'
       + '<div class="rt-grid2"><div class="rt-card"><h3>How to climb</h3>' + tipBlock + '<h3 style="margin-top:16px">Try a what-if</h3><div class="rt-wi"><select id="rtWi"><option value="">Pick something…</option>' + wiOpts + '</select><span class="rt-wiout" id="rtWiOut"></span></div></div>'
       + '<div class="rt-card"><h3>Your season so far</h3>' + sparkHtml(d.chart) + '</div></div>'
