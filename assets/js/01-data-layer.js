@@ -5951,6 +5951,8 @@
     window.switchView?.('commentatorWatch');
   }
 
+  /* Split pages list the start-up steps they do not need in window.IFWL_PAGE.skip; licence.html has no list, so it runs everything exactly as before. */
+  const SKIP = k => !!(window.IFWL_PAGE && window.IFWL_PAGE.skip && window.IFWL_PAGE.skip.indexOf(k) >= 0);
   async function init(){
     if(window.IFWL_COMMENTATOR_ONLY){ await commentatorOnlyInit(); return; }
     renderInboxPanel(); // fire-and-forget - also sets the nav unread badge
@@ -5967,9 +5969,9 @@
     ]);
     currentTiers = tiersResult;
     renderTierLegend();
-    initRacingRulesPage();
+    if(!SKIP('racingRules')) initRacingRulesPage();
     populateTierSelect(q('dirTierFilter'), { includeBlank: true });
-    initTrophyCabinetPublicPage(); // public content - loads regardless of login state
+    if(!SKIP('trophyPublic')) initTrophyCabinetPublicPage(); // public content - loads regardless of login state
     applySeasonalOverlays();
     applyAffiliateAds();
 
@@ -6051,14 +6053,14 @@
     // scope (see the note near window.IFWL_Api above) - applyLicenceBetaNotice
     // is defined in the THIRD block, so it must be called via the window
     // bridge from here (the second block), not as a bare name.
-    renderQualificationStanding();
-    renderSeasonStatsBreakdown();
-    renderHomeV2();
-    initRaceTeamsPanel();
-    renderLmuPanel();
-    window.initMyTrophyCabinetPanel?.();
-    initSubmitTicketPanel();
-    renderLapProgressBox();
+    if(!SKIP('standing')) renderQualificationStanding();
+    if(!SKIP('seasonStats')) renderSeasonStatsBreakdown();
+    if(!SKIP('homeV2')) renderHomeV2();
+    if(!SKIP('raceTeams')) initRaceTeamsPanel();
+    if(!SKIP('lmu')) renderLmuPanel();
+    if(!SKIP('myTrophies')) window.initMyTrophyCabinetPanel?.();
+    if(!SKIP('submitTicket')) initSubmitTicketPanel();
+    if(!SKIP('lapProgress')) renderLapProgressBox();
     // Race Updates (must-confirm notices) come first; the raceday briefing waits until they are confirmed.
     (window.checkRaceUpdates ? window.checkRaceUpdates() : Promise.resolve()).then(() => checkRacedayNotifications());
     // ✅ FIXED: these six fetches (ticket/stats, available races, the full
@@ -6069,24 +6071,24 @@
     // instead of one. Running them together cuts this part of page load to
     // whichever single call is slowest, not the sum of all six.
     const [ticketInfo, perfStats, availableRaces, dir, , callingCards, myRatingsGiven] = await Promise.all([
-      fetchTicketInfo(),
-      fetchPerformanceStats(currentProfile),
-      fetchAvailableRaces(),
-      fetchDirectory(),
-      renderMyRequestPanel(),
-      window.IFWL_CallingCardAPI.fetchCallingCardCatalog(),
-      window.IFWL_PeerRatingAPI.fetchMyPeerRatingsGiven()
+      SKIP('ticketInfo') ? null : fetchTicketInfo(),
+      SKIP('perfStats') ? null : fetchPerformanceStats(currentProfile),
+      SKIP('races') ? [] : fetchAvailableRaces(),
+      SKIP('directory') ? [] : fetchDirectory(),
+      SKIP('myRequest') ? null : renderMyRequestPanel(),
+      SKIP('callingCards') ? [] : window.IFWL_CallingCardAPI.fetchCallingCardCatalog(),
+      SKIP('peerRatings') ? {} : window.IFWL_PeerRatingAPI.fetchMyPeerRatingsGiven()
     ]);
     myPeerRatingsGiven = myRatingsGiven || {};
-    renderTicketData(ticketInfo);
-    renderCardStats(perfStats);
+    if(!SKIP('ticketInfo')) renderTicketData(ticketInfo);
+    if(!SKIP('perfStats')) renderCardStats(perfStats);
     // ✅ CHANGED: split the one fetched list by game - "lmu" events render
     // into their own dedicated tab (hidden entirely until at least one
     // exists), everything else (the default/unset "acc" game) renders into
     // the original ACC Events tab exactly as before.
-    renderAllAvailableRaces(availableRaces, false);
-    renderAcRallyDriverBoard(); // fire-and-forget - independent of the SimGrid list above
-    renderRlDriverBoard(); // fire-and-forget - independent of the SimGrid list above
+    if(!SKIP('races')) renderAllAvailableRaces(availableRaces, false);
+    if(!SKIP('boards')) renderAcRallyDriverBoard(); // fire-and-forget - independent of the SimGrid list above
+    if(!SKIP('boards')) renderRlDriverBoard(); // fire-and-forget - independent of the SimGrid list above
     // ✅ ADDED: "Show ALL races (staff)" toggle - only ever visible via the
     // .staff-only-tab CSS class, but wired unconditionally since it's a
     // no-op for anyone who can't see the button anyway. Assigned via
@@ -6107,14 +6109,12 @@
         }
       };
     }
-    renderClaimLapsPanel('PC', 'pc-licence');
-    renderClaimLapsPanel('Console', 'console-licence');
-    renderRaceResultsPanel();
+    if(!SKIP('claimLaps')){ renderClaimLapsPanel('PC', 'pc-licence'); renderClaimLapsPanel('Console', 'console-licence'); }
+    if(!SKIP('results')) renderRaceResultsPanel();
     q('raceResultsSearch')?.addEventListener('input', renderRaceResultsList);
     q('raceResultsPlatformFilter')?.addEventListener('change', renderRaceResultsList);
-    renderAcRallyResultsPanel();
-    renderRlResultsPanel();
-    renderDirectory(dir);
+    if(!SKIP('results')){ renderAcRallyResultsPanel(); renderRlResultsPanel(); }
+    if(!SKIP('directory')) renderDirectory(dir);
 
     const ccSelect = q('callingCardSelect');
     ccSelect.innerHTML = '<option value="">No calling card</option>' + callingCards.map(c => `<option value="${c.url}">${c.title}</option>`).join('');
@@ -6766,6 +6766,7 @@
   ];
   function initGameLiveriesPanels(){
     if(!window.IFWL_META) return;
+    if(SKIP('liveries')) return;
     GAME_LIVERY_TABS.forEach(t => {
       if(q(t.panelId)) renderGameLiveriesBody(t.game, t.bodyId);
     });
@@ -7815,3 +7816,4 @@
   window.addEventListener('ifwl-auth-changed', initBopTrackerPanel);
   window.addEventListener('ifwl-auth-changed', initScoutFieldPanel);
 })();
+;(window.IFWL_FILES=window.IFWL_FILES||{})['01-data-layer.js']='p3s2';
