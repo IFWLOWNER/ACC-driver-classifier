@@ -6342,6 +6342,7 @@
 
   /* ---- View tabs: tabbed navigation instead of one long scrolling page ---- */
   function switchView(view){
+    if(window.IFWL_PAGE_ROUTE && window.IFWL_PAGE_ROUTE(view)) return; /* split pages: views that live on another page navigate there */
     document.querySelectorAll('.view-panel').forEach(el => {
       el.classList.toggle('is-active-view', el.dataset.view === view);
     });
@@ -6409,7 +6410,7 @@
   });
   {
     // Deep link from the Discord schedule post: licence.html?view=availableRaces
-    let startView = 'home';
+    let startView = (window.IFWL_PAGE && window.IFWL_PAGE.defaultView) || 'home';
     try{
       const wanted = new URLSearchParams(location.search).get('view');
       if(wanted && /^[A-Za-z]+$/.test(wanted) && document.querySelector(`.view-panel[data-view="${wanted}"]`) && !wanted.startsWith('staff')) startView = wanted;
