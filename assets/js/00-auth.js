@@ -1,3 +1,4 @@
+
 /* ============================================================
    AUTH LAYER
    Identical contract to Live Timings' rtGate integration, and
@@ -104,3 +105,4 @@
   const startAuth=async()=>{const handled=await callback();if(!handled)await verify()};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startAuth,{once:true});else startAuth();
 })();
+;(window.IFWL_FILES=window.IFWL_FILES||{})['00-auth.js']='p3s2';
