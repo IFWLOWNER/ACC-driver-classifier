@@ -1,11 +1,13 @@
 # Put this file in your repo at  .github/workflows/server-live-feed.yml
-# and put the two files next to it (server-live/serverlog-poller.js and server-live/ifwl-serverlog.js) in a folder called  server-live
+# (the server-live folder with serverlog-poller.js, ifwl-serverlog.js and servers.json stays where it is)
 #
-# What it does: while a session is running it reads the ACC server.log from GPortal every few seconds,
-# works out who is lagging / dropped / left, and sends only that summary to the Licence Centre (staff view "Server Live").
-# It never publishes the raw log or any IP addresses.
+# While a session runs it reads each ACC server.log, works out who is lagging / dropped / left, and sends only that summary
+# to the Licence Centre (staff view "Server Live"). It never publishes the raw log or any IP addresses.
 #
-# To start it: Actions tab -> "Server Live feed" -> Run workflow (pick how many minutes). Starting a new run replaces any run still going.
+# Start it: Actions tab -> "Server Live feed" -> Run workflow. Leave "servers" empty for all seven, or type a few ids,
+# e.g.  con-pro,pc-multi   (ids: con-beginner, con-pro, con-am, con-mf, pc-multi, pc-proam, pc-beginner).
+# A server whose secrets are missing is skipped.
+# Starting a new run replaces any run still going.
 
 name: Server Live feed
 
@@ -15,9 +17,12 @@ on:
       minutes:
         description: "How long to keep the feed running (minutes)"
         default: "170"
+      servers:
+        description: "Which servers (comma separated ids). Empty = all"
+        default: ""
   # Optional: start it automatically on race nights. Times are UTC. Remove the # to switch on.
   # schedule:
-  #   - cron: "30 18 * * 2,4"
+  #   - cron: "30 18 * * 1,2,4"
 
 concurrency:
   group: server-live-feed
@@ -35,18 +40,54 @@ jobs:
       - name: Run the feed
         env:
           MINUTES: ${{ inputs.minutes }}
-          LOG_SOURCE: ftp
-          # ---- rename the secrets on the right to match the ones you already have for the server log ----
-          FTP_HOST: ${{ secrets.FTP_HOST }}
-          FTP_PORT: ${{ secrets.FTP_PORT }}
-          FTP_USER: ${{ secrets.FTP_USER }}
-          FTP_PASS: ${{ secrets.FTP_PASS }}
-          FTP_PATH: ${{ secrets.SERVER_LOG_PATH }}       # full path to the PRO console server's server.log on the FTP
-          # ---- new secret: the feed key (Owner sees it on the Server Live page, "Feed setup") ----
+          ONLY_SERVERS: ${{ inputs.servers }}
           INGEST_KEY: ${{ secrets.IFWL_INGEST_KEY }}
           INGEST_URL: https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate
-          SERVER_ID: main
           POLL_SECONDS: "5"
+          # Each server reads its own FTP secrets (the same ones Sync ACC Results uses). The *_RESULTS_PATH secret can be the results
+          # folder: the feed looks for server.log in it, in a log/logs folder inside it, and next to it.
+          # Console Beginner  (secrets GPORTAL_CONSOLE_BEGINNER_*)
+          CON_BEGINNER_FTP_HOST: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_HOST }}
+          CON_BEGINNER_FTP_PORT: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PORT }}
+          CON_BEGINNER_FTP_USER: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_USER }}
+          CON_BEGINNER_FTP_PASS: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_PASSWORD }}
+          CON_BEGINNER_FTP_PATH: ${{ secrets.GPORTAL_CONSOLE_BEGINNER_RESULTS_PATH }}
+          # Console Pro  (secrets GPORTAL_CONSOLE_PROAM_*)
+          CON_PRO_FTP_HOST: ${{ secrets.GPORTAL_CONSOLE_PROAM_HOST }}
+          CON_PRO_FTP_PORT: ${{ secrets.GPORTAL_CONSOLE_PROAM_PORT }}
+          CON_PRO_FTP_USER: ${{ secrets.GPORTAL_CONSOLE_PROAM_USER }}
+          CON_PRO_FTP_PASS: ${{ secrets.GPORTAL_CONSOLE_PROAM_PASSWORD }}
+          CON_PRO_FTP_PATH: ${{ secrets.GPORTAL_CONSOLE_PROAM_RESULTS_PATH }}
+          # Console Am  (secrets GPORTAL_CONSOLE_AM_*)
+          CON_AM_FTP_HOST: ${{ secrets.GPORTAL_CONSOLE_AM_HOST }}
+          CON_AM_FTP_PORT: ${{ secrets.GPORTAL_CONSOLE_AM_PORT }}
+          CON_AM_FTP_USER: ${{ secrets.GPORTAL_CONSOLE_AM_USER }}
+          CON_AM_FTP_PASS: ${{ secrets.GPORTAL_CONSOLE_AM_PASSWORD }}
+          CON_AM_FTP_PATH: ${{ secrets.GPORTAL_CONSOLE_AM_RESULTS_PATH }}
+          # Console Monday Funday  (secrets GPORTAL_MONDAY_FUNDAY_*)
+          CON_MF_FTP_HOST: ${{ secrets.GPORTAL_MONDAY_FUNDAY_HOST }}
+          CON_MF_FTP_PORT: ${{ secrets.GPORTAL_MONDAY_FUNDAY_PORT }}
+          CON_MF_FTP_USER: ${{ secrets.GPORTAL_MONDAY_FUNDAY_USER }}
+          CON_MF_FTP_PASS: ${{ secrets.GPORTAL_MONDAY_FUNDAY_PASSWORD }}
+          CON_MF_FTP_PATH: ${{ secrets.GPORTAL_MONDAY_FUNDAY_RESULTS_PATH }}
+          # PC Monday Multi  (secrets ASSETTO_PC_MONDAY_FUNDAY_*)
+          PC_MULTI_FTP_HOST: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_HOST }}
+          PC_MULTI_FTP_PORT: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_PORT }}
+          PC_MULTI_FTP_USER: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_USER }}
+          PC_MULTI_FTP_PASS: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_PASSWORD }}
+          PC_MULTI_FTP_PATH: ${{ secrets.ASSETTO_PC_MONDAY_FUNDAY_RESULTS_PATH }}
+          # PC Pro Am  (secrets ASSETTO_PC_PROAM_*)
+          PC_PROAM_FTP_HOST: ${{ secrets.ASSETTO_PC_PROAM_HOST }}
+          PC_PROAM_FTP_PORT: ${{ secrets.ASSETTO_PC_PROAM_PORT }}
+          PC_PROAM_FTP_USER: ${{ secrets.ASSETTO_PC_PROAM_USER }}
+          PC_PROAM_FTP_PASS: ${{ secrets.ASSETTO_PC_PROAM_PASSWORD }}
+          PC_PROAM_FTP_PATH: ${{ secrets.ASSETTO_PC_PROAM_RESULTS_PATH }}
+          # PC Beginner  (secrets ASSETTO_PC_BEGINNER_*)
+          PC_BEGINNER_FTP_HOST: ${{ secrets.ASSETTO_PC_BEGINNER_HOST }}
+          PC_BEGINNER_FTP_PORT: ${{ secrets.ASSETTO_PC_BEGINNER_PORT }}
+          PC_BEGINNER_FTP_USER: ${{ secrets.ASSETTO_PC_BEGINNER_USER }}
+          PC_BEGINNER_FTP_PASS: ${{ secrets.ASSETTO_PC_BEGINNER_PASSWORD }}
+          PC_BEGINNER_FTP_PATH: ${{ secrets.ASSETTO_PC_BEGINNER_RESULTS_PATH }}
         run: |
           export RUN_SECONDS=$(( ${MINUTES:-170} * 60 ))
           node server-live/serverlog-poller.js

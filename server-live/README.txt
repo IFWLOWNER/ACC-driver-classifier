@@ -1,21 +1,22 @@
-SERVER LIVE - setup (about 10 minutes, once)
+SERVER LIVE - all seven servers (finished with your real secret names)
 
-1. Backend: paste the new rtgate.js into the rtGate service (Edit source) and deploy, as usual.
-2. Website: upload the files in this package (licence-staff.html and the three files under assets/).
-3. Open the Licence Centre as Owner -> Staff -> Events & Raceday -> Server Live -> "Feed setup (Owner only)" -> Show. Copy the key.
-4. In GitHub: Settings -> Secrets and variables -> Actions -> New secret
-     IFWL_INGEST_KEY = the key you just copied
-     SERVER_LOG_PATH = the full path of the server.log on the GPortal PRO console server FTP (the only thing that differs from your existing flow)
-   Your existing FTP host / user / password secrets are used as they are. If they have different names, change the names in the workflow file.
-5. In the repo add:
-     .github/workflows/server-live-feed.yml   (from server-live-feed.yml here)
-     server-live/serverlog-poller.js
-     server-live/ifwl-serverlog.js
-   (keep the repo's public folders free of the raw log: this feed never writes it anywhere)
-6. On race night: GitHub -> Actions -> "Server Live feed" -> Run workflow. The status pill on the Server Live page turns green ("Live, updated just now") within about 15 seconds.
+Upload
+1. rtgate.js -> paste into the rtGate service (Edit source) and deploy (only needed if you did not already deploy the version with the server boxes).
+2. Website: licence-staff.html, assets/js/12-server-live.js, assets/js/ifwl-serverlog.js, assets/css/06-server-live.css
+3. GitHub repo, folder server-live: replace serverlog-poller.js and ifwl-serverlog.js, add servers.json
+4. GitHub repo: replace .github/workflows/server-live-feed.yml with server-live/server-live-feed.yml from this package.
+   (The file is also in this zip at .github/workflows/server-live-feed.yml - same file.)
+   Secret still needed: IFWL_INGEST_KEY (Owner copies it from Server Live > Feed setup).
 
-Notes
-- The feed reads the log over plain FTP (the usual GPortal setup). If your existing flow uses a different method, tell me and I will match it.
-- Pop-ups and the optional sound only work while the Server Live page is open in a tab.
-- No log yet? The page says so and you can still drag in a downloaded server.log with "Open a log file" to see the same view after the event.
-- If the key ever leaks: Feed setup -> "Make a new key", then update the GitHub secret.
+Which secrets feed which box (change a line in the workflow if one is the wrong way round)
+  Console Beginner   GPORTAL_CONSOLE_BEGINNER_*
+  Console Pro        GPORTAL_CONSOLE_PROAM_*       (best guess - the page shows each server's own name from its log, so check it says PRO)
+  Console Am         GPORTAL_CONSOLE_AM_*
+  Console Mon Funday GPORTAL_MONDAY_FUNDAY_*
+  PC Monday Multi    ASSETTO_PC_MONDAY_FUNDAY_*
+  PC Pro Am          ASSETTO_PC_PROAM_*
+  PC Beginner        ASSETTO_PC_BEGINNER_*
+Not used: GPORTAL_CONSOLE_LICENCE, ASSETTO_PC_LICENCE, ASSETTO_PC_PRO, ASSETTO_CONSOLE_RACETEAM.
+
+How it finds the log: the *_RESULTS_PATH secret can be the results folder. The feed looks for server.log in that folder, in a log/logs
+folder inside it, and next to it, and says in the GitHub run log which file it picked. If your secret is the full path to a .log file it uses that.

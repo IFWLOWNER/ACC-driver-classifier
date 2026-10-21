@@ -119,6 +119,7 @@
     let x;
 
     if (msg.charCodeAt(0) === 83 && msg.indexOf('Server starting with version') === 0) { resetBoot(st); return; }
+    if (msg.charCodeAt(0) === 83 && msg.indexOf('Starting server ') === 0) { st.serverName = msg.slice(15).replace(/\s+/g, ' ').trim().slice(0, 120); return; }
 
     // ---- lag signals -------------------------------------------------------
     if (msg.charCodeAt(0) === 76 && (x = /^Late lastUdpPaketReceived for connId (\d+): (\d+) ms \((.*)\)$/.exec(msg))) {
@@ -363,7 +364,7 @@
     const rank = (x) => (x.status === 'lost' ? 4.5 : x.status === 'left' ? 0 : RANK[x.grade] + (x.pts / 1000));
     list.sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name));
     return {
-      v: 1, serverNowMs: now, anchor: opts.anchor || null,
+      v: 1, serverName: st.serverName || '', serverNowMs: now, anchor: opts.anchor || null,
       session: { name: st.session.name, phase: st.session.phase, minLeft: st.session.minLeft, clients: st.session.clients, cars: st.session.cars },
       drivers: list,
       events: st.events.slice(-(opts.events || CFG.eventsKeep)),

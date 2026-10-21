@@ -143,27 +143,78 @@ class Ftp {
     if (length != null && buf.length > length) buf = buf.subarray(0, length);
     return buf;
   }
+  /* names inside a directory, or null if it is not a directory we can enter */
+  async list(dir) {
+    const cw = await this.cmd('CWD ' + dir);
+    if (cw.code !== 250) return null;
+    try {
+      const pr = await this.cmd('PASV');
+      const m = pr.text.match(/(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
+      if (pr.code !== 227 || !m) return null;
+      const data = net.createConnection({ host: this.o.host, port: Number(m[5]) * 256 + Number(m[6]) });
+      data.setTimeout(20000, () => data.destroy(new Error('FTP data timeout')));
+      const chunks = [];
+      const done = new Promise((res, rej) => { data.on('data', (d) => chunks.push(d)); data.on('end', res); data.on('close', res); data.on('error', rej); });
+      await new Promise((res, rej) => { data.once('connect', res); data.once('error', rej); });
+      const r = await this.cmd('NLST');
+      if (r.code !== 150 && r.code !== 125) { data.destroy(); return []; }
+      await done;
+      await this._reply().catch(() => {});
+      return Buffer.concat(chunks).toString('latin1').split(/\r?\n/).map((x) => x.trim().replace(/\/+$/, '').split('/').pop()).filter(Boolean);
+    } finally { await this.cmd('CWD /').catch(() => {}); }
+  }
   close() { try { this.sock && this.sock.destroy(); } catch (e) { /* ignore */ } this.closed = true; }
 }
 
+/* Servers that use the same FTP login share ONE connection (commands take turns), so seven servers do not mean seven logins. */
+const ftpPool = new Map();
 function ftpSource(o) {
-  let c = null;
-  const ensure = async () => { if (c && !c.closed) return c; c = new Ftp(o); try { await c.connect(); } catch (e) { c.close(); c = null; throw e; } return c; };
-  const wrap = async (fn) => { try { return await fn(await ensure()); } catch (e) { if (c) { c.close(); c = null; } throw e; } };
+  const key = [o.host, o.port, o.user, o.pass].join('|');
+  let e = ftpPool.get(key);
+  if (!e) { e = { c: null, lock: Promise.resolve() }; ftpPool.set(key, e); }
+  const ensure = async () => { if (e.c && !e.c.closed) return e.c; e.c = new Ftp(o); try { await e.c.connect(); } catch (err) { e.c.close(); e.c = null; throw err; } return e.c; };
+  const wrap = (fn) => {
+    const run = e.lock.then(async () => { try { return await fn(await ensure()); } catch (err) { if (e.c) { e.c.close(); e.c = null; } throw err; } });
+    e.lock = run.catch(() => {});
+    return run;
+  };
   return {
     name: 'ftp',
     stat: () => wrap(async (f) => ({ size: await f.size(o.path), mtimeMs: await f.mtime(o.path).catch(() => null) })),
     read: (offset, length) => wrap((f) => f.retr(o.path, offset, length)),
-    async close() { if (c) c.close(); }
+    /* The setting may be the log file itself, or the folder the results land in. In the folder case look for server.log there,
+       in a log / logs folder inside it, and next to it. Remembers what it found. */
+    resolve: () => wrap(async (f) => {
+      if (o.found) return o.path;
+      const given = String(o.path || '').replace(/\/+$/, '') || '/';
+      if (/\.(log|txt)$/i.test(given)) { o.found = true; return o.path; }
+      const parent = given.replace(/\/[^/]*$/, '') || '/';
+      const grand = parent.replace(/\/[^/]*$/, '') || '/';
+      const j = (a, b) => (a === '/' ? '' : a) + '/' + b;
+      const dirs = [given, j(given, 'log'), j(given, 'logs'), j(given, 'Log'), j(given, 'Logs'), parent, j(parent, 'log'), j(parent, 'logs'), j(parent, 'Log'), j(parent, 'Logs'), j(grand, 'log'), j(grand, 'logs')];
+      const seen = new Set(); const tried = [];
+      for (const d of dirs) {
+        if (seen.has(d)) continue; seen.add(d);
+        const names = await f.list(d);
+        tried.push(d + (names ? ' (' + names.length + ' files)' : ' (not a folder)'));
+        if (!names) continue;
+        const hit = names.find((n) => /^server\.log$/i.test(n)) || names.find((n) => /server.*\.log$/i.test(n)) || null;
+        if (hit) { o.path = j(d, hit); o.found = true; return o.path; }
+      }
+      throw new Error('could not find server.log. Looked in: ' + tried.join(', '));
+    }),
+    path: () => o.path,
+    async close() {}
   };
 }
+function closeFtpPool() { ftpPool.forEach((e) => { if (e.c) e.c.close(); }); ftpPool.clear(); }
 
-function makeSource() {
-  const kind = env('LOG_SOURCE', 'ftp').toLowerCase();
-  if (kind === 'file') return fileSource(env('LOG_FILE', 'server.log'));
-  if (kind === 'http') return httpSource(env('LOG_URL', ''), env('LOG_HTTP_AUTH', ''));
-  if (!env('FTP_HOST', '')) throw new Error('FTP_HOST is not set');
-  return ftpSource({ host: env('FTP_HOST', ''), port: num('FTP_PORT', 21), user: env('FTP_USER', 'anonymous'), pass: env('FTP_PASS', ''), path: env('FTP_PATH', 'server.log') });
+function makeSource(get) {
+  const kind = get('LOG_SOURCE', 'ftp').toLowerCase();
+  if (kind === 'file') return fileSource(get('LOG_FILE', 'server.log'));
+  if (kind === 'http') return httpSource(get('LOG_URL', ''), get('LOG_HTTP_AUTH', ''));
+  if (!get('FTP_HOST', '')) throw new Error('FTP_HOST is not set');
+  return ftpSource({ host: get('FTP_HOST', ''), port: Number(get('FTP_PORT', '21')) || 21, user: get('FTP_USER', 'anonymous'), pass: get('FTP_PASS', ''), path: get('FTP_PATH', 'server.log') });
 }
 
 /* ---------------- posting ---------------- */
@@ -183,15 +234,20 @@ async function post(payload) {
 
 /* ---------------- main loop ---------------- */
 
-async function main() {
-  const serverId = env('SERVER_ID', 'main').replace(/[^a-z0-9_-]/gi, '').slice(0, 24) || 'main';
-  const runMs = num('RUN_SECONDS', 3300) * 1000;
-  const pollMs = Math.max(2, num('POLL_SECONDS', 5)) * 1000;
-  const beatMs = Math.max(pollMs, num('HEARTBEAT_SECONDS', 15) * 1000);
-  const maxRead = num('MAX_READ_MB', 24) * 1048576;
-  const dry = env('DRY_RUN', '') === '1';
-  const src = makeSource();
-  const started = Date.now();
+const sleepUntil = async (ms, shouldStop) => { const end = Date.now() + ms; while (!shouldStop() && Date.now() < end) await sleep(Math.min(500, end - Date.now())); };
+
+/* one server: tail its log, push snapshots. cfg = { id, get(name, default), ctl: { stopping } } */
+async function runOne(cfg) {
+  const serverId = cfg.id;
+  const get = cfg.get;
+  const tag = '[' + serverId + ']';
+  const runMs = Number(get('RUN_SECONDS', '3300')) * 1000;
+  const pollMs = Math.max(2, Number(get('POLL_SECONDS', '5'))) * 1000;
+  const beatMs = Math.max(pollMs, Number(get('HEARTBEAT_SECONDS', '15')) * 1000);
+  const maxRead = Number(get('MAX_READ_MB', '24')) * 1048576;
+  const dry = get('DRY_RUN', '') === '1';
+  const src = makeSource(get);
+  const started = cfg.started || Date.now();
 
   let st = S.newState();
   let decoder = new StringDecoder('utf8');
@@ -200,28 +256,28 @@ async function main() {
   let lastPostMs = 0;
   let dirty = true;
   let failures = 0;
-  let stopping = false;
-  const stop = () => { stopping = true; };
-  process.on('SIGTERM', stop); process.on('SIGINT', stop);
+  let fatal = false;
 
   const snapshot = (final) => {
     const snap = S.snapshot(st, { anchor: { serverMs: st.lastTs, wallMs: lastGrowthMs || Date.now() } });
     return { server: serverId, fetchedAtMs: Date.now(), lastGrowthMs, final: !!final, source: src.name, bytes: offset, snapshot: snap };
   };
 
-  log('serverlog-poller start: source=' + src.name + ' server=' + serverId + ' run=' + Math.round(runMs / 1000) + 's' + (dry ? ' (dry run)' : ''));
+  log(tag, 'start: source=' + src.name + ' run=' + Math.round(runMs / 1000) + 's' + (dry ? ' (dry run)' : ''));
 
-  while (!stopping && Date.now() - started < runMs) {
+  let resolved = !src.resolve;
+  while (!cfg.ctl.stopping && Date.now() - started < runMs) {
     const loopStart = Date.now();
     try {
+      if (!resolved) { const found = await src.resolve(); resolved = true; log(tag, 'log file: ' + found); }
       const info = await src.stat();
       if (info.size < offset) {                       // file shrank = server restarted / log rotated
-        log('log got smaller - treating as a server restart');
+        log(tag, 'log got smaller - treating as a server restart');
         st = S.newState(); decoder = new StringDecoder('utf8'); offset = 0; dirty = true;
       }
       if (info.size > offset) {
         let from = offset;
-        if (offset === 0 && info.size > maxRead) { from = info.size - maxRead; log('big log: reading only the last ' + Math.round(maxRead / 1048576) + ' MB'); }
+        if (offset === 0 && info.size > maxRead) { from = info.size - maxRead; log(tag, 'big log: reading only the last ' + Math.round(maxRead / 1048576) + ' MB'); }
         const buf = await src.read(from, info.size - from);
         if (buf.length) {
           S.feed(st, decoder.write(buf));
@@ -230,33 +286,81 @@ async function main() {
           dirty = true;
         }
       }
+      if (failures) log(tag, 'reading again');
       failures = 0;
     } catch (e) {
       failures++;
-      log('read problem (' + failures + '): ' + e.message);
-      if (failures >= 20) { log('too many read failures - stopping'); break; }
+      if (failures === 1 || failures % 10 === 0) log(tag, 'read problem (' + failures + '): ' + e.message);
+      if (failures >= 60) { log(tag, 'too many read failures - giving up on this server'); break; }
     }
 
     const now = Date.now();
     if (dirty || now - lastPostMs >= beatMs) {
       const payload = snapshot(false);
       if (dry) {
-        const s = payload.snapshot;
-        log('dry: ' + s.drivers.length + ' drivers, ' + s.events.length + ' events, offset ' + offset);
+        const sn = payload.snapshot;
+        log(tag, 'dry: ' + sn.drivers.length + ' drivers, ' + sn.events.length + ' events, offset ' + offset);
         lastPostMs = now; dirty = false;
       } else {
         try { await post(payload); lastPostMs = now; dirty = false; }
-        catch (e) { log('post problem: ' + e.message); if (e.fatal) { process.exitCode = 2; break; } }
+        catch (e) { log(tag, 'post problem: ' + e.message); if (e.fatal) { fatal = true; cfg.ctl.fatal = true; cfg.ctl.stopping = true; break; } }
       }
     }
     const wait = pollMs - (Date.now() - loopStart);
-    if (wait > 0) await sleep(wait);
+    if (wait > 0) await sleepUntil(wait, () => cfg.ctl.stopping);
   }
 
-  if (!dry && process.exitCode !== 2) { try { await post(snapshot(true)); } catch (e) { log('final post problem: ' + e.message); } }
+  if (!dry && !fatal && offset > 0) { try { await post(snapshot(true)); } catch (e) { log(tag, 'final post problem: ' + e.message); } }
   await src.close();
+  log(tag, 'finished');
+}
+
+/* servers.json (next to this file): [{ "id": "con-pro", "label": "Pro", "prefix": "CON_PRO", "path": "/optional/path/server.log" }, ...]
+   Each server reads its settings from environment variables named <prefix>_FTP_HOST, _FTP_PORT, _FTP_USER, _FTP_PASS, _FTP_PATH
+   (anything not set there falls back to the plain names, then to the shared settings). A server with no host set is skipped. */
+function loadServers() {
+  const file = env('SERVERS_FILE', path.join(__dirname, 'servers.json'));
+  if (!fs.existsSync(file)) return null;
+  const list = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!Array.isArray(list)) throw new Error('servers.json must be a list');
+  return list;
+}
+
+async function main() {
+  const ctl = { stopping: false, fatal: false };
+  const stop = () => { ctl.stopping = true; };
+  process.on('SIGTERM', stop); process.on('SIGINT', stop);
+  const started = Date.now();
+  const shared = (k, d) => env(k, d);
+  const list = loadServers();
+  const jobs = [];
+  if (!list) {
+    const id = env('SERVER_ID', 'main').replace(/[^a-z0-9_-]/gi, '').slice(0, 24) || 'main';
+    jobs.push({ id, started, ctl, get: shared });
+  } else {
+    const only = env('ONLY_SERVERS', '').split(',').map((x) => x.trim()).filter(Boolean);
+    for (const sv of list) {
+      if (only.length && only.indexOf(sv.id) < 0) continue;
+      const pre = String(sv.prefix || sv.id).toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      const get = (name, d) => {
+        const v = process.env[pre + '_' + name];
+        if (v !== undefined && v !== '') return v;
+        if (name === 'FTP_PATH' && sv.path) return sv.path;
+        return shared(name, d);
+      };
+      // a server only runs if it has its own host (or shared single-server FTP_HOST was deliberately given to it)
+      if (!process.env[pre + '_FTP_HOST'] && get('LOG_SOURCE', 'ftp') === 'ftp') { log('[' + sv.id + ']', 'skipped: ' + pre + '_FTP_HOST is not set'); continue; }
+      jobs.push({ id: sv.id, started, ctl, get });
+    }
+  }
+  if (!jobs.length) { console.error('nothing to run: no server has its settings filled in'); process.exit(1); }
+  log('serverlog-poller: ' + jobs.length + ' server' + (jobs.length === 1 ? '' : 's') + ': ' + jobs.map((j) => j.id).join(', '));
+  // start a little apart so logins do not all hit at the same instant
+  const results = await Promise.all(jobs.map(async (j, i) => { await sleep(i * 600); try { await runOne(j); } catch (e) { console.error('[' + j.id + '] failed: ' + e.message); } }));
+  closeFtpPool();
   log('serverlog-poller finished');
+  if (ctl.fatal) process.exitCode = 2;
 }
 
 if (require.main === module) main().catch((e) => { console.error('poller failed:', e.message); process.exit(1); });
-module.exports = { Ftp, ftpSource, fileSource, httpSource, main };
+module.exports = { Ftp, ftpSource, fileSource, httpSource, runOne, main };
