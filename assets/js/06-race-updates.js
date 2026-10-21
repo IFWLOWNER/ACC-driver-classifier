@@ -146,10 +146,21 @@
 
   // ---- profile card ----
   let showAll = false;
+  // Minimised by default so the licence and other important info stay near the top of Home.
+  // Opening it is per visit only - it goes back to minimised on the next page load.
+  let cardOpen = false;
+  function applyCardOpen() {
+    const p = $('raceUpdatesPanel'); if (!p) return;
+    p.classList.toggle('ru-min', !cardOpen);
+    const h = p.querySelector('.panel-head');
+    if (h) { h.setAttribute('aria-expanded', cardOpen ? 'true' : 'false'); h.setAttribute('role', 'button'); h.tabIndex = 0; }
+  }
+  function toggleCard() { cardOpen = !cardOpen; applyCardOpen(); }
   function renderCard() {
     const p = $('raceUpdatesPanel'); if (!p) return;
     if (!history.length) { p.classList.add('hidden'); return; }
     p.classList.remove('hidden');
+    applyCardOpen();
     const unread = history.filter((u) => !u.ackedAtMs && u.status === 'active').length;
     const worst = history.find((u) => u.status === 'active') || history[0];
     $('ruCardIcon').innerHTML = '<span style="display:inline-block;width:26px;height:26px;vertical-align:middle">' + tri(unread ? '#d62828' : sevOf(worst).col) + '</span>';
@@ -157,7 +168,7 @@
     pill.className = 'ru-pill ' + (unread ? 'bad' : 'ok');
     pill.textContent = unread ? unread + ' unread - tap to read' : 'All read ✓';
     pill.style.cursor = unread ? 'pointer' : 'default';
-    pill.onclick = unread ? () => { showing = false; check(); } : null;
+    pill.onclick = unread ? (ev) => { ev.stopPropagation(); showing = false; check(); } : null;
     const rows = showAll ? history : history.slice(0, 3);
     $('ruCardList').innerHTML = rows.map((u) => {
       const sv = sevOf(u);
@@ -177,7 +188,14 @@
       $('ruClose').onclick = () => { if (!showing) closeModal(); };
       return;
     }
-    if (ev.target && ev.target.id === 'ruToggleAll') { showAll = !showAll; renderCard(); }
+    if (ev.target && ev.target.id === 'ruToggleAll') { showAll = !showAll; renderCard(); return; }
+    const head = ev.target.closest && ev.target.closest('#raceUpdatesPanel .panel-head');
+    if (head) toggleCard();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const head = ev.target && ev.target.closest && ev.target.closest('#raceUpdatesPanel .panel-head');
+    if (head && ev.target === head) { ev.preventDefault(); toggleCard(); }
   });
 
   // ---- staff: send + track ----
