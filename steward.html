@@ -551,6 +551,251 @@
       .statBar{ grid-template-columns:repeat(2, 1fr); }
     }
   </style>
+  <style id="refresh-css">
+
+    /* ============================================================
+       STEWARD DASHBOARD REFRESH (additive layer)
+       Everything above is untouched. This layer only adds/overrides
+       presentation: tabs, two ticket lists, search/sort/compact,
+       sticky ticket bar, side-by-side detail, Server Live panel.
+       ============================================================ */
+    :root{ --stickyTop:0px; --navH:50px; }
+    html, body{ overflow-x:clip; }               /* clip (not hidden) so sticky parts really stick */
+    [hidden]{ display:none !important; }
+
+    /* ---------- header: slimmer ---------- */
+    header{ padding:11px clamp(14px, 2vw, 26px) 10px; align-items:center; }
+    header .brand img{ width:38px; height:38px; }
+    header .brandTitle{ font-size:18px; }
+    header .welcomeLine{ margin-top:2px; font-size:12px; color:#475569; }
+    header .small{ margin-top:2px; }
+    header .row{ gap:8px; justify-content:flex-end; }
+    header .row button{ min-height:36px; padding:7px 14px; font-size:12.5px; box-shadow:none; }
+    header .row button:hover:not(:disabled){ transform:translateY(-1px); }
+    @media (min-width:1100px){ header .row{ flex-wrap:nowrap; flex:0 0 auto; } header .brandText{ max-width:min(520px, 38vw); } header .welcomeLine{ max-width:none; } }
+
+    /* ---------- tab bar ---------- */
+    .appTabs{
+      position:relative; z-index:2;
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      width:min(1680px, calc(100% - 28px)); margin:0 auto; padding:10px 0 4px;
+    }
+    .tabSet{ display:flex; gap:4px; padding:4px; background:#fff; border:1px solid var(--line); border-radius:999px; box-shadow:var(--shadow-sm); }
+    .tabBtn{
+      min-height:38px; padding:8px 18px; border:0; border-radius:999px; box-shadow:none; background:transparent;
+      font-size:13.5px; font-weight:800; color:#475569; gap:8px;
+    }
+    .tabBtn:hover:not(:disabled){ transform:none; background:var(--indigo-soft); color:var(--primary-dark); box-shadow:none; border:0; }
+    .tabBtn[aria-selected="true"]{ background:var(--grad-primary); color:#fff; box-shadow:var(--shadow-glow); }
+    .tabBtn[aria-selected="true"]:hover:not(:disabled){ background:var(--grad-primary); color:#fff; }
+    .tabCount{
+      display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px; padding:0 7px; border-radius:999px;
+      font-size:11.5px; font-weight:900; background:var(--amber-soft); color:var(--amber-dark); border:1px solid var(--amber-line);
+    }
+    .tabBtn[aria-selected="true"] .tabCount{ background:rgba(255,255,255,.22); color:#fff; border-color:rgba(255,255,255,.35); }
+    .tabCount.zero{ background:var(--green-soft); color:var(--green-dark); border-color:var(--green-line); }
+    .tabCount.slbad{ background:var(--red-soft); color:var(--red-dark); border-color:var(--red-line); animation:pulseDot 1.8s infinite; }
+    .tabCount.slok{ background:var(--green-soft); color:var(--green-dark); border-color:var(--green-line); }
+    .appTabsRight{ margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .appTabsRight button{ min-height:34px; padding:6px 13px; font-size:12px; box-shadow:none; }
+    .lastRef{ font-size:11.5px; font-weight:700; color:var(--muted); }
+    .lastRef.stale{ color:var(--amber-dark); }
+
+    /* ---------- overview strip ---------- */
+    .overview{
+      width:min(1680px, calc(100% - 28px)); margin:0 auto; padding:4px 0 0;
+      display:grid; gap:14px; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); align-items:stretch;
+    }
+    .overview > div{ padding:0 !important; min-width:0; }
+    #ownerClauseWrap{ grid-column:1 / -1; }
+    #ownerClauseWrap:has(#ownerClauseBanner:empty){ display:none; }
+    #statsWrap .statBar{ grid-template-columns:repeat(2, minmax(0,1fr)); height:100%; }
+    #statsWrap .statTile{ padding:12px 14px; cursor:pointer; }
+    #statsWrap .statTile:focus-visible{ outline:3px solid rgba(79,70,229,.35); outline-offset:2px; }
+    #statsWrap .statTileNum{ font-size:24px; }
+    #acctWrap .card{ height:100%; padding:14px 16px; }
+    #acctWrap .title{ font-size:14.5px; }
+    body.ov-off #overview{ display:none; }
+    @media (max-width: 980px){
+      .overview{ width:calc(100% - 20px); grid-template-columns:1fr; }
+      #statsWrap .statBar{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+      .appTabs{ width:calc(100% - 20px); top:0; }
+    }
+
+    /* ---------- layout: sticky offsets follow the real header ---------- */
+    .wrap{ padding-top:12px; }
+    .wrap > .card{ top:calc(var(--stickyTop) + 8px); max-height:calc(100vh - var(--stickyTop) - 20px); border-radius:20px; }
+    @media (max-width: 980px){ .wrap > .card{ top:auto; max-height:none; } }
+
+    /* ---------- left card: toolbar + two lists ---------- */
+    .listTools{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin:0 0 10px; align-items:center; flex-shrink:0; }
+    .listTools .searchBox{ position:relative; grid-column:1 / -1; }
+    .listTools .searchBox input{ padding-left:34px; height:38px; font-size:13px; }
+    .listTools .searchBox .icon{ position:absolute; left:11px; top:50%; margin-top:-8px; color:var(--muted-2); pointer-events:none; }
+    .listTools select{ width:100%; height:38px; padding:6px 10px; font-size:12.5px; font-weight:700; }
+    .listTools button{ min-height:38px; padding:6px 12px; font-size:12px; box-shadow:none; }
+    .listTools button[aria-pressed="true"]{ background:var(--indigo-soft); border-color:var(--indigo-line); color:var(--indigo-dark); }
+    .workloadBox{ padding:10px 13px; margin-bottom:10px; }
+    .workloadSub{ margin-top:4px; }
+    @media (max-height:860px){ .workloadSub{ display:none; } }
+    .listHint{ font-size:11px; color:var(--muted-2); font-weight:650; margin-top:6px; flex-shrink:0; }
+    .listHint kbd{ font:700 10.5px ui-monospace, Menlo, monospace; padding:1px 5px; border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; background:#fff; color:#475569; }
+    .list.loading{ opacity:.55; pointer-events:none; transition:opacity .15s; }
+
+    .grp{ display:block; flex-shrink:0; }
+    .grpHead{
+      position:sticky; top:0; z-index:3; display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+      padding:9px 12px; margin:0 0 10px; border-radius:14px; cursor:pointer; user-select:none;
+      border:1px solid var(--line); background:rgba(255,255,255,.96); box-shadow:var(--shadow-sm);
+      backdrop-filter:blur(8px);
+    }
+    .grpHead:focus-visible{ outline:3px solid rgba(79,70,229,.3); outline-offset:1px; }
+    .grpDot{ width:10px; height:10px; border-radius:999px; flex:0 0 auto; }
+    .grp-todo .grpHead{ border-color:var(--amber-line); background:linear-gradient(135deg, rgba(255,251,235,.97), rgba(255,255,255,.97)); }
+    .grp-todo .grpDot{ background:var(--amber); animation:pulseDot 1.8s infinite; }
+    .grp-done .grpHead{ border-color:var(--green-line); background:linear-gradient(135deg, rgba(236,253,245,.97), rgba(255,255,255,.97)); }
+    .grp-done .grpDot{ background:var(--green); }
+    .grpTitle{ font-family:var(--font-display); font-weight:800; font-size:13.5px; color:var(--navy); }
+    .grpCount{ font-size:11.5px; font-weight:900; padding:2px 9px; border-radius:999px; background:#fff; border:1px solid var(--line); color:var(--navy); }
+    .grpSub{ font-size:11px; font-weight:650; color:var(--muted); margin-left:auto; }
+    .grpChev{ width:9px; height:9px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(45deg); transition:transform .15s; margin:-3px 2px 0 0; }
+    .grp.collapsed .grpChev{ transform:rotate(-45deg); margin:0 2px 0 0; }
+    .grpBody{ display:flex; flex-direction:column; gap:12px; padding-bottom:14px; }
+    .grp.collapsed .grpBody{ display:none; }
+    .grpEmpty{
+      padding:16px 14px; border:1px dashed var(--line); border-radius:14px; text-align:center;
+      font-size:12.5px; font-weight:700; color:var(--muted); background:rgba(255,255,255,.6);
+    }
+    .grp-todo .grpEmpty.clear{ border-color:var(--green-line); color:var(--green-dark); background:var(--green-soft); }
+
+    .ticket.isTodo::before{ background:linear-gradient(180deg,#f59e0b,#d97706); opacity:.9; }
+    .ticket.isDone::before{ background:linear-gradient(180deg,#10b981,#059669); opacity:.75; }
+    .ticket.isDone{ background:linear-gradient(180deg,#fcfffd,#f7fdfa); }
+    .ageChip{ font-variant-numeric:tabular-nums; }
+    .ageChip.old{ background:var(--red-soft); border-color:var(--red-line); color:var(--red-dark); }
+    .ageChip.mid{ background:var(--amber-soft); border-color:var(--amber-line); color:var(--amber-dark); }
+
+    /* compact cards */
+    .list.dense .ticketIdLine, .list.dense .ticketInfoLine, .list.dense .ticketIncidentLine{ display:none; }
+    .list.dense .ticketCardInner, .list.dense .ticketCardInner.compactTicketCard{ padding:10px 12px 10px 16px; }
+    .list.dense .ticketPeopleLine{ margin-top:6px; }
+    .list.dense .compactChecklist{ margin-top:6px; grid-template-columns:1fr 1fr; }
+    .list.dense .stmtTag, .list.dense .delibTag{ padding:6px 8px; font-size:11px; }
+    .list.dense .stmtTag small, .list.dense .delibTag small{ display:none; }
+    .list.dense .compactFooter{ margin-top:6px; }
+
+    /* ---------- right: sticky ticket bar ---------- */
+    .detailCard{ overflow:visible; padding-top:0; }
+    .ticketBar{
+      position:sticky; top:calc(var(--stickyTop) + 6px); z-index:30;
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      margin:0 -6px 14px; padding:9px 12px; border-radius:16px;
+      background:rgba(255,255,255,.94); border:1px solid var(--line); box-shadow:var(--shadow-sm);
+      backdrop-filter:blur(10px) saturate(1.2); -webkit-backdrop-filter:blur(10px) saturate(1.2);
+      transform:translateY(-1px);
+    }
+    .tbMain{ min-width:0; flex:1 1 220px; }
+    .tbTitle{ font-family:var(--font-display); font-weight:800; font-size:14px; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tbSub{ font-size:11.5px; font-weight:650; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tbBtns{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .tbBtns button{ min-height:32px; padding:5px 11px; font-size:12px; box-shadow:none; }
+    .tbBtns button.primary{ box-shadow:none; }
+    .tbMine{ font-size:11px; font-weight:850; padding:4px 10px; border-radius:999px; border:1px solid var(--line); white-space:nowrap; }
+    .tbMine.todo{ background:var(--amber-soft); border-color:var(--amber-line); color:var(--amber-dark); }
+    .tbMine.done{ background:var(--green-soft); border-color:var(--green-line); color:var(--green-dark); }
+    .tbJump{ display:flex; gap:4px; flex-wrap:wrap; width:100%; }
+    .tbJump button{ min-height:28px; padding:3px 11px; font-size:11.5px; font-weight:800; box-shadow:none; color:#475569; background:var(--card-soft); }
+    #tbBack{ display:none; }
+    @media (max-width: 980px){
+      #tbBack{ display:inline-flex; }
+      .ticketBar{ top:6px; margin:0 -4px 12px; padding:8px 10px; gap:8px; }
+      .tbSub{ display:none; }
+      .tbMain{ flex:1 1 140px; }
+      .tbTitle{ font-size:13px; }
+      .tbJump{ flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:2px; }
+      .tbJump button{ flex:0 0 auto; }
+      .tbBtns{ width:100%; }
+      .tbBtns button{ flex:1 1 auto; }
+      .detailCard .sec{ scroll-margin-top:70px; }
+    }
+
+    /* empty detail state */
+    .detailEmpty{
+      text-align:center; padding:54px 20px 60px; border:1px dashed var(--indigo-line); border-radius:18px;
+      background:linear-gradient(180deg, var(--indigo-soft), #fff); margin-bottom:14px;
+    }
+    .detailEmpty .deIcon{ width:60px; height:60px; margin:0 auto 14px; border-radius:20px; display:flex; align-items:center; justify-content:center; color:#fff; background:var(--grad-primary); box-shadow:var(--shadow-glow); }
+    .detailEmpty .deIcon .icon{ width:28px; height:28px; }
+    .detailEmpty h2{ margin:0 0 6px; font-family:var(--font-display); font-size:20px; color:var(--navy); }
+    .detailEmpty p{ margin:0 auto 16px; max-width:460px; color:var(--muted); font-size:13.5px; font-weight:600; }
+    body.has-ticket .detailEmpty{ display:none; }
+    body:not(.has-ticket) .ticketBar{ display:none; }
+    body:not(.has-ticket) #detailCard > .sec{ display:none; }
+    body:not(.has-ticket) #selTitle, body:not(.has-ticket) #selSub{ display:none; }
+    body.has-ticket #selTitle{ font-size:12px; color:var(--muted); font-weight:700; margin:0 0 2px; }
+
+    /* collapsible sections */
+    .detailCard .sec{ scroll-margin-top:calc(var(--stickyTop) + 110px); }
+    .secHead{ cursor:pointer; }
+    .secHead h3{ position:relative; padding-right:4px; }
+    .secHead h3::after{ content:""; width:8px; height:8px; margin-left:8px; border-right:2px solid var(--muted-2); border-bottom:2px solid var(--muted-2); transform:rotate(45deg) translateY(-2px); transition:transform .15s; flex:0 0 auto; }
+    .sec.sec-collapsed .secHead h3::after{ transform:rotate(-45deg); }
+    .sec.sec-collapsed > :not(.secHead){ display:none !important; }
+    .sec.sec-collapsed{ padding-bottom:12px; }
+    #discussionSec{ border-left-color:var(--primary); }
+    #summarySec{ border-left-color:var(--red); }
+    #statementsSec{ border-left-color:var(--teal); }
+    #driverHistorySec{ border-left-color:var(--amber); }
+    #linkedIncidentSec{ border-left-color:var(--blue); }
+
+    /* side-by-side: evidence left, discussion right */
+    @media (min-width: 1500px){
+      body.split-on .detailCard{ display:grid; grid-template-columns:minmax(0,1.12fr) minmax(0,.98fr); column-gap:16px; align-items:start; }
+      body.split-on .detailCard > .ticketBar,
+      body.split-on .detailCard > .detailEmpty,
+      body.split-on .detailCard > #selTitle,
+      body.split-on .detailCard > #selSub{ grid-column:1 / -1; }
+      body.split-on .detailCard > .sec{ grid-column:1; }
+      body.split-on .detailCard > #discussionSec{ grid-column:2; grid-row:4 / span 12; margin-top:0; }
+    }
+    #splitBtn{ display:none; }
+    @media (min-width: 1500px){ #splitBtn{ display:inline-flex; } }
+
+    /* ---------- Server Live panel ---------- */
+    #panelServer{ width:min(1680px, calc(100% - 28px)); margin:0 auto; padding:12px 0 28px;
+      --text-primary:var(--ink); --text-muted:var(--muted); --ifwl-line:var(--line); --surface:#fff;
+      --font-body:'Inter', ui-sans-serif, system-ui, sans-serif; --font-mono:ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    #panelServer .slShell{ background:var(--card); border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow); overflow:hidden; }
+    #panelServer .slIntro{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:12px 18px; border-bottom:1px solid var(--line); background:linear-gradient(135deg, var(--indigo-soft), #fff); font-size:12.5px; font-weight:650; color:#475569; }
+    #panelServer .slIntro strong{ color:var(--navy); }
+    #panelServer .slBoot{ padding:40px 20px; text-align:center; color:var(--muted); font-weight:700; }
+    #panelServer .slFail{ padding:28px 22px; }
+    #panelServer .slFail h3{ margin:0 0 6px; color:var(--red-dark); font-family:var(--font-display); }
+    #panelServer .slFail p{ margin:6px 0; color:#475569; font-size:13.5px; }
+    #panelServer .sl-page{ padding:16px 18px 24px; }
+    #panelServer .sl-top h2{ font-family:var(--font-display); letter-spacing:.02em; }
+    #panelServer .sl-btn, #panelServer .sl-mini{ min-height:0; box-shadow:none; border-radius:10px; font-size:12.5px; padding:6px 12px; }
+    #panelServer .sl-mini{ padding:4px 9px; font-size:12px; border-radius:8px; }
+    #panelServer .sl-btn:hover:not(:disabled), #panelServer .sl-mini:hover:not(:disabled){ transform:none; box-shadow:none; background:var(--surface); border-color:#38c9b5; color:var(--text-primary); }
+    #panelServer.bg{ height:0; padding:0; overflow:visible; }
+    #panelServer.bg .slShell{ height:0; border:0; box-shadow:none; background:none; }
+    #panelServer.bg .slIntro, #panelServer.bg .sl-page > *:not(.sl-toasts){ display:none; }
+    #panelServer.bg .sl-page{ padding:0; }
+    @media (max-width: 980px){ #panelServer{ width:calc(100% - 20px); } #panelServer .sl-page{ padding:12px 10px 20px; } }
+
+    /* ---------- small polish ---------- */
+    .card{ border-radius:20px; }
+    .sec{ border-radius:16px; }
+    .toast{ z-index:200; }
+    @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
+    @media (max-width: 980px){
+      header .row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+      header .row button{ width:100%; }
+      .appTabsRight .lastRef{ display:none; }
+      .tabBtn{ padding:8px 14px; }
+    }
+  </style>
 
 </head>
 
@@ -572,6 +817,8 @@
       <symbol id="icon-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
       <symbol id="icon-clipboard" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></symbol>
       <symbol id="icon-bar-chart" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+      <symbol id="icon-activity" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
       <symbol id="icon-refresh-cw" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
     </defs>
   </svg>
@@ -596,11 +843,24 @@
     </div>
   </header>
 
+  <!-- REFRESH: section tabs (Tickets / Server Live) -->
+  <nav class="appTabs" id="appTabs" aria-label="Dashboard sections">
+    <div class="tabSet" role="tablist">
+      <button type="button" class="tabBtn" id="tabTickets" role="tab" aria-selected="true"><svg class="btnIcon icon"><use href="#icon-clipboard"></use></svg>Tickets <span class="tabCount" id="tabCountTickets" title="Tickets waiting for your view">&mdash;</span></button>
+      <button type="button" class="tabBtn" id="tabServer" role="tab" aria-selected="false"><svg class="btnIcon icon"><use href="#icon-activity"></use></svg>Server Live <span class="tabCount" id="tabCountServer" hidden></span></button>
+    </div>
+    <div class="appTabsRight">
+      <span class="lastRef" id="lastRef"></span>
+      <button type="button" id="overviewToggle"><svg class="btnIcon icon"><use href="#icon-bar-chart"></use></svg><span>Hide overview</span></button>
+    </div>
+  </nav>
+
   <!-- ✅ ADDED: top stat bar — dashboard-style snapshot of live workload,
        populated by loadTickets()/loadMyAccountability() below. Purely a
        read-only summary of numbers already computed elsewhere on the
        page, so it stays in sync with the ticket list and workload pill. -->
-  <div style="padding:14px; padding-bottom:0;">
+  <div class="overview" id="overview">
+  <div style="padding:14px; padding-bottom:0;" id="statsWrap">
     <div class="statBar">
       <div class="statTile tone-indigo">
         <div class="statTileIcon"><svg class="icon"><use href="#icon-users"></use></svg></div>
@@ -631,7 +891,7 @@
   </div>
 
   <!-- Accountability (Top) -->
-  <div style="padding:14px; padding-bottom:0;">
+  <div style="padding:14px; padding-bottom:0;" id="acctWrap">
     <div class="card" id="acctCard">
       <div class="row" style="justify-content:space-between; align-items:flex-start;">
         <div>
@@ -649,8 +909,9 @@
       <div id="acctBanner" style="margin-top:10px;"></div>
     </div>
   </div>
+  </div><!-- /overview -->
 
-  <div class="wrap">
+  <div class="wrap" id="panelTickets">
     <!-- LEFT -->
     <div class="card">
       <div class="row" style="justify-content:space-between;">
@@ -680,17 +941,49 @@
         </div>
       </div>
 
+      <div class="listTools">
+        <div class="searchBox"><svg class="icon"><use href="#icon-search"></use></svg><input id="ticketSearch" type="search" placeholder="Search ticket, driver, event, rule&hellip;" autocomplete="off" aria-label="Search tickets"></div>
+        <select id="ticketSort" aria-label="Sort tickets"><option value="default">Default order</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select>
+        <button type="button" id="densityBtn" aria-pressed="false" title="Show smaller ticket cards"><svg class="btnIcon icon"><use href="#icon-list"></use></svg><span>Compact</span></button>
+      </div>
+
       <div class="list" id="ticketList"></div>
       <div class="muted" style="margin-top:8px;" id="ticketHint"></div>
+      <div class="listHint">Keys: <kbd>J</kbd> / <kbd>K</kbd> next or previous ticket &middot; <kbd>N</kbd> next ticket waiting for you &middot; <kbd>/</kbd> search &middot; <kbd>1</kbd> / <kbd>2</kbd> tabs</div>
     </div>
 
     <!-- RIGHT -->
     <div>
-      <div class="card">
+      <div class="card detailCard" id="detailCard">
+        <div class="ticketBar" id="ticketBar">
+          <button type="button" id="tbBack" title="Back to the ticket list"><svg class="btnIcon icon"><use href="#icon-arrow-left"></use></svg>List</button>
+          <div class="tbMain"><div class="tbTitle" id="tbTitle">No ticket selected</div><div class="tbSub" id="tbSub">Pick one from the list</div></div>
+          <span class="tbMine" id="tbMine" hidden></span>
+          <div class="tbBtns">
+            <button type="button" id="tbPrev" title="Previous ticket (K)">Prev</button>
+            <button type="button" id="tbNext" title="Next ticket (J)">Next</button>
+            <button type="button" class="primary" id="tbNextTodo" title="Next ticket waiting for you (N)">Next to deliberate</button>
+            <button type="button" id="splitBtn" aria-pressed="true" title="Show the discussion beside the evidence on wide screens"><span>Side by side</span></button>
+          </div>
+          <div class="tbJump">
+            <button type="button" data-target="summarySec">Summary</button>
+            <button type="button" data-target="driverHistorySec">Driver history</button>
+            <button type="button" data-target="statementsSec">Statements</button>
+            <button type="button" data-target="discussionSec">Discussion</button>
+          </div>
+        </div>
+
+        <div class="detailEmpty" id="detailEmpty">
+          <div class="deIcon"><svg class="icon"><use href="#icon-clipboard"></use></svg></div>
+          <h2>Pick a ticket to start</h2>
+          <p>Tickets waiting for your view are listed first on the left. Open one to see the evidence, driver history, statements and the stewards&rsquo; discussion.</p>
+          <button type="button" class="primary" id="emptyOpenFirst">Open the next ticket waiting for me</button>
+        </div>
+
         <div class="title" id="selTitle">Select a ticket</div>
         <div class="muted" id="selSub"></div>
 
-        <div class="sec">
+        <div class="sec" id="summarySec">
           <h3><span class="iconChip chip-indigo"><svg class="icon"><use href="#icon-clipboard"></use></svg></span>Ticket Summary</h3>
 
           <!-- ✅ ADDED: driver identity cards, styled like the IFWL Licence
@@ -896,6 +1189,14 @@
         </div>
 
       </div>
+    </div>
+  </div>
+
+  <!-- REFRESH: Server Live (staff) - mounted on first open -->
+  <div id="panelServer" hidden>
+    <div class="slShell">
+      <div class="slIntro"><strong>Server Live</strong><span>Live view of the ACC server logs for all seven servers. Staff only. Updates every few seconds while this tab is open.</span></div>
+      <div id="slMount"></div>
     </div>
   </div>
 
@@ -1918,6 +2219,7 @@
 
         await loadTickets();
         await loadMyAccountability();
+        if (window.ifwlOnReady) window.ifwlOnReady();
 
       } catch (e) {
         toast("Auth error: " + (e?.message || e));
@@ -1975,7 +2277,8 @@
     }
 
     async function loadTickets() {
-      ticketListEl.innerHTML = "";
+      const __b = window.ifwlShell ? window.ifwlShell() : null;
+      if (!__b) ticketListEl.innerHTML = "";
       ticketHintEl.textContent = "Loading tickets…";
       workloadPillEl.textContent = "Loading…";
       workloadSubEl.textContent = "Live tickets are non-finalised tickets you may not have weighed in on yet — check the discussion tab.";
@@ -2094,9 +2397,10 @@
           await selectTicket(t.id);
           [...ticketListEl.querySelectorAll(".ticket")].forEach(x => x.classList.remove("active"));
           div.classList.add("active");
+          if (window.ifwlSyncActive) window.ifwlSyncActive();
         };
 
-        ticketListEl.appendChild(div);
+        if (__b && window.ifwlPlace) window.ifwlPlace(__b, div, needsMyInput, t); else ticketListEl.appendChild(div);
         shown++;
 
         (async () => {
@@ -2139,6 +2443,8 @@
         })();
       }
 
+      if (__b && window.ifwlListDone) window.ifwlListDone(__b, { shown, liveCount, needsMyInputCount });
+
       const filterName = filterEl.value;
 
       // ✅ ONLY CHANGE: 200 -> 600
@@ -2147,6 +2453,7 @@
     }
 
     async function selectTicket(ticketId) {
+      if (window.ifwlOnSelect) window.ifwlOnSelect(ticketId);
       $("selTitle").textContent = `Ticket: ${ticketId}`;
       $("selSub").textContent = "";
 
@@ -2570,5 +2877,461 @@ Who: ${who || "—"}${desc ? "\n\nDescription:\n" + desc : ""}${ex ? "\n\nExampl
     }
 
   </script>
+  <script id="refresh-js">
+  /* ============================================================
+     STEWARD DASHBOARD REFRESH (additive layer)
+     Runs after the original script. The original script only calls
+     the window.ifwl* hooks below if they exist, so if anything in here
+     failed the page would still work exactly as before.
+     ============================================================ */
+  (function () {
+    "use strict";
+    const $$ = (id) => document.getElementById(id);
+    const FN = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
+    const ASSET_V = "2";
+
+    const LS = {
+      get(k, d) { try { const v = localStorage.getItem("IFWL_ST_" + k); return v == null ? d : v; } catch (e) { return d; } },
+      set(k, v) { try { localStorage.setItem("IFWL_ST_" + k, v); } catch (e) {} }
+    };
+
+    const ST = {
+      items: [],            // every ticket card of the current load
+      build: null,          // the load that is currently being built
+      shown: null,          // the load currently on screen
+      live: 0, needs: 0,
+      loadedAt: 0,
+      sort: LS.get("sort", "default"),
+      q: "",
+      dense: LS.get("dense", "0") === "1",
+      collapsed: { todo: LS.get("c_todo", "0") === "1", done: LS.get("c_done", "0") === "1" },
+      tab: "tickets"
+    };
+    window.ifwlState = ST;
+
+    const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const cssEsc = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/[^\w-]/g, "\\$&"));
+
+    /* ---------- sticky offsets follow the real header height ---------- */
+    function measure() {
+      const h = document.querySelector("header");
+      const nav = $$("appTabs");
+      const sticky = h && getComputedStyle(h).position === "sticky";
+      const hh = sticky ? h.offsetHeight : 0;
+      const nh = (nav && getComputedStyle(nav).position === "sticky") ? nav.offsetHeight : 0;
+      const r = document.documentElement.style;
+      r.setProperty("--hdrH", hh + "px");
+      r.setProperty("--navH", nh + "px");
+      r.setProperty("--stickyTop", (hh + nh) + "px");
+      document.body.classList.toggle("split-on", window.innerWidth >= 1500 && LS.get("split", "1") !== "0");
+    }
+    window.addEventListener("resize", measure);
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(measure);
+      const h = document.querySelector("header"); if (h) ro.observe(h);
+      const n = $$("appTabs"); if (n) ro.observe(n);
+    }
+    measure();
+    setTimeout(measure, 400);
+
+    /* ---------- tickets: two lists ---------- */
+    function ticketMs(data) {
+      const ts = data && (data.timestamp || data.createdAt || data.submittedAt || data.finalisedAt);
+      try {
+        if (ts && ts.toDate) return ts.toDate().getTime();
+        if (typeof ts === "string") { const d = new Date(ts); if (!isNaN(d.getTime())) return d.getTime(); }
+      } catch (e) {}
+      return 0;
+    }
+    function ageText(ms) {
+      if (!ms) return null;
+      const m = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+      if (m < 60) return { t: "just now", cls: "" };
+      const h = Math.floor(m / 60);
+      if (h < 48) return { t: h + "h old", cls: "" };
+      const d = Math.floor(h / 24);
+      return { t: d + "d old", cls: d >= 7 ? "old" : (d >= 3 ? "mid" : "") };
+    }
+
+    function makeGroup(kind) {
+      const todo = kind === "todo";
+      const sec = document.createElement("section");
+      sec.className = "grp grp-" + kind + (ST.collapsed[kind] ? " collapsed" : "");
+      sec.id = todo ? "grpTodo" : "grpDone";
+      sec.innerHTML =
+        '<div class="grpHead" role="button" tabindex="0" aria-expanded="' + (!ST.collapsed[kind]) + '" id="' + (todo ? "grpTodoHead" : "grpDoneHead") + '">' +
+        '<span class="grpDot"></span><span class="grpTitle">' + (todo ? "To deliberate" : "Deliberated") + '</span>' +
+        '<span class="grpCount" id="' + (todo ? "cntTodo" : "cntDone") + '">0</span>' +
+        '<span class="grpSub">' + (todo ? "No comment from you yet" : "You have commented") + '</span><span class="grpChev"></span></div>' +
+        '<div class="grpBody" id="' + (todo ? "ticketListTodo" : "ticketListDone") + '"></div>';
+      const head = sec.firstChild;
+      const toggle = () => {
+        ST.collapsed[kind] = !ST.collapsed[kind];
+        LS.set("c_" + kind, ST.collapsed[kind] ? "1" : "0");
+        sec.classList.toggle("collapsed", ST.collapsed[kind]);
+        head.setAttribute("aria-expanded", String(!ST.collapsed[kind]));
+      };
+      head.addEventListener("click", toggle);
+      head.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+      return sec;
+    }
+
+    /* called at the start of loadTickets(): builds the new lists off-screen, the old list stays visible until done */
+    window.ifwlShell = function () {
+      const b = { id: (ST.buildSeq = (ST.buildSeq || 0) + 1), items: [], todo: makeGroup("todo"), done: makeGroup("done") };
+      ST.build = b;
+      const list = $$("ticketList");
+      if (list) list.classList.add("loading");
+      if (!ST.shown && list) list.innerHTML = "";     // first load: nothing to keep on screen
+      clearTimeout(ST.loadGuard);
+      ST.loadGuard = setTimeout(() => { if (list) list.classList.remove("loading"); }, 30000);
+      return b;
+    };
+
+    window.ifwlPlace = function (b, div, needsMyInput, t) {
+      if (!b || b !== ST.build) return;               // an older load finished late - ignore it
+      const data = t.data || {};
+      const ms = ticketMs(data);
+      div.classList.add(needsMyInput ? "isTodo" : "isDone");
+      div.dataset.ticketId = t.id;
+      const age = ageText(ms);
+      const foot = div.querySelector(".compactFooter");
+      if (age && foot) {
+        const chip = document.createElement("span");
+        chip.className = "ticketTinyPill ageChip" + (age.cls ? " " + age.cls : "");
+        chip.textContent = age.t;
+        chip.title = ms ? new Date(ms).toLocaleString() : "";
+        const open = foot.querySelector(".ticketOpenHint");
+        foot.insertBefore(chip, open || null);
+      }
+      b.items.push({
+        id: t.id, div, todo: !!needsMyInput, ms, idx: b.items.length, t,
+        search: [t.id, data.event, data.competition, data.accused, data.reporter, data.ruleBreach, data.postRaceCode, t.status, data.linkedIncidentId]
+          .map((x) => String(x || "")).join(" ").toLowerCase()
+      });
+    };
+
+    window.ifwlListDone = function (b, info) {
+      if (!b || b !== ST.build) return;
+      const list = $$("ticketList");
+      if (!list) return;
+      const scroll = list.scrollTop;
+      list.innerHTML = "";
+      list.appendChild(b.todo);
+      list.appendChild(b.done);
+      list.classList.remove("loading");
+      ST.items = b.items; ST.shown = b;
+      ST.live = info.liveCount; ST.needs = info.needsMyInputCount;
+      ST.loadedAt = Date.now();
+      renderLists();
+      list.scrollTop = scroll;
+      syncActive();
+      syncBar();
+      paintCounts();
+    };
+
+    function ordered(arr) {
+      const a = arr.slice();
+      if (ST.sort === "newest") a.sort((x, y) => (y.ms || 0) - (x.ms || 0) || x.idx - y.idx);
+      else if (ST.sort === "oldest") a.sort((x, y) => (x.ms || Infinity) - (y.ms || Infinity) || x.idx - y.idx);
+      return a;
+    }
+
+    function renderLists() {
+      const b = ST.shown; if (!b) return;
+      const q = ST.q.trim().toLowerCase();
+      const parts = [["todo", b.todo, true], ["done", b.done, false]];
+      parts.forEach(([kind, grp, isTodo]) => {
+        const body = grp.querySelector(".grpBody");
+        const mine = ordered(ST.items.filter((it) => it.todo === isTodo));
+        let vis = 0;
+        mine.forEach((it) => {
+          const hit = !q || it.search.indexOf(q) >= 0;
+          it.div.style.display = hit ? "" : "none";
+          if (hit) vis++;
+          body.appendChild(it.div);
+        });
+        let empty = body.querySelector(".grpEmpty");
+        if (!empty) { empty = document.createElement("div"); empty.className = "grpEmpty"; body.appendChild(empty); }
+        body.appendChild(empty);
+        empty.classList.remove("clear");
+        if (vis === 0) {
+          empty.style.display = "";
+          if (mine.length && q) empty.textContent = "No tickets match your search here.";
+          else if (isTodo) { empty.textContent = "You are all caught up. Nothing is waiting for your view."; empty.classList.add("clear"); }
+          else empty.textContent = "Tickets you comment on or recuse from will appear here.";
+        } else empty.style.display = "none";
+        const cnt = grp.querySelector(".grpCount");
+        cnt.textContent = (q && vis !== mine.length) ? vis + " of " + mine.length : String(mine.length);
+      });
+      syncActive();
+    }
+
+    function paintCounts() {
+      const tc = $$("tabCountTickets");
+      if (tc) { tc.textContent = String(ST.needs); tc.classList.toggle("zero", ST.needs === 0); tc.title = ST.needs + " ticket(s) waiting for your view"; }
+      paintRefreshed();
+    }
+
+    function paintRefreshed() {
+      const el = $$("lastRef"); if (!el) return;
+      if (!ST.loadedAt) { el.textContent = ""; return; }
+      const m = Math.floor((Date.now() - ST.loadedAt) / 60000);
+      el.textContent = "Tickets updated " + (m < 1 ? "just now" : m + " min ago");
+      el.classList.toggle("stale", m >= 5);
+    }
+    setInterval(paintRefreshed, 30000);
+
+    window.ifwlSyncActive = syncActive;
+    function syncActive() {
+      const id = (typeof selectedTicketId !== "undefined") ? selectedTicketId : "";
+      document.querySelectorAll("#ticketList .ticket").forEach((d) => d.classList.toggle("active", !!id && d.dataset.ticketId === id));
+    }
+
+    /* ---------- selected ticket bar ---------- */
+    function itemFor(id) { return ST.items.find((x) => x.id === id) || null; }
+    function syncBar() {
+      const id = (typeof selectedTicketId !== "undefined") ? selectedTicketId : "";
+      const t = $$("tbTitle"), s = $$("tbSub"), m = $$("tbMine");
+      if (!t || !id) return;
+      const it = itemFor(id);
+      const d = (it && it.t && it.t.data) || {};
+      t.textContent = (d.event || "Ticket") + (d.competition ? " • " + d.competition : "");
+      s.textContent = "Accused: " + (d.accused || "-") + "  |  Reporter: " + (d.reporter || "-") + "  |  " + id;
+      if (it) {
+        m.hidden = false;
+        m.className = "tbMine " + (it.todo ? "todo" : "done");
+        m.textContent = it.todo ? "Needs your view" : "You have deliberated";
+      } else m.hidden = true;
+    }
+
+    window.ifwlOnSelect = function (id) {
+      document.body.classList.add("has-ticket");
+      syncActive(); syncBar();
+      if (window.innerWidth <= 980) {
+        const c = $$("detailCard");
+        if (c) setTimeout(() => c.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+      }
+    };
+
+    function visibleCards() { return [...document.querySelectorAll("#ticketList .ticket")].filter((d) => d.style.display !== "none"); }
+    function openCard(d) {
+      if (!d) return;
+      const grp = d.closest(".grp");
+      if (grp && grp.classList.contains("collapsed")) { grp.querySelector(".grpHead").click(); }
+      d.click();
+      d.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    function step(dir) {
+      const cards = visibleCards(); if (!cards.length) return;
+      const i = cards.findIndex((d) => d.classList.contains("active"));
+      openCard(cards[i < 0 ? (dir > 0 ? 0 : cards.length - 1) : (i + dir + cards.length) % cards.length]);
+    }
+    function nextTodo() {
+      const cards = visibleCards().filter((d) => d.classList.contains("isTodo"));
+      if (!cards.length) { toastSafe("Nothing else is waiting for your view"); return; }
+      const all = visibleCards();
+      const cur = all.findIndex((d) => d.classList.contains("active"));
+      let pick = cards.find((d) => all.indexOf(d) > cur);
+      if (!pick) pick = cards[0];
+      if (pick.classList.contains("active") && cards.length === 1) { toastSafe("That is the only ticket waiting for your view"); return; }
+      openCard(pick);
+    }
+    function toastSafe(m) { try { toast(m); } catch (e) {} }
+
+    /* ---------- tabs ---------- */
+    function showTab(name, push) {
+      if (name !== "tickets" && name !== "server") name = "tickets";
+      ST.tab = name;
+      const isT = name === "tickets";
+      $$("panelTickets").hidden = !isT;
+      $$("overview").hidden = !isT;
+      applyPanel();
+      $$("tabTickets").setAttribute("aria-selected", String(isT));
+      $$("tabServer").setAttribute("aria-selected", String(!isT));
+      $$("overviewToggle").hidden = !isT;
+      $$("lastRef").hidden = !isT;
+      if (push !== false) { try { history.replaceState(null, "", isT ? location.pathname + location.search : "#server-live"); } catch (e) {} }
+      if (!isT) mountServer();
+      setTimeout(measure, 0);
+    }
+    function applyPanel() {
+      /* once Server Live has been opened it keeps running in the background so its pop-up alerts still reach a steward who is working on tickets */
+      const isT = ST.tab === "tickets", p = $$("panelServer");
+      p.hidden = isT && !slCtl;
+      p.classList.toggle("bg", isT && !!slCtl);
+    }
+    window.ifwlShowTab = showTab;
+
+    /* ---------- Server Live (embedded) ---------- */
+    let slCtl = null, slLoading = false;
+    async function fb(action, body, extra) {
+      const u = auth.currentUser;
+      if (!u) throw new Error("You are signed out - refresh the page");
+      const tok = await u.getIdToken();
+      const opts = body
+        ? { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Firebase " + tok }, body: JSON.stringify(body) }
+        : { cache: "no-store", headers: { "Authorization": "Firebase " + tok } };
+      const r = await fetch(FN + "?" + action + "=1" + (extra || ""), opts);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        let msg = d.error || ("Request failed (" + r.status + ")");
+        if (r.status === 401 && /missing token|bad token|signature/i.test(msg)) msg = "Server Live is not switched on for stewards yet - the Owner needs to publish the latest rtGate update (" + msg + ")";
+        else if (r.status === 401 || r.status === 403) msg = msg + ". Try refreshing the page; if it persists, ask the Owner.";
+        const e = new Error(msg); e.status = 0; e.httpStatus = r.status; throw e;
+      }
+      return d;
+    }
+    function addCss(href) {
+      if (document.querySelector('link[data-sl]')) return;
+      const l = document.createElement("link"); l.rel = "stylesheet"; l.href = href; l.setAttribute("data-sl", "1");
+      document.head.appendChild(l);
+    }
+    function addScript(src) {
+      return new Promise((res, rej) => {
+        const s = document.createElement("script"); s.src = src;
+        s.onload = res; s.onerror = () => rej(new Error("Could not load " + src.split("?")[0]));
+        document.head.appendChild(s);
+      });
+    }
+    async function mountServer() {
+      const box = $$("slMount");
+      if (!box) return;
+      if (slCtl) { if (!slCtl.state.running) slCtl.start(); else slCtl.refresh && slCtl.refresh(); return; }
+      if (slLoading) return;
+      slLoading = true;
+      box.innerHTML = '<div class="slBoot">Loading Server Live…</div>';
+      try {
+        addCss("assets/css/06-server-live.css?v=" + ASSET_V);
+        if (!window.IFWL_ServerLive) await addScript("assets/js/12-server-live.js?v=" + ASSET_V);
+        if (!window.IFWL_ServerLive) throw new Error("Server Live script did not start");
+        box.innerHTML = "";
+        slCtl = IFWL_ServerLive.mount(box, {
+          load: (sv) => fb("staffServerLive", null, "&server=" + encodeURIComponent(sv)),
+          api: (name, body, extra) => fb(name, body, extra),
+          parserUrl: "assets/js/ifwl-serverlog.js?v=" + ASSET_V
+        });
+        slCtl.start();
+        if (!ST.slBadgeTimer) ST.slBadgeTimer = setInterval(paintSlBadge, 4000);
+        setTimeout(paintSlBadge, 1500);
+        applyPanel();
+      } catch (e) {
+        box.innerHTML =
+          '<div class="slFail"><h3>Server Live could not start</h3>' +
+          "<p>" + esc(e && e.message || e) + "</p>" +
+          "<p>It needs these files on the website: <code>assets/js/12-server-live.js</code>, <code>assets/js/ifwl-serverlog.js</code> and <code>assets/css/06-server-live.css</code>.</p>" +
+          '<p><a href="licence-staff.html">Open the Licence Centre staff page instead</a></p></div>';
+      }
+      slLoading = false;
+    }
+    function paintSlBadge() {
+      const el = $$("tabCountServer"); if (!el) return;
+      const d = slCtl && slCtl.state && slCtl.state.data;
+      const ov = d && d.overview;
+      if (!ov) { el.hidden = true; return; }
+      let trouble = 0, live = 0;
+      ov.forEach((o) => { if (!o.none && !o.stale) { live++; trouble += (o.trouble || 0) + (o.lost || 0); } });
+      if (!live) { el.hidden = true; return; }
+      el.hidden = false;
+      el.textContent = trouble ? String(trouble) : "ok";
+      el.className = "tabCount " + (trouble ? "slbad" : "slok");
+      el.title = trouble ? trouble + " driver(s) with a bad connection or dropped" : "No connection problems right now";
+    }
+
+    /* ---------- wiring ---------- */
+    function wire() {
+      // tabs
+      $$("tabTickets").addEventListener("click", () => showTab("tickets"));
+      $$("tabServer").addEventListener("click", () => showTab("server"));
+
+      // overview toggle
+      const ovOff = LS.get("ov", "1") === "0";
+      document.body.classList.toggle("ov-off", ovOff);
+      const ovBtn = $$("overviewToggle");
+      const paintOv = () => { ovBtn.querySelector("span").textContent = document.body.classList.contains("ov-off") ? "Show overview" : "Hide overview"; };
+      ovBtn.addEventListener("click", () => { const off = document.body.classList.toggle("ov-off"); LS.set("ov", off ? "0" : "1"); paintOv(); setTimeout(measure, 0); });
+      paintOv();
+
+      // stat tiles jump around
+      const tiles = document.querySelectorAll("#statsWrap .statTile");
+      const goTodo = () => { showTab("tickets"); const g = $$("grpTodo"); if (g && g.classList.contains("collapsed")) g.querySelector(".grpHead").click(); const l = $$("ticketList"); if (l) l.scrollTop = 0; const s = $$("ticketSearch"); if (s) s.focus(); };
+      tiles.forEach((t, i) => {
+        t.tabIndex = 0; t.setAttribute("role", "button");
+        const act = () => {
+          if (i === 1) { goTodo(); const first = document.querySelector("#ticketListTodo .ticket"); if (first) first.scrollIntoView({ block: "nearest" }); }
+          else if (i === 0) { showTab("tickets"); setSearch(""); }
+          else if (i === 2) { showTab("tickets"); const f = $$("filter"); if (f) { f.value = "Awaiting Review"; f.dispatchEvent(new Event("change")); } }
+          else if (i === 3) { const a = $$("acctCard"); if (a) a.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        };
+        t.addEventListener("click", act);
+        t.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } });
+      });
+      const hints = ["Show all live tickets", "Jump to the tickets waiting for your view", "Show only tickets awaiting review", "See your steward activity"];
+      tiles.forEach((t, i) => { t.title = hints[i] || ""; });
+
+      // search / sort / compact
+      const si = $$("ticketSearch");
+      si.addEventListener("input", () => { ST.q = si.value; renderLists(); });
+      si.addEventListener("keydown", (e) => { if (e.key === "Escape") { setSearch(""); si.blur(); } });
+      const so = $$("ticketSort"); so.value = ST.sort;
+      so.addEventListener("change", () => { ST.sort = so.value; LS.set("sort", ST.sort); renderLists(); });
+      const dn = $$("densityBtn");
+      const paintDense = () => { $$("ticketList").classList.toggle("dense", ST.dense); dn.setAttribute("aria-pressed", String(ST.dense)); };
+      dn.addEventListener("click", () => { ST.dense = !ST.dense; LS.set("dense", ST.dense ? "1" : "0"); paintDense(); });
+      paintDense();
+
+      // ticket bar
+      $$("tbPrev").addEventListener("click", () => step(-1));
+      $$("tbNext").addEventListener("click", () => step(1));
+      $$("tbNextTodo").addEventListener("click", nextTodo);
+      $$("tbBack").addEventListener("click", () => { const l = $$("ticketList"); if (l) { l.scrollIntoView({ behavior: "smooth", block: "start" }); } });
+      const sp = $$("splitBtn");
+      const paintSplit = () => { sp.setAttribute("aria-pressed", String(LS.get("split", "1") !== "0")); sp.querySelector("span").textContent = LS.get("split", "1") !== "0" ? "Side by side" : "Stacked"; };
+      sp.addEventListener("click", () => { LS.set("split", LS.get("split", "1") !== "0" ? "0" : "1"); paintSplit(); measure(); });
+      paintSplit();
+      document.querySelectorAll(".tbJump button").forEach((b) => b.addEventListener("click", () => {
+        const sec = $$(b.dataset.target); if (!sec) return;
+        if (sec.classList.contains("sec-collapsed")) sec.classList.remove("sec-collapsed");
+        sec.scrollIntoView({ behavior: "smooth", block: "start" });
+      }));
+      const eb = $$("emptyOpenFirst");
+      if (eb) eb.addEventListener("click", nextTodo);
+
+      // collapsible detail sections
+      document.querySelectorAll("#detailCard > .sec").forEach((sec) => {
+        const h3 = sec.querySelector("h3"); if (!h3) return;
+        const head = h3.parentElement === sec ? h3 : h3.parentElement;
+        head.classList.add("secHead");
+        head.addEventListener("click", (e) => {
+          if (e.target.closest("button, a, select, input, textarea")) return;
+          sec.classList.toggle("sec-collapsed");
+        });
+      });
+
+      // keyboard
+      document.addEventListener("keydown", (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const tag = (e.target && e.target.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select" || (e.target && e.target.isContentEditable)) return;
+        if (ST.tab !== "tickets") { if (e.key === "1") showTab("tickets"); return; }
+        if (e.key === "j") { e.preventDefault(); step(1); }
+        else if (e.key === "k") { e.preventDefault(); step(-1); }
+        else if (e.key === "n") { e.preventDefault(); nextTodo(); }
+        else if (e.key === "/") { e.preventDefault(); si.focus(); si.select(); }
+        else if (e.key === "2") showTab("server");
+      });
+
+      // honour #server-live deep link
+      if (/server/i.test(location.hash)) showTab("server", false);
+      window.addEventListener("hashchange", () => showTab(/server/i.test(location.hash) ? "server" : "tickets", false));
+    }
+
+    function setSearch(v) { const si = $$("ticketSearch"); if (si) si.value = v; ST.q = v; renderLists(); }
+
+    window.ifwlOnReady = function () { measure(); paintCounts(); };
+
+    wire();
+  })();
+</script>
 </body>
 </html>
