@@ -83,14 +83,18 @@ class Ftp {
     this.sock.on('error', fail);
     this.sock.on('close', () => fail(new Error('FTP connection closed')));
     await new Promise((res, rej) => { this.sock.once('connect', res); this.sock.once('error', rej); });
-    let r = await this._reply();
+    let r = await Promise.race([this._reply(), sleep(10000).then(() => { const e = new Error('no greeting from the server (it may need an encrypted connection)'); e.code = 'NOBANNER'; throw e; })]);
     if (r.code !== 220) throw new Error('FTP greeting ' + r.code);
     r = await this.cmd('USER ' + this.o.user);
     if (r.code === 331) r = await this.cmd('PASS ' + this.o.pass, true);
-    if (r.code !== 230) throw new Error('FTP login refused (' + r.code + ')');
+    if (r.code !== 230) {
+      const tls = /ssl|tls|secure|encrypt|ftps/i.test(r.text) || r.code === 534;
+      const e = new Error('FTP login refused (' + r.code + (tls ? ', wants an encrypted connection' : '') + ')'); if (tls) e.code = 'FTPS'; throw e;
+    }
     await this.cmd('TYPE I');
   }
   _drain() {
+    if (/^SSH-/.test(this.buf)) { const e = new Error('this port speaks SFTP, not FTP'); e.code = 'SFTP'; this.closed = true; this.waiters.splice(0).forEach((x) => x.reject(e)); try { this.sock.destroy(); } catch (_) {} return; }
     for (;;) {
       const m = this.buf.match(/^(\d{3})([ -])[^\r\n]*\r?\n/);
       if (!m) return;
@@ -111,6 +115,7 @@ class Ftp {
   _reply() { return new Promise((resolve, reject) => { if (this.closed) return reject(new Error('FTP connection closed')); this.waiters.push({ resolve, reject }); this._drain(); }); }
   async cmd(c, secret) { this.sock.write(c + '\r\n'); return this._reply(); }
   async size(p) { const r = await this.cmd('SIZE ' + p); if (r.code !== 213) throw new Error('SIZE failed (' + r.code + ') - check FTP_PATH'); return parseInt(r.text.slice(4), 10); }
+  async trySize(p) { const r = await this.cmd('SIZE ' + p); return r.code === 213 ? parseInt(r.text.slice(4), 10) : null; }
   async mtime(p) {
     const r = await this.cmd('MDTM ' + p); if (r.code !== 213) return null;
     const m = r.text.slice(4).trim().match(/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/); if (!m) return null;
@@ -143,27 +148,72 @@ class Ftp {
     if (length != null && buf.length > length) buf = buf.subarray(0, length);
     return buf;
   }
-  /* names inside a directory, or null if it is not a directory we can enter */
+  /* one directory listing with one command (NLST or LIST); returns { code, text } */
+  async _listCmd(c) {
+    const pr = await this.cmd('PASV');
+    const m = pr.text.match(/(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
+    if (pr.code !== 227 || !m) return { code: pr.code, text: '' };
+    const data = net.createConnection({ host: this.o.host, port: Number(m[5]) * 256 + Number(m[6]) });
+    data.setTimeout(20000, () => data.destroy(new Error('FTP data timeout')));
+    const chunks = [];
+    const done = new Promise((res, rej) => { data.on('data', (d) => chunks.push(d)); data.on('end', res); data.on('close', res); data.on('error', rej); });
+    await new Promise((res, rej) => { data.once('connect', res); data.once('error', rej); });
+    const r = await this.cmd(c);
+    if (r.code !== 150 && r.code !== 125) { data.destroy(); return { code: r.code, text: '' }; }
+    await done;
+    await this._reply().catch(() => {});
+    return { code: r.code, text: Buffer.concat(chunks).toString('latin1') };
+  }
+  /* names inside a directory, or null if we cannot enter it. this.listNote says what the server answered. */
   async list(dir) {
     const cw = await this.cmd('CWD ' + dir);
-    if (cw.code !== 250) return null;
+    if (cw.code !== 250) { this.listNote = 'CWD ' + cw.code; return null; }
     try {
-      const pr = await this.cmd('PASV');
-      const m = pr.text.match(/(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
-      if (pr.code !== 227 || !m) return null;
-      const data = net.createConnection({ host: this.o.host, port: Number(m[5]) * 256 + Number(m[6]) });
-      data.setTimeout(20000, () => data.destroy(new Error('FTP data timeout')));
-      const chunks = [];
-      const done = new Promise((res, rej) => { data.on('data', (d) => chunks.push(d)); data.on('end', res); data.on('close', res); data.on('error', rej); });
-      await new Promise((res, rej) => { data.once('connect', res); data.once('error', rej); });
-      const r = await this.cmd('NLST');
-      if (r.code !== 150 && r.code !== 125) { data.destroy(); return []; }
-      await done;
-      await this._reply().catch(() => {});
-      return Buffer.concat(chunks).toString('latin1').split(/\r?\n/).map((x) => x.trim().replace(/\/+$/, '').split('/').pop()).filter(Boolean);
+      const out = []; const notes = [];
+      for (const c of ['NLST', 'LIST']) {
+        const r = await this._listCmd(c);
+        const names = r.text.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).map((line) => {
+          if (c === 'NLST') return line.replace(/\/+$/, '').split('/').pop();
+          const dos = line.match(/^\d\d-\d\d-\d\d\s+\d\d:\d\d[AP]M\s+(?:<DIR>|\d+)\s+(.+)$/);        // 10-02-26 09:15PM 1234 name
+          if (dos) return dos[1];
+          const unix = line.match(/^[-dlbcps][rwxsStT-]{9}\s+\d+\s+\S+\s+\S+\s+\d+\s+\w{3}\s+\d+\s+[\d:]+\s+(.+?)(?: -> .*)?$/);
+          return unix ? unix[1] : null;
+        }).filter(Boolean);
+        notes.push(c + ' ' + r.code);
+        if (names.length) { this.listNote = ''; return names; }
+      }
+      this.listNote = notes.join(', ');
+      return out;
     } finally { await this.cmd('CWD /').catch(() => {}); }
   }
   close() { try { this.sock && this.sock.destroy(); } catch (e) { /* ignore */ } this.closed = true; }
+}
+
+/* Find server.log. The setting may be the log file itself, or the folder the results land in. Looks in that folder, log / logs inside
+   it, its parent and grandparent, and the root; asks for the folder listing and ALSO asks for the file by name, because some hosts
+   refuse to list folders but will still serve a file. ops = { list(dir) -> names|null, size(path) -> number|null, note() } */
+async function findLog(ops, given0) {
+  const given = String(given0 || '').replace(/\/+$/, '') || '/';
+  if (/\.(log|txt)$/i.test(given)) return given;
+  const parent = given.replace(/\/[^/]*$/, '') || '/';
+  const grand = parent.replace(/\/[^/]*$/, '') || '/';
+  const j = (a, b) => (a === '/' ? '' : a) + '/' + b;
+  const dirs = [given, j(given, 'log'), j(given, 'logs'), j(given, 'Log'), j(given, 'Logs'), parent, j(parent, 'log'), j(parent, 'logs'), j(parent, 'Log'), j(parent, 'Logs'), grand, j(grand, 'log'), j(grand, 'logs'), j(grand, 'Log'), j(grand, 'Logs'), '/', '/log', '/logs', '/Log', '/Logs'];
+  const seen = new Set(); const tried = [];
+  for (const d of dirs) {
+    if (seen.has(d)) continue; seen.add(d);
+    const names = await ops.list(d);
+    if (names) {
+      const hit = names.find((n) => /^server\.log$/i.test(n)) || names.find((n) => /server.*\.log$/i.test(n)) || null;
+      if (hit) return j(d, hit);
+    }
+    for (const n of ['server.log', 'Server.log']) {              // not in the listing (or listing refused): ask for the file directly
+      const sz = await ops.size(j(d, n));
+      if (sz != null) return j(d, n);
+    }
+    tried.push((d === given ? '(your setting)' : d) + (names ? ' (' + names.length + ' listed' + (names.length ? '' : (ops.note() ? ', ' + ops.note() : '')) + ')' : ' (' + (ops.note() || 'not a folder') + ')'));
+  }
+  throw new Error('could not find server.log. Looked in: ' + tried.join(', '));
 }
 
 /* Servers that use the same FTP login share ONE connection (commands take turns), so seven servers do not mean seven logins. */
@@ -178,43 +228,94 @@ function ftpSource(o) {
     e.lock = run.catch(() => {});
     return run;
   };
+  let delegate = null;                                   // set when the host turns out to need SFTP / encrypted FTP
+  const viaCurl = (err) => {
+    if (delegate) return delegate;
+    const scheme = err.code === 'SFTP' ? 'sftp' : err.code === 'NOBANNER' ? 'ftps' : 'ftp';
+    delegate = curlSource({ ...o, scheme, ssl: err.code === 'FTPS' });
+    log('[' + (o.tag || '?') + ']', 'plain FTP is not accepted here (' + err.message + ') - switching to ' + (err.code === 'SFTP' ? 'SFTP' : 'encrypted FTP') + ' through curl');
+    return delegate;
+  };
+  const guard = async (name, args, fallbackCall) => {
+    if (delegate) return delegate[name](...args);
+    try { return await fallbackCall(); }
+    catch (err) { if (err.code === 'SFTP' || err.code === 'FTPS' || err.code === 'NOBANNER') return viaCurl(err)[name](...args); throw err; }
+  };
   return {
     name: 'ftp',
-    stat: () => wrap(async (f) => ({ size: await f.size(o.path), mtimeMs: await f.mtime(o.path).catch(() => null) })),
-    read: (offset, length) => wrap((f) => f.retr(o.path, offset, length)),
-    /* The setting may be the log file itself, or the folder the results land in. In the folder case look for server.log there,
-       in a log / logs folder inside it, and next to it. Remembers what it found. */
-    resolve: () => wrap(async (f) => {
+    stat: () => guard('stat', [], () => wrap(async (f) => ({ size: await f.size(o.path), mtimeMs: await f.mtime(o.path).catch(() => null) }))),
+    read: (offset, length) => guard('read', [offset, length], () => wrap((f) => f.retr(o.path, offset, length))),
+    resolve: () => guard('resolve', [], async () => {
       if (o.found) return o.path;
-      const given = String(o.path || '').replace(/\/+$/, '') || '/';
-      if (/\.(log|txt)$/i.test(given)) { o.found = true; return o.path; }
-      const parent = given.replace(/\/[^/]*$/, '') || '/';
-      const grand = parent.replace(/\/[^/]*$/, '') || '/';
-      const j = (a, b) => (a === '/' ? '' : a) + '/' + b;
-      const dirs = [given, j(given, 'log'), j(given, 'logs'), j(given, 'Log'), j(given, 'Logs'), parent, j(parent, 'log'), j(parent, 'logs'), j(parent, 'Log'), j(parent, 'Logs'), j(grand, 'log'), j(grand, 'logs')];
-      const seen = new Set(); const tried = [];
-      for (const d of dirs) {
-        if (seen.has(d)) continue; seen.add(d);
-        const names = await f.list(d);
-        tried.push(d + (names ? ' (' + names.length + ' files)' : ' (not a folder)'));
-        if (!names) continue;
-        const hit = names.find((n) => /^server\.log$/i.test(n)) || names.find((n) => /server.*\.log$/i.test(n)) || null;
-        if (hit) { o.path = j(d, hit); o.found = true; return o.path; }
-      }
-      throw new Error('could not find server.log. Looked in: ' + tried.join(', '));
+      const p = await wrap((f) => findLog({ list: (d) => f.list(d), size: (x) => f.trySize(x), note: () => f.listNote }, o.path));
+      o.path = p; o.found = true; return p;
     }),
+    path: () => (delegate ? delegate.path() : o.path),
+    async close() { if (delegate) await delegate.close(); }
+  };
+}
+
+/* SFTP and encrypted FTP (FTPS) through the curl program, which every GitHub runner has. One curl call = one login, so it polls gently. */
+function curlSource(o) {
+  const { execFile } = require('child_process');
+  const base = (o.scheme === 'sftp' ? 'sftp' : o.scheme === 'ftps' ? 'ftps' : 'ftp') + '://' + o.host + (o.port ? ':' + o.port : '');
+  const url = (p) => base + '/' + String(p || '').replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+  const args = (extra) => ['-sS', '--connect-timeout', '20', '--max-time', '90', '-u', o.user + ':' + o.pass, '-k'].concat(o.ssl ? ['--ssl-reqd'] : [], extra);
+  const run = (extra, wantBuf) => new Promise((res, rej) => execFile('curl', args(extra), { encoding: wantBuf ? 'buffer' : 'utf8', maxBuffer: 256 * 1048576 }, (err, out, errText) => {
+    if (err) { const m = String((errText && errText.toString()) || err.message).trim().split('\n').pop().replace(/^curl:\s*/, ''); const e = new Error('curl: ' + (o.pass && o.pass.length >= 4 ? m.split(o.pass).join('***') : m)); e.curl = err.code; return rej(e); }
+    res(out);
+  }));
+  const ops = {
+    list: async (d) => { try { const t = await run(['--list-only', url(d.replace(/\/+$/, '') + '/')], false); return t.split(/\r?\n/).map((x) => x.trim().replace(/\/+$/, '').split('/').pop()).filter(Boolean); } catch (e) { ops._note = e.message.replace(/^curl:\s*/, '').slice(0, 60); return null; } },
+    size: async (pth) => { try { const t = await run(['-I', url(pth)], false); const m = t.match(/content-length:\s*(\d+)/i); return m ? Number(m[1]) : null; } catch (_) { return null; } },
+    note: () => ops._note || ''
+  };
+  return {
+    name: o.scheme === 'sftp' ? 'sftp' : 'ftps',
+    gentle: true,
+    async stat() {
+      const t = await run(['-I', url(o.path)], false);
+      const m = t.match(/content-length:\s*(\d+)/i); if (!m) throw new Error('the host did not report the log size');
+      const lm = Date.parse((t.match(/last-modified:\s*(.+)/i) || [])[1] || '');
+      return { size: Number(m[1]), mtimeMs: Number.isFinite(lm) ? lm : null };
+    },
+    async read(offset, length) { return run(['-r', offset + '-' + (length != null ? offset + length - 1 : ''), url(o.path)], true); },
+    async resolve() { if (o.found) return o.path; const p = await findLog(ops, o.path); o.path = p; o.found = true; return p; },
     path: () => o.path,
     async close() {}
   };
 }
+
 function closeFtpPool() { ftpPool.forEach((e) => { if (e.c) e.c.close(); }); ftpPool.clear(); }
 
-function makeSource(get) {
+/* what is listening on host:port? 'sftp' (SSH banner), 'ftp' (220 banner) or 'ftps' (silent: waits for an encrypted hello) */
+const probeCache = new Map();
+function probeProtocol(host, port) {
+  const key = host + ':' + port;
+  if (probeCache.has(key)) return probeCache.get(key);
+  const pr = new Promise((resolve) => {
+    let done = false; const fin = (v) => { if (!done) { done = true; try { sock.destroy(); } catch (_) {} resolve(v); } };
+    const sock = net.createConnection({ host, port });
+    sock.setTimeout(8000, () => fin('ftps'));
+    sock.on('error', () => fin('ftp'));
+    sock.on('data', (d) => { const t = d.toString('latin1'); fin(/^SSH-/.test(t) ? 'sftp' : 'ftp'); });
+    setTimeout(() => fin('ftps'), 5000);
+  });
+  probeCache.set(key, pr);
+  return pr;
+}
+
+async function makeSource(get, tag) {
   const kind = get('LOG_SOURCE', 'ftp').toLowerCase();
   if (kind === 'file') return fileSource(get('LOG_FILE', 'server.log'));
   if (kind === 'http') return httpSource(get('LOG_URL', ''), get('LOG_HTTP_AUTH', ''));
   if (!get('FTP_HOST', '')) throw new Error('FTP_HOST is not set');
-  return ftpSource({ host: get('FTP_HOST', ''), port: Number(get('FTP_PORT', '21')) || 21, user: get('FTP_USER', 'anonymous'), pass: get('FTP_PASS', ''), path: get('FTP_PATH', 'server.log') });
+  const o = { tag, host: get('FTP_HOST', ''), port: Number(get('FTP_PORT', '21')) || 21, user: get('FTP_USER', 'anonymous'), pass: get('FTP_PASS', ''), path: get('FTP_PATH', 'server.log') };
+  let proto = get('FTP_PROTO', 'auto').toLowerCase();
+  if (proto === 'auto') proto = await probeProtocol(o.host, o.port);
+  if (proto === 'sftp') { log('[' + tag + ']', 'the host speaks SFTP - using curl'); return curlSource({ ...o, scheme: 'sftp' }); }
+  if (proto === 'ftps') { log('[' + tag + ']', 'the host wants an encrypted connection from the start - using curl'); return curlSource({ ...o, scheme: 'ftps' }); }
+  return ftpSource(o);
 }
 
 /* ---------------- posting ---------------- */
@@ -242,11 +343,11 @@ async function runOne(cfg) {
   const get = cfg.get;
   const tag = '[' + serverId + ']';
   const runMs = Number(get('RUN_SECONDS', '3300')) * 1000;
-  const pollMs = Math.max(2, Number(get('POLL_SECONDS', '5'))) * 1000;
+  let pollMs = Math.max(2, Number(get('POLL_SECONDS', '5'))) * 1000;
   const beatMs = Math.max(pollMs, Number(get('HEARTBEAT_SECONDS', '15')) * 1000);
   const maxRead = Number(get('MAX_READ_MB', '24')) * 1048576;
   const dry = get('DRY_RUN', '') === '1';
-  const src = makeSource(get);
+  const src = await makeSource(get, serverId);
   const started = cfg.started || Date.now();
 
   let st = S.newState();
@@ -263,13 +364,14 @@ async function runOne(cfg) {
     return { server: serverId, fetchedAtMs: Date.now(), lastGrowthMs, final: !!final, source: src.name, bytes: offset, snapshot: snap };
   };
 
+  if (src.gentle) pollMs = Math.max(pollMs, 15000);
   log(tag, 'start: source=' + src.name + ' run=' + Math.round(runMs / 1000) + 's' + (dry ? ' (dry run)' : ''));
 
   let resolved = !src.resolve;
   while (!cfg.ctl.stopping && Date.now() - started < runMs) {
     const loopStart = Date.now();
     try {
-      if (!resolved) { const found = await src.resolve(); resolved = true; log(tag, 'log file: ' + found); }
+      if (!resolved) { const found = await src.resolve(); resolved = true; log(tag, 'log file: ' + found + ' (via ' + src.name + (src.gentle ? ', checks every 15 s' : '') + ')'); }
       const info = await src.stat();
       if (info.size < offset) {                       // file shrank = server restarted / log rotated
         log(tag, 'log got smaller - treating as a server restart');
@@ -363,4 +465,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch((e) => { console.error('poller failed:', e.message); process.exit(1); });
-module.exports = { Ftp, ftpSource, fileSource, httpSource, runOne, main };
+module.exports = { Ftp, ftpSource, curlSource, fileSource, httpSource, findLog, probeProtocol, runOne, main };
