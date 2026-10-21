@@ -40,11 +40,10 @@
 
   function mount(el, opts) {
     opts = opts || {};
-    const server = opts.server || 'main';
-    const load = opts.load || (() => rpc('staffServerLive', null, '&server=' + encodeURIComponent(server)));
+    const load = opts.load || ((sv) => rpc('staffServerLive', null, '&server=' + encodeURIComponent(sv)));
     const api = opts.api || rpc;
-    const S = { data: null, err: '', notes: {}, filter: 'problems', feedFilter: 'all', seenEventId: -1, seenBoot: null, first: true, timer: 0, tick: 0, running: false, upload: null, sound: false, toasts: true, loadedAt: 0, audio: null, titleBase: '', open: {} };
-    try { S.sound = localStorage.getItem('IFWL_SL_SOUND') === '1'; S.toasts = localStorage.getItem('IFWL_SL_TOASTS') !== '0'; S.filter = localStorage.getItem('IFWL_SL_FILTER') || 'problems'; } catch (_) {}
+    const S = { data: null, err: '', notes: {}, filter: 'problems', feedFilter: 'all', seenEventId: -1, seenBoot: null, first: true, timer: 0, tick: 0, running: false, upload: null, sound: false, toasts: true, loadedAt: 0, audio: null, titleBase: '', open: {}, server: opts.server || 'con-pro', picked: !!opts.server, overview: [] };
+    try { S.sound = localStorage.getItem('IFWL_SL_SOUND') === '1'; S.toasts = localStorage.getItem('IFWL_SL_TOASTS') !== '0'; S.filter = localStorage.getItem('IFWL_SL_FILTER') || 'problems'; if (!opts.server) { const sv = localStorage.getItem('IFWL_SL_SERVER'); if (sv) { S.server = sv; S.picked = true; } } } catch (_) {}
 
     el.classList.add('sl-root');
     el.innerHTML =
@@ -54,6 +53,7 @@
       + '<button type="button" class="sl-btn" data-a="sound" aria-pressed="false">Sound off</button>'
       + '<button type="button" class="sl-btn" data-a="toasts" aria-pressed="true">Pop-ups on</button>'
       + '<button type="button" class="sl-btn" data-a="upload">Open a log file</button><input type="file" data-r="file" accept=".log,.txt,text/plain" hidden></div></div>'
+      + '<div class="sl-servers" data-r="servers"></div>'
       + '<div class="sl-banner" data-r="banner" hidden></div>'
       + '<div class="sl-tiles" data-r="tiles"></div>'
       + '<div class="sl-card"><div class="sl-cardhead"><h3>Drivers</h3><div class="sl-chips" data-r="rowfilters"></div></div><div class="sl-tablewrap" data-r="drivers"></div></div>'
@@ -68,6 +68,27 @@
       + '</div>';
     const R = {}; el.querySelectorAll('[data-r]').forEach((n) => { R[n.dataset.r] = n; });
     const how = el.querySelector('[data-k="how"]'); how.addEventListener('toggle', () => { S.open.how = how.open; });
+
+    /* ---------- servers ---------- */
+    const FALLBACK = [['con-beginner', 'Beginner', 'Console'], ['con-pro', 'Pro', 'Console'], ['con-am', 'Am', 'Console'], ['con-mf', 'Monday Funday', 'Console'], ['pc-multi', 'Monday Multi', 'PC'], ['pc-proam', 'Pro Am', 'PC'], ['pc-beginner', 'Beginner', 'PC']].map((x) => ({ id: x[0], label: x[1], group: x[2], none: true }));
+    const servers = () => (S.overview && S.overview.length ? S.overview : FALLBACK);
+    const serverInfo = (id) => servers().find((x) => x.id === id) || { id, label: id, group: '' };
+    const serverName = () => { const i = serverInfo(S.server); return (i.group ? i.group + ' ' : '') + i.label; };
+    function srvState(o) { return o.none ? 'none' : o.final ? 'ended' : o.stale ? 'stale' : (o.lost || o.trouble) ? 'trouble' : 'live'; }
+    function renderServers() {
+      const groups = []; servers().forEach((o) => { let g = groups.find((x) => x.name === o.group); if (!g) { g = { name: o.group, items: [] }; groups.push(g); } g.items.push(o); });
+      R.servers.innerHTML = groups.map((g) => '<div class="sl-sgroup"><span class="sl-sgl">' + esc(g.name) + '</span>' + g.items.map((o) => {
+        const st = srvState(o); const n = (o.trouble || 0) + (o.lost || 0);
+        const tip = o.none ? 'No feed yet' : st === 'ended' ? 'Feed ended' : st === 'stale' ? 'Feed stalled' : (o.online || 0) + ' online' + (o.session ? ', ' + o.session : '');
+        return '<button type="button" class="sl-srv s-' + st + (o.id === S.server && !S.upload ? ' on' : '') + (o.id === S.server && S.upload ? ' on' : '') + '" data-s="' + esc(o.id) + '" title="' + esc(tip) + '"><i class="sl-dot"></i>' + esc(o.label) + (n && st !== 'stale' && st !== 'ended' ? ' <b class="sl-bdg">' + n + '</b>' : '') + '</button>';
+      }).join('') + '</div>').join('');
+    }
+    function pickServer(id, byUser) {
+      if (!id || id === S.server) return;
+      S.server = id; if (byUser) { S.picked = true; try { localStorage.setItem('IFWL_SL_SERVER', id); } catch (_) {} }
+      S.upload = null; S.data = null; S.err = ''; S.seenEventId = -1; S.seenBoot = null; S.first = true;
+      renderAll(); refresh();
+    }
 
     /* ---------- derived data ---------- */
     const view = () => (S.upload ? S.upload : S.data);
@@ -105,7 +126,8 @@
       const v = view(); let m = '';
       if (S.upload) m = 'You are looking at a log file you opened, not the live server. Times are shown as time since the server started. <button type="button" class="sl-link" data-a="live">Back to live</button>';
       else if (!v && S.err) m = esc(S.err);
-      else if (v && v.empty) m = 'Nothing has been received from the server log yet. The log feed (GitHub workflow) needs to be running during the session. The Owner can set it up under Feed setup below. You can still open a downloaded server.log with the button above.';
+      if (S.upload && S.upload.snapshot && !S.upload.snapshot.drivers.length && !S.upload.snapshot.events.length) m = 'No drivers or events were found in this file (' + esc(S.upload.snapshot.lines || 0) + ' lines read). It may not be the ACC server.log, or the server restarted and the log has no session in it yet. <button type="button" class="sl-link" data-a="live">Back to live</button>';
+      else if (v && v.empty) m = 'Nothing has been received from the ' + esc(serverName()) + ' server log yet. The log feed (GitHub workflow) needs to be running during the session and set up for this server. The Owner can set it up under Feed setup below. You can still open a downloaded server.log with the button above.';
       else if (v && v.stale && !v.final) m = 'The feed has not updated for a while, so the table below is out of date. Check the log feed workflow is still running.';
       R.banner.hidden = !m; R.banner.innerHTML = m;
     }
@@ -184,21 +206,22 @@
     }
 
     function renderSession() {
-      const s = snap(); if (!s) { R.session.textContent = 'Waiting for the first update…'; return; }
+      const s = snap(); if (!s) { R.session.innerHTML = '<span class="sl-which">' + esc(serverName()) + '</span> · waiting for the first update…'; return; }
       const x = s.session || {};
-      const bits = [];
+      const bits = ['<span class="sl-which">' + esc(S.upload ? 'Uploaded log' : serverName()) + '</span>'];
+      if (s.serverName) bits.push('<span class="sl-sname" title="The server\u2019s own name, from its log">' + esc(s.serverName.replace(/[\s|]+$/, '')) + '</span>');
       if (x.name) bits.push('<b>' + esc(x.name) + '</b>' + (x.phase && x.phase !== 'session' ? ' (' + esc(x.phase) + ')' : ''));
       if (x.minLeft != null) bits.push(esc(x.minLeft) + ' min left');
       if (x.cars) bits.push(esc(x.cars) + ' cars');
       if (s.boots) bits.push('server restarted ' + s.boots + (s.boots === 1 ? ' time' : ' times'));
-      R.session.innerHTML = bits.length ? bits.join(' · ') : 'Connected to the server log';
+      R.session.innerHTML = bits.join(' · ');
     }
 
-    function renderAll() { renderStatus(); renderBanner(); renderSession(); renderTiles(); renderFilters(); renderDrivers(); renderFeed(); renderTitle(); try { ownerBox(); } catch (_) {} }
+    function renderAll() { renderServers(); renderStatus(); renderBanner(); renderSession(); renderTiles(); renderFilters(); renderDrivers(); renderFeed(); renderTitle(); try { ownerBox(); } catch (_) {} }
 
     function renderTitle() {
       if (!S.running) return;
-      const s = snap(); const n = s ? s.drivers.filter((d) => d.status === 'lost' || (d.status === 'online' && (d.grade === 'poor' || d.grade === 'bad'))).length : 0;
+      const n = (S.overview || []).reduce((a, o) => a + (srvState(o) === 'live' || srvState(o) === 'trouble' ? (o.trouble || 0) + (o.lost || 0) : 0), 0);
       if (!S.titleBase) S.titleBase = document.title.replace(/^\(\d+\)\s*/, '');
       document.title = (n ? '(' + n + ') ' : '') + S.titleBase;
     }
@@ -235,10 +258,18 @@
     async function refresh() {
       if (S.upload) return;
       try {
-        const d = await load(server);
+        const d = await load(S.server);
         S.loadedAt = Date.now(); S.err = '';
         if (!d.empty && d.snapshot) announce(d.snapshot);
         S.data = d;
+        if (d.overview) S.overview = d.overview;
+        if (!S.picked && !S.upload) {          // nobody chose a server yet: show one that is actually live
+          const cur = serverInfo(S.server);
+          if (srvState(cur) !== 'live' && srvState(cur) !== 'trouble') {
+            const best = (S.overview || []).filter((o) => srvState(o) === 'live' || srvState(o) === 'trouble').sort((a, b) => ((b.trouble || 0) + (b.lost || 0)) - ((a.trouble || 0) + (a.lost || 0)) || (b.online || 0) - (a.online || 0))[0];
+            if (best && best.id !== S.server) { pickServer(best.id, false); return; }
+          }
+        }
       } catch (e) {
         S.err = e.status === 403 ? 'Server Live is for league staff.' : e.status === 401 ? 'Log in to see Server Live.' : (e.message || 'Could not reach the server');
         if (e.status === 401 || e.status === 403) S.data = null;
@@ -274,7 +305,8 @@
 
     /* ---------- events ---------- */
     el.addEventListener('click', async (ev) => {
-      const t = ev.target.closest('[data-a],[data-f],[data-ff]'); if (!t || !el.contains(t)) return;
+      const t = ev.target.closest('[data-a],[data-f],[data-ff],[data-s]'); if (!t || !el.contains(t)) return;
+      if (t.dataset.s) { if (S.upload && t.dataset.s === S.server) { S.upload = null; renderAll(); refresh(); } else { S.upload = null; pickServer(t.dataset.s, true); } return; }
       if (t.dataset.f) { S.filter = t.dataset.f; try { localStorage.setItem('IFWL_SL_FILTER', S.filter); } catch (_) {} renderFilters(); renderDrivers(); return; }
       if (t.dataset.ff) { S.feedFilter = t.dataset.ff; renderFilters(); renderFeed(); return; }
       const a = t.dataset.a, id = t.dataset.id;
@@ -293,7 +325,7 @@
       else if (a === 'told' || a === 'untold') {
         t.disabled = true;
         try {
-          const r = await api('staffServerLiveNote', { server, id, told: a === 'told', text: '' });
+          const r = await api('staffServerLiveNote', { server: S.server, id, told: a === 'told', text: '' });
           if (S.data) S.data.notes = r.notes || {};
         } catch (e) { t.textContent = e.message || 'Failed'; return; }
         renderDrivers();
@@ -344,7 +376,7 @@
     const root = document.getElementById('serverLiveRoot'); if (!root) return;
     const a = document.querySelector('.view-panel.is-active-view');
     const active = a && a.dataset.view === 'staffServerLive';
-    if (active && !ctl) { ctl = mount(root, { server: 'main' }); ctl.start(); }
+    if (active && !ctl) { ctl = mount(root, {}); ctl.start(); }
     else if (active && ctl && !ctl.state.running) ctl.start();
     else if (!active && ctl && ctl.state.running) ctl.stop();
   }
