@@ -1,0 +1,52 @@
+# Put this file in your repo at  .github/workflows/server-live-feed.yml
+# and put the two files next to it (server-live/serverlog-poller.js and server-live/ifwl-serverlog.js) in a folder called  server-live
+#
+# What it does: while a session is running it reads the ACC server.log from GPortal every few seconds,
+# works out who is lagging / dropped / left, and sends only that summary to the Licence Centre (staff view "Server Live").
+# It never publishes the raw log or any IP addresses.
+#
+# To start it: Actions tab -> "Server Live feed" -> Run workflow (pick how many minutes). Starting a new run replaces any run still going.
+
+name: Server Live feed
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to keep the feed running (minutes)"
+        default: "170"
+  # Optional: start it automatically on race nights. Times are UTC. Remove the # to switch on.
+  # schedule:
+  #   - cron: "30 18 * * 2,4"
+
+concurrency:
+  group: server-live-feed
+  cancel-in-progress: true
+
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run the feed
+        env:
+          MINUTES: ${{ inputs.minutes }}
+          LOG_SOURCE: ftp
+          # ---- rename the secrets on the right to match the ones you already have for the server log ----
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_PATH: ${{ secrets.SERVER_LOG_PATH }}       # full path to the PRO console server's server.log on the FTP
+          # ---- new secret: the feed key (Owner sees it on the Server Live page, "Feed setup") ----
+          INGEST_KEY: ${{ secrets.IFWL_INGEST_KEY }}
+          INGEST_URL: https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate
+          SERVER_ID: main
+          POLL_SECONDS: "5"
+        run: |
+          export RUN_SECONDS=$(( ${MINUTES:-170} * 60 ))
+          node server-live/serverlog-poller.js
