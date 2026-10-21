@@ -71,7 +71,7 @@
       const pill = host.querySelector('.tier-pill'); if (pill) pill.insertAdjacentElement('afterend', s); else host.appendChild(s);
     });
   }
-  function applyAll() { applyNav(); applyCard(); applyDirectory(); }
+  function applyAll() { applyNav(); applyCard(); applyDirectory(); applyHomeStrip(); }
   let dirObs = null;
   function watchDirectory() {
     const body = $('dirTableBody'); if (!body || dirObs) return;
@@ -139,6 +139,106 @@
       + (more.length ? '<ul class="rt-feed" id="rtFeedMore" style="display:none;margin-top:8px">' + more.map((e) => row(e)).join('') + '</ul><button type="button" class="btn" id="rtFeedBtn" style="margin-top:10px">Show ' + more.length + ' more</button>' : '');
   }
 
+
+  /* ---------- weekly boards: Top 5, Most improved, Highest earners (Mon-Sun, UK time) ---------- */
+  const wk = {};
+  async function loadWeekly(week, force) {
+    const c = wk[week];
+    if (!force && c && Date.now() - c.at < 120000) return c.d;
+    const d = await call('ratingWeekly', null, '&week=' + week);
+    wk[week] = { at: Date.now(), d };
+    return d;
+  }
+  const gbp = (n) => '£' + Math.round(Number(n) || 0).toLocaleString('en-GB');
+  const ord = (n) => { const v = n % 100; return n + ((v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')); };
+  function avHtml(r) {
+    const nm = String(r.name || '?').replace(/^\[[^\]]*\]\s*-?\s*/, '');
+    return '<span class="rt-av"><b>' + esc((nm[0] || '?').toUpperCase()) + '</b>' + (r.avatar ? '<img src="' + esc(r.avatar) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '') + '</span>';
+  }
+  function boardHtml(title, sub, rows, val, empty, me) {
+    return '<div class="rt-bd"><h4>' + esc(title) + '</h4><p class="rt-bsub">' + esc(sub) + '</p>'
+      + (rows.length ? '<ol class="rt-rows">' + rows.map((r, i) => '<li class="' + (r.id === me ? 'rt-me' : '') + '"><span class="rt-rk r' + (i + 1) + '">' + (r.rank || i + 1) + '</span>' + avHtml(r) + '<span class="rt-nm">' + esc(r.name) + (r.id === me ? ' <em>you</em>' : '') + '</span><span class="rt-val">' + val(r) + '</span></li>').join('') + '</ol>'
+        : '<p class="rt-bempty">' + esc(empty) + '</p>') + '</div>';
+  }
+  function youLine(y, d) {
+    if (!y) return 'Race this week to appear on the boards.';
+    if (y.building) return 'You are still building your rating (' + (y.raced || 0) + ' of ' + (d.buildingRaces || 5) + ' races). Finish ' + Math.max(0, (d.buildingRaces || 5) - (y.raced || 0)) + ' more and you join the board.';
+    return '<b>You are ' + ord(y.rank) + ' out of ' + y.of + ' rated drivers</b> – ahead of ' + y.beatPct + '% of the grid.'
+      + (y.delta != null ? ' This week: <b style="color:' + (y.delta >= 0 ? 'var(--ifwl-green)' : 'var(--ifwl-red)') + '">' + sign(y.delta) + '</b> points.' : '')
+      + (y.earnRaces ? ' You took home <b>' + gbp(y.net) + '</b> from ' + y.earnRaces + ' race' + (y.earnRaces === 1 ? '' : 's') + '.' : '');
+  }
+  function weeklyBodyHtml(d, week) {
+    const me = myId();
+    const range = fmtDate(d.week.startMs) + ' – ' + fmtDate(d.week.endMs - 1);
+    const pos = d.you && !d.you.building && d.you.rank ? Math.max(2, Math.min(98, 100 - (d.you.beatPct || 0))) : null;
+    return '<div class="rt-seg"><button type="button" data-wk="0" class="' + (week === 0 ? 'on' : '') + '">This week</button><button type="button" data-wk="1" class="' + (week === 1 ? 'on' : '') + '">Last week</button><span class="rt-range">' + esc(range) + ' · Monday to Sunday</span></div>'
+      + '<p class="rt-you">' + youLine(d.you, d) + '</p>'
+      + (pos != null ? '<div class="rt-where" title="Where you sit between the top and bottom of the grid"><i style="left:' + pos + '%"></i><span>Top</span><span>Bottom</span></div>' : '')
+      + '<div class="rt-wk-grid">'
+      + boardHtml('Top 5', 'Highest ' + esc(d.name || 'rating') + ' right now', d.top || [], (r) => '<b>' + Math.round(r.s) + '</b> <small>' + esc(r.l) + '</small>', 'Nobody has a published rating yet. A rating goes live after ' + (d.buildingRaces || 5) + ' races.', me)
+      + boardHtml('Most improved', 'Biggest rating gain this week', d.improved || [], (r) => '<b class="rt-up">+' + r.delta + '</b> <small>' + r.from + ' → ' + r.to + '</small>', 'No improvers to show yet. Race this week and push your number up.', me)
+      + boardHtml('Highest earners', 'Net race take-home this week', d.earners || [], (r) => '<b>' + gbp(r.net) + '</b> <small>' + r.races + ' race' + (r.races === 1 ? '' : 's') + '</small>', 'No race earnings settled this week yet.', me)
+      + '</div><p class="rt-wnote">Rating gain counts drivers with a published rating who raced in the week. Earnings are race prize money after entry, tyres, fuel and parts.</p>';
+  }
+  async function mountWeekly(el, week, opts) {
+    if (!el) return;
+    opts = opts || {};
+    week = week || 0;
+    el.dataset.wk = String(week);
+    el.innerHTML = '<h3>' + esc(opts.title || 'How you compare') + '</h3><div class="rt-empty" style="padding:16px">Loading the boards…</div>';
+    let d;
+    try { d = await loadWeekly(week); } catch (e) { el.innerHTML = '<h3>' + esc(opts.title || 'How you compare') + '</h3><div class="rt-empty" style="padding:16px">' + esc(e.message || 'Could not load the boards') + '</div>'; return; }
+    if (!d || !d.visible) { el.innerHTML = ''; return; }
+    el.innerHTML = '<h3>' + esc(opts.title || 'How you compare') + '</h3>' + weeklyBodyHtml(d, week)
+      + (bodyHas('owner-access') ? '<div class="rt-ownerpost"><button type="button" class="btn" id="rtWkPrev">Preview Discord post</button><span id="rtWkOut"></span></div>' : '');
+    el.querySelectorAll('.rt-av img').forEach((i) => i.addEventListener('error', () => i.remove()));
+    el.querySelectorAll('.rt-seg button').forEach((b) => b.addEventListener('click', () => mountWeekly(el, +b.dataset.wk, opts)));
+    const pv = el.querySelector('#rtWkPrev');
+    if (pv) pv.addEventListener('click', async () => {
+      const out = el.querySelector('#rtWkOut'); out.innerHTML = 'Building preview…';
+      try {
+        const r = await call('ratingWeeklyPost', { week, preview: true });
+        out.innerHTML = '<pre class="rt-pre">' + esc(r.text) + '</pre><button type="button" class="btn teal" id="rtWkGo">Post to Discord</button> <button type="button" class="btn" id="rtWkNo">Cancel</button> <span id="rtWkMsg" class="rt-status"></span>';
+        out.querySelector('#rtWkNo').addEventListener('click', () => { out.innerHTML = ''; });
+        out.querySelector('#rtWkGo').addEventListener('click', async () => {
+          const m = out.querySelector('#rtWkMsg'); m.textContent = 'Posting…'; m.className = 'rt-status';
+          try { await call('ratingWeeklyPost', { week }); m.textContent = 'Posted to Discord.'; m.className = 'rt-status ok'; } catch (e) { m.textContent = e.message; m.className = 'rt-status bad'; }
+        });
+      } catch (e) { out.innerHTML = '<span class="rt-status bad">' + esc(e.message) + '</span>'; }
+    });
+  }
+
+  /* Home: a collapsed "This week" strip under the licence row (opens on tap, loads on first open) */
+  function myRank() {
+    const me = myId(); const r = board && board.ratings ? board.ratings[me] : null;
+    if (!r || r.b) return null;
+    let ahead = 0, n = 0;
+    Object.keys(board.ratings).forEach((k) => { const x = board.ratings[k]; if (x && !x.b) { n += 1; if (x.s > r.s) ahead += 1; } });
+    return { rank: ahead + 1, of: n };
+  }
+  function applyHomeStrip() {
+    const anchor = document.querySelector('.home-top-row');
+    let sec = $('rtWeekStrip');
+    if (!visible() || !anchor || !anchor.parentNode) { if (sec) sec.remove(); return; }
+    if (!sec) {
+      sec = document.createElement('section'); sec.id = 'rtWeekStrip'; sec.className = 'panel view-panel rt-weekstrip rt-min'; sec.dataset.view = 'home';
+      sec.innerHTML = '<div class="panel-head" role="button" tabindex="0" aria-expanded="false"><div><h3>This week</h3><small>Top 5 · Most improved · Highest earners</small></div><span class="rt-pill" id="rtWeekPill"></span></div><div class="panel-body"><div id="rtWeekBody"></div></div>';
+      anchor.parentNode.insertBefore(sec, anchor.nextSibling);
+      if (currentView() === 'home') sec.classList.add('is-active-view');
+      const head = sec.querySelector('.panel-head');
+      const toggle = () => {
+        const open = sec.classList.toggle('rt-min') === false; head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open && !sec.dataset.loaded) { sec.dataset.loaded = '1'; mountWeekly($('rtWeekBody'), 0, { title: 'How you compare' }); }
+      };
+      head.addEventListener('click', toggle);
+      head.addEventListener('keydown', (ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === head) { ev.preventDefault(); toggle(); } });
+    }
+    // keep the active-view rule in step if the page already has a view selected
+    const pill = $('rtWeekPill'); const mr = myRank();
+    if (pill) pill.textContent = mr ? 'You: ' + ord(mr.rank) + ' of ' + mr.of : '';
+    const h3 = sec.querySelector('h3'); if (h3) h3.textContent = 'This week';
+  }
+
   let curData = null;
   function renderPage(d, root) {
     if (!d.visible) { root.innerHTML = '<div class="rt-page"><div class="rt-empty"><h3 style="margin:0 0 6px">Not switched on yet</h3>The driver rating is not live yet. Check back soon.</div></div>'; return; }
@@ -157,6 +257,7 @@
       + (d.building ? '<p>Race ' + Math.max(0, d.racesNeeded - d.racesDone) + ' more time' + (d.racesNeeded - d.racesDone === 1 ? '' : 's') + ' and your number goes live. Until then only you can see how it is shaping up below.</p>' : '<p>Clean racing, steady turn-out and good feedback from the drivers you race with move this up. Upheld steward decisions and negative feedback move it down. It never changes how fast you are, only how you race.</p>')
       + '<div style="margin-top:14px"><div class="rt-bar"><i style="width:' + pctNext + '%"></i></div><div class="rt-barlab"><span>' + (d.building ? d.racesDone + ' of ' + d.racesNeeded + ' races' : (lv.nextAt ? lv.toNext + ' points to ' + esc(lv.nextName) : 'Top level reached')) + '</span><span>' + (d.building ? d.racesNeeded : (lv.nextAt || 1000)) + '</span></div></div></div></div>'
       + '<div class="rt-ladder">' + ladderHtml(levels, d.building ? null : d.score) + '</div></div>'
+      + '<div class="rt-card" id="rtWeekly"></div>'
       + '<div class="rt-grid2"><div class="rt-card"><h3>Where your points come from</h3><div class="rt-pillars">'
       + d.pillars.map((p) => { const m = PILLAR[p.key]; return '<div class="rt-pl"><div class="rt-h"><b><em>' + p.key + '</em>' + m.name + '</b><span>' + p.value + ' / ' + p.max + '</span></div><div class="rt-d">' + m.d + '</div><div class="rt-bar"><i class="' + m.cls + '" style="width:' + Math.round(p.value / p.max * 100) + '%"></i></div><div class="rt-now">' + esc(pillarNow(p.key, d.detail, d.diag)) + '</div></div>'; }).join('')
       + '</div></div><div class="rt-card"><h3>What moved your score</h3>' + eventsHtml(d.events) + '</div></div>'
@@ -164,6 +265,7 @@
       + '<div class="rt-card"><h3>Your season so far</h3>' + sparkHtml(d.chart) + '</div></div>'
       + '<div class="rt-card"><h3>How it works</h3>' + howHtml(d) + '</div>'
       + '<div id="rtStaffAdj"></div></div>';
+    mountWeekly($('rtWeekly'), 0, { title: 'How you compare' });
     const fb = $('rtFeedBtn');
     if (fb) fb.addEventListener('click', () => { const m = $('rtFeedMore'); const open = m.style.display === 'none'; m.style.display = open ? 'grid' : 'none'; fb.textContent = open ? 'Show fewer' : 'Show more'; });
     const sel = $('rtWi');
