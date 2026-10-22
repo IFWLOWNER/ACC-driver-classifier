@@ -214,7 +214,7 @@ body[data-item="suit"] .for-helmet{display:none!important}
         </div>
         <div class="row" style="margin-top:8px">
           <select id="logoWhere" aria-label="Where to place it"></select>
-          <button class="btn primary" id="qaLogo">Upload logo here</button>
+          <button class="btn primary" id="qaLogo">Sponsor logo here (PNG)</button>
           <button class="btn" id="qaText">Text here</button>
         </div>
         <div class="note">These drop the item in the right place on the suit. You can then drag, resize or rotate it on the Decals tab, or add shapes and mirror them to the other side.</div>
@@ -229,8 +229,11 @@ body[data-item="suit"] .for-helmet{display:none!important}
         <div class="row">
           <button class="btn primary" id="addImgBtn">Upload image</button>
           <button class="btn" id="addTextBtn">Add text</button>
+          <input type="file" id="sponsorIn" accept="image/png,.png" hidden>
           <input type="file" id="fileIn" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
         </div>
+        <div class="row" style="margin-top:8px"><button class="btn primary" id="addSponsorBtn">Custom sponsor (PNG)</button></div>
+        <div class="note">Custom sponsor takes a PNG file from your device and keeps its transparent background. The empty edges are trimmed so it sizes to the logo itself. Works on both the helmet and the suit.</div>
         <div class="note">You can also drop an image straight onto the model. New items appear in the middle of the view, so turn it to where you want it first.</div>
         <h3>Shapes</h3>
         <div class="grid shapegrid" id="shapeGrid"></div>
@@ -1925,6 +1928,44 @@ $('#addImgBtn').onclick = () => { logoPlace = null; $('#fileIn').click(); };
 let logoPlace = null;
 const takeLogoPlace = () => { const p = logoPlace; logoPlace = null; return p; };
 $('#fileIn').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if(f) addImageFile(f, takeLogoPlace()); else logoPlace = null; });
+$('#addSponsorBtn').onclick = () => { logoPlace = null; $('#sponsorIn').click(); };
+$('#sponsorIn').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if(f) addSponsorFile(f, takeLogoPlace()); else logoPlace = null; });
+async function addSponsorFile(file, placeFn){
+  if(!file){ return; }
+  /* PNG only: check the file's own signature, not just the name or the type the browser guessed */
+  let isPng = false;
+  try{ const b = new Uint8Array(await file.slice(0, 8).arrayBuffer()); isPng = [137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => b[i] === v); }catch(e){}
+  if(!isPng){ toast('Sponsors must be PNG files so the background can be transparent. That file is not a PNG.'); return; }
+  if(file.size > 15*1024*1024){ toast('That PNG is over 15 MB. Please use a smaller one.'); return; }
+  const url = URL.createObjectURL(file), img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    let w = img.naturalWidth || 0, h = img.naturalHeight || 0;
+    if(w < 2 || h < 2){ toast('Could not read that PNG.'); return; }
+    /* read the pixels at full size (capped for very large files) to trim the empty edges and check for transparency */
+    const cap = Math.min(1, 2048/Math.max(w, h)), rw = Math.max(2, Math.round(w*cap)), rh = Math.max(2, Math.round(h*cap));
+    const src = el('canvas'); src.width = rw; src.height = rh; const sx = src.getContext('2d', { willReadFrequently: true }); sx.drawImage(img, 0, 0, rw, rh);
+    let px; try{ px = sx.getImageData(0, 0, rw, rh).data; }catch(e){ toast('Could not read that PNG.'); return; }
+    let x0 = rw, y0 = rh, x1 = -1, y1 = -1, seeThrough = false;
+    for(let y = 0; y < rh; y++) for(let x = 0; x < rw; x++){
+      const a = px[(y*rw + x)*4 + 3];
+      if(a < 250) seeThrough = true;
+      if(a > 8){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; }
+    }
+    if(x1 < 0){ toast('That PNG is completely transparent, so there is nothing to show.'); return; }
+    const cw = x1 - x0 + 1, ch = y1 - y0 + 1, s = Math.min(1, 1024/Math.max(cw, ch));
+    const ow = Math.max(2, Math.round(cw*s)), oh = Math.max(2, Math.round(ch*s));
+    const cv = el('canvas'); cv.width = ow; cv.height = oh; cv.getContext('2d').drawImage(src, x0, y0, cw, ch, 0, 0, ow, oh);
+    const id = newImgId(); imageStore[id] = cv.toDataURL('image/png'); ensureImage(id);
+    const name = (file.name || 'Sponsor').replace(/\.[^.]+$/, '').slice(0, 18) || 'Sponsor';
+    const pl = placeFn ? placeFn() : null;
+    addLayer({ kind: 'image', imgId: id, tintOn: false, tint: '#ffffff', aspect: ow/oh, w: pl && pl.w ? pl.w*(ow >= oh ? 1 : 0.75) : (ow >= oh ? 1.5 : 1.1)*cur.szDef, label: 'Sponsor: ' + name }, pl && pl.P ? pl : null);
+    if(!seeThrough) toast('Added. This PNG has no transparent areas, so it shows as a solid block. Use a PNG saved with a transparent background to get just the logo.');
+    else toast('Sponsor added. Drag it into place, or resize and rotate it.');
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast('Could not read that PNG.'); };
+  img.src = url;
+}
 function addImageFile(file, placeFn){
   if(!file || !/^image\//.test(file.type)){ toast('That file is not an image.'); return; }
   if(file.size > 15*1024*1024){ toast('That image is over 15 MB. Please use a smaller one.'); return; }
@@ -2295,7 +2336,7 @@ function placeFor(key){
   $('#qaChestName').onclick = () => mkText('DRIVER', 'chestL', 1.0);
   $('#qaChestNum').onclick = () => mkText('7', 'chestR', 0.5);
   $('#qaText').onclick = () => mkText('TEXT', sel.value, 1.0);
-  $('#qaLogo').onclick = () => { logoPlace = () => placeFor(sel.value); $('#fileIn').click(); };
+  $('#qaLogo').onclick = () => { logoPlace = () => placeFor(sel.value); $('#sponsorIn').click(); };
 })();
 
 /* suit presets */
