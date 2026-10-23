@@ -147,6 +147,8 @@ body[data-item="suit"] .for-helmet{display:none!important}
 #logoWhere{background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:9px;padding:7px 8px;font-size:12.5px}
 #helmetOnBtn.on{border-color:var(--accent);color:var(--accent)}
 .viewbtns{flex-wrap:wrap;justify-content:center;max-width:94%}
+
+.viewbtns .vsep{width:1px;background:var(--line2);margin:3px 3px}
 </style></head><body data-item="helmet">
 <div class="app">
   <header class="bar">
@@ -200,6 +202,14 @@ body[data-item="suit"] .for-helmet{display:none!important}
         <div id="layoutSliders"></div>
         <h3>Collar, gloves and boots</h3>
         <div id="partColours"></div>
+        <h3>Gloves and boots</h3>
+        <div class="note" style="margin-top:0">Jump to a close-up to add logos, shapes and text. Press a button again for the other angle.</div>
+        <div class="row" id="gbJump"><button class="btn small" data-v="gloveL">Left glove</button><button class="btn small" data-v="gloveR">Right glove</button><button class="btn small" data-v="bootL">Left boot</button><button class="btn small" data-v="bootR">Right boot</button></div>
+        <div id="gbColours" style="margin-top:8px"></div>
+        <div class="note">The palm of the glove and the sole of the boot have their own colour. The palm faces the body when standing, so you see it in the poses with open hands. Auto puts back the matching dark shade.</div>
+        <div class="note" style="margin-bottom:3px"><b>Glove finish</b></div><div class="seg" id="gloveFinSeg"></div>
+        <div class="note" style="margin:8px 0 3px"><b>Boot finish</b></div><div class="seg" id="bootFinSeg"></div>
+        <label class="note" style="display:flex;gap:7px;align-items:center;margin-top:10px"><input type="checkbox" id="gbBoth" checked> Quick-adds on a glove or boot go on both sides</label>
         <h3>Neck brace</h3>
         <div class="row"><button class="btn" id="braceBtn">Neck brace: On</button></div>
         <div id="braceColour"></div>
@@ -269,6 +279,7 @@ body[data-item="suit"] .for-helmet{display:none!important}
         <div class="row">
           <button class="btn" id="pngBtn2">Download current view</button>
           <button class="btn" id="sheetBtn">Download 4-view sheet</button>
+          <button class="btn for-suit" id="closeSheetBtn">Download gloves and boots sheet</button>
         </div>
         <label class="note" style="display:flex;gap:7px;align-items:center;margin-top:10px"><input type="checkbox" id="transpChk" checked> Transparent background in downloads</label>
         <h3>Saved in this browser</h3>
@@ -284,7 +295,7 @@ body[data-item="suit"] .for-helmet{display:none!important}
       <canvas id="ov"></canvas>
       <div class="stagehint" id="hint">Drag to turn it. Scroll or pinch to zoom. Select a decal to move, resize or rotate it.</div>
       <div class="viewbtns" id="viewBtns">
-        <button data-v="front">Front</button><button data-v="left">Left</button><button data-v="right">Right</button><button data-v="back">Back</button><button data-v="top">Top</button><button data-v="three">3/4</button><button data-v="upper" class="for-suit">Upper body</button><button data-v="head" class="for-suit">Head</button><button data-v="hands" class="for-suit">Hands</button>
+        <button data-v="front">Front</button><button data-v="left">Left</button><button data-v="right">Right</button><button data-v="back">Back</button><button data-v="top">Top</button><button data-v="three">3/4</button><button data-v="upper" class="for-suit">Upper body</button><button data-v="head" class="for-suit">Head</button><button data-v="hands" class="for-suit">Hands</button><span class="vsep for-suit"></span><button data-v="gloveL" class="for-suit">L glove</button><button data-v="gloveR" class="for-suit">R glove</button><button data-v="bootL" class="for-suit">L boot</button><button data-v="bootR" class="for-suit">R boot</button>
       </div>
       <div class="drop" id="drop">Drop image to add it</div>
       <div class="fail" id="fail"><div><h2 style="color:#fff;margin:0 0 6px">This browser can't show the 3D view</h2><p>Kit Studio needs WebGL 2. Try the latest Chrome, Edge, Firefox or Safari, and make sure hardware acceleration is on.</p></div></div>
@@ -630,6 +641,7 @@ uniform int uClass;         /* 0 fabric 1 trim 2 glove 3 boot 4 mannequin 5 meta
 uniform vec3 uA; uniform vec3 uB; uniform vec3 uC;
 uniform int uLayout; uniform float uScale; uniform float uShift;
 uniform vec3 uTrim; uniform vec3 uGlove; uniform vec3 uBoot; uniform vec3 uMan; uniform vec3 uBrace;
+uniform vec3 uGlovePanel; uniform vec3 uBootPanel; uniform int uGloveFin; uniform int uBootFin;   /* 0 leather 1 suede 2 gloss 3 carbon */
 uniform int uFinish;        /* 0 nomex 1 satin 2 gloss 3 metallic 4 pearl 5 leather */
 uniform float uShadowR;
 out vec4 outc;
@@ -769,22 +781,33 @@ void main(){
       float sp = step(0.9, hh); spark = sp*(0.5*base + vec3(0.5))*smoothstep(0.4, 1.0, fract(hh*7.0 + dot(N, V)*3.0));
     }
     N = perturbNm(N, vPos, vUV, nmv, nk*1.15);
-  } else if(uClass == 2){
-    vec3 gc = pow(uGlove, vec3(2.2));
-    base = mix(gc, gc*0.25, smoothstep(0.35, 0.65, info.g));
-    float g = vnoise(vPos*520.0)*0.6 + vnoise(vPos*1200.0)*0.4;
+  } else if(uClass == 2 || uClass == 3){
+    bool isG = (uClass == 2);
+    vec3 c1 = pow(isG ? uGlove : uBoot, vec3(2.2)), c2 = pow(isG ? uGlovePanel : uBootPanel, vec3(2.2));
+    base = mix(c1, c2, smoothstep(0.35, 0.65, info.g));
+    vec4 dec = texture(uAtlas, vUV);                       /* decals painted on the gloves and boots */
+    base = pow(pow(base, vec3(1.0/2.2))*(1.0 - dec.a) + dec.rgb, vec3(2.2));
+    float g = isG ? (vnoise(vPos*520.0)*0.6 + vnoise(vPos*1200.0)*0.4) : (vnoise(vPos*420.0)*0.6 + vnoise(vPos*980.0)*0.4);
     base *= 0.95 + 0.1*g*fz;
     base *= (1.0 - cav*0.25);
-    rough = 0.55; coat = 0.25; sheen = 0.1; ao = 1.0 - cav*0.3;
-    N = perturbNm(N, vPos, vUV, nmv, 1.0);
-  } else if(uClass == 3){
-    vec3 bc = pow(uBoot, vec3(2.2));
-    base = mix(bc, vec3(0.02), smoothstep(0.35, 0.65, info.g));
-    float g = vnoise(vPos*420.0)*0.6 + vnoise(vPos*980.0)*0.4;
-    base *= 0.95 + 0.1*g*fz;
-    base *= (1.0 - cav*0.25);
-    rough = 0.38; coat = 0.45; ao = 1.0 - cav*0.3;
-    N = perturbNm(N, vPos, vUV, nmv, 1.0);
+    ao = 1.0 - cav*0.3;
+    int fin = isG ? uGloveFin : uBootFin;
+    float nk2 = 1.0;
+    if(fin == 1){
+      float luma = dot(base, vec3(0.33));
+      base = mix(base, vec3(luma), 0.18)*1.08;
+      base *= 0.80 + 0.34*(vnoise(vPos*900.0)*0.6 + vnoise(vPos*2100.0)*0.4)*fz;
+      rough = 1.0; coat = 0.0; sheen = 0.65; nk2 = 1.5; ao *= 0.95;
+    }
+    else if(fin == 2){ rough = 0.10; coat = 1.0; sheen = 0.04; nk2 = 0.35; }
+    else if(fin == 3){
+      float f1 = isG ? 760.0 : 640.0;
+      float tw = smoothstep(0.25, 0.75, 0.5 + 0.5*sin((vPos.x + vPos.z)*f1)*sin((vPos.x - vPos.z + vPos.y*1.3)*f1));
+      base *= 0.40 + 0.95*mix(0.5, tw, fz); rough = 0.26; coat = 0.7; sheen = 0.12; nk2 = 0.3;
+    }
+    else if(isG){ rough = 0.55; coat = 0.25; sheen = 0.1; }
+    else { rough = 0.38; coat = 0.45; sheen = 0.0; }
+    N = perturbNm(N, vPos, vUV, nmv, nk2);
   } else if(uClass == 4){
     base = pow(uMan, vec3(2.2)); rough = 0.38; coat = 0.35;
   } else if(uClass == 5){
@@ -916,6 +939,14 @@ const ITEMS = {
   suit: newItem({ key: 'suit', noun: 'suit', classes: 7, atlasW: 3072, atlasH: 3072, thumbW: 1024, thumbH: 1024, k: 0.2, depth: [0.05, 0.5], szMin: 0.02, szMax: 0.9, szDef: 0.12, dilate: 4, noPick: [], hOff: 0.05, snapOff: 0.14, camMin: 0.8, camMax: 7, dist0: 4.4, ty0: 0.9, views: { front: [0, 0.05], left: [Math.PI/2, 0.05], right: [-Math.PI/2, 0.05], back: [Math.PI, 0.05], top: [0, 1.2, 4.8, 0.95], three: [0.62, 0.12], upper: [0.3, 0.08, 1.9, 1.22], head: [0.4, 0.05, 1.15, 1.62], hands: [0.5, 0.15, 1.7, 0.95, 0.40] }, slotKey: 'IFWL_SUIT_SLOTS', autoKey: 'IFWL_SUIT_AUTO', format: 'ifwl-suit', maxLayers: 30 })
 };
 let cur = ITEMS.helmet;
+/* which parts of the model can take decals: the helmet shell, or the suit fabric plus the gloves and boots */
+const paintable = (it, m) => it.key === 'suit' ? (m === 0 || m === 2 || m === 3) : m === 0;
+/* index ranges drawn when painting decals into the atlas */
+function decalRanges(it){
+  const r = it.model.ranges, out = [r[0]];
+  if(it.key === 'suit' && r[2] && r[3]) out.push([r[2][0], r[2][1] + r[3][1]]);
+  return out;
+}
 async function inflate(b64){
   if(typeof DecompressionStream === 'undefined') throw new Error('This browser is too old to open the 3D models.');
   const raw = atob(b64), bin = new Uint8Array(raw.length);
@@ -1037,7 +1068,7 @@ function coverageFor(t, it){
   gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
   gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(progCov.p); gl.bindVertexArray(it.mesh.vao);
-  const R0 = it.model.ranges[0]; gl.drawElements(gl.TRIANGLES, R0[1], gl.UNSIGNED_INT, R0[0]*4);
+  for(const R0 of decalRanges(it)) gl.drawElements(gl.TRIANGLES, R0[1], gl.UNSIGNED_INT, R0[0]*4);
   gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   return t.cov;
 }
@@ -1311,7 +1342,7 @@ const instances = (L) => L.sym === 'mirror' ? ['none', 'mirror'] : L.sym === 'co
 /* ---------- baking the painted skin (decals only) ---------- */
 function bakeInto(it, target, st, withDecals){
   /* the atlas holds only the decals (the colour layout / pattern is painted per pixel in the main shader) */
-  const W = target.w, H = target.h, R0 = it.model.ranges[0];
+  const W = target.w, H = target.h, RS = decalRanges(it);
   gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo); gl.viewport(0, 0, W, H);
   gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
   gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -1329,7 +1360,8 @@ function bakeInto(it, target, st, withDecals){
         const b = basis(L, mode);
         gl.uniform3fv(d.uP, b.P); gl.uniform3fv(d.uNrm, b.N); gl.uniform3fv(d.uRight, b.right); gl.uniform3fv(d.uUp, b.up);
         gl.uniform2f(d.uSize, b.w, b.h); gl.uniform1f(d.uOpacity, L.opacity);
-        gl.drawElements(gl.TRIANGLES, R0[1], gl.UNSIGNED_INT, R0[0]*4); drew = true;
+        for(const R0 of RS) gl.drawElements(gl.TRIANGLES, R0[1], gl.UNSIGNED_INT, R0[0]*4);
+        drew = true;
       }
     }
     gl.disable(gl.BLEND);
@@ -1391,6 +1423,9 @@ function drawHelmet(st, tex, vp, eye, M, ground){
   } }
   gl.bindVertexArray(null);
 }
+/* the dark panels used to be a fixed darker shade of the glove colour (and near-black on boots): that is still the "auto" look */
+function autoGlovePanel(h){ const c = hex2rgb(h).map(v => Math.max(0, Math.min(255, Math.round(v*0.5325*255)))); return '#' + c.map(v => v.toString(16).padStart(2, '0')).join(''); }
+function autoBootPanel(){ return '#2b2b2b'; }
 function drawSuit(st, tex, vp, eye, ground){
   const model = ITEMS.suit.model;
   gl.useProgram(progSuit.p); const u = progSuit.u;
@@ -1398,6 +1433,8 @@ function drawSuit(st, tex, vp, eye, ground){
   gl.uniform3fv(u.uA, hex2rgb(st.base.a)); gl.uniform3fv(u.uB, hex2rgb(st.base.b)); gl.uniform3fv(u.uC, hex2rgb(st.base.c));
   gl.uniform1i(u.uLayout, st.pattern.id); gl.uniform1f(u.uScale, st.pattern.scale); gl.uniform1f(u.uShift, st.pattern.shift);
   gl.uniform3fv(u.uTrim, hex2rgb(st.trim)); gl.uniform3fv(u.uGlove, hex2rgb(st.gloves)); gl.uniform3fv(u.uBoot, hex2rgb(st.boots)); gl.uniform3fv(u.uMan, hex2rgb(st.skin)); gl.uniform3fv(u.uBrace, hex2rgb(st.brace ? st.brace.c : '#14161a'));
+  gl.uniform3fv(u.uGlovePanel, hex2rgb(st.glovePanel || autoGlovePanel(st.gloves))); gl.uniform3fv(u.uBootPanel, hex2rgb(st.bootPanel || autoBootPanel()));
+  gl.uniform1i(u.uGloveFin, st.gloveFin || 0); gl.uniform1i(u.uBootFin, st.bootFin || 0);
   gl.uniform1i(u.uFinish, st.finish); gl.uniform1f(u.uShadowR, 0.85);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u.uAtlas, 0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ITEMS.suit.nmTex); gl.uniform1i(u.uNm, 1);
@@ -1530,7 +1567,8 @@ function frame(now){
   if(dirtyFrame || ITEMS.helmet.dirty || ITEMS.suit.dirty){ dirtyFrame = false; try{ renderFrame(); }catch(e){ console.error(e); } }
   requestAnimationFrame(frame);
 }
-function setView(name){ const c = viewCam(cur, name); cam.ty = c.yaw; cam.tp = c.pitch; cam.td = c.dist; cam.tt = c.target[1]; cam.tx = c.target[0]; autoSpin = false; syncSpinBtn(); }
+let lastViewName = 'three';
+function setView(name){ lastViewName = name; const c = viewCam(cur, name); cam.ty = c.yaw; cam.tp = c.pitch; cam.td = c.dist; cam.tt = c.target[1]; cam.tx = c.target[0]; autoSpin = false; syncSpinBtn(); }
 function changed(opts){
   opts = opts || {};
   cur.dirty = true; dirtyFrame = true;
@@ -1541,7 +1579,7 @@ function changed(opts){
 let drag = null; const pointers = new Map();
 function canvasXY(e){ const r = glc.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
 function hitLayer(hit){
-  if(hit.mat !== 0) return null;
+  if(!paintable(cur, hit.mat)) return null;
   for(let i = S.layers.length - 1; i >= 0; i--){
     const L = S.layers[i]; if(!L.vis || L.lock) continue;
     for(const mode of instances(L)){
@@ -1617,11 +1655,12 @@ glc.addEventListener('pointermove', (e) => {
     L.rot = r; changed({ noThumbs: true }); refreshInspectorValues(); return;
   }
   if(drag.mode === 'move'){
-    const hit = pickMesh(rayFromPixel(x, y)); if(!hit || hit.mat !== 0) return;
+    const hit = pickMesh(rayFromPixel(x, y)); if(!hit || !paintable(cur, hit.mat)) return;
     drag.moved = true;
     const b = basis(L, drag.inst);
     let c = v3.sub(hit.p, v3.add(v3.mul(b.right, drag.ox), v3.mul(b.up, drag.oy)));
-    let snap = pickMesh({ o: v3.add(c, v3.mul(hit.n, cur.snapOff)), d: v3.mul(hit.n, -1) }); if(!snap || snap.mat !== 0) snap = hit;
+    const so = (hit.mat === 2 || hit.mat === 3) ? 0.035 : cur.snapOff;
+    let snap = pickMesh({ o: v3.add(c, v3.mul(hit.n, so)), d: v3.mul(hit.n, -1) }); if(!snap || !paintable(cur, snap.mat)) snap = hit;
     let p = snap.p, n = snap.n;
     if(drag.inst !== 'none'){ p = [-p[0], p[1], p[2]]; n = [-n[0], n[1], n[2]]; }
     L.P = p; L.N = n; changed({ noThumbs: true }); return;
@@ -1752,7 +1791,14 @@ reg(() => { if(document.activeElement !== nameIn) nameIn.value = S.name; });
 function syncSpinBtn(){ $('#spinBtn').classList.toggle('on', autoSpin); }
 $('#spinBtn').onclick = () => { autoSpin = !autoSpin; cam.ty = null; syncSpinBtn(); dirtyFrame = true; };
 $('#resetViewBtn').onclick = () => { setView('three'); };
-$$('#viewBtns button').forEach(b => b.addEventListener('click', () => setView(b.dataset.v)));
+/* close-up cameras: press again for the second angle */
+const CLOSE = { gloveL: ['gloveL', 'gloveLf'], gloveR: ['gloveR', 'gloveRf'], bootL: ['bootL', 'bootLf'], bootR: ['bootR', 'bootRf'] };
+function nextView(v){
+  const c = CLOSE[v]; if(!c) return v;
+  if(cur.key === 'suit' && S.pose && S.pose !== 'relaxed'){ S.pose = 'relaxed'; syncAll(); changed({ noThumbs: true }); commit(); toast('Back to the Relaxed pose so you can edit it.'); }
+  return lastViewName === c[0] ? c[1] : c[0];
+}
+$$('#viewBtns button').forEach(b => b.addEventListener('click', () => setView(nextView(b.dataset.v))));
 glcHintOnce();
 function glcHintOnce(){ glc.addEventListener('pointerdown', () => { $('#hint').style.opacity = 0; }, { once: true }); }
 
@@ -1896,28 +1942,31 @@ SHAPES.forEach(sh => {
 function placeAtCentre(){
   if(cur.key === 'suit' && S.pose && S.pose !== 'relaxed'){ S.pose = 'relaxed'; syncAll(); toast('Back to the Relaxed pose so the item sits correctly.'); }
   /* aim at the middle of the view, but slide up/down if that lands on something that cannot be painted (visor, trim) */
-  const ok = (h) => h && h.mat === 0 && h.n[1] > -0.6;
+  const ok = (h) => h && paintable(cur, h.mat) && h.n[1] > -0.6;
   const offs = [0, -0.06, -0.12, -0.18, 0.08, 0.16, -0.26, -0.34, 0.24];
   let any = null;
   for(const o of offs){
     const h = pickMesh(rayFromPixel(cssW/2, cssH/2 + o*cssH));
-    if(h){ if(!any && h.mat === 0) any = h; if(ok(h)) return { P: h.p, N: h.n }; }
+    if(h){ if(!any && paintable(cur, h.mat)) any = h; if(ok(h)) return { P: h.p, N: h.n, mat: h.mat }; }
   }
   const h = any || (cur.key === 'suit' ? placeAt(0.0, 1.22, 1) : pickMesh({ o: [0, 1.8, 3], d: v3.norm([0, -0.6, -1]) }));
-  return h ? (h.P ? h : { P: h.p, N: h.n }) : { P: [0, 0.8, 0.6], N: [0, 1, 0] };
+  return h ? (h.P ? h : { P: h.p, N: h.n, mat: h.mat }) : { P: [0, 0.8, 0.6], N: [0, 1, 0] };
 }
 /* aim a ray straight at the front (side 1) or back (side -1) of the figure at a given x and y */
-function placeAt(x, y, side){
-  const h = pickMesh({ o: [x, y, 2*side], d: [0, 0, -side] });
-  return h && h.mat === 0 ? { P: h.p, N: h.n, p: h.p, n: h.n, mat: 0 } : null;
+function placeAt(x, y, side, ray){
+  const h = pickMesh(ray ? { o: ray.o, d: ray.d } : { o: [x, y, 2*side], d: [0, 0, -side] });
+  return h && paintable(cur, h.mat) ? { P: h.p, N: h.n, p: h.p, n: h.n, mat: h.mat } : null;
 }
 const r4 = (a) => a.map(v => Math.round(v*10000)/10000);
 function addLayer(props, at){
   if(S.layers.length >= cur.maxLayers){ toast('That is the maximum of ' + cur.maxLayers + ' items on one ' + cur.noun + '.'); return null; }
   const pl = at || placeAtCentre();
-  const L = Object.assign({ id: S.nextId++, kind: 'shape', vis: true, lock: false, P: r4(pl.P), N: r4(pl.N), rot: 0, w: cur.szDef, opacity: 1, sym: 'none', aspect: 1 }, props);
+  const small = cur.key === 'suit' && (pl.mat === 2 || pl.mat === 3);   /* on a glove or boot everything starts smaller */
+  const L = Object.assign({ id: S.nextId++, kind: 'shape', vis: true, lock: false, P: r4(pl.P), N: r4(pl.N), rot: 0, w: small ? cur.szDef*0.4 : cur.szDef, opacity: 1, sym: 'none', aspect: 1 }, props);
+  if(small && props && props.w && !at) L.w = Math.max(cur.szMin, props.w*0.4);
+  if(at && at.both) L.sym = L.kind === 'shape' ? 'mirror' : 'copy';
   S.layers.push(L);
-  if(L.kind === 'text' && !(props && props.w)){ layerTexture(L); L.w = clamp(0.2*L.aspect*cur.k, 0.25*cur.k, 1.0*cur.k); }
+  if(L.kind === 'text' && !(props && props.w)){ layerTexture(L); L.w = clamp(0.2*L.aspect*cur.k*(small ? 0.45 : 1), 0.25*cur.k*(small ? 0.3 : 1), 1.0*cur.k); }
   else if(L.kind === 'text'){ layerTexture(L); }
   selectedId = L.id; changed(); commit(); showTab('decals'); refreshLayerList(); buildInspector();
   return L;
@@ -2073,7 +2122,7 @@ function buildInspector(){
     r.append(tb, ci); card.appendChild(r);
     card.appendChild(el('div', 'note', 'Recolour turns the image into a single-colour silhouette, which suits logos with a transparent background.'));
   }
-  add(slider('Size', cur.szMin, cur.szMax, cur.key === 'suit' ? 0.005 : 0.01, () => L.w, (v) => { L.w = v; lc(); }, cur.key === 'suit' ? (v) => (v*100).toFixed(1) + ' cm' : (v) => Math.round(v*100) + '%'));
+  add(slider('Size', cur.szMin, cur.szMax, cur.key === 'suit' ? 0.002 : 0.01, () => L.w, (v) => { L.w = v; lc(); }, cur.key === 'suit' ? (v) => (v*100).toFixed(1) + ' cm' : (v) => Math.round(v*100) + '%'));
   add(slider('Rotate', -180, 180, 1, () => L.rot, (v) => { L.rot = v; lc(); }, (v) => Math.round(v) + '°'));
   add(slider('Opacity', 0.05, 1, 0.01, () => L.opacity, (v) => { L.opacity = v; lc(); }, (v) => Math.round(v*100) + '%'));
   const sf = el('div', 'field'); sf.appendChild(el('label', null, cur.key === 'suit' ? 'Other side (left / right)' : 'Other side of the helmet'));
@@ -2119,6 +2168,7 @@ function normalise(raw, it){
     const pa = o.pattern || {}; st.pattern = { id: int(pa.id, 0, SUIT_LAYOUTS.length - 1, 0), scale: num(pa.scale, 0.4, 2.5, 1), spin: 0, shift: num(pa.shift, -1, 1, 0) };
     st.finish = int(o.finish, 0, SUIT_FINISHES.length - 1, 0);
     st.trim = hex(o.trim, st.trim); st.gloves = hex(o.gloves, st.gloves); st.boots = hex(o.boots, st.boots); st.skin = hex(o.skin, st.skin);
+    st.glovePanel = o.glovePanel ? hex(o.glovePanel, '') : ''; st.bootPanel = o.bootPanel ? hex(o.bootPanel, '') : ''; st.gloveFin = int(o.gloveFin, 0, 3, 0); st.bootFin = int(o.bootFin, 0, 3, 0);
     const br = (o.brace && typeof o.brace === 'object') ? o.brace : {}; st.brace = { on: br.on !== false, c: hex(br.c, '#14161a') };
     st.pose = (typeof o.pose === 'string' && SUIT_POSES.some(p => p.id === o.pose)) ? o.pose : 'relaxed';
     const res = normLayers(o, st, it);
@@ -2209,14 +2259,14 @@ $('#saveSlotBtn').onclick = () => {
 };
 
 const BG_COLS = [['#232d3d', '#090c11'], ['#f3f6fa', '#9aa6b8'], ['#222c3d', '#15181d'], ['#0f5b54', '#06141a'], ['#5b6270', '#5b6270']];
-function exportImage(views, size, transparent){
+function exportImage(views, size, transparent, close){
   bakeIfDirty(ITEMS.helmet); bakeIfDirty(ITEMS.suit);
-  const W = size, H = Math.round(size*(cur.key === 'suit' ? 1.5 : 1));
+  const W = size, H = Math.round(size*(cur.key === 'suit' && !close ? 1.5 : 1));
   const out = el('canvas'); out.width = W*views.length; out.height = H; const x = out.getContext('2d');
   if(!transparent){ const c = BG_COLS[bgIdx], g = x.createRadialGradient(out.width/2, out.height*0.4, 10, out.width/2, out.height*0.4, Math.max(out.width, out.height)*0.7); g.addColorStop(0, c[0]); g.addColorStop(1, c[1]); x.fillStyle = g; x.fillRect(0, 0, out.width, out.height); }
   views.forEach((v, i) => {
-    const c = v === 'current' ? { yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, target: cam.target, fov: cam.fov } : viewCam(cur, v, { dist: cur.key === 'suit' ? 4.0 : 5.4 });
-    if(cur.key === 'suit' && v !== 'current') c.target = [0, 0.9, 0];
+    const c = v === 'current' ? { yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, target: cam.target, fov: cam.fov } : viewCam(cur, v, close ? {} : { dist: cur.key === 'suit' ? 4.0 : 5.4 });
+    if(cur.key === 'suit' && v !== 'current' && !close) c.target = [0, 0.9, 0];
     x.drawImage(imageToCanvas(renderPixels(W*2, H*2, c, livePartsFor(cur, S, cur.atlas.tex), { ground: !transparent }), W, H), i*W, 0);
   });
   dirtyFrame = true; return out;
@@ -2224,6 +2274,7 @@ function exportImage(views, size, transparent){
 function saveCanvas(cv, name){ cv.toBlob(b => { if(b){ download(b, name); toast('Image downloaded.'); } }, 'image/png'); }
 const downloadCurrent = () => saveCanvas(exportImage(['current'], cur.key === 'suit' ? 900 : 1200, $('#transpChk').checked), slug(S.name) + '.png');
 $('#pngBtn').onclick = downloadCurrent; $('#pngBtn2').onclick = downloadCurrent;
+$('#closeSheetBtn').onclick = () => { if(S.pose && S.pose !== 'relaxed'){ S.pose = 'relaxed'; syncAll(); changed({ noThumbs: true }); commit(); } saveCanvas(exportImage(['gloveL', 'gloveR', 'bootL', 'bootR'], 520, $('#transpChk').checked, true), slug(S.name) + '-gloves-boots.png'); };
 $('#sheetBtn').onclick = () => saveCanvas(exportImage(['front', 'right', 'back', 'left'], cur.key === 'suit' ? 450 : 600, $('#transpChk').checked), slug(S.name) + '-4-view.png');
 
 /* ---------- keyboard ---------- */
@@ -2249,7 +2300,7 @@ function defaultSuit(){
     v: 1, body: 2, name: 'My Race Suit',
     base: { a: '#f4f5f8', b: '#e10600', c: '#0d0f13' },
     pattern: { id: 0, scale: 1, spin: 0, shift: 0 },
-    finish: 0, trim: '#14161a', gloves: '#14161a', boots: '#14161a', skin: '#d9d6d2', brace: { on: true, c: '#14161a' }, pose: 'relaxed',
+    finish: 0, trim: '#14161a', gloves: '#14161a', boots: '#14161a', glovePanel: '', bootPanel: '', gloveFin: 0, bootFin: 0, skin: '#d9d6d2', brace: { on: true, c: '#14161a' }, pose: 'relaxed',
     layers: [], nextId: 1
   };
 }
@@ -2266,6 +2317,7 @@ function swatchRow(box, label, get, set){
   PALETTE.forEach(c => { const b = el('button', 'sw'); b.style.background = c; b.title = c; b.onclick = () => { set(c); inp.value = c; changed({ noThumbs: true }); commit(); scheduleThumbs(); }; sw.appendChild(b); });
   row.append(inp, sw); box.appendChild(row);
   reg(() => { inp.value = get(); });
+  return row;
 }
 (function(){
   /* colour layouts */
@@ -2294,6 +2346,15 @@ function swatchRow(box, label, get, set){
   swatchRow(pb, 'Collar and cuffs', () => S.trim, (v) => { S.trim = v; });
   swatchRow(pb, 'Gloves', () => S.gloves, (v) => { S.gloves = v; });
   swatchRow(pb, 'Boots', () => S.boots, (v) => { S.boots = v; });
+  /* gloves and boots: panel colours (palms, soles, straps), finishes, close-ups */
+  const gb = $('#gbColours');
+  const autoBtn = (row, key) => { const b = el('button', 'btn small', 'Auto'); b.title = 'Back to the matching dark shade'; b.onclick = () => { S[key] = ''; syncAll(); changed({ noThumbs: true }); commit(); scheduleThumbs(); }; row.appendChild(b); };
+  autoBtn(swatchRow(gb, 'Glove palm', () => S.glovePanel || autoGlovePanel(S.gloves), (v) => { S.glovePanel = v; }), 'glovePanel');
+  autoBtn(swatchRow(gb, 'Boot sole', () => S.bootPanel || autoBootPanel(), (v) => { S.bootPanel = v; }), 'bootPanel');
+  const GB_FIN = ['Leather', 'Suede', 'Gloss', 'Carbon'];
+  reg(seg($('#gloveFinSeg'), GB_FIN, () => S.gloveFin || 0, (i) => { S.gloveFin = i; changed({ noThumbs: true }); commit(); }));
+  reg(seg($('#bootFinSeg'), GB_FIN, () => S.bootFin || 0, (i) => { S.bootFin = i; changed({ noThumbs: true }); commit(); }));
+  $$('#gbJump button').forEach(b => b.onclick = () => { setView(nextView(b.dataset.v)); });
   const bb = $('#braceBtn');
   bb.onclick = () => { S.brace.on = !S.brace.on; changed(); commit(); syncBrace(); };
   const syncBrace = () => { bb.textContent = S.brace.on ? 'Neck brace: On' : 'Neck brace: Off'; bb.classList.toggle('primary', !!S.brace.on); };
@@ -2315,11 +2376,21 @@ const PLACES = {
   sleeveR: { x: -0.262, y: 1.222, side: 1, w: 0.07, label: 'Right sleeve' },
   thighL: { x: 0.105, y: 0.72, side: 1, w: 0.09, label: 'Left thigh' },
   thighR: { x: -0.105, y: 0.72, side: 1, w: 0.09, label: 'Right thigh' },
-  belly: { x: 0.0, y: 1.02, side: 1, w: 0.20, label: 'Waist' }
+  belly: { x: 0.0, y: 1.02, side: 1, w: 0.20, label: 'Waist' },
+  /* gloves and boots (left is the figure's left, which is +x) */
+  gloveBackL: { ray: { o: [1, 0.87, -0.016], d: [-1, 0, 0] }, w: 0.05, gb: 1, label: 'Left glove: back of hand' },
+  gloveBackR: { ray: { o: [-1, 0.87, -0.016], d: [1, 0, 0] }, w: 0.05, gb: 1, label: 'Right glove: back of hand' },
+  gloveCuffL: { ray: { o: [1, 0.965, -0.016], d: [-1, 0, 0] }, w: 0.04, gb: 1, label: 'Left glove: cuff' },
+  gloveCuffR: { ray: { o: [-1, 0.965, -0.016], d: [1, 0, 0] }, w: 0.04, gb: 1, label: 'Right glove: cuff' },
+  bootSideL: { ray: { o: [1, 0.07, 0.05], d: [-1, 0, 0] }, w: 0.08, gb: 1, label: 'Left boot: outside' },
+  bootSideR: { ray: { o: [-1, 0.07, 0.05], d: [1, 0, 0] }, w: 0.08, gb: 1, label: 'Right boot: outside' },
+  bootTopL: { ray: { o: [0.175, 1, 0.09], d: [0, -1, 0] }, w: 0.06, gb: 1, label: 'Left boot: top of foot' },
+  bootTopR: { ray: { o: [-0.165, 1, 0.09], d: [0, -1, 0] }, w: 0.06, gb: 1, label: 'Right boot: top of foot' }
 };
+const bothOn = () => { const c = document.getElementById('gbBoth'); return !c || c.checked; };
 function placeFor(key){
-  const p = PLACES[key]; const h = placeAt(p.x, p.y, p.side);
-  return h ? { P: h.P, N: h.N, w: p.w } : null;
+  const p = PLACES[key]; const h = p.ray ? placeAt(0, 0, 0, p.ray) : placeAt(p.x, p.y, p.side);
+  return h ? { P: h.P, N: h.N, w: p.w, mat: h.mat, both: !!(p.gb && bothOn()) } : null;
 }
 (function(){
   const sel = $('#logoWhere');
@@ -2379,6 +2450,14 @@ function renderLayoutThumbs(){
   dirtyFrame = true;
 }
 ITEMS.suit.views.thumb = [0.55, 0.1, 3.0, 0.9];
+/* close-ups of the gloves and boots: [turn, tilt, distance, height, sideways] (the second of each pair is the other angle) */
+Object.assign(ITEMS.suit.views, {
+  gloveL: [1.35, 0.08, 0.62, 0.87, 0.385], gloveLf: [0.5, 0.05, 0.62, 0.87, 0.385],
+  gloveR: [-1.35, 0.08, 0.62, 0.87, -0.385], gloveRf: [-0.5, 0.05, 0.62, 0.87, -0.385],
+  bootL: [1.25, 0.28, 0.72, 0.07, 0.17], bootLf: [0.5, 0.62, 0.72, 0.06, 0.17],
+  bootR: [-1.25, 0.28, 0.72, 0.07, -0.165], bootRf: [-0.5, 0.62, 0.72, 0.06, -0.165]
+});
+ITEMS.suit.camMin = 0.25; ITEMS.suit.szMin = 0.008;
 regItem = null;
 
 /* ---------- switching between the helmet and the race suit ---------- */
