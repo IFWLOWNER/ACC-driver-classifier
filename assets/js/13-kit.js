@@ -22,7 +22,7 @@ var fmt = function(n){ return Number(n || 0).toLocaleString('en-GB'); };
 /* ---- stylesheet: fetched only once the kit is switched on for this account, so everyone else downloads nothing extra ---- */
 function loadCss(){
   if(document.getElementById('ifwlKitCss')) return;
-  var l = document.createElement('link'); l.id = 'ifwlKitCss'; l.rel = 'stylesheet'; l.href = ASSETS + 'css/07-kit.css?v=a6976c57';
+  var l = document.createElement('link'); l.id = 'ifwlKitCss'; l.rel = 'stylesheet'; l.href = ASSETS + 'css/07-kit.css?v=e06f6e55';
   document.head.appendChild(l);
 }
 
@@ -187,7 +187,7 @@ function setupCard(state){
   var has = !!state.avatarSmallUrl || !!state.avatarUrl;
   var b = document.createElement('button'); b.type = 'button'; b.id = 'kitAvatarBtn'; b.className = 'kit-avatar-btn' + (has ? '' : ' ghost');
   b.title = has ? 'Tap for your avatar in 3D' : 'Design your avatar';
-  b.innerHTML = '<img src="' + esc(has ? (state.avatarSmallUrl || state.avatarUrl) : STOCK) + '" alt="Your avatar" width="91" height="152">' + (has ? '' : '<span class="kit-avatar-cta">Design yours</span>');
+  b.innerHTML = '<img src="' + esc(has ? (state.avatarUrl || state.avatarSmallUrl) : STOCK) + '" alt="Your avatar">' + (has ? '' : '<span class="kit-avatar-cta">Design yours</span>');
   inner.appendChild(b); inner.classList.add('kit-has-avatar');
   b.addEventListener('click', function(){
     if(!has){ location.href = 'licence-kit.html'; return; }
