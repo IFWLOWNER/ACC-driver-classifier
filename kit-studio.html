@@ -1089,8 +1089,8 @@ const groundMesh = makeGround(-0.93, 1.7), groundSuit = makeGround(0, 1.7);
 const MAT_COUNT = 6;
 const newItem = (o) => Object.assign({ model: null, mesh: null, grid: null, atlas: null, thumbAtlas: null, cov: null, S: null, hist: [], hpos: -1, sel: null, layerTex: {}, dirty: true, loaded: false }, o);
 const ITEMS = {
-  helmet: newItem({ key: 'helmet', noun: 'helmet', classes: 6, atlasW: 2048, atlasH: 1024, thumbW: 512, thumbH: 256, k: 1, depth: [0.35, 0.35], szMin: 0.05, szMax: 1.6, szDef: 0.4, dilate: 2, noPick: [5], hOff: 0.16, snapOff: 0.7, camMin: 3.2, camMax: 9, dist0: 5.5, ty0: 0, views: { front: [0, 0.10], left: [Math.PI/2, 0.10], right: [-Math.PI/2, 0.10], back: [Math.PI, 0.10], top: [0, 1.30, 5.9], three: [0.62, 0.14] }, slotKey: 'IFWL_HELMET_SLOTS', autoKey: 'IFWL_HELMET_AUTO', format: 'ifwl-helmet', maxLayers: 30 }),
-  suit: newItem({ key: 'suit', noun: 'suit', classes: 7, atlasW: 3072, atlasH: 3072, thumbW: 1024, thumbH: 1024, k: 0.2, depth: [0.05, 0.5], szMin: 0.02, szMax: 0.9, szDef: 0.12, dilate: 4, noPick: [], hOff: 0.05, snapOff: 0.14, camMin: 0.8, camMax: 7, dist0: 4.4, ty0: 0.9, views: { front: [0, 0.05], left: [Math.PI/2, 0.05], right: [-Math.PI/2, 0.05], back: [Math.PI, 0.05], top: [0, 1.2, 4.8, 0.95], three: [0.62, 0.12], upper: [0.3, 0.08, 1.9, 1.22], head: [0.4, 0.05, 1.15, 1.62], hands: [0.5, 0.15, 1.7, 0.95, 0.40] }, slotKey: 'IFWL_SUIT_SLOTS', autoKey: 'IFWL_SUIT_AUTO', format: 'ifwl-suit', maxLayers: 30 })
+  helmet: newItem({ key: 'helmet', noun: 'helmet', classes: 6, atlasW: 2048, atlasH: 1024, thumbW: 512, thumbH: 256, k: 1, depth: [0.35, 0.35], szMin: 0.05, szMax: 1.6, szDef: 0.4, dilate: 2, noPick: [5], hOff: 0.16, snapOff: 0.7, camMin: 3.2, camMax: 9, dist0: 5.5, ty0: 0, views: { front: [0, 0.10], left: [Math.PI/2, 0.10], right: [-Math.PI/2, 0.10], back: [Math.PI, 0.10], top: [0, 1.30, 5.9], three: [0.62, 0.14] }, slotKey: 'IFWL_HELMET_SLOTS', autoKey: 'IFWL_HELMET_AUTO', format: 'ifwl-helmet', maxLayers: 40 }),
+  suit: newItem({ key: 'suit', noun: 'suit', classes: 7, atlasW: 3072, atlasH: 3072, thumbW: 1024, thumbH: 1024, k: 0.2, depth: [0.05, 0.5], szMin: 0.02, szMax: 0.9, szDef: 0.12, dilate: 4, noPick: [], hOff: 0.05, snapOff: 0.14, camMin: 0.8, camMax: 7, dist0: 4.4, ty0: 0.9, views: { front: [0, 0.05], left: [Math.PI/2, 0.05], right: [-Math.PI/2, 0.05], back: [Math.PI, 0.05], top: [0, 1.2, 4.8, 0.95], three: [0.62, 0.12], upper: [0.3, 0.08, 1.9, 1.22], head: [0.4, 0.05, 1.15, 1.62], hands: [0.5, 0.15, 1.7, 0.95, 0.40] }, slotKey: 'IFWL_SUIT_SLOTS', autoKey: 'IFWL_SUIT_AUTO', format: 'ifwl-suit', maxLayers: 40 })
 };
 let cur = ITEMS.helmet;
 /* which parts of the model can take decals: the helmet shell, or the suit fabric plus the gloves and boots */
@@ -1627,7 +1627,23 @@ function livePartsFor(it, st, tex){
   }
   return { helmet: { st, tex, M: IDENT } };
 }
+/* readPixels is meant to hand back the bottom row first. Check that once on this device, so a graphics driver that does it the other way round cannot turn every picture upside down. */
+let readBottomFirst = null;
+function probeReadOrder(){
+  try{
+    const t = getTarget(2, 2);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.viewport(0, 0, 2, 2);
+    gl.disable(gl.SCISSOR_TEST); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.SCISSOR_TEST); gl.scissor(0, 0, 2, 1); gl.clearColor(1, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.disable(gl.SCISSOR_TEST);
+    const px = new Uint8Array(16); gl.readPixels(0, 0, 2, 2, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if(px[3] > 200 && px[11] < 50) readBottomFirst = true;
+    else if(px[3] < 50 && px[11] > 200) readBottomFirst = false;
+    else readBottomFirst = true;
+  }catch(e){ readBottomFirst = true; }
+}
 function renderPixels(w, h, c, parts, opts){
+  if(readBottomFirst === null) probeReadOrder();
   const t = getTarget(w, h);
   gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1636,7 +1652,7 @@ function renderPixels(w, h, c, parts, opts){
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   const img = new ImageData(w, h);
   for(let y=0;y<h;y++){
-    const src = (h - 1 - y)*w*4, dst = y*w*4;
+    const src = (readBottomFirst ? h - 1 - y : y)*w*4, dst = y*w*4;
     for(let x=0;x<w;x++){
       const i = src + x*4, o = dst + x*4, a = px[i+3];
       if(a){ img.data[o] = Math.min(255, px[i]*255/a); img.data[o+1] = Math.min(255, px[i+1]*255/a); img.data[o+2] = Math.min(255, px[i+2]*255/a); }
@@ -2119,7 +2135,10 @@ function placeAt(x, y, side, ray){
   return h && paintable(cur, h.mat) ? { P: h.p, N: h.n, p: h.p, n: h.n, mat: h.mat } : null;
 }
 const r4 = (a) => a.map(v => Math.round(v*10000)/10000);
+const KIT_MAX_PICTURES = 20, KIT_MAX_PICTURE_BYTES = 7*1024*1024;   /* the Licence Centre saves at most 20 different pictures (and 7 MB of them) per helmet or suit */
+function pictureCount(layers, extraId){ const ids = new Set(); (layers || []).forEach(L => { if(L.kind === 'image' && L.imgId) ids.add(L.imgId); }); if(extraId) ids.add(extraId); return ids.size; }
 function addLayer(props, at){
+  if(LIC && props && props.kind === 'image' && pictureCount(S.layers, props.imgId) > KIT_MAX_PICTURES){ toast('You can have up to ' + KIT_MAX_PICTURES + ' different pictures on one ' + cur.noun + '. Remove one first, or reuse a picture that is already on it.'); return null; }
   if(S.layers.length >= cur.maxLayers){ toast('That is the maximum of ' + cur.maxLayers + ' items on one ' + cur.noun + '.'); return null; }
   const pl = at || placeAtCentre();
   const small = cur.key === 'suit' && (pl.mat === 2 || pl.mat === 3);   /* on a glove or boot everything starts smaller */
@@ -2789,6 +2808,7 @@ async function addLibraryImage(it){
   if(readOnly[cur.key]){ toast('This item cannot be edited right now.'); return; }
   try{
     let id = libIds[it.id];
+    if(!id || !imageStore[id]){ const same = S.layers.find((L) => L.kind === 'image' && L.label === it.name && imageStore[L.imgId]); if(same){ id = same.imgId; libIds[it.id] = id; } }
     if(!id || !imageStore[id]){
       const r = await fetch(libUrl(it.file)); if(!r.ok) throw new Error('x');
       const blob = await r.blob();
@@ -2839,6 +2859,20 @@ async function loadLibrary(){
   try{ buildLibrary(); }catch(e){ console.error(e); }
 }
 
+/* tell the member before saving, in plain words, if a design is over what can be stored */
+function limitProblem(){
+  stashItem();
+  for(const key of ['helmet', 'suit']){
+    if(readOnly[key]) continue;
+    const st = ITEMS[key].S, noun = key === 'suit' ? 'race suit' : 'helmet';
+    if(pictureCount(st.layers) > KIT_MAX_PICTURES) return 'Your ' + noun + ' has ' + pictureCount(st.layers) + ' different pictures on it. The most that can be saved is ' + KIT_MAX_PICTURES + '. Remove some, then press Save again. Nothing was saved.';
+    if(st.layers.length > ITEMS[key].maxLayers) return 'Your ' + noun + ' has too many items on it. Remove some, then press Save again. Nothing was saved.';
+    const ids = new Set(); let bytes = 0; st.layers.forEach((L) => { if(L.kind === 'image' && L.imgId && !ids.has(L.imgId)){ ids.add(L.imgId); bytes += ((imageStore[L.imgId] || '').length)*0.75; } });
+    if(bytes > KIT_MAX_PICTURE_BYTES) return 'The pictures on your ' + noun + ' are too big to save together (' + (bytes/1048576).toFixed(1) + ' MB, the most is 7 MB). Remove or swap a large picture, then press Save again. Nothing was saved.';
+  }
+  return '';
+}
+
 /* ---------- header save button, banner, avatar preview ---------- */
 function buildChrome(){
   const bar = $('.barbtns');
@@ -2846,7 +2880,10 @@ function buildChrome(){
   const stat = el('span', 'licStatus', ''); stat.id = 'licStatus';
   const prev = el('button', 'btn', 'Preview avatar'); prev.id = 'licPrevBtn'; prev.title = 'See the figure that appears on your licence card and race podiums';
   bar.insertBefore(save, bar.firstChild); bar.insertBefore(prev, bar.firstChild); bar.insertBefore(stat, bar.firstChild);
-  save.onclick = () => { setStatus('Saving...', ''); save.disabled = true; post(Object.assign(collect(), { forceAvatar: true })); };
+  save.onclick = () => {
+    const why = limitProblem(); if(why){ setStatus(why, 'bad'); toast(why); return; }
+    setStatus('Saving...', ''); save.disabled = true; post(Object.assign(collect(), { forceAvatar: true }));
+  };
   prev.onclick = () => showAvatarPreview();
   const ban = el('div', 'licBanner'); ban.id = 'licBanner'; $('#stage').appendChild(ban);
   const ov = el('div', 'licPrev'); ov.id = 'licPrev'; ov.innerHTML = '<div class="box"><div class="cap">This is how you appear on your licence card and on race podiums</div><img alt="Your avatar"><button class="btn" type="button">Close</button></div>';
@@ -2888,17 +2925,35 @@ function cropFit(src, bb, W, H, pad){
   x.drawImage(src, bb[0], bb[1], bw, bh, (W - dw)/2, H - H*pad - dh, dw, dh);
   return c;
 }
+function alphaBox(img){
+  const w = img.width, h = img.height, d = img.data; let x0 = w, y0 = h, x1 = -1, y1 = -1, sy = 0, n = 0;
+  for(let y = 0; y < h; y++){ for(let x = 0; x < w; x++){ if(d[(y*w + x)*4 + 3] > 10){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; sy += y; n++; } } }
+  return x1 < 0 ? null : { bb: [x0, y0, x1, y1], cy: sy/n };
+}
+function flipRows(img){
+  const w = img.width, h = img.height, d = img.data, row = w*4, tmp = new Uint8ClampedArray(row);
+  for(let y = 0; y < (h >> 1); y++){ const a = y*row, b = (h - 1 - y)*row; tmp.set(d.subarray(a, a + row)); d.copyWithin(a, b, b + row); d.set(tmp, b); }
+}
 function renderAvatar(){
   stashItem();
   const it = ITEMS.suit, st = JSON.parse(JSON.stringify(it.S)); st.pose = 'crossed';
   bakeIfDirty(ITEMS.helmet); bakeInto(it, it.thumbAtlas, st, true);
   const W = 1000, H = 1667, c = { yaw: AV.yaw, pitch: AV.pitch, dist: AV.dist, target: [0, AV.ty, 0], fov: cam.fov };
-  const parts = { suit: { st, tex: it.thumbAtlas.tex }, helmet: { st: ITEMS.helmet.S, tex: ITEMS.helmet.atlas.tex, M: HELMET_ON_DRIVER } };
+  const helmetPart = { st: ITEMS.helmet.S, tex: ITEMS.helmet.atlas.tex, M: HELMET_ON_DRIVER };
+  const parts = { suit: { st, tex: it.thumbAtlas.tex }, helmet: helmetPart };
   const img = renderPixels(W, H, c, parts, { ground: false });
-  let x0 = W, y0 = H, x1 = -1, y1 = -1; const d = img.data;
-  for(let y = 0; y < H; y++){ for(let x = 0; x < W; x++){ if(d[(y*W + x)*4 + 3] > 10){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; } } }
+  let ab = alphaBox(img);
   dirtyFrame = true;
-  if(x1 < 0) throw new Error('The avatar came out empty.');
+  if(!ab) throw new Error('The avatar came out empty.');
+  /* sanity checks before anything is saved: the head must be at the top, and the whole figure must be there */
+  const hs = renderPixels(125, 208, c, { helmet: helmetPart }, { ground: false }), hb = alphaBox(hs);
+  if(hb){
+    const headY = hb.cy*(H/208), mid = (ab.bb[1] + ab.bb[3])/2;
+    if(headY > mid){ flipRows(img); ab = alphaBox(img); }       /* upside down on this device: turn it the right way up */
+  }
+  const bw = ab.bb[2] - ab.bb[0] + 1, bh = ab.bb[3] - ab.bb[1] + 1;
+  if(bh/bw < 2.0) throw new Error('The race suit did not draw on this device, so the avatar was not updated. Your colours are saved.');
+  const x0 = ab.bb[0], y0 = ab.bb[1], x1 = ab.bb[2], y1 = ab.bb[3];
   const full = imageToCanvas(img);
   let big = cropFit(full, [x0, y0, x1, y1], 600, 1000, 0.03), bigUrl = big.toDataURL('image/png');
   if(bigUrl.length*0.75 > 640*1024){ big = cropFit(full, [x0, y0, x1, y1], 480, 800, 0.03); bigUrl = big.toDataURL('image/png'); }

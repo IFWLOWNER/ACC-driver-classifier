@@ -264,7 +264,7 @@ function doSave(m){
     dirty = false; send(msg);
   }).catch(function(e){
     if(e && e.status === 429){ sleep(1500).then(function(){ doSave(m); }); return; }
-    send({ t: 'saveFailed', error: errMsg(e) });
+    send({ t: 'saveFailed', error: errMsg(e) }); toast('Not saved: ' + errMsg(e), 'bad');
     if(e && e.status === 409) refreshState().catch(function(){});
   });
 }
