@@ -72,10 +72,67 @@ function say(title, html, ok){
 var priceField = function(label, value){ var s = state.selling || {}; return { id: 'price', label: label || 'Price (credits)', type: 'number', value: value || '', min: s.minPrice || 1, max: s.maxPrice || 100000000, help: 'Between ' + fmt(s.minPrice || 1) + ' and ' + fmt(s.maxPrice || 100000000) + ' credits.' }; };
 var priceCheck = function(v){ var p = Math.round(Number(v.price)), s = state.selling || {}; if(!Number.isFinite(p) || p < (s.minPrice || 1) || p > (s.maxPrice || 1e9)) return 'Enter a price between ' + fmt(s.minPrice || 1) + ' and ' + fmt(s.maxPrice || 1e9) + ' credits.'; return ''; };
 
+/* ---------------------------------------------------------------- Gold Patreon links and Top up balance */
+var PATREON_URL = 'https://www.patreon.com/c/IFWL';
+var LOCK_SVG = '<svg class="kit-gl" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2" fill="none" stroke="#e0a800" stroke-width="2.4" stroke-linecap="round"/><rect x="4.5" y="10" width="15" height="11" rx="2.6" fill="#f2b705"/><circle cx="12" cy="15.4" r="1.7" fill="#7a5200"/></svg>';
+function perksCss(){
+  if(document.getElementById('kitPerksCss')) return;
+  var st = document.createElement('style'); st.id = 'kitPerksCss';
+  st.textContent = '.kit-gold{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:1px solid rgba(242,183,5,.55);background:rgba(242,183,5,.08);border-radius:14px;padding:12px 14px;margin:0 0 12px}'
+    + '.kit-gold .gt{flex:1 1 260px;min-width:0;font-size:13px;line-height:1.5}.kit-gold .gt b{font-weight:800}'
+    + '.kit-btn.gold{background:linear-gradient(135deg,#ffe08a,#f2b705);color:#1a1300}'
+    + '.kit-gl{display:inline-block;vertical-align:-3px;margin-right:5px}'
+    + '.kit-head-wallet{display:flex;flex-direction:column;gap:8px;align-items:stretch}'
+    + '.kit-tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}'
+    + '.kit-tier{appearance:none;cursor:pointer;text-align:center;border:2px solid var(--ifwl-line,#e3e7ed);border-radius:14px;background:var(--panel-bg-raised,#fbfcfd);color:inherit;padding:12px 6px;font:inherit}'
+    + '.kit-tier:hover{border-color:var(--ifwl-teal,#0e9c8a)}.kit-tier.on{border-color:var(--ifwl-teal,#0e9c8a);box-shadow:0 0 0 3px rgba(14,156,138,.2)}'
+    + '.kit-tier .p{display:block;font:700 22px/1.1 var(--font-display);letter-spacing:.03em}.kit-tier .c{display:block;margin-top:5px;font:700 13px/1.2 var(--font-mono);color:var(--ifwl-teal-deep,#086b5f)}.kit-tier .b{display:block;margin-top:4px;font-size:11px;color:var(--text-muted,#5b6576)}'
+    + '.kit-steps{margin:10px 0;padding-left:20px;font-size:13px;line-height:1.6}.kit-steps li{margin:6px 0}'
+    + '.kit-ref{display:inline-block;font:700 13px/1.4 var(--font-mono);background:rgba(14,156,138,.1);border-radius:8px;padding:3px 8px;user-select:all}'
+    + '@media(max-width:480px){.kit-tiers{grid-template-columns:1fr}}';
+  document.head.appendChild(st);
+}
+function goldLink(label, cls){ return '<a class="kit-btn ' + (cls || 'gold') + '" href="' + PATREON_URL + '" target="_blank" rel="noopener noreferrer">' + LOCK_SVG + esc(label) + '</a>'; }
+var TOP_PAYPAL = /^https:\/\/(www\.)?paypal\.me\//;
+function topUp(){
+  var ov = dlg('<div class="kit-form"><h3>Top up your balance</h3><div id="kitTopBody"><div class="kit-empty">Loading&hellip;</div></div></div>', 'narrow');
+  var body = ov.querySelector('#kitTopBody');
+  function fail(e){ body.innerHTML = '<div class="kit-note bad">' + esc(errMsg(e)) + '</div><div class="kit-form-actions"><button type="button" class="kit-btn ghost" data-a="x">Close</button></div>'; body.querySelector('[data-a=x]').onclick = function(){ ov.close(); }; }
+  api('creditPurchaseTiers').then(function(d){
+    var keys = ['small', 'medium', 'large'].filter(function(k){ return d.tiers && d.tiers[k]; });
+    if(!keys.length) throw new Error('Top-ups are not available right now.');
+    var pick = keys[1] || keys[0];
+    body.innerHTML = '<p class="kit-note">Buy credits with PayPal and a member of staff adds them to your <b>career credits</b> for this season. You can spend them in the Career Shop and in the Kit Market. Every package includes a <b>' + esc(d.bonusPct) + '% bonus</b>.</p>'
+      + '<p class="kit-note warn"><b>Career credits reset when the season changes.</b> Your Kit wallet, what you earn from selling designs, is the part that stays with you for life.</p>'
+      + '<div class="kit-tiers" id="kitTiers">' + keys.map(function(k){ var t = d.tiers[k]; return '<button type="button" class="kit-tier" data-t="' + k + '"><span class="p">&pound;' + esc(t.priceGBP) + '</span><span class="c">' + fmt(t.creditAmount) + '</span><span class="b">' + fmt(t.baseCredit) + ' + ' + esc(d.bonusPct) + '% bonus</span></button>'; }).join('') + '</div>'
+      + '<div class="kit-err" id="kitTopErr" role="alert"></div><div class="kit-form-actions"><button type="button" class="kit-btn ghost" data-a="no">Cancel</button><button type="button" class="kit-btn teal" data-a="go">Request this top-up</button></div>'
+      + '<p class="kit-note" style="margin-top:10px">Asking only tells staff what you plan to buy. Nothing is charged until you pay in PayPal.</p>';
+    function mark(){ body.querySelectorAll('.kit-tier').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-t') === pick); }); }
+    mark();
+    body.querySelector('#kitTiers').addEventListener('click', function(e){ var b = e.target.closest('.kit-tier'); if(b){ pick = b.getAttribute('data-t'); mark(); } });
+    body.querySelector('[data-a=no]').onclick = function(){ ov.close(); };
+    var go = body.querySelector('[data-a=go]');
+    go.onclick = function(){
+      go.disabled = true; go.textContent = 'Sending...'; body.querySelector('#kitTopErr').textContent = '';
+      api('submitCreditPurchaseRequest', null, { tier: pick }).then(function(r){
+        var link = TOP_PAYPAL.test(String(r.paypalLink || '')) ? r.paypalLink : 'https://paypal.me/IFWL';
+        var ref = '\u00a3' + r.priceGBP + ' - Licence #' + r.licenceNumber;
+        body.innerHTML = '<div class="kit-note good"><b>Request sent.</b> Now pay in PayPal so staff can add your credits.</div>'
+          + '<ol class="kit-steps"><li>Pay <b>&pound;' + esc(r.priceGBP) + '</b> by PayPal: <a class="kit-btn small teal" href="' + esc(link) + '" target="_blank" rel="noopener noreferrer">Open PayPal</a></li>'
+          + '<li>Use this as the payment reference so staff can match it to you: <span class="kit-ref" id="kitTopRef">' + esc(ref) + '</span> <button type="button" class="kit-btn small ghost" id="kitTopCopy">Copy</button></li>'
+          + '<li>Once staff see the payment they add <b>' + fmt(r.creditAmount) + '</b> credits to your career credits. Please do not pay twice for the same request.</li></ol>'
+          + '<div class="kit-form-actions"><button type="button" class="kit-btn teal" data-a="done">Done</button></div>';
+        body.querySelector('[data-a=done]').onclick = function(){ ov.close(); };
+        body.querySelector('#kitTopCopy').onclick = function(){ var b = this; try{ navigator.clipboard.writeText(ref).then(function(){ b.textContent = 'Copied'; }, function(){ b.textContent = 'Select and copy'; }); }catch(e){ b.textContent = 'Select and copy'; } };
+      }).catch(function(e){ go.disabled = false; go.textContent = 'Request this top-up'; body.querySelector('#kitTopErr').textContent = errMsg(e); });
+    };
+  }).catch(fail);
+}
+
 /* ---------------------------------------------------------------- boot */
 function boot(){
   root = q('kitRoot'); if(!root) return;
-  K.loadCss();
+  K.loadCss(); perksCss();
   root.innerHTML = '<div class="kit-empty">Loading your kit&hellip;</div>';
   api('kitGet').then(function(d){
     state = d; window.IFWL_KIT.state = d;
@@ -97,7 +154,7 @@ function tabsList(){
 function build(){
   root.innerHTML = '<div class="kit-page">'
     + '<div class="kit-head"><div class="kit-head-fig" id="kitHeadFig"></div><div class="kit-head-text"><h3>Your avatar and kit</h3><p id="kitHeadText"></p><div class="kit-head-links"><button type="button" class="kit-link" id="kitTourBtn">Show me how it works</button></div></div>'
-    + '<div class="kit-chip" title="Your Kit wallet stays with you from season to season"><span>Kit wallet</span><strong id="kitWalletChip">0</strong></div></div>'
+    + '<div class="kit-head-wallet"><div class="kit-chip" title="Your Kit wallet stays with you from season to season"><span>Kit wallet</span><strong id="kitWalletChip">0</strong></div><button type="button" class="kit-btn small teal" id="kitTopBtn">Top up balance</button></div></div>'
     + '<div class="kit-tabs" role="tablist" id="kitTabs"></div><div id="kitPanes"></div></div>';
   tabsList().forEach(function(t){
     var b = document.createElement('button'); b.type = 'button'; b.className = 'kit-tab'; b.setAttribute('data-tab', t[0]); b.setAttribute('role', 'tab'); b.innerHTML = esc(t[1]) + (t[0] === 'staff' ? '<span class="kit-dot" id="kitStaffDot" hidden></span>' : '');
@@ -105,6 +162,7 @@ function build(){
     q('kitTabs').appendChild(b);
     var p = document.createElement('div'); p.className = 'kit-pane'; p.id = 'kitPane_' + t[0]; p.hidden = true; q('kitPanes').appendChild(p);
   });
+  q('kitTopBtn').addEventListener('click', topUp);
   q('kitTourBtn').addEventListener('click', function(){ K.openTour({ replay: true, selling: !!(state.selling && state.selling.open), onKitPage: true }); });
   paintHead();
   var want = (location.hash || '').replace('#', '');
@@ -117,7 +175,7 @@ function paintHead(){
   fig.innerHTML = '<img src="' + esc(has ? (state.avatarSmallUrl || state.avatarUrl) : K.STOCK) + '" alt="Your avatar">';
   q('kitHeadText').textContent = state.mode === 'full'
     ? 'You have the full designer. Save your kit and your avatar updates everywhere in the Licence Centre.'
-    : 'Pick ready-made colour schemes or set your own colours for your helmet and race suit. Gold Patreon members get the full designer.';
+    : 'Pick ready-made colour schemes or set your own colours for your helmet and race suit. Anything with a gold padlock comes with Gold Patreon.';
   q('kitWalletChip').textContent = fmt((state.wallet && state.wallet.balance) || 0);
 }
 function showTab(name, first){
@@ -142,7 +200,9 @@ function showDesign(){
   if(!built.design){
     built.design = true;
     var canSell = state.selling && state.selling.open && state.selling.canCreate;
-    pane.innerHTML = '<div class="kit-bar"><div class="kit-note grow" id="kitDesignNote"></div>' + (canSell ? '<button type="button" class="kit-btn purple" id="kitSellBtn">Sell a design</button>' : '') + '</div>'
+    var lockedSell = state.selling && state.selling.open && !state.selling.canCreate;
+    var gold = state.mode === 'full' ? '' : '<div class="kit-gold" id="kitGoldBox"><div class="gt">' + LOCK_SVG + '<b>Unlock more with Gold Patreon.</b> You are using the free colour designer. Gold adds the full designer (patterns, layouts, logos, text and finishes), every visor tint (Smoke, Clear and Blackout are free), all 12 colour schemes (4 are free), and selling your own designs in the Kit Market. Look for the gold padlocks.</div>' + goldLink('Get Gold on Patreon') + '</div>';
+    pane.innerHTML = gold + '<div class="kit-bar"><div class="kit-note grow" id="kitDesignNote"></div>' + (canSell ? '<button type="button" class="kit-btn purple" id="kitSellBtn">Sell a design</button>' : '') + (lockedSell ? goldLink('Sell a design (Gold)', 'purple') : '') + '</div>'
       + '<div class="kit-frame"><div class="kit-frame-load" id="kitStudioLoad">Loading Kit Studio&hellip;</div><iframe id="kitStudioFrame" title="Kit Studio" allow="fullscreen"></iframe></div>';
     studio.iframe = q('kitStudioFrame');
     window.addEventListener('message', onStudioMsg);
@@ -438,7 +498,7 @@ function loadWallet(){
     state.wallet = d.wallet; paintHead();
     var s = d.selling || state.selling || {};
     var rows = (d.ledger || []).map(function(l){ return '<tr><td>' + esc(when(l.dateMs)) + '</td><td>' + esc(l.text || l.type) + '</td><td class="num ' + (l.amount >= 0 ? 'pos' : 'neg') + '">' + (l.amount >= 0 ? '+' : '') + fmt(l.amount) + '</td></tr>'; }).join('');
-    pane.innerHTML = '<div class="kit-section"><h3>Kit wallet</h3><div class="kit-chip" style="margin-bottom:10px"><span>Balance</span><strong>' + fmt(d.wallet.balance) + '</strong></div>'
+    pane.innerHTML = '<div class="kit-section"><h3>Your balance</h3><div class="kit-row" style="gap:10px;flex-wrap:wrap;margin-bottom:10px"><div class="kit-chip"><span>Kit wallet (kept for life)</span><strong>' + fmt(d.wallet.balance) + '</strong></div><div class="kit-chip"><span>Career credits (this season)</span><strong>' + fmt(d.wallet.career || 0) + '</strong></div><button type="button" class="kit-btn teal" data-w="topup">Top up balance</button></div>'
       + '<p class="kit-note">Credits you earn from selling in the Kit Market go here and <b>stay with you for life</b>: they are not reset between seasons, and neither are the helmets and suits you collect. When you buy something, your Kit wallet is used first, then your season career credits.</p>'
       + '<p class="kit-note">How selling works: a new design costs ' + fmt(s.fee || 0) + ' credits to list. On the first sale the league keeps ' + (s.cutPct || 0) + '% and you get the rest. After that the creator earns ' + (s.royaltyPct || 0) + '% of every resale for life, the league keeps ' + (s.cutPct || 0) + '%, and the seller gets the rest.</p></div>'
       + '<div class="kit-section"><h3>Recent activity</h3>' + (rows ? '<div class="kit-scroll"><table class="kit-table"><thead><tr><th>When</th><th>What</th><th class="num">Credits</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="kit-empty">Nothing yet.</div>') + '</div>';
@@ -510,6 +570,7 @@ function staffClick(e){
 /* ================================================================= wiring */
 document.addEventListener('click', function(e){
   var pane = e.target.closest && e.target.closest('.kit-pane'); if(!pane) return;
+  if(e.target.closest('[data-w=topup]')){ topUp(); return; }
   if(pane.id === 'kitPane_staff') { staffClick(e); return; }
   var act = e.target.closest('[data-act]');
   if(act){
