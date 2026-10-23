@@ -197,6 +197,21 @@ body:not(.lic-colours) .scheme.licGold{display:none}
 .licGoldNote span.t{flex:1}
 body.lic-colours .licGoldNote{display:flex}
 
+
+/* image library */
+.libSearch{width:100%;box-sizing:border-box;margin:2px 0 8px;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font:inherit;font-size:13px}
+.libGroup h4{margin:10px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.libGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.libItem{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:8px 4px 6px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);color:var(--text);cursor:pointer;min-height:74px;transition:.12s}
+.libItem:hover{border-color:var(--line2);transform:translateY(-1px)}
+.libItem img{max-width:100%;max-height:44px;object-fit:contain;display:block;background:transparent}
+.libItem .nm{font-size:10.5px;font-weight:700;line-height:1.1;text-align:center;color:#cfd8e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.libItem .gl{position:absolute;top:4px;right:4px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
+.licLibPrev{display:none;margin:0 0 12px}
+body.lic-colours .licLibPrev{display:block}
+.licLibPrev .libItem{min-height:62px}
+.licLibPrev .btn{margin-top:8px;width:100%}
+body:not(.lic-colours) .libItem.licGold .gl{display:none}
 </style></head><body data-item="helmet">
 <div class="app">
   <header class="bar">
@@ -2425,7 +2440,7 @@ $('#sheetBtn').onclick = () => saveCanvas(exportImage(['front', 'right', 'back',
 
 /* ---------- keyboard ---------- */
 window.addEventListener('keydown', (e) => {
-  const tag = (e.target && e.target.tagName) || '', typing = tag === 'INPUT' && e.target.type === 'text' || tag === 'TEXTAREA' || tag === 'SELECT';
+  const tag = (e.target && e.target.tagName) || '', typing = tag === 'INPUT' && ['text', 'search', 'number', 'email', 'url', 'tel'].includes(e.target.type) || tag === 'TEXTAREA' || tag === 'SELECT';
   const mod = e.ctrlKey || e.metaKey;
   if(mod && !typing && (e.key === 'z' || e.key === 'Z')){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if(mod && !typing && (e.key === 'y' || e.key === 'Y')){ e.preventDefault(); redo(); return; }
@@ -2759,6 +2774,71 @@ function buildSchemes(){
   });
 }
 
+
+/* ---------- image library (ready-made pictures: partner logos, flags). Gold members place them from the Decals tab; everyone else sees a padlocked preview ---------- */
+const LIB_BASE = 'assets/kit/library/';
+let LIB = null; const libIds = {};
+const libUrl = (f) => LIB_BASE + f + '?v=' + encodeURIComponent((LIB && LIB.v) || '1');
+function libItemBtn(it, locked){
+  const b = el('button', 'libItem' + (locked ? ' licGold' : '')); b.type = 'button'; b.title = locked ? it.name + ' is in the Gold image library' : 'Add ' + it.name;
+  const im = el('img'); im.alt = ''; im.loading = 'lazy'; im.decoding = 'async'; im.src = libUrl(it.thumb); im.draggable = false;
+  b.appendChild(im); b.appendChild(el('span', 'nm', it.name)); if(locked) b.insertAdjacentHTML('beforeend', LOCK_SVG);
+  return b;
+}
+async function addLibraryImage(it){
+  if(readOnly[cur.key]){ toast('This item cannot be edited right now.'); return; }
+  try{
+    let id = libIds[it.id];
+    if(!id || !imageStore[id]){
+      const r = await fetch(libUrl(it.file)); if(!r.ok) throw new Error('x');
+      const blob = await r.blob();
+      const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = () => rej(new Error('x')); fr.readAsDataURL(blob); });
+      id = newImgId(); imageStore[id] = data.replace(/^data:[^;,]*/, 'data:image/png'); ensureImage(id); libIds[it.id] = id;
+    }
+    const wide = it.w >= it.h;
+    addLayer({ kind: 'image', imgId: id, tintOn: false, tint: '#ffffff', aspect: it.w/it.h, w: (wide ? 1.5 : 1.1)*cur.szDef, label: it.name });
+  }catch(e){ toast('Could not load that picture. Check your connection and try again.'); }
+}
+function buildLibrary(){
+  if(!LIB || !LIB.groups || !LIB.groups.length) return;
+  const all = [].concat(...LIB.groups.map((g) => g.items));
+  const tab = document.getElementById('tab-decals'); const shapes = $('#shapeGrid');
+  if(tab && shapes && !tab.querySelector('.licLib')){
+    const box = el('div', 'licLib'); const head = shapes.previousElementSibling;
+    box.appendChild(el('h3', null, 'Image library'));
+    const q = el('input', 'libSearch'); q.type = 'search'; q.placeholder = 'Search ' + all.length + ' pictures'; q.setAttribute('aria-label', 'Search the image library'); box.appendChild(q);
+    const secs = [];
+    LIB.groups.forEach((g) => {
+      const sec = el('div', 'libGroup'); sec.appendChild(el('h4', null, g.name)); const grid = el('div', 'libGrid');
+      g.items.forEach((it) => { const b = libItemBtn(it, false); b.onclick = () => addLibraryImage(it); b._nm = it.name.toLowerCase(); grid.appendChild(b); });
+      sec.appendChild(grid); box.appendChild(sec); secs.push(sec);
+    });
+    const none = el('div', 'note', 'No pictures match that search.'); none.style.display = 'none'; box.appendChild(none);
+    q.addEventListener('input', () => {
+      const t = q.value.trim().toLowerCase(); let any = false;
+      secs.forEach((sec) => { let n = 0; sec.querySelectorAll('.libItem').forEach((b) => { const hit = !t || b._nm.includes(t); b.style.display = hit ? '' : 'none'; if(hit) n++; }); sec.style.display = n ? '' : 'none'; if(n) any = true; });
+      none.style.display = any ? 'none' : '';
+    });
+    box.appendChild(el('div', 'note', 'Tap a picture to add it to the middle of the view, then drag, resize or rotate it like any other item. White pictures can be tinted in the item settings.'));
+    tab.insertBefore(box, head && head.tagName === 'H3' ? head : shapes);
+  }
+  ['tab-paint', 'tab-suit'].forEach((id) => {
+    const pane = document.getElementById(id); if(!pane || pane.querySelector('.licLibPrev')) return;
+    const box = el('div', 'licLibPrev'); box.appendChild(el('h3', null, 'Gold image library'));
+    const row = el('div', 'libGrid libPrevGrid');
+    const pick = [].concat(...LIB.groups.map((g) => g.items)).slice(0, 9);
+    pick.forEach((it) => { const b = libItemBtn(it, true); b.onclick = goGold; row.appendChild(b); });
+    box.appendChild(row);
+    const more = el('button', 'btn small', 'Unlock ' + all.length + ' pictures with Gold'); more.type = 'button'; more.onclick = goGold; box.appendChild(more);
+    box.appendChild(el('div', 'note', 'Partner logos and flags you can place straight onto your helmet and suit.'));
+    const sch = pane.querySelector('.licSchemes'); if(sch && sch.nextSibling) pane.insertBefore(box, sch.nextSibling); else pane.insertBefore(box, pane.firstChild);
+  });
+}
+async function loadLibrary(){
+  try{ const r = await fetch(LIB_BASE + 'manifest.json', { cache: 'no-cache' }); if(!r.ok) return; LIB = await r.json(); }catch(e){ LIB = null; return; }
+  try{ buildLibrary(); }catch(e){ console.error(e); }
+}
+
 /* ---------- header save button, banner, avatar preview ---------- */
 function buildChrome(){
   const bar = $('.barbtns');
@@ -2917,7 +2997,7 @@ window.addEventListener('message', (e) => {
   else if(m.t === 'status'){ setStatus(m.text, m.kind); }
 });
 
-buildSchemes(); buildChrome(); buildLocks();
+buildSchemes(); buildChrome(); buildLocks(); loadLibrary();
 const t = setInterval(() => { if(window.__helmet && window.__helmet.ready){ clearInterval(t); post({ t: 'ready' }); } }, 120);
 })();
 }
