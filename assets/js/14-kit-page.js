@@ -457,6 +457,7 @@ function loadStaff(){
       + (ap.items.length ? '<div class="kit-grid">' + ap.items.map(function(i){ return '<div class="kit-card"><div class="kit-badges"><span class="kit-badge ' + i.type + '">' + i.type + '</span></div><div class="kit-card-img">' + (i.previewUrl ? '<img loading="lazy" src="' + esc(i.previewUrl) + '" alt="">' : '') + '</div><div class="kit-card-body"><div class="kit-card-title">' + esc(i.title) + '</div><div class="kit-card-sub">by ' + esc(i.creatorName || '-') + ' &middot; ' + fmt(i.price) + ' credits &middot; ' + Object.keys(i.images || {}).length + ' picture(s)</div><div class="kit-card-actions"><button class="kit-btn small ghost" data-s="view" data-id="' + esc(i.id) + '">View in 3D</button><button class="kit-btn small teal" data-s="approve" data-id="' + esc(i.id) + '">Approve</button><button class="kit-btn small red" data-s="decline" data-id="' + esc(i.id) + '">Decline</button></div></div></div>'; }).join('') + '</div>' : '<div class="kit-empty">Nothing waiting.</div>') + '</div>';
     html += '<div class="kit-section"><h3>Reports (' + ap.reports.length + ')</h3>' + (ap.reports.length ? '<div class="kit-scroll"><table class="kit-table"><thead><tr><th>When</th><th>Reason</th><th></th></tr></thead><tbody>' + ap.reports.map(function(x){ return '<tr><td>' + esc(when(x.atMs)) + '</td><td>' + esc(x.reason) + '</td><td><button class="kit-btn small ghost" data-s="open" data-id="' + esc(x.itemId) + '">Open item</button> <button class="kit-btn small ghost" data-s="resolve" data-id="' + esc(x.id) + '">Resolve</button></td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="kit-empty">No open reports.</div>') + '</div>';
     html += '<div class="kit-section"><h3>Remove a driver\'s avatar</h3><p class="kit-note">Sends the driver back to the plain white figure until they save their kit again.</p><div class="kit-row"><input type="text" id="kitClrId" placeholder="Driver Discord ID" inputmode="numeric" style="max-width:260px"><button class="kit-btn small red" data-s="clear" type="button">Remove avatar</button></div></div>';
+    html += '<div class="kit-section"><h3>Group photo</h3><p class="kit-note">Line up every driver who has made their own avatar (Patreons in the front row), choose your own background, and download a picture. Nothing is saved to IFWL; it is drawn in your browser.</p><div class="kit-row"><button class="kit-btn teal" data-s="group" type="button">Open the group photo maker</button></div></div>';
     if(isOwner()){
       var st = r[1], sales = r[2];
       var cups = Object.keys(st.cupMap || {}).map(function(k){ return '<div class="kit-row"><input type="text" data-cup="id" value="' + esc(k) + '" aria-label="Cup id"><input type="text" data-cup="label" value="' + esc(st.cupMap[k]) + '" aria-label="Cup name"><button type="button" class="kit-btn small ghost" data-s="cupdel">Remove</button></div>'; }).join('');
@@ -477,6 +478,13 @@ function loadStaff(){
     pane._ap = ap;
   }).catch(function(e){ pane.innerHTML = '<div class="kit-empty">' + esc(errMsg(e)) + '</div>'; });
 }
+function openGroupPhoto(){
+  var go = function(){ if(window.IFWL_KIT_GROUP) window.IFWL_KIT_GROUP.open(); };
+  if(window.IFWL_KIT_GROUP) return go();
+  var sc = document.createElement('script'); sc.src = K.ASSETS + 'js/15-kit-group.js?v=fffd125c'; sc.onload = go;
+  sc.onerror = function(){ toast('The group photo maker could not be loaded. Refresh the page and try again.', 'bad'); };
+  document.head.appendChild(sc);
+}
 function staffClick(e){
   var b = e.target.closest('[data-s]'); if(!b) return; var a = b.getAttribute('data-s'), id = b.getAttribute('data-id'), pane = q('kitPane_staff');
   if(a === 'view'){ var it = (pane._ap.items || []).filter(function(i){ return i.id === id; })[0]; if(it) K.openViewer({ title: it.title, itemId: it.id, item: { id: it.id, type: it.type, title: it.title, snapshot: { design: it.design, images: it.images } }, view: { item: it.type, pose: 'crossed', helmet: true } }); }
@@ -485,6 +493,7 @@ function staffClick(e){
   else if(a === 'open'){ openItem(id); }
   else if(a === 'resolve'){ api('kitReportResolve', null, { reportId: id }).then(function(){ loadStaff(); }).catch(function(er){ toast(errMsg(er), 'bad'); }); }
   else if(a === 'clear'){ var v = q('kitClrId').value.trim(); if(!/^\d{5,25}$/.test(v)){ toast('Enter the driver\'s Discord ID (numbers only).', 'bad'); return; } api('kitAvatarClear', null, { id: v }).then(function(){ toast('Avatar removed.', 'good'); q('kitClrId').value = ''; }).catch(function(er){ toast(errMsg(er), 'bad'); }); }
+  else if(a === 'group'){ openGroupPhoto(); }
   else if(a === 'cupadd'){ var d = document.createElement('div'); d.className = 'kit-row'; d.innerHTML = '<input type="text" data-cup="id" aria-label="Cup id" placeholder="cup #"><input type="text" data-cup="label" aria-label="Cup name" placeholder="name"><button type="button" class="kit-btn small ghost" data-s="cupdel">Remove</button>'; q('ks_cups').appendChild(d); }
   else if(a === 'cupdel'){ b.closest('.kit-row').remove(); }
   else if(a === 'savesettings'){
