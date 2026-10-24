@@ -4,7 +4,7 @@
    server calls, Patreon links and Google Fonts all go straight to the network exactly as before.
    Pages: network first (always the newest version), falling back to the last copy, then offline.html.
    Static files (css, js, images): the copy already stored is shown at once and refreshed behind the scenes. */
-const VERSION = 'ifwl-app-v1';
+const VERSION = 'ifwl-app-v2';
 const SHELL = VERSION + '-shell';
 const RUNTIME = VERSION + '-runtime';
 const MAX_RUNTIME = 120;
