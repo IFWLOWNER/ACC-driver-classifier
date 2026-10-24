@@ -175,7 +175,9 @@ function paintHead(){
   fig.innerHTML = '<img src="' + esc(has ? (state.avatarSmallUrl || state.avatarUrl) : K.STOCK) + '" alt="Your avatar">';
   q('kitHeadText').textContent = state.mode === 'full'
     ? 'You have the full designer. Save your kit and your avatar updates everywhere in the Licence Centre.'
-    : 'Pick ready-made colour schemes or set your own colours for your helmet and race suit. Anything with a gold padlock comes with Gold Patreon.';
+    : state.mode === 'silver'
+      ? 'Set your colours, add up to 4 shapes and 2 pictures, and pick the Blue or Silver mirror visor. Anything with a gold padlock comes with Gold Patreon.'
+      : 'Pick ready-made colour schemes or set your own colours for your helmet and race suit. Anything with a gold padlock comes with Patreon.';
   q('kitWalletChip').textContent = fmt((state.wallet && state.wallet.balance) || 0);
 }
 function showTab(name, first){
@@ -201,7 +203,9 @@ function showDesign(){
     built.design = true;
     var canSell = state.selling && state.selling.open && state.selling.canCreate;
     var lockedSell = state.selling && state.selling.open && !state.selling.canCreate;
-    var gold = state.mode === 'full' ? '' : '<div class="kit-gold" id="kitGoldBox"><div class="gt">' + LOCK_SVG + '<b>Unlock more with Gold Patreon.</b> You are using the free colour designer. Gold adds the full designer (patterns, layouts, logos, text and finishes), every visor tint (Smoke, Clear and Blackout are free), all 12 colour schemes (4 are free), and selling your own designs in the Kit Market. Look for the gold padlocks.</div>' + goldLink('Get Gold on Patreon') + '</div>';
+    var gold = state.mode === 'full' ? '' : state.mode === 'silver'
+      ? '<div class="kit-gold" id="kitGoldBox"><div class="gt">' + LOCK_SVG + '<b>You have Silver Patreon.</b> Silver adds up to 4 shapes and 2 pictures on the helmet and on the suit, plus the Blue and Silver mirror visors. Gold adds the full designer (patterns, layouts, text, finishes, all visor tints), the image library, all 12 colour schemes, unlimited pictures and shapes, and selling your own designs in the Kit Market. Look for the gold padlocks.</div>' + goldLink('See Gold on Patreon') + '</div>'
+      : '<div class="kit-gold" id="kitGoldBox"><div class="gt">' + LOCK_SVG + '<b>Unlock more with Patreon.</b> You are using the free colour designer. <b>Silver Patreon</b> adds up to 4 shapes and 2 pictures on the helmet and on the suit, plus the Blue and Silver mirror visors. <b>Gold Patreon</b> adds the full designer (patterns, layouts, logos, text and finishes), every visor tint (Smoke, Clear and Blackout are free), the image library, all 12 colour schemes (4 are free), and selling your own designs in the Kit Market. Look for the gold padlocks.</div>' + goldLink('See the Patreon tiers') + '</div>';
     pane.innerHTML = gold + '<div class="kit-bar"><div class="kit-note grow" id="kitDesignNote"></div>' + (canSell ? '<button type="button" class="kit-btn purple" id="kitSellBtn">Sell a design</button>' : '') + (lockedSell ? goldLink('Sell a design (Gold)', 'purple') : '') + '</div>'
       + '<div class="kit-frame"><div class="kit-frame-load" id="kitStudioLoad">Loading Kit Studio&hellip;</div><iframe id="kitStudioFrame" title="Kit Studio" allow="fullscreen"></iframe></div>';
     studio.iframe = q('kitStudioFrame');
@@ -215,8 +219,9 @@ function paintDesignNote(){
   var n = q('kitDesignNote'); if(!n) return;
   var worn = []; ['suit', 'helmet'].forEach(function(t){ var w = state.equippedItems && state.equippedItems[t]; if(w) worn.push(w.title + ' (' + t + ')'); });
   var t = '';
-  if(state.designLocked) t += 'Your Gold designs are kept safe. While you are not a Gold member you can change colours only. ';
+  if(state.designLocked) t += 'Your Gold designs are kept safe. While you are not a Gold member you can change ' + (state.mode === 'silver' ? 'colours and the Silver visors' : 'colours') + ' only. ';
   else if(state.mode === 'full') t += 'Design, then press <b>Save my kit</b> in the top bar. ';
+  else if(state.mode === 'silver') t += 'Set your colours, add shapes and pictures from the Decals tab, then press <b>Save my kit</b> in the top bar. ';
   else t += 'Choose a colour scheme (or set your own colours) and press <b>Save my kit</b> in the top bar. ';
   if(worn.length) t += 'You are wearing <b>' + esc(worn.join(' and ')) + '</b> from your collection, so that part shows on your avatar. Take it off in My Collection to use your own design again.';
   n.className = 'kit-note grow' + (worn.length ? ' good' : ''); n.innerHTML = t;

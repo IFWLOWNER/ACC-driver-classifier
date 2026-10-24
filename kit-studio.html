@@ -212,6 +212,16 @@ body.lic-colours .licLibPrev{display:block}
 .licLibPrev .libItem{min-height:62px}
 .licLibPrev .btn{margin-top:8px;width:100%}
 body:not(.lic-colours) .libItem.licGold .gl{display:none}
+
+/* ---- Silver Patreon (licence mode): the Decals tab opens with 4 shapes and 2 pictures; text and the image library stay Gold ---- */
+body.lic-colours .licLib{display:none}
+body.lic-silver .licSilverV .gl{display:none}
+body.lic-silver .seg button.licSilverV{opacity:1}
+body.lic-deco .tabs button[data-tab="decals"] .gl{display:none}
+body.lic-deco .tabs button[data-tab="decals"]{opacity:1}
+body.lic-deco #addTextBtn.licGold{position:relative;opacity:.82}
+body.lic-deco #addTextBtn .gl{margin-left:6px;vertical-align:middle}
+body.lic-colours:not(.lic-deco) #tab-decals .licLibPrev{display:none}
 </style></head><body data-item="helmet">
 <div class="app">
   <header class="bar">
@@ -2137,7 +2147,9 @@ function placeAt(x, y, side, ray){
 const r4 = (a) => a.map(v => Math.round(v*10000)/10000);
 const KIT_MAX_PICTURES = 20, KIT_MAX_PICTURE_BYTES = 7*1024*1024;   /* the Licence Centre saves at most 20 different pictures (and 7 MB of them) per helmet or suit */
 function pictureCount(layers, extraId){ const ids = new Set(); (layers || []).forEach(L => { if(L.kind === 'image' && L.imgId) ids.add(L.imgId); }); if(extraId) ids.add(extraId); return ids.size; }
+let licLayerGuard = null;   /* set by the Licence Centre bridge: Silver Patreon limits (no text, 4 shapes, 2 pictures) */
 function addLayer(props, at){
+  if(licLayerGuard){ const why = licLayerGuard(props && props.kind); if(why){ toast(why); return null; } }
   if(LIC && props && props.kind === 'image' && pictureCount(S.layers, props.imgId) > KIT_MAX_PICTURES){ toast('You can have up to ' + KIT_MAX_PICTURES + ' different pictures on one ' + cur.noun + '. Remove one first, or reuse a picture that is already on it.'); return null; }
   if(S.layers.length >= cur.maxLayers){ toast('That is the maximum of ' + cur.maxLayers + ' items on one ' + cur.noun + '.'); return null; }
   const pl = at || placeAtCentre();
@@ -2229,6 +2241,7 @@ function deleteLayer(L){
   changed({ noThumbs: true }); commit(); refreshLayerList(); buildInspector();
 }
 function duplicateLayer(L){
+  if(licLayerGuard){ const why = licLayerGuard(L.kind); if(why){ toast(why); return; } }
   if(S.layers.length >= cur.maxLayers){ toast('That is the maximum of ' + cur.maxLayers + ' items on one ' + cur.noun + '.'); return; }
   const b = basis(L, 'none'), tgt = v3.add(L.P, v3.add(v3.mul(b.right, L.w*0.28), v3.mul(b.up, -L.w*0.12)));
   const hit = pickMesh({ o: v3.add(tgt, v3.mul(L.N, cur.snapOff)), d: v3.mul(L.N, -1) });
@@ -2706,7 +2719,7 @@ if(LIC){
 const post = (m) => { try{ parent.postMessage(Object.assign({ ifwl: 'kit' }, m), location.origin); }catch(e){} };
 const B = document.body;
 B.classList.add('lic');
-let mode = 'colours', readOnly = { suit: false, helmet: false }, baseline = '', origByData = {}, lastDirty = null, roNames = { suit: '', helmet: '' }, inited = false;
+let mode = 'colours', deco = false, readOnly = { suit: false, helmet: false }, baseline = '', origByData = {}, lastDirty = null, roNames = { suit: '', helmet: '' }, inited = false;
 
 /* ---------- ready-made colour schemes (for accounts that can change colours only): one pick colours the helmet AND the suit together ---------- */
 const SCHEMES = [
@@ -2727,6 +2740,7 @@ const SCHEMES = [
 const PATREON = 'https://www.patreon.com/c/IFWL';
 const LOCK_SVG = '<svg class="gl" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2" fill="none" stroke="#e0a800" stroke-width="2.4" stroke-linecap="round"/><rect x="4.5" y="10" width="15" height="11" rx="2.6" fill="#f2b705"/><circle cx="12" cy="15.4" r="1.7" fill="#7a5200"/></svg>';
 const FREE_VISORS = ['Smoke', 'Clear', 'Blackout'];
+const SILVER_VISORS = ['Blue mirror', 'Silver mirror'], SILVER_MAX_SHAPES = 4, SILVER_MAX_PICTURES = 2;   /* Silver Patreon: two more visor tints, up to 4 shapes and 2 pictures on each of the helmet and the suit */
 const FREE_PATTERN_MAX = 10;   /* ready-made helmet designs 1-10 can be picked when the league allows patterns; 11-15 are Gold */
 const FREE_SCHEMES = ['IFWL Teal', 'Crimson', 'Midnight', 'Monochrome'];
 function goGold(e){ if(e){ e.preventDefault(); e.stopPropagation(); } try{ window.open(PATREON, '_blank', 'noopener,noreferrer'); }catch(err){} }
@@ -2741,13 +2755,13 @@ function buildLocks(){
   const tabs = $('.tabs');
   ['decals', 'designs'].forEach((t) => {
     const b = tabs && tabs.querySelector('[data-tab="' + t + '"]'); if(!b || b.classList.contains('licTabLock')) return;
-    b.classList.add('licTabLock'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = 'Gold Patreon';
+    b.classList.add('licTabLock'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = t === 'decals' ? 'Pictures and shapes come with Silver Patreon. Text and the image library come with Gold.' : 'Gold Patreon';
   });
-  if(tabs) tabs.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.licTabLock'); if(b && B.classList.contains('lic-colours')) goGold(e); }, true);
+  if(tabs) tabs.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.licTabLock'); if(b && B.classList.contains('lic-colours') && !(deco && b.getAttribute('data-tab') === 'decals')) goGold(e); }, true);
   const vs = $('#visorSeg');
   if(vs){
-    [...vs.children].forEach((b, i) => { if(VISORS[i] && !FREE_VISORS.includes(VISORS[i].n)){ b.classList.add('licGold'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = VISORS[i].n + ' is a Gold Patreon visor'; } });
-    vs.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('button.licGold'); if(b && B.classList.contains('lic-colours')) goGold(e); }, true);
+    [...vs.children].forEach((b, i) => { if(VISORS[i] && !FREE_VISORS.includes(VISORS[i].n)){ const sv = SILVER_VISORS.includes(VISORS[i].n); b.classList.add('licGold'); if(sv) b.classList.add('licSilverV'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = VISORS[i].n + (sv ? ' is a Silver Patreon visor (Gold has it too)' : ' is a Gold Patreon visor'); } });
+    vs.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('button.licGold'); if(b && B.classList.contains('lic-colours') && !(b.classList.contains('licSilverV') && B.classList.contains('lic-silver'))) goGold(e); }, true);
   }
   const pg = $('#patGrid');
   if(pg){
@@ -2842,7 +2856,7 @@ function buildLibrary(){
     box.appendChild(el('div', 'note', 'Tap a picture to add it to the middle of the view, then drag, resize or rotate it like any other item. White pictures can be tinted in the item settings.'));
     tab.insertBefore(box, head && head.tagName === 'H3' ? head : shapes);
   }
-  ['tab-paint', 'tab-suit'].forEach((id) => {
+  ['tab-paint', 'tab-suit', 'tab-decals'].forEach((id) => {
     const pane = document.getElementById(id); if(!pane || pane.querySelector('.licLibPrev')) return;
     const box = el('div', 'licLibPrev'); box.appendChild(el('h3', null, 'Gold image library'));
     const row = el('div', 'libGrid libPrevGrid');
@@ -2853,10 +2867,31 @@ function buildLibrary(){
     box.appendChild(el('div', 'note', 'Partner logos and flags you can place straight onto your helmet and suit.'));
     const sch = pane.querySelector('.licSchemes'); if(sch && sch.nextSibling) pane.insertBefore(box, sch.nextSibling); else pane.insertBefore(box, pane.firstChild);
   });
+  silverUi();
 }
 async function loadLibrary(){
   try{ const r = await fetch(LIB_BASE + 'manifest.json', { cache: 'no-cache' }); if(!r.ok) return; LIB = await r.json(); }catch(e){ LIB = null; return; }
   try{ buildLibrary(); }catch(e){ console.error(e); }
+}
+
+/* ---------- Silver Patreon: pictures and shapes (limited), no text; the image library and everything else stays Gold ---------- */
+function layerKinds(layers){ const c = { text: 0, shape: 0, image: 0 }; (layers || []).forEach((L) => { if(L && c[L.kind] !== undefined) c[L.kind]++; }); return c; }
+function fitsSilver(layers){ const c = layerKinds(layers); return c.text === 0 && c.shape <= SILVER_MAX_SHAPES && c.image <= SILVER_MAX_PICTURES; }
+licLayerGuard = (kind) => {
+  if(!deco) return '';
+  const c = layerKinds(S.layers), noun = cur.noun;
+  if(kind === 'text') return 'Text is a Gold Patreon extra.';
+  if(kind === 'shape' && c.shape >= SILVER_MAX_SHAPES) return 'Silver Patreon allows ' + SILVER_MAX_SHAPES + ' shapes on one ' + noun + '. Remove a shape, or go Gold for more.';
+  if(kind === 'image' && c.image >= SILVER_MAX_PICTURES) return 'Silver Patreon allows ' + SILVER_MAX_PICTURES + ' pictures on one ' + noun + '. Remove a picture, or go Gold for more.';
+  return '';
+};
+function silverUi(){
+  const note = document.querySelector('.licGoldNote span.t');
+  if(note) note.innerHTML = deco ? 'You have <b>Silver Patreon</b>: your colours, ' + SILVER_MAX_SHAPES + ' shapes and ' + SILVER_MAX_PICTURES + ' pictures on the helmet and on the suit, and two extra visor tints. Everything with a padlock is a <b>Gold Patreon</b> extra.' : (B.classList.contains('lic-silver') ? 'You have <b>Silver Patreon</b>: your colours and two extra visor tints. Everything with a padlock is a <b>Gold Patreon</b> extra.' : 'You can change colours. Everything with a padlock is a <b>Gold Patreon</b> extra.');
+  const tb = $('#addTextBtn'); if(!tb) return;
+  const on = deco && !tb.classList.contains('licGold');
+  if(on){ tb.classList.add('licGold'); tb.insertAdjacentHTML('beforeend', LOCK_SVG); tb.title = 'Text is a Gold Patreon extra'; }
+  if(!tb._licGuard){ tb._licGuard = true; tb.addEventListener('click', (e) => { if(deco){ e.stopImmediatePropagation(); goGold(e); toast('Text is a Gold Patreon extra.'); } }, true); }
 }
 
 /* tell the member before saving, in plain words, if a design is over what can be stored */
@@ -2865,6 +2900,12 @@ function limitProblem(){
   for(const key of ['helmet', 'suit']){
     if(readOnly[key]) continue;
     const st = ITEMS[key].S, noun = key === 'suit' ? 'race suit' : 'helmet';
+    if(deco){
+      const c = layerKinds(st.layers);
+      if(c.shape > SILVER_MAX_SHAPES) return 'Silver Patreon allows ' + SILVER_MAX_SHAPES + ' shapes on your ' + noun + ' and it has ' + c.shape + '. Remove some, then press Save again. Nothing was saved.';
+      if(c.image > SILVER_MAX_PICTURES) return 'Silver Patreon allows ' + SILVER_MAX_PICTURES + ' pictures on your ' + noun + ' and it has ' + c.image + '. Remove some, then press Save again. Nothing was saved.';
+      if(c.text) return 'Text is a Gold Patreon extra. Remove the text from your ' + noun + ', then press Save again. Nothing was saved.';
+    }
     if(pictureCount(st.layers) > KIT_MAX_PICTURES) return 'Your ' + noun + ' has ' + pictureCount(st.layers) + ' different pictures on it. The most that can be saved is ' + KIT_MAX_PICTURES + '. Remove some, then press Save again. Nothing was saved.';
     if(st.layers.length > ITEMS[key].maxLayers) return 'Your ' + noun + ' has too many items on it. Remove some, then press Save again. Nothing was saved.';
     const ids = new Set(); let bytes = 0; st.layers.forEach((L) => { if(L.kind === 'image' && L.imgId && !ids.has(L.imgId)){ ids.add(L.imgId); bytes += ((imageStore[L.imgId] || '').length)*0.75; } });
@@ -2995,14 +3036,18 @@ new MutationObserver(syncRO).observe(B, { attributes: true, attributeFilter: ['d
 
 /* ---------- messages from the Licence Centre ---------- */
 async function applyInit(m){
-  mode = m.mode === 'full' ? 'full' : 'colours';
-  B.classList.toggle('lic-colours', mode === 'colours');
+  mode = m.mode === 'full' ? 'full' : (m.mode === 'silver' ? 'silver' : 'colours');
+  B.classList.toggle('lic-colours', mode !== 'full');
+  B.classList.toggle('lic-silver', mode === 'silver');
   B.classList.toggle('lic-patterns', !!m.allowPatterns);
   B.classList.toggle('lic-view', !!m.view);
   readOnly = { suit: !!(m.equipped && m.equipped.suit), helmet: !!(m.equipped && m.equipped.helmet) };
   roNames = { suit: (m.equipped && m.equipped.suit && m.equipped.suit.title) || '', helmet: (m.equipped && m.equipped.helmet && m.equipped.helmet.title) || '' };
   origByData = {};
   const kit = m.kit || {};
+  deco = mode === 'silver' && fitsSilver((kit.helmet && kit.helmet.layers) || []) && fitsSilver((kit.suit && kit.suit.layers) || []);
+  B.classList.toggle('lic-deco', deco);
+  silverUi();
   for(const key of ['helmet', 'suit']){
     const eq = m.equipped && m.equipped[key];
     const design = eq ? eq.design : kit[key], images = eq ? (eq.images || {}) : (kit[key + 'Images'] || {});
@@ -3024,7 +3069,7 @@ async function applyInit(m){
   syncRO(); dirtyFrame = true;
   inited = true; baseline = snap(); lastDirty = false; post({ t: 'dirty', dirty: false });
   setStatus('', ''); const s = $('#licSaveBtn'); if(s){ s.disabled = false; s.classList.remove('pulse'); }
-  const nm = $('#designName'); if(nm) nm.style.display = mode === 'colours' ? 'none' : '';
+  const nm = $('#designName'); if(nm) nm.style.display = mode !== 'full' ? 'none' : '';
   if(m.then === 'avatar') doAvatar(m.forVersion);
   post({ t: 'inited' });
 }
