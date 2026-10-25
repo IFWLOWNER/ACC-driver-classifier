@@ -1288,6 +1288,7 @@ function defaultState(){
     pattern: { id: 1, scale: 1, spin: 0, shift: 0 },
     finish: 0, visor: visorOf(0), strip: { on: false, color: '#1fd6bd' },
     trim: '#101216',
+    dlc2: (typeof dlc2Default === 'function') ? dlc2Default() : undefined,
     layers: [], nextId: 1
   };
 }
@@ -1578,7 +1579,13 @@ function drawHelmet(st, tex, vp, eye, M, ground){
   }
   gl.uniform1i(u.uMode, 0); gl.bindVertexArray(ITEMS.helmet.mesh.vao);
   gl.uniform1i(u.uPass, 0);
-  for(let c=0;c<MAT_COUNT;c++){ if(c === 2) continue; const r = model.ranges[c]; if(!r[1]) continue; gl.uniform1i(u.uMat, c); gl.drawElements(gl.TRIANGLES, r[1], gl.UNSIGNED_INT, r[0]*4); }
+  const furOn = typeof dlc2FurOn === 'function' && dlc2FurOn(st);
+  for(let c=0;c<MAT_COUNT;c++){ if(c === 2) continue; if(c === 0 && furOn) continue; const r = model.ranges[c]; if(!r[1]) continue; gl.uniform1i(u.uMat, c); gl.drawElements(gl.TRIANGLES, r[1], gl.UNSIGNED_INT, r[0]*4); }
+  if(typeof dlc2DrawAccessories === 'function' && st.dlc2){
+    if(furOn) dlc2DrawFurShell(st, vp, eye, M);
+    dlc2DrawAccessories(st, vp, eye, M);
+    gl.useProgram(progMain.p); gl.bindVertexArray(ITEMS.helmet.mesh.vao);
+  }
   /* the visor is see-through: first a colour filter over what is behind it, then the reflections on top */
   { const r = model.ranges[2]; if(r[1]){
     gl.uniform1i(u.uMat, 2); gl.enable(gl.BLEND);
@@ -2378,6 +2385,7 @@ function normalise(raw, it){
   else st.visor = visorOf(int(o.visor, 0, VISORS.length - 1, 0));
   const sp = o.strip || {}; st.strip = { on: !!sp.on, color: hex(sp.color, st.strip.color) };
   st.trim = hex(o.trim, st.trim);
+  if(typeof dlc2Norm === 'function') st.dlc2 = dlc2Norm(o.dlc2);
   return normLayers(o, st, it);
 }
 function payloadOf(it){
@@ -2708,6 +2716,1119 @@ const loadingEl = $('#loading');
   }catch(e){ console.error(e); if(loadingEl) loadingEl.textContent = 'Could not load the 3D models: ' + e.message; }
 })();
 
+/* =====================================================================================================
+   DLC2: helmet accessories. Ears (cat, bear/mouse, bunny, devil horns), a full fur wrap, googly eyes and a big mouth.
+   Everything here is built from code (no extra model files) and sits on whatever helmet is loaded:
+   - anchors (where an ear / eye / mouth goes) are found by firing rays at the real helmet shell, so they sit on it
+     whatever the sliders say;
+   - fur is drawn as shells: the paint part of the helmet is drawn again and again, each time pushed a little
+     further out along its surface direction, with hair-shaped holes cut in it.
+   Design data lives in design.dlc2 (see dlc2Default). Gold Patreon only in the member studio (see app5.js + kit.js).
+   ===================================================================================================== */
+const DLC2_EAR_NAMES = ['Cat ears', 'Bear / mouse ears', 'Bunny ears', 'Devil horns'];
+const DLC2_INNER_NAMES = ['Mesh', 'Smooth', 'Fluffy'];
+function dlc2Default(){
+  return {
+    ears: { on: false, style: 0, size: 1, spread: 0.52, fwd: 0.12, tilt: 16, back: 4, droop: 0, outer: '#14161a', rim: '#ffd200', inner: '#0b0c0e', innerStyle: 0, furry: false },
+    fur: { on: false, c1: '#1fb8a6', c2: '#ff5fb0', len: 0.068, dens: 125, fluff: 0.60, droop: 0.35 },
+    eyes: { on: false, size: 0.30, spread: 0.30, y: 0.60, lx: 0.20, ly: -0.25, pupil: 0.55 },
+    mouth: { on: false, w: 0.62, h: 0.30, y: 0.10, smile: 0.4, lip: '#3a0d14', inside: '#12040a', tongue: '#e0415c' },
+    hw: (typeof hwDefault === 'function') ? hwDefault() : undefined
+  };
+}
+function dlc2Norm(raw){
+  const d = dlc2Default(), o = raw && typeof raw === 'object' ? raw : {};
+  const num = (v, a, b, def) => (typeof v === 'number' && isFinite(v)) ? Math.max(a, Math.min(b, v)) : def;
+  const hex = (v, def) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) ? v : def;
+  const e = o.ears || {}, f = o.fur || {}, y = o.eyes || {}, m = o.mouth || {};
+  d.ears = { on: !!e.on, style: Math.round(num(e.style, 0, 3, 0)), size: num(e.size, 0.5, 1.9, 1), spread: num(e.spread, 0.2, 0.8, d.ears.spread), fwd: num(e.fwd, -0.5, 0.7, d.ears.fwd),
+    tilt: num(e.tilt, -10, 50, d.ears.tilt), back: num(e.back, -10, 45, d.ears.back), droop: num(e.droop, 0, 1, 0),
+    outer: hex(e.outer, d.ears.outer), rim: hex(e.rim, d.ears.rim), inner: hex(e.inner, d.ears.inner), innerStyle: Math.round(num(e.innerStyle, 0, 2, 0)), furry: !!e.furry };
+  d.fur = { on: !!f.on, c1: hex(f.c1, d.fur.c1), c2: hex(f.c2, d.fur.c2), len: num(f.len, 0.02, 0.16, d.fur.len), dens: num(f.dens, 50, 190, d.fur.dens), fluff: num(f.fluff, 0, 1, d.fur.fluff), droop: num(f.droop, 0, 1, d.fur.droop) };
+  d.eyes = { on: !!y.on, size: num(y.size, 0.12, 0.5, d.eyes.size), spread: num(y.spread, 0.12, 0.6, d.eyes.spread), y: num(y.y, -0.2, 0.9, d.eyes.y), lx: num(y.lx, -1, 1, d.eyes.lx), ly: num(y.ly, -1, 1, d.eyes.ly), pupil: num(y.pupil, 0.25, 1, d.eyes.pupil) };
+  d.mouth = { on: !!m.on, w: num(m.w, 0.3, 0.8, d.mouth.w), h: num(m.h, 0.14, 0.5, d.mouth.h), y: num(m.y, -0.4, 0.7, d.mouth.y), smile: num(m.smile, -1, 1, d.mouth.smile), lip: hex(m.lip, d.mouth.lip), inside: hex(m.inside, d.mouth.inside), tongue: hex(m.tongue, d.mouth.tongue) };
+  if(typeof hwNorm === 'function') d.hw = hwNorm(o.hw); else delete d.hw;
+  return d;
+}
+
+/* ---------- small geometry kit ---------- */
+function dlc2Grid(NV, NU, fn, flip){
+  const n = (NV + 1)*(NU + 1), P = new Float32Array(n*3), A = new Float32Array(n*4), Nr = new Float32Array(n*3), id = (j, i) => j*(NU + 1) + i;
+  let explicitN = false;
+  for(let j=0;j<=NV;j++) for(let i=0;i<=NU;i++){ const r = fn(j, i), k = id(j, i); if(r.length > 9) explicitN = true; P[k*3] = r[0]; P[k*3+1] = r[1]; P[k*3+2] = r[2]; A[k*4] = r[3]; A[k*4+1] = r[4]; A[k*4+2] = r[5]; A[k*4+3] = r[6]; if(r.length > 9){ Nr[k*3] = r[7]; Nr[k*3+1] = r[8]; Nr[k*3+2] = r[9]; } }
+  for(let j=0;j<=NV;j++) for(let i=0;i<=NU;i++){
+    const a = id(Math.max(j-1, 0), i), b = id(Math.min(j+1, NV), i), c = id(j, Math.max(i-1, 0)), d = id(j, Math.min(i+1, NU)), k = id(j, i);
+    const dv = [P[b*3]-P[a*3], P[b*3+1]-P[a*3+1], P[b*3+2]-P[a*3+2]], du = [P[d*3]-P[c*3], P[d*3+1]-P[c*3+1], P[d*3+2]-P[c*3+2]];
+    if(explicitN) continue;
+    let nn = v3.cross(du, dv); const l = v3.len(nn);
+    if(l < 1e-9){ if(j > 0){ const q = id(j-1, i); nn = [Nr[q*3], Nr[q*3+1], Nr[q*3+2]]; } else nn = [0, 0, 1]; } else nn = v3.mul(nn, (flip ? -1 : 1)/l);
+    Nr[k*3] = nn[0]; Nr[k*3+1] = nn[1]; Nr[k*3+2] = nn[2];
+  }
+  const I = []; for(let j=0;j<NV;j++) for(let i=0;i<NU;i++){ const a = id(j, i), b = id(j, i+1), c = id(j+1, i), d = id(j+1, i+1); I.push(a, b, c, b, d, c); }
+  return { pos: P, aux: A, nrm: Nr, idx: I, n };
+}
+function dlc2Merge(list){
+  let n = 0, ni = 0; list.forEach(g => { n += g.n; ni += g.idx.length; });
+  const pos = new Float32Array(n*3), nrm = new Float32Array(n*3), aux = new Float32Array(n*4), idx = new Uint32Array(ni); let o = 0, oi = 0;
+  list.forEach(g => { pos.set(g.pos, o*3); nrm.set(g.nrm, o*3); aux.set(g.aux, o*4); for(let k=0;k<g.idx.length;k++) idx[oi + k] = g.idx[k] + o; o += g.n; oi += g.idx.length; });
+  return { pos, nrm, aux, idx, uv: new Float32Array(n*2) };
+}
+/* a thick curved petal: pointy (cat), round (bear), long (bunny). Front faces +z, grows along +y, base sits at the origin. */
+function dlc2Petal(o){
+  const NV = o.nv || 34, NU = o.nu || 24, sy = [0], sz = [0], sa = [];
+  for(let j=0;j<=NV;j++) sa[j] = o.bend*(j/NV);
+  for(let j=1;j<=NV;j++){ const am = (sa[j-1] + sa[j])/2; sy[j] = sy[j-1] + Math.cos(am)*o.h/NV; sz[j] = sz[j-1] - Math.sin(am)*o.h/NV; }
+  const nrmAt = (j) => [0, Math.sin(sa[j]), Math.cos(sa[j])];
+  const at = (j, i, off) => { const v = j/NV, u = i/NU*2 - 1, w = o.w(v), n = nrmAt(j); return [u*w, sy[j] + n[1]*off, sz[j] + n[2]*off, u, v, w]; };
+  const frontOff = (u, v) => -o.cup*(1 - Math.pow(Math.abs(u), 2.4))*(1 - 0.30*v);
+  const backOff = (u, v) => -(o.thick + o.bulge*(1 - u*u)*(1 - 0.55*v));
+  const front = dlc2Grid(NV, NU, (j, i) => { const v = j/NV, u = i/NU*2 - 1, r = at(j, i, frontOff(u, v)); return [r[0], r[1], r[2], 2, r[3], r[4], r[5]]; }, false);
+  const back = dlc2Grid(NV, NU, (j, i) => { const v = j/NV, u = i/NU*2 - 1, r = at(j, i, backOff(u, v)); return [r[0], r[1], r[2], 0, r[3], r[4], r[5]]; }, true);
+  const walls = [-1, 1].map(s => dlc2Grid(NV, 1, (j, i) => { const v = j/NV, r = at(j, s < 0 ? 0 : NU, i === 0 ? 0 : backOff(s, v)); return [r[0], r[1], r[2], 0, r[3], r[4], r[5]]; }, s < 0));
+  return dlc2Merge([front, back, walls[0], walls[1]]);
+}
+/* a curved, tapered horn (tube). Curls toward -x (towards the middle of the head once mirrored for the right side) */
+function dlc2Horn(o){
+  const NV = 40, NR = 22, sx = [0], sy = [0], ang = [];
+  for(let j=0;j<=NV;j++) ang[j] = o.curv*(j/NV);
+  for(let j=1;j<=NV;j++){ const am = (ang[j-1] + ang[j])/2; sx[j] = sx[j-1] - Math.sin(am)*o.L/NV; sy[j] = sy[j-1] + Math.cos(am)*o.L/NV; }
+  const g = dlc2Grid(NV, NR, (j, i) => {
+    const v = j/NV, th = i/NR*Math.PI*2, a = ang[j], r = o.r0*Math.pow(Math.max(1 - v, 0), 0.82)*(1 + 0.05*Math.sin(v*44));
+    const np = [Math.cos(a), Math.sin(a), 0];
+    return [sx[j] + r*Math.cos(th)*np[0], sy[j] + r*Math.cos(th)*np[1], r*Math.sin(th)*1.0, 3, i/NR, v, r];
+  }, true);
+  return dlc2Merge([g]);
+}
+function dlc2Sphere(){
+  const g = dlc2Grid(18, 28, (j, i) => { const ph = j/18*Math.PI, th = i/28*Math.PI*2, x = Math.sin(ph)*Math.cos(th), y = Math.cos(ph), z = Math.sin(ph)*Math.sin(th); return [x, y, z, 4, x, y, z]; }, false);
+  return dlc2Merge([g]);
+}
+/* ear shapes */
+const DLC2_EARS = [
+  { name: 'cat',   mk: (d) => dlc2Petal({ h: 0.60, w: (v) => 0.285*Math.pow(1 - v, 0.98), cup: 0.060, thick: 0.050, bulge: 0.110, bend: 0.22 + d*0.9 }), rimW: 0.062, sink: 0.08, h: 0.60 },
+  { name: 'bear',  mk: (d) => dlc2Petal({ h: 0.40, w: (v) => 0.235*Math.sqrt(Math.max(0, 1 - Math.pow((v - 0.45)/0.55, 2))), cup: 0.070, thick: 0.070, bulge: 0.17, bend: 0.12 + d*0.9 }), rimW: 0.050, sink: 0.11, h: 0.42 },
+  { name: 'bunny', mk: (d) => dlc2Petal({ h: 1.05, w: (v) => 0.16*(0.30 + 0.70*Math.pow(Math.max(Math.sin(Math.PI*Math.pow(v, 0.72)), 0), 0.78)), cup: 0.045, thick: 0.03, bulge: 0.06, bend: 0.12 + d*1.7, nv: 44 }), rimW: 0.034, sink: 0.07, h: 1.05 },
+  { name: 'horn',  mk: (d) => dlc2Horn({ L: 0.62, r0: 0.105, curv: 1.15 + d*0.5 }), rimW: 0.0, sink: 0.05, h: 0.62 }
+];
+
+/* ---------- shaders ---------- */
+const VS_ACC = `#version 300 es
+in vec3 aPos; in vec3 aNrm; in vec4 aAux;
+uniform mat4 uVP; uniform mat4 uM; uniform mat4 uAM;
+out vec3 vPos; out vec3 vN; out vec4 vAux; out vec3 vW; out vec3 vLoc;
+void main(){
+  vec4 p = uAM*vec4(aPos,1.0);
+  vN = normalize(mat3(uAM)*aNrm); vAux = aAux; vLoc = aPos; vPos = p.xyz;
+  vec4 w = uM*p; vW = w.xyz; gl_Position = uVP*w;
+}`;
+const FS_ACC = `#version 300 es
+precision highp float;
+in vec3 vPos; in vec3 vN; in vec4 vAux; in vec3 vW; in vec3 vLoc;
+uniform vec3 uCam;
+uniform vec3 uOuter; uniform vec3 uRim; uniform vec3 uInner; uniform int uInnerStyle; uniform float uRimW; uniform float uEarH;
+uniform vec3 uPupil; uniform float uPupilR;
+uniform vec3 uLip; uniform vec3 uInside; uniform vec3 uTongue; uniform float uSmile;
+out vec4 outc;
+${GLSL_COMMON}
+${GLSL_STUDIO}
+float hexd(vec2 p){ p = abs(p); return max(dot(p, vec2(0.866025, 0.5)), p.y); }
+vec4 hexc(vec2 p){
+  const vec2 s = vec2(1.7320508, 1.0);
+  vec4 hC = floor(vec4(p, p - vec2(1.0, 0.5))/s.xyxy) + 0.5;
+  vec4 h = vec4(p - hC.xy*s, p - (hC.zw + 0.5)*s);
+  return dot(h.xy, h.xy) < dot(h.zw, h.zw) ? vec4(h.xy, hC.xy) : vec4(h.zw, hC.zw + 0.5);
+}
+void main(){
+  float part = vAux.x;
+  vec3 N = normalize(vN);
+  vec3 V = normalize(uCam - vW);
+  if(dot(N, V) < 0.0) N = -N;
+  float NdV = clamp(dot(N, V), 0.0, 1.0);
+  vec3 R = reflect(-V, N);
+  vec3 base = pow(uOuter, vec3(2.2)); float rough = 0.10, metal = 0.0, coat = 1.0; float alpha = 1.0; float emit = 0.0;
+  if(part < 0.5){
+    float shade = 0.92 + 0.08*vnoise(vPos*40.0);
+    base *= shade;
+  } else if(part < 2.5){
+    float u = vAux.y, v = vAux.z, w = vAux.w;
+    float edgeD = w*(1.0 - abs(u));
+    float tipD = (1.0 - v)*uEarH;
+    float dd = min(edgeD, tipD*0.8);
+    float inner = smoothstep(uRimW - 0.004, uRimW + 0.004, dd);
+    vec2 q = vec2(u*w, v*uEarH);
+    vec3 ic = pow(uInner, vec3(2.2)); float ir = 0.45, ic0 = 0.6;
+    if(uInnerStyle == 0){
+      vec4 hx = hexc(q/0.020); float hd = hexd(hx.xy);
+      float line = smoothstep(0.40, 0.50, hd);
+      ic = mix(ic*0.55, ic*1.0 + vec3(0.10)*pow(max(uInner.r, 0.1), 1.0) + 0.02, line);
+      ir = mix(0.16, 0.5, line); ic0 = 0.9;
+    } else if(uInnerStyle == 1){
+      ir = 0.20; ic0 = 0.9;
+    } else {
+      float f = fbm(vec3(q*70.0, 1.3)); float dots = hash21(floor(q*190.0));
+      ic = ic*(0.7 + 0.8*f) + ic*0.45*step(0.82, dots);
+      ir = 0.9; ic0 = 0.0;
+    }
+    base = mix(pow(uRim, vec3(2.2)), ic, inner);
+    rough = mix(0.10, ir, inner); coat = mix(1.0, ic0, inner);
+  } else if(part < 3.5){
+    float v = vAux.z;
+    float ridge = 0.5 + 0.5*sin(v*88.0);
+    base = mix(pow(uOuter, vec3(2.2)), pow(uRim, vec3(2.2)), smoothstep(0.35, 1.0, v));
+    base *= (0.86 + 0.14*ridge);
+    rough = 0.07;
+  } else if(part < 4.5){
+    vec3 q = normalize(vAux.yzw);
+    float ang = acos(clamp(dot(q, normalize(uPupil)), -1.0, 1.0));
+    float pu = 1.0 - smoothstep(uPupilR - 0.02, uPupilR + 0.02, ang);
+    float lim = smoothstep(0.30, 0.0, q.z + 0.0); /* back of the ball goes dark so it reads as an eye in a socket */
+    base = mix(vec3(0.86, 0.87, 0.9), vec3(0.015), pu);
+    rough = 0.035; coat = 1.0;
+    base *= (1.0 - 0.45*lim);
+  } else {
+    float x = vAux.y, y = vAux.z;
+    float yTop = 0.30 + 0.20*uSmile*x*x - 0.12*pow(abs(x), 4.0);
+    float yBot = -0.88*pow(max(1.0 - x*x, 0.0), 0.55) + 0.10*uSmile*x*x;
+    float d = min(min(y - yBot, yTop - y), (1.0 - abs(x))*0.55);
+    float fw = fwidth(d) + 1e-4;
+    alpha = smoothstep(0.0, fw*1.5, d);
+    if(alpha <= 0.002) discard;
+    vec3 ins = pow(uInside, vec3(2.2)); vec3 lip = pow(uLip, vec3(2.2)); vec3 tg = pow(uTongue, vec3(2.2));
+    float lipM = 1.0 - smoothstep(0.06, 0.10, d);
+    vec2 tq = vec2((x - 0.04)/0.50, (y + 0.60)/0.30);
+    float tong = (1.0 - smoothstep(0.92, 1.0, length(tq))) * step(yBot + 0.04, y);
+    vec3 tcol = tg*(0.8 + 0.25*smoothstep(0.0, 1.0, 1.0 - abs(x - 0.04)*5.0*0.0)) * (1.0 - 0.45*smoothstep(0.02, 0.0, abs(x - 0.04)));
+    base = mix(ins, tcol, tong*0.95);
+    base = mix(base, lip, lipM);
+    rough = mix(0.65, 0.3, tong); coat = 0.4;
+  }
+  vec3 L1 = normalize(vec3(-0.55, 0.85, 0.65)), L2 = normalize(vec3(0.75, 0.25, 0.45)), L3 = normalize(vec3(0.10, 0.35, -0.95));
+  float d1 = max(dot(N,L1),0.0), d2 = max(dot(N,L2),0.0), d3 = max(dot(N,L3),0.0);
+  vec3 amb = mix(vec3(0.035,0.04,0.05), vec3(0.20,0.23,0.28), N.y*0.5+0.5);
+  vec3 light = amb + d1*vec3(1.25,1.18,1.08) + d2*vec3(0.30,0.38,0.50) + d3*vec3(0.30,0.36,0.44)*0.45;
+  vec3 diff = base*light*(1.0 - metal);
+  vec3 envc = studio(R, rough*1.4);
+  float F = (0.04 + 0.96*pow(1.0 - NdV, 5.0))*coat;
+  vec3 col = diff + envc*F;
+  float shin = mix(500.0, 12.0, clamp(rough*1.2, 0.0, 1.0));
+  col += pow(max(dot(N, normalize(L1 + V)), 0.0), shin)*(1.0 - rough*0.8)*coat*vec3(2.2,2.1,2.0);
+  col = col/(1.0 + col*0.18);
+  col = pow(col, vec3(1.0/2.2));
+  outc = vec4(col, alpha);
+}`;
+const VS_FUR = `#version 300 es
+in vec3 aPos; in vec3 aNrm; in vec4 aAux;
+uniform mat4 uVP; uniform mat4 uM; uniform mat4 uAM;
+uniform float uShell; uniform float uLen; uniform float uDroop; uniform float uCurl;
+out vec3 vRoot; out vec3 vN; out vec3 vW; out vec4 vAux;
+void main(){
+  vec4 r = uAM*vec4(aPos,1.0);
+  vec3 n = normalize(mat3(uAM)*aNrm);
+  vec3 p = r.xyz + n*uLen*uShell;
+  p.y -= uDroop*uLen*uShell*uShell*0.9;
+  p += uCurl*uLen*uShell*0.55*vec3(sin(r.y*43.0 + r.z*13.0), sin(r.x*31.0 + r.y*17.0), cos(r.z*37.0 + r.x*19.0));
+  vRoot = r.xyz; vN = n; vAux = aAux;
+  vec4 w = uM*vec4(p,1.0); vW = w.xyz; gl_Position = uVP*w;
+}`;
+const FS_FUR = `#version 300 es
+precision highp float;
+in vec3 vRoot; in vec3 vN; in vec3 vW; in vec4 vAux;
+uniform vec3 uCam; uniform vec3 uC1; uniform vec3 uC2; uniform vec3 uC3; uniform float uShell; uniform float uDens; uniform int uEar; uniform float uEarH;
+out vec4 outc;
+${GLSL_COMMON}
+void main(){
+  vec3 N = normalize(vN), V = normalize(uCam - vW);
+  if(dot(N, V) < 0.0) N = -N;
+  float sh = uShell;
+  vec3 p = vRoot*uDens; vec3 cell = floor(p);
+  float h = hash31(cell);
+  vec3 off = vec3(hash31(cell + 1.7), hash31(cell + 5.3), hash31(cell + 9.1)) - 0.5;
+  float d = length(p - (cell + 0.5 + off*0.55));
+  float clump = 0.72 + 0.56*vnoise(vRoot*13.0);
+  float rad = mix(0.62, 0.15, pow(sh, 0.7))*(0.82 + 0.36*h);
+  float slen = (0.40 + 0.60*h)*clump;
+  vec3 c1 = pow(uC1, vec3(2.2)), c2 = pow(uC2, vec3(2.2));
+  vec3 col;
+  if(uEar == 1 && vAux.x > 1.5 && vAux.x < 2.5 && abs(vAux.y) < 0.74 && vAux.z < 0.88){
+    /* the inside of a fuzzy ear: paler, shorter fur */
+    c1 = pow(uC3, vec3(2.2))*0.6; c2 = pow(uC3, vec3(2.2));
+    slen *= 0.8;
+  }
+  if(sh > 0.001){ if(d > rad || sh > slen) discard; }
+  float t = sh/max(slen, 0.2);
+  col = mix(c1, c2, smoothstep(0.0, 0.85, t));
+  col *= 0.86 + 0.28*hash31(cell + 3.1);
+  float ao = mix(0.22, 1.0, pow(clamp(sh, 0.0, 1.0), 0.55));
+  vec3 L1 = normalize(vec3(-0.55, 0.85, 0.65)), L2 = normalize(vec3(0.75, 0.25, 0.45)), L3 = normalize(vec3(0.10, 0.35, -0.95));
+  float w1 = clamp(dot(N, L1)*0.55 + 0.45, 0.0, 1.0), w2 = clamp(dot(N, L2)*0.5 + 0.5, 0.0, 1.0), w3 = clamp(dot(N, L3)*0.5 + 0.5, 0.0, 1.0);
+  vec3 light = vec3(0.10, 0.11, 0.14) + w1*vec3(1.15, 1.10, 1.02) + w2*vec3(0.22, 0.28, 0.38) + w3*vec3(0.20, 0.24, 0.30)*0.5;
+  float NdV = clamp(dot(N, V), 0.0, 1.0);
+  float sheen = pow(1.0 - NdV, 2.6);
+  col = col*light*ao + c2*sheen*0.55*ao*sh + vec3(1.0)*sheen*0.04*sh;
+  col = col/(1.0 + col*0.18);
+  outc = vec4(pow(col, vec3(1.0/2.2)), 1.0);
+}`;
+const progAcc = program(VS_ACC, FS_ACC), progFur = program(VS_FUR, FS_FUR);
+
+/* ---------- anchors on the real helmet ---------- */
+const dlc2Cache = { ears: {}, mats: null, matsKey: '', eyeKey: '', eyes: null, mouthKey: '', mouth: null, sphere: null };
+function dlc2Frame(X, Y, Z, T, s){
+  return new Float32Array([X[0]*s, X[1]*s, X[2]*s, 0, Y[0]*s, Y[1]*s, Y[2]*s, 0, Z[0]*s, Z[1]*s, Z[2]*s, 0, T[0], T[1], T[2], 1]);
+}
+function dlc2FrameS(X, Y, Z, T, sx, sy, sz){
+  return new Float32Array([X[0]*sx, X[1]*sx, X[2]*sx, 0, Y[0]*sy, Y[1]*sy, Y[2]*sy, 0, Z[0]*sz, Z[1]*sz, Z[2]*sz, 0, T[0], T[1], T[2], 1]);
+}
+function dlc2Ray(o, d){ return pickMesh({ o, d }, ITEMS.helmet); }
+const dlc2Rad = Math.PI/180;
+function dlc2EarMats(e){
+  const key = JSON.stringify([e.style, e.size, e.spread, e.fwd, e.tilt, e.back]);
+  if(dlc2Cache.matsKey === key && dlc2Cache.mats) return dlc2Cache.mats;
+  const sp = DLC2_EARS[e.style], mats = [];
+  for(const s of [1, -1]){
+    const hit = dlc2Ray([s*e.spread, 3, e.fwd], [0, -1, 0]);
+    if(!hit){ mats.push(null); continue; }
+    const t = e.tilt*dlc2Rad, b = e.back*dlc2Rad;
+    let U = v3.norm([s*Math.sin(t)*Math.cos(b), Math.cos(t)*Math.cos(b), -Math.sin(b)]);
+    if(e.style === 3) U = v3.norm([s*Math.sin(t*0.9), Math.cos(t*0.9)*Math.cos(b), -Math.sin(b)]);
+    const nz = [0, 0, 1], Zf = v3.norm(v3.sub(nz, v3.mul(U, v3.dot(nz, U))));
+    let X = v3.norm(v3.cross(U, Zf)); if(s < 0) X = v3.mul(X, -1);
+    const T = v3.sub(hit.p, v3.mul(U, sp.sink*e.size));
+    mats.push(dlc2Frame(X, U, Zf, T, e.size));
+  }
+  dlc2Cache.matsKey = key; dlc2Cache.mats = mats; return mats;
+}
+function dlc2EarMesh(e){
+  const k = e.style + ':' + (Math.round(e.droop*20)/20);
+  if(!dlc2Cache.ears[k]){
+    const sp = DLC2_EARS[e.style], g = sp.mk(e.droop);
+    dlc2Cache.ears[k] = makeMesh(g);
+  }
+  return dlc2Cache.ears[k];
+}
+function dlc2EyeMats(y){
+  const key = JSON.stringify([y.size, y.spread, y.y]);
+  if(dlc2Cache.eyeKey === key && dlc2Cache.eyes) return dlc2Cache.eyes;
+  const out = [];
+  for(const s of [1, -1]){
+    const hit = dlc2Ray([s*y.spread, y.y, 3], [0, 0, -1]);
+    if(!hit){ out.push(null); continue; }
+    const r = y.size*0.5;
+    const Zl = v3.norm(v3.add(v3.mul(hit.n, 0.55), [0, 0, 0.45]));
+    const Xl = v3.norm(v3.cross([0, 1, 0], Zl)), Yl = v3.cross(Zl, Xl);
+    const C = v3.add(hit.p, v3.mul(hit.n, r*0.45));
+    out.push(dlc2Frame(Xl, Yl, Zl, C, r));
+  }
+  dlc2Cache.eyeKey = key; dlc2Cache.eyes = out; return out;
+}
+function dlc2MouthMesh(m){
+  const key = JSON.stringify([m.w, m.h, m.y]);
+  if(dlc2Cache.mouthKey === key && dlc2Cache.mouth) return dlc2Cache.mouth;
+  const NX = 44, NY = 24, W = m.w, H = m.h, cy = m.y, pts = [];
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++){
+    const mx = i/NX*2 - 1, my = j/NY*2 - 1, x = mx*W, y = cy + my*H*1.05;
+    const hit = dlc2Ray([x, y, 3], [0, 0, -1]);
+    pts.push(hit ? v3.add(hit.p, v3.mul(hit.n, 0.012)) : null);
+  }
+  /* fill misses from the nearest neighbour so the patch stays a clean sheet */
+  const pos = new Float32Array((NX + 1)*(NY + 1)*3), nrm = new Float32Array(pos.length), aux = new Float32Array((NX + 1)*(NY + 1)*4);
+  let k = 0;
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++, k++){
+    let p = pts[j*(NX + 1) + i];
+    if(!p){ for(let r=1;r<6 && !p;r++){ for(const [di, dj] of [[r,0],[-r,0],[0,r],[0,-r]]){ const ii = i + di, jj = j + dj; if(ii>=0&&ii<=NX&&jj>=0&&jj<=NY&&pts[jj*(NX+1)+ii]){ p = pts[jj*(NX+1)+ii]; break; } } } }
+    p = p || [0, cy, 1.2];
+    pos[k*3] = p[0]; pos[k*3+1] = p[1]; pos[k*3+2] = p[2];
+    aux[k*4] = 5; aux[k*4+1] = i/NX*2 - 1; aux[k*4+2] = j/NY*2 - 1; aux[k*4+3] = 1;
+  }
+  const idx = []; for(let j=0;j<NY;j++) for(let i=0;i<NX;i++){ const a = j*(NX+1)+i; idx.push(a, a+1, a+NX+1, a+1, a+NX+2, a+NX+1); }
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++){
+    const a = j*(NX+1) + Math.max(i-1, 0), b = j*(NX+1) + Math.min(i+1, NX), c = Math.max(j-1, 0)*(NX+1) + i, d = Math.min(j+1, NY)*(NX+1) + i, q = j*(NX+1) + i;
+    const du = [pos[b*3]-pos[a*3], pos[b*3+1]-pos[a*3+1], pos[b*3+2]-pos[a*3+2]], dv = [pos[d*3]-pos[c*3], pos[d*3+1]-pos[c*3+1], pos[d*3+2]-pos[c*3+2]];
+    let n = v3.norm(v3.cross(du, dv)); if(n[2] < 0) n = v3.mul(n, -1);
+    nrm[q*3] = n[0]; nrm[q*3+1] = n[1]; nrm[q*3+2] = n[2];
+  }
+  dlc2Cache.mouthKey = key; dlc2Cache.mouth = makeMesh({ pos, nrm, aux, uv: new Float32Array((NX+1)*(NY+1)*2), idx: new Uint32Array(idx) });
+  return dlc2Cache.mouth;
+}
+
+/* ---------- drawing ---------- */
+const dlc2Mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+const DLC2_SHELLS = dlc2Mobile ? 11 : 20;
+function dlc2FurOn(st){ return !!(st && st.dlc2 && st.dlc2.fur.on && ITEMS.helmet.loaded); }
+/* called from drawHelmet in place of the normal paint shell when fur is on */
+function dlc2DrawFurShell(st, vp, eye, M){
+  const D = st.dlc2, f = D.fur, u = progFur.u, r = ITEMS.helmet.model.ranges[0];
+  gl.useProgram(progFur.p);
+  gl.uniformMatrix4fv(u.uVP, false, vp); gl.uniformMatrix4fv(u.uM, false, M); gl.uniformMatrix4fv(u.uAM, false, IDENT); gl.uniform3fv(u.uCam, eye);
+  gl.uniform3fv(u.uC1, hex2rgb(f.c1)); gl.uniform3fv(u.uC2, hex2rgb(f.c2)); gl.uniform3fv(u.uC3, hex2rgb(f.c2));
+  gl.uniform1f(u.uLen, f.len); gl.uniform1f(u.uDroop, f.droop); gl.uniform1f(u.uCurl, f.fluff); gl.uniform1f(u.uDens, f.dens); gl.uniform1i(u.uEar, 0); gl.uniform1f(u.uEarH, 1);
+  gl.vertexAttrib4f(3, 0, 0, 0, 1);
+  gl.bindVertexArray(ITEMS.helmet.mesh.vao);
+  for(let k=0;k<DLC2_SHELLS;k++){ gl.uniform1f(u.uShell, k/(DLC2_SHELLS - 1)); gl.drawElements(gl.TRIANGLES, r[1], gl.UNSIGNED_INT, r[0]*4); }
+}
+function dlc2SetAcc(u, e){
+  gl.uniform3fv(u.uOuter, hex2rgb(e.outer)); gl.uniform3fv(u.uRim, hex2rgb(e.rim)); gl.uniform3fv(u.uInner, hex2rgb(e.inner));
+  gl.uniform1i(u.uInnerStyle, e.innerStyle); gl.uniform1f(u.uRimW, DLC2_EARS[e.style].rimW); gl.uniform1f(u.uEarH, DLC2_EARS[e.style].h);
+}
+/* called from drawHelmet after the normal parts, before the visor */
+function dlc2DrawAccessories(st, vp, eye, M){
+  const D = st.dlc2; if(!D || !ITEMS.helmet.loaded) return;
+  const E = D.ears, Y = D.eyes, Mo = D.mouth;
+  if(typeof hwDrawWrap === 'function' && D.hw) hwDrawWrap(st, vp, eye, M);
+  if(!(E.on || Y.on || Mo.on)){ if(typeof hwDrawAcc === 'function' && D.hw) hwDrawAcc(st, vp, eye, M); gl.bindVertexArray(null); return; }
+  gl.useProgram(progAcc.p); const u = progAcc.u;
+  gl.uniformMatrix4fv(u.uVP, false, vp); gl.uniformMatrix4fv(u.uM, false, M); gl.uniform3fv(u.uCam, eye);
+  gl.uniform3fv(u.uPupil, [0, 0, 1]); gl.uniform1f(u.uPupilR, 0.4); gl.uniform3fv(u.uLip, hex2rgb(Mo.lip)); gl.uniform3fv(u.uInside, hex2rgb(Mo.inside)); gl.uniform3fv(u.uTongue, hex2rgb(Mo.tongue)); gl.uniform1f(u.uSmile, Mo.smile);
+  let earsDrawn = null;
+  if(E.on){
+    const mats = dlc2EarMats(E), mesh = dlc2EarMesh(E);
+    if(E.furry && E.style !== 3){ earsDrawn = { mats, mesh }; }
+    else {
+      dlc2SetAcc(u, E);
+      gl.bindVertexArray(mesh.vao);
+      for(const m of mats){ if(!m) continue; gl.uniformMatrix4fv(u.uAM, false, m); gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0); }
+    }
+  }
+  if(Y.on){
+    if(!dlc2Cache.sphere) dlc2Cache.sphere = makeMesh(dlc2Sphere());
+    const mats = dlc2EyeMats(Y); gl.bindVertexArray(dlc2Cache.sphere.vao);
+    const side = [1, -1];
+    mats.forEach((m, i) => {
+      if(!m) return;
+      const pr = v3.norm([Y.lx*0.55*(side[i] > 0 ? 1 : 1), Y.ly*0.55, 1]);
+      gl.uniform3fv(u.uPupil, pr); gl.uniform1f(u.uPupilR, 0.20 + 0.45*Y.pupil);
+      gl.uniformMatrix4fv(u.uAM, false, m); gl.drawElements(gl.TRIANGLES, dlc2Cache.sphere.count, gl.UNSIGNED_INT, 0);
+    });
+  }
+  if(Mo.on){
+    const mesh = dlc2MouthMesh(Mo);
+    gl.uniformMatrix4fv(u.uAM, false, IDENT);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(mesh.vao); gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+    gl.disable(gl.BLEND);
+  }
+  if(earsDrawn){
+    const f = D.fur, uf = progFur.u;
+    gl.useProgram(progFur.p);
+    gl.uniformMatrix4fv(uf.uVP, false, vp); gl.uniformMatrix4fv(uf.uM, false, M); gl.uniform3fv(uf.uCam, eye);
+    gl.uniform3fv(uf.uC1, hex2rgb(E.outer)); gl.uniform3fv(uf.uC2, hex2rgb(E.rim)); gl.uniform3fv(uf.uC3, hex2rgb(E.inner));
+    gl.uniform1f(uf.uLen, 0.035); gl.uniform1f(uf.uDroop, f.droop*0.5); gl.uniform1f(uf.uCurl, f.fluff); gl.uniform1f(uf.uDens, 150); gl.uniform1i(uf.uEar, 1); gl.uniform1f(uf.uEarH, 1);
+    gl.bindVertexArray(earsDrawn.mesh.vao);
+    for(let k=0;k<DLC2_SHELLS;k++){ gl.uniform1f(uf.uShell, k/(DLC2_SHELLS - 1));
+      for(const m of earsDrawn.mats){ if(!m) continue; gl.uniformMatrix4fv(uf.uAM, false, m); gl.drawElements(gl.TRIANGLES, earsDrawn.mesh.count, gl.UNSIGNED_INT, 0); } }
+  }
+  if(typeof hwDrawAcc === 'function' && D.hw) hwDrawAcc(st, vp, eye, M);
+  gl.bindVertexArray(null);
+}
+
+/* ---------- the DLC2 tab ---------- */
+(function buildDlc2Tab(){
+  const nav = $('.tabs'), panel = $('.panel'); if(!nav || !panel) return;
+  const btn = el('button', 'for-helmet', 'Critters'); btn.dataset.tab = 'dlc2'; btn.addEventListener('click', () => showTab('dlc2')); nav.appendChild(btn);
+  const pane = el('section', 'tabpane'); pane.id = 'tab-dlc2'; panel.appendChild(pane);
+  const DUMMY = dlc2Default(), D = () => cur.key === 'helmet' ? (S.dlc2 || (S.dlc2 = dlc2Default())) : DUMMY;
+  const redraw = () => { dirtyFrame = true; };
+  const section = (title, key, blurb) => {
+    const head = el('div', 'row'); head.style.alignItems = 'center'; head.style.justifyContent = 'space-between'; head.style.marginTop = '14px';
+    const h = el('h3', null, title); h.style.margin = '0';
+    const onBtn = el('button', 'btn small'); head.append(h, onBtn);
+    const note = el('div', 'note', blurb);
+    pane.append(head, note);
+    const box = el('div'); pane.appendChild(box);
+    reg(toggleBtn(onBtn, () => D()[key].on, (v) => { D()[key].on = v; redraw(); }));
+    return box;
+  };
+  const sl = (box, label, min, max, step, grp, key, fmt) => { const r = slider(label, min, max, step, () => D()[grp][key], (v) => { D()[grp][key] = v; redraw(); }, fmt); box.appendChild(r); reg(r._upd); };
+  const col = (box, label, grp, key) => { const r = colourRow(label, () => D()[grp][key], (v) => { D()[grp][key] = v; redraw(); }); box.appendChild(r); reg(r._upd); };
+  const pct = (v) => Math.round(v*100) + '%', deg = (v) => Math.round(v) + '°';
+
+  pane.appendChild(Object.assign(el('div', 'note'), { innerHTML: '<b>Critter kit (Gold).</b> Ears, a fur wrap, googly eyes and a big mouth. Each one switches on and off on its own, so mix them however you like.' }));
+  /* quick looks */
+  const q = el('h3', null, 'Quick looks'); pane.appendChild(q);
+  const qrow = el('div', 'row'); qrow.style.flexWrap = 'wrap'; pane.appendChild(qrow);
+  const looks = [
+    ['Yellow cat ears', (d) => { Object.assign(d.ears, { on: true, style: 0, outer: '#14161a', rim: '#ffd200', inner: '#0b0c0e', innerStyle: 0, furry: false }); }],
+    ['Pink cat ears', (d) => { Object.assign(d.ears, { on: true, style: 0, outer: '#14161a', rim: '#ff8fb8', inner: '#0b0c0e', innerStyle: 0, furry: false }); }],
+    ['Bear ears', (d) => { Object.assign(d.ears, { on: true, style: 1, outer: '#6b4423', rim: '#6b4423', inner: '#e9c8a0', innerStyle: 1, furry: false, tilt: 30, back: 0, spread: 0.58 }); }],
+    ['Bunny ears', (d) => { Object.assign(d.ears, { on: true, style: 2, outer: '#f3f1f0', rim: '#f3f1f0', inner: '#ff9fc2', innerStyle: 2, furry: false }); }],
+    ['Devil horns', (d) => { Object.assign(d.ears, { on: true, style: 3, outer: '#7a0a0a', rim: '#ff3b1d', furry: false }); }],
+    ['Fuzzy monster', (d) => { Object.assign(d.fur, { on: true, c1: '#1fb8a6', c2: '#a8fff0' }); Object.assign(d.eyes, { on: true }); Object.assign(d.mouth, { on: true }); Object.assign(d.ears, { on: true, style: 1, furry: true, outer: '#1fb8a6', rim: '#a8fff0', inner: '#d6fff8' }); }],
+    ['Clear all', (d) => { d.ears.on = d.fur.on = d.eyes.on = d.mouth.on = false; }]
+  ];
+  looks.forEach(([name, fn]) => { const b = el('button', 'btn small', name); b.onclick = () => { fn(D()); S.dlc2 = dlc2Norm(D()); redraw(); syncAll(); commit(); }; qrow.appendChild(b); });
+
+  /* ears */
+  const eb = section('Ears and horns', 'ears', 'Sit on the top of the helmet wherever you move them.');
+  const earSeg = el('div', 'seg'); eb.appendChild(earSeg); reg(seg(earSeg, DLC2_EAR_NAMES, () => D().ears.style, (i) => { D().ears.style = i; redraw(); commit(); }));
+  sl(eb, 'Size', 0.5, 1.9, 0.01, 'ears', 'size', pct);
+  sl(eb, 'Spread', 0.2, 0.8, 0.01, 'ears', 'spread', (v) => v.toFixed(2));
+  sl(eb, 'Forward / back', -0.5, 0.7, 0.01, 'ears', 'fwd', (v) => v.toFixed(2));
+  sl(eb, 'Lean out', -10, 50, 1, 'ears', 'tilt', deg);
+  sl(eb, 'Lean back', -10, 45, 1, 'ears', 'back', deg);
+  sl(eb, 'Floppy', 0, 1, 0.01, 'ears', 'droop', pct);
+  col(eb, 'Main colour', 'ears', 'outer'); col(eb, 'Edge / tip colour', 'ears', 'rim'); col(eb, 'Inside colour', 'ears', 'inner');
+  eb.appendChild(el('div', 'note', 'Inside of the ear'));
+  const inSeg = el('div', 'seg'); eb.appendChild(inSeg); reg(seg(inSeg, DLC2_INNER_NAMES, () => D().ears.innerStyle, (i) => { D().ears.innerStyle = i; redraw(); commit(); }));
+  const furryRow = el('label', 'note'); furryRow.style.cssText = 'display:flex;gap:7px;align-items:center;margin-top:8px';
+  const furryChk = el('input'); furryChk.type = 'checkbox'; furryRow.append(furryChk, document.createTextNode(' Fuzzy ears: cover the ears in fur (ears, not horns)'));
+  furryChk.onchange = () => { D().ears.furry = furryChk.checked; redraw(); commit(); }; reg(() => { furryChk.checked = !!D().ears.furry; }); eb.appendChild(furryRow);
+
+  /* fur */
+  const fb = section('Fur wrap', 'fur', 'A full wrap-around fuzzy coat over the helmet shell. It replaces the paint while it is on; your design comes back when you switch it off.');
+  col(fb, 'Fur colour (roots)', 'fur', 'c1'); col(fb, 'Fur colour (tips)', 'fur', 'c2');
+  sl(fb, 'Length', 0.02, 0.16, 0.002, 'fur', 'len', (v) => (v*100).toFixed(1));
+  sl(fb, 'Thickness', 50, 190, 1, 'fur', 'dens', (v) => Math.round(v));
+  sl(fb, 'Fluffiness', 0, 1, 0.01, 'fur', 'fluff', pct);
+  sl(fb, 'Droop', 0, 1, 0.01, 'fur', 'droop', pct);
+  const furSw = el('div', 'row'); furSw.style.flexWrap = 'wrap'; furSw.style.marginTop = '8px'; fb.appendChild(furSw);
+  [['Teal', '#1fb8a6', '#a8fff0'], ['Hot pink', '#e0307f', '#ffc2de'], ['Lime', '#4fb815', '#e6ff9a'], ['Orange', '#e8620c', '#ffd49a'], ['Purple', '#6a2fd0', '#e0c8ff'], ['Yeti', '#c9d3dd', '#ffffff'], ['Sunset', '#ff8c00', '#ff2d95']].forEach(([n, a, b]) => {
+    const x = el('button', 'btn small', n); x.onclick = () => { D().fur.c1 = a; D().fur.c2 = b; redraw(); syncAll(); commit(); }; furSw.appendChild(x);
+  });
+
+  /* eyes */
+  const yb = section('Googly eyes', 'eyes', 'Two big wobbly eyes that sit on the front of the helmet.');
+  sl(yb, 'Size', 0.12, 0.5, 0.01, 'eyes', 'size', pct);
+  sl(yb, 'Gap between eyes', 0.12, 0.6, 0.01, 'eyes', 'spread', (v) => v.toFixed(2));
+  sl(yb, 'Height', -0.2, 0.9, 0.01, 'eyes', 'y', (v) => v.toFixed(2));
+  sl(yb, 'Look left / right', -1, 1, 0.01, 'eyes', 'lx', (v) => v.toFixed(2));
+  sl(yb, 'Look up / down', -1, 1, 0.01, 'eyes', 'ly', (v) => v.toFixed(2));
+  sl(yb, 'Pupil size', 0.25, 1, 0.01, 'eyes', 'pupil', pct);
+
+  /* mouth */
+  const mb = section('Big mouth', 'mouth', 'A wide mouth across the front, with a tongue.');
+  sl(mb, 'Width', 0.3, 0.8, 0.01, 'mouth', 'w', pct);
+  sl(mb, 'Height', 0.14, 0.5, 0.01, 'mouth', 'h', pct);
+  sl(mb, 'Position', -0.4, 0.7, 0.01, 'mouth', 'y', (v) => v.toFixed(2));
+  sl(mb, 'Smile', -1, 1, 0.01, 'mouth', 'smile', (v) => v.toFixed(2));
+  col(mb, 'Lips', 'mouth', 'lip'); col(mb, 'Inside', 'mouth', 'inside'); col(mb, 'Tongue', 'mouth', 'tongue');
+})();
+
+/* =====================================================================================================
+   HALLOWEEN bundle (Gold Patreon only in the member studio, builds on the DLC2 engine in app6.js). All original designs.
+   - Wraps (pick one): pumpkin, skeleton, ghost sheet, zombie skin. A second copy of the helmet paint shell, pushed out a
+     little and shaded by position, so it follows the real helmet and sits over the paint.
+   - Accessories (each its own switch): witch hat, bat wings, spider + cobweb, vampire fangs + blood, bolts + electric arc,
+     glowing demon eyes. Built from code, mounted by firing rays at the helmet.
+   Design data lives in design.dlc2.hw.
+   ===================================================================================================== */
+const HW_WRAP_NAMES = ['None', 'Pumpkin', 'Skeleton', 'Ghost sheet', 'Zombie skin'];
+const HW_EYE_STYLES = ['Round', 'Slits', 'Angry'];
+function hwDefault(){
+  return {
+    wrap: 0,
+    pump: { c1: '#ff7a12', c2: '#9a2d00', glow: '#ffcf3d', stem: '#4a8a26' },
+    skull: { bone: '#efe6d0', crack: 0.6 },
+    ghost: { c: '#f4f1ff', folds: 0.6, win: false },
+    zomb: { c: '#7fb04a', c2: '#3a561f', thread: '#15170f' },
+    hat: { on: false, size: 0.8, fwd: 0.0, tilt: 12, bend: 0.5, c: '#1d1030', band: '#ff7a12' },
+    wings: { on: false, size: 1, y: 0.32, spread: 0.22, flap: 38, c: '#3a1257', bone: '#160a1f' },
+    spider: { on: false, size: 1.5, x: 0.0, drop: 0.24, web: true, wx: 0.52, wy: 0.60, wsize: 0.62, flip: false },
+    fangs: { on: false, size: 0.9, gap: 0.17, y: -0.16, blood: true },
+    bolts: { on: false, size: 1, y: 0.10, z: 0.02, arc: true, seed: 3, c: '#9aa4b0', glow: '#7fe8ff' },
+    glow: { on: false, c: '#ff5a1a', size: 0.24, spread: 0.30, y: 0.50, style: 1 }
+  };
+}
+function hwNorm(raw){
+  const d = hwDefault(), o = raw && typeof raw === 'object' ? raw : {};
+  const num = (v, a, b, def) => (typeof v === 'number' && isFinite(v)) ? Math.max(a, Math.min(b, v)) : def;
+  const hex = (v, def) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) ? v : def;
+  const bo = (v, def) => (typeof v === 'boolean') ? v : def;
+  const g = (k) => (o[k] && typeof o[k] === 'object') ? o[k] : {};
+  d.wrap = Math.round(num(o.wrap, 0, 4, 0));
+  let a = g('pump'); d.pump = { c1: hex(a.c1, d.pump.c1), c2: hex(a.c2, d.pump.c2), glow: hex(a.glow, d.pump.glow), stem: hex(a.stem, d.pump.stem) };
+  a = g('skull'); d.skull = { bone: hex(a.bone, d.skull.bone), crack: num(a.crack, 0, 1, d.skull.crack) };
+  a = g('ghost'); d.ghost = { c: hex(a.c, d.ghost.c), folds: num(a.folds, 0, 1, d.ghost.folds), win: bo(a.win, d.ghost.win) };
+  a = g('zomb'); d.zomb = { c: hex(a.c, d.zomb.c), c2: hex(a.c2, d.zomb.c2), thread: hex(a.thread, d.zomb.thread) };
+  a = g('hat'); d.hat = { on: !!a.on, size: num(a.size, 0.5, 1.6, d.hat.size), fwd: num(a.fwd, -0.4, 0.5, 0), tilt: num(a.tilt, -20, 45, d.hat.tilt), bend: num(a.bend, 0, 1, d.hat.bend), c: hex(a.c, d.hat.c), band: hex(a.band, d.hat.band) };
+  a = g('wings'); d.wings = { on: !!a.on, size: num(a.size, 0.5, 1.8, 1), y: num(a.y, -0.2, 0.8, d.wings.y), spread: num(a.spread, 0.05, 0.6, d.wings.spread), flap: num(a.flap, 0, 80, d.wings.flap), c: hex(a.c, d.wings.c), bone: hex(a.bone, d.wings.bone) };
+  a = g('spider'); d.spider = { on: !!a.on, size: num(a.size, 0.5, 2, d.spider.size), x: num(a.x, -0.7, 0.7, d.spider.x), drop: num(a.drop, 0.15, 1.2, d.spider.drop), web: bo(a.web, true), wx: num(a.wx, 0.1, 0.75, d.spider.wx), wy: num(a.wy, 0.2, 0.8, d.spider.wy), wsize: num(a.wsize, 0.3, 1.0, d.spider.wsize), flip: !!a.flip };
+  a = g('fangs'); d.fangs = { on: !!a.on, size: num(a.size, 0.5, 1.8, d.fangs.size), gap: num(a.gap, 0.08, 0.35, d.fangs.gap), y: num(a.y, -0.5, 0.1, d.fangs.y), blood: bo(a.blood, true) };
+  a = g('bolts'); d.bolts = { on: !!a.on, size: num(a.size, 0.5, 1.6, 1), y: num(a.y, -0.3, 0.6, d.bolts.y), z: num(a.z, -0.5, 0.6, d.bolts.z), arc: bo(a.arc, true), seed: Math.round(num(a.seed, 0, 99, 3)), c: hex(a.c, d.bolts.c), glow: hex(a.glow, d.bolts.glow) };
+  a = g('glow'); d.glow = { on: !!a.on, c: hex(a.c, d.glow.c), size: num(a.size, 0.1, 0.5, d.glow.size), spread: num(a.spread, 0.1, 0.6, d.glow.spread), y: num(a.y, 0.2, 0.9, d.glow.y), style: Math.round(num(a.style, 0, 2, 1)) };
+  return d;
+}
+
+/* ---------- geometry ---------- */
+const hwSeedRand = (seed) => { let s = (seed*9301 + 49297) % 233280; return () => { s = (s*9301 + 49297) % 233280; return s/233280; }; };
+/* tube along a polyline with a radius at each point; part id and an extra value go into aux */
+function hwTube(pts, radii, sides, part, extra){
+  const n = pts.length, frames = [];
+  let T0 = v3.norm(v3.sub(pts[1], pts[0])), ref = Math.abs(T0[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  let Nn = v3.norm(v3.cross(T0, ref)), Bn = v3.cross(T0, Nn);
+  for(let j=0;j<n;j++){
+    const Tj = v3.norm(v3.sub(pts[Math.min(j+1, n-1)], pts[Math.max(j-1, 0)]));
+    Nn = v3.norm(v3.sub(Nn, v3.mul(Tj, v3.dot(Nn, Tj)))); Bn = v3.cross(Tj, Nn);
+    frames.push([Nn, Bn]);
+  }
+  return dlc2Grid(n - 1, sides, (j, i) => {
+    const th = i/sides*Math.PI*2, c = Math.cos(th), s = Math.sin(th), r = radii[j], F = frames[j];
+    const dir = v3.add(v3.mul(F[0], c), v3.mul(F[1], s));
+    const p = v3.add(pts[j], v3.mul(dir, r));
+    return [p[0], p[1], p[2], part, i/sides, j/(n - 1), extra === undefined ? r : extra, dir[0], dir[1], dir[2]];
+  });
+}
+/* surface of revolution around +y from a profile [[y, r], ...] */
+function hwLathe(profile, sides, part, wob){
+  return dlc2Grid(profile.length - 1, sides, (j, i) => {
+    const th = i/sides*Math.PI*2, y = profile[j][0], r = profile[j][1] * (wob ? wob(th, j/(profile.length - 1)) : 1);
+    const jp = Math.max(j - 1, 0), jn = Math.min(j + 1, profile.length - 1), dy = profile[jn][0] - profile[jp][0], dr = profile[jn][1] - profile[jp][1];
+    const nn = v3.norm([Math.cos(th)*dy, -dr, Math.sin(th)*dy]);
+    return [r*Math.cos(th), y, r*Math.sin(th), part, i/sides, j/(profile.length - 1), r, nn[0], nn[1], nn[2]];
+  });
+}
+function hwSphereAt(c, rx, ry, rz, part){
+  return dlc2Grid(14, 22, (j, i) => {
+    const ph = j/14*Math.PI, th = i/22*Math.PI*2, x = Math.sin(ph)*Math.cos(th), y = Math.cos(ph), z = Math.sin(ph)*Math.sin(th);
+    const nn = v3.norm([x/rx, y/ry, z/rz]);
+    return [c[0] + x*rx, c[1] + y*ry, c[2] + z*rz, part, x, y, z, nn[0], nn[1], nn[2]];
+  });
+}
+function hwHatMesh(bend){
+  const parts = [];
+  /* cone: leans back and flops at the tip */
+  const NV = 30, pts = [], rad = [];
+  for(let j=0;j<=NV;j++){ const v = j/NV; pts.push([0, 0.95*v*(1 - 0.12*bend*v), -0.55*bend*v*v]); rad.push(0.40*Math.pow(Math.max(1 - v, 0.0), 1.05)*(1 + 0.045*Math.sin(v*11))); }
+  rad[NV] = 0.004;
+  parts.push(hwTube(pts, rad, 28, 10, 0));
+  /* brim */
+  const brim = dlc2Grid(10, 40, (j, i) => {
+    const t = j/10, th = i/40*Math.PI*2, r = 0.34 + t*0.64, y = -0.02 - 0.06*t + 0.16*Math.pow(t, 3.2);
+    const wob = 1 + 0.03*Math.sin(th*5);
+    return [r*wob*Math.cos(th), y, r*wob*Math.sin(th), 10, th/(Math.PI*2), t, r, 0, 1, 0];
+  });
+  const brimUnder = dlc2Grid(10, 40, (j, i) => {
+    const t = j/10, th = i/40*Math.PI*2, r = 0.34 + t*0.64, y = -0.02 - 0.06*t + 0.16*Math.pow(t, 3.2) - 0.028;
+    const wob = 1 + 0.03*Math.sin(th*5);
+    return [r*wob*Math.cos(th), y, r*wob*Math.sin(th), 10, th/(Math.PI*2), t, r, 0, -1, 0];
+  });
+  const edge = dlc2Grid(1, 40, (j, i) => {
+    const th = i/40*Math.PI*2, wob = 1 + 0.03*Math.sin(th*5), r = 0.98*wob, y = -0.02 - 0.06 + 0.16 - (j ? 0.028 : 0);
+    return [r*Math.cos(th), y, r*Math.sin(th), 10, th/(Math.PI*2), 1, r, Math.cos(th), 0, Math.sin(th)];
+  });
+  parts.push(brim, brimUnder, edge);
+  /* band with a buckle at the front (+z) */
+  const band = dlc2Grid(4, 40, (j, i) => {
+    const v = 0.10 + 0.14*j/4, th = i/40*Math.PI*2, r = 0.40*Math.pow(1 - v, 1.05)*(1 + 0.045*Math.sin(v*11)) + 0.02;
+    return [r*Math.cos(th), 0.95*v*(1 - 0.12*bend*v), r*Math.sin(th) - 0.55*bend*v*v, 11, th/(Math.PI*2), j/4, r, Math.cos(th), 0.15, Math.sin(th)];
+  });
+  parts.push(band);
+  return dlc2Merge(parts);
+}
+function hwWingMesh(){
+  /* local: x outward, y up, flat in z. outline of the membrane and the finger bones */
+  const O = [0.0, 0.0], E = [0.30, 0.30], W = [0.62, 0.58], T = [[1.20, 1.00], [1.55, 0.52], [1.38, 0.00], [0.96, -0.36]], B = [0.06, -0.52];
+  const outline = [O, E, W, T[0]];
+  const scal = (a, b, k) => { const m = [(a[0] + b[0])/2, (a[1] + b[1])/2]; const toW = [W[0] - m[0], W[1] - m[1]], l = Math.hypot(toW[0], toW[1]) || 1; return [m[0] + toW[0]/l*k, m[1] + toW[1]/l*k]; };
+  outline.push(scal(T[0], T[1], 0.20), T[1], scal(T[1], T[2], 0.20), T[2], scal(T[2], T[3], 0.17), T[3], scal(T[3], B, 0.16), B);
+  const C = [0.55, 0.12], pos = [], aux = [], idx = [], nrm = [];
+  const addV = (p, rr, ang) => { pos.push(p[0], p[1], 0); aux.push(13, rr, ang, 1); nrm.push(0, 0, 1); return pos.length/3 - 1; };
+  const c0 = addV(C, 0, 0), ring = outline.map((p, k) => { const dx = p[0] - C[0], dy = p[1] - C[1]; return addV(p, Math.hypot(dx, dy), Math.atan2(dy, dx)); });
+  for(let k=0;k<ring.length;k++){ idx.push(c0, ring[k], ring[(k + 1)%ring.length]); }
+  const mem = { pos: new Float32Array(pos), nrm: new Float32Array(nrm), aux: new Float32Array(aux), idx, n: pos.length/3 };
+  const bones = [];
+  const bone = (a, b, r0, r1) => { const pts = [], rr = []; for(let k=0;k<=4;k++){ const t = k/4; pts.push([a[0] + (b[0] - a[0])*t, a[1] + (b[1] - a[1])*t, 0.012]); rr.push(r0 + (r1 - r0)*t); } bones.push(hwTube(pts, rr, 8, 12, 0)); };
+  bone(O, E, 0.032, 0.026); bone(E, W, 0.026, 0.022);
+  T.forEach(t => bone(W, t, 0.020, 0.006));
+  bone(W, [W[0] - 0.12, W[1] + 0.22], 0.018, 0.003); /* thumb claw */
+  return dlc2Merge([mem].concat(bones));
+}
+function hwSpiderMesh(){
+  const parts = [hwSphereAt([0, 0, -0.07], 0.07, 0.065, 0.10, 14), hwSphereAt([0, 0.005, 0.055], 0.046, 0.042, 0.05, 14)];
+  for(const s of [1, -1]) for(let k=0;k<4;k++){
+    const z0 = 0.04 - k*0.035, spread = [0.40, 0.55, 0.55, 0.40][k], fwd = [0.55, 0.20, -0.20, -0.55][k];
+    const a = [s*0.03, 0.0, z0], kn = [s*(0.03 + 0.11), 0.10, z0 + fwd*0.08], f = [s*(0.03 + 0.20 + spread*0.1), -0.07, z0 + fwd*0.17];
+    parts.push(hwTube([a, [(a[0] + kn[0])/2, 0.06, (a[2] + kn[2])/2], kn, [(kn[0] + f[0])/2, 0.02, (kn[2] + f[2])/2], f], [0.011, 0.009, 0.008, 0.006, 0.002], 7, 14, 0));
+  }
+  return dlc2Merge(parts);
+}
+function hwFangMesh(){
+  const pts = [], rad = []; for(let j=0;j<=14;j++){ const v = j/14; pts.push([0, -0.30*v, 0.035*v*v]); rad.push(0.048*Math.pow(1 - v, 0.85) + 0.001); }
+  return dlc2Merge([hwTube(pts, rad, 14, 15, 0)]);
+}
+function hwDripMesh(len){
+  const pts = [], rad = []; const N = 14;
+  for(let j=0;j<=N;j++){ const v = j/N; pts.push([0, -len*v, 0]); rad.push(v < 0.8 ? 0.012 : 0.012 + 0.010*Math.sin((v - 0.8)/0.2*Math.PI*0.5) * (v < 0.97 ? 1 : 0.1)); }
+  rad[N] = 0.001; rad[N-1] = 0.011;
+  return dlc2Merge([hwTube(pts, rad, 10, 16, 0)]);
+}
+function hwBoltMesh(){
+  const prof = [[0.00, 0.000], [0.00, 0.13], [0.03, 0.14], [0.045, 0.12], [0.06, 0.075], [0.20, 0.07], [0.22, 0.09], [0.30, 0.095], [0.34, 0.09], [0.34, 0.06], [0.36, 0.0]];
+  return dlc2Merge([hwLathe(prof, 24, 17)]);
+}
+function hwStemMesh(){
+  const pts = [], rad = []; const N = 14;
+  for(let j=0;j<=N;j++){ const v = j/N; pts.push([0.10*v*v, 0.40*v, -0.06*v*v]); rad.push((0.115 - 0.045*v)*(1 + 0.18*Math.sin(v*0 + 0)) + (v > 0.9 ? -0.01 : 0)); }
+  const g = hwTube(pts, rad, 12, 20, 0);
+  const cap = hwLathe([[0.40, 0.0], [0.40, 0.07], [0.375, 0.088], [0.34, 0.07]], 12, 20);
+  return dlc2Merge([g]);
+}
+/* flat sheet draped on the helmet, found by rays: the result is a mesh in model space */
+let hwLiftV = 0;
+function hwRay(o, d){ const h = dlc2Ray(o, d); if(h && hwLiftV) return { t: h.t, n: h.n, mat: h.mat, p: v3.add(h.p, v3.mul(h.n, hwLiftV)) }; return h; }
+function hwPatch(rayFn, W, H, part, off, NX, NY){
+  NX = NX || 36; NY = NY || 24;
+  const pts = [];
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++){ const mx = i/NX*2 - 1, my = j/NY*2 - 1, r = rayFn(mx*W, my*H), hit = hwRay(r.o, r.d); pts.push(hit ? v3.add(hit.p, v3.mul(hit.n, off)) : null); }
+  const n = (NX + 1)*(NY + 1), pos = new Float32Array(n*3), aux = new Float32Array(n*4), nrm = new Float32Array(n*3);
+  let k = 0, any = false;
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++, k++){
+    let p = pts[j*(NX + 1) + i];
+    if(p) any = true;
+    if(!p){ for(let r=1;r<8 && !p;r++){ for(const [di, dj] of [[r,0],[-r,0],[0,r],[0,-r]]){ const ii = i + di, jj = j + dj; if(ii>=0&&ii<=NX&&jj>=0&&jj<=NY&&pts[jj*(NX+1)+ii]){ p = pts[jj*(NX+1)+ii]; break; } } } }
+    p = p || [0, 0, 0];
+    pos[k*3] = p[0]; pos[k*3+1] = p[1]; pos[k*3+2] = p[2];
+    aux[k*4] = part; aux[k*4+1] = i/NX*2 - 1; aux[k*4+2] = j/NY*2 - 1; aux[k*4+3] = 1;
+  }
+  const idx = []; for(let j=0;j<NY;j++) for(let i=0;i<NX;i++){ const a = j*(NX+1)+i; idx.push(a, a+1, a+NX+1, a+1, a+NX+2, a+NX+1); }
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++){
+    const a = j*(NX+1) + Math.max(i-1, 0), b = j*(NX+1) + Math.min(i+1, NX), c = Math.max(j-1, 0)*(NX+1) + i, d = Math.min(j+1, NY)*(NX+1) + i, q = j*(NX+1) + i;
+    const du = [pos[b*3]-pos[a*3], pos[b*3+1]-pos[a*3+1], pos[b*3+2]-pos[a*3+2]], dv = [pos[d*3]-pos[c*3], pos[d*3+1]-pos[c*3+1], pos[d*3+2]-pos[c*3+2]];
+    const nn = v3.norm(v3.cross(du, dv)); nrm[q*3] = nn[0]; nrm[q*3+1] = nn[1]; nrm[q*3+2] = nn[2];
+  }
+  if(!any) return null;
+  return makeMesh({ pos, nrm, aux, uv: new Float32Array(n*2), idx: new Uint32Array(idx) });
+}
+
+/* ---------- shaders ---------- */
+const VS_WRAP = `#version 300 es
+in vec3 aPos; in vec3 aNrm;
+uniform mat4 uVP; uniform mat4 uM; uniform int uMode; uniform float uFolds;
+out vec3 vPos; out vec3 vN; out vec3 vW; out float vTh; out float vRib;
+void main(){
+  vec3 n = normalize(aNrm);
+  float th = atan(aPos.x, aPos.z);
+  float disp = 0.02, rib = 0.0;
+  if(uMode == 1){
+    rib = 0.5 + 0.5*cos(th*12.0);
+    disp = 0.045 + 0.075*rib*(1.0 - 0.50*smoothstep(0.55, 0.95, abs(aPos.y)));
+  } else if(uMode == 2){
+    disp = 0.020 + 0.006*sin(aPos.x*30.0)*sin(aPos.y*26.0);
+  } else if(uMode == 3){
+    disp = 0.060 + uFolds*(0.045*sin(th*9.0 + aPos.y*2.6) + 0.025*sin(th*5.0 - aPos.y*4.5 + 1.3));
+  } else if(uMode == 4){
+    disp = 0.016 + 0.006*sin(aPos.x*22.0 + aPos.y*17.0);
+  }
+  vec3 p = aPos + n*disp;
+  vPos = aPos; vN = n; vTh = th; vRib = rib;
+  vec4 w = uM*vec4(p, 1.0); vW = w.xyz; gl_Position = uVP*w;
+}`;
+const FS_WRAP = `#version 300 es
+precision highp float; precision highp int;
+in vec3 vPos; in vec3 vN; in vec3 vW; in float vTh; in float vRib;
+uniform vec3 uCam; uniform int uMode; uniform float uFolds; uniform int uWin;
+uniform vec3 uC1; uniform vec3 uC2; uniform vec3 uGlow; uniform vec3 uThread; uniform float uCrack;
+out vec4 outc;
+${GLSL_COMMON}
+${GLSL_STUDIO}
+float vor(vec3 p){
+  vec3 i = floor(p), f = fract(p); float d1 = 9.0, d2 = 9.0;
+  for(int x=-1;x<=1;x++) for(int y=-1;y<=1;y++) for(int z=-1;z<=1;z++){
+    vec3 g = vec3(float(x), float(y), float(z));
+    vec3 o = vec3(hash31(i + g), hash31(i + g + 7.1), hash31(i + g + 13.3));
+    float d = length(g + o - f);
+    if(d < d1){ d2 = d1; d1 = d; } else if(d < d2){ d2 = d; }
+  }
+  return d2 - d1;
+}
+float triUp(vec2 p, vec2 c, float s){ vec2 q = (p - c)/s; float t = min((0.5 - q.y)*0.5 - abs(q.x), min(q.y + 0.5, 0.5 - q.y)); return t*s; }
+void main(){
+  vec3 N = normalize(vN); vec3 V = normalize(uCam - vW);
+  if(dot(N, V) < 0.0) N = -N;
+  float x = vPos.x, y = vPos.y;
+  float front = smoothstep(0.10, 0.35, normalize(vN).z);
+  if(uMode == 3){
+    if(uWin == 1 && abs(x) < 0.74 && y > -0.21 && y < 0.37 && vPos.z > 0.25) discard;
+    if(y < -0.72 + 0.075*sin(vTh*7.0) + 0.03*sin(vTh*13.0 + 1.0)) discard;
+  }
+  vec3 base = vec3(0.5); float rough = 0.4, coat = 0.5, metal = 0.0; vec3 emit = vec3(0.0);
+  if(uMode == 1){
+    float gro = smoothstep(0.0, 0.55, vRib);
+    base = mix(pow(uC2, vec3(2.2)), pow(uC1, vec3(2.2)), gro);
+    base *= 0.86 + 0.28*fbm(vPos*7.0 + vec3(0.0, 3.0, 0.0));
+    base *= 0.82 + 0.18*smoothstep(-0.9, 0.5, y);
+    rough = 0.34; coat = 0.7;
+    /* carved face, lit from inside */
+    float e1 = triUp(vec2(abs(x), y), vec2(0.30, 0.64), 0.19);
+    float nose = triUp(vec2(x, y), vec2(0.0, 0.47), 0.11);
+    float cx = -0.58 + 0.95*x*x;
+    float jag = 0.045*(abs(fract(x*6.5) - 0.5)*2.0 - 0.5);
+    float mt = min(min(y - (cx - 0.15 + jag), (cx + 0.10 - jag) - y), 0.54 - abs(x));
+    float carve = max(max(e1, nose), mt);
+    float cm = smoothstep(0.0, 0.012, carve) * front;
+    float rimd = smoothstep(0.012, 0.0, carve)*smoothstep(-0.03, 0.0, carve);
+    vec3 gl = pow(uGlow, vec3(2.2));
+    float fl = 0.85 + 0.3*fbm(vPos*18.0);
+    emit = gl*cm*fl*2.4;
+    base = mix(base, base*0.15, rimd*front*0.8);
+    base = mix(base, vec3(0.02), cm*0.9);
+  } else if(uMode == 2){
+    vec3 bone = pow(uC1, vec3(2.2));
+    float f = fbm(vPos*5.0);
+    base = bone*(0.78 + 0.34*f);
+    base = mix(base, bone*vec3(0.80, 0.62, 0.40), smoothstep(0.55, 0.85, fbm(vPos*3.2 + 5.0))*0.5);
+    float cr = 1.0 - smoothstep(0.0, 0.035, vor(vPos*4.2));
+    cr *= smoothstep(0.35, 0.75, fbm(vPos*2.3 + 1.0)) * uCrack;
+    base = mix(base, vec3(0.02, 0.016, 0.012), cr*0.92);
+    { float sk = front*smoothstep(0.19, 0.13, length((vec2(abs(x), y) - vec2(0.30, 0.50))*vec2(1.0, 1.2))); base = mix(base, vec3(0.01), sk*0.95); }
+    /* teeth across the chin bar */
+    float zx = abs(x);
+    float inT = front*smoothstep(0.53, 0.49, zx)*smoothstep(-0.80, -0.77, y)*smoothstep(-0.38, -0.41, y);
+    float cell = (x + 0.52)/0.13; float gap = smoothstep(0.40, 0.46, abs(fract(cell) - 0.5));
+    float row = smoothstep(0.012, 0.0, abs(y + 0.595));
+    float tooth = inT*(1.0 - gap)*(1.0 - row);
+    vec3 ivory = vec3(0.93, 0.86, 0.70)*(0.88 + 0.12*fbm(vPos*30.0));
+    base = mix(base, vec3(0.012), inT*(gap + row)*0.9);
+    base = mix(base, ivory, tooth);
+    rough = mix(0.62, 0.30, tooth); coat = mix(0.2, 0.6, tooth);
+  } else if(uMode == 3){
+    vec3 c = pow(uC1, vec3(2.2));
+    float fld = 0.5 + 0.5*sin(vTh*9.0 + y*2.6);
+    base = c*(0.46 + 0.20*fld);
+    vec2 ef = vec2(abs(x) - 0.26, y - 0.56);
+    float eyeh = (uWin == 1) ? 0.0 : front*(1.0 - smoothstep(0.85, 1.0, length(ef*vec2(1.0/0.105, 1.0/0.17))));
+    float mouth = front*(1.0 - smoothstep(0.85, 1.0, length(vec2(x/0.15, (y + 0.50)/0.17))));
+    base = mix(base, vec3(0.012, 0.012, 0.03), max(eyeh, mouth)*0.97);
+    rough = 0.92; coat = 0.05;
+  } else if(uMode == 4){
+    vec3 g1 = pow(uC1, vec3(2.2)), g2 = pow(uC2, vec3(2.2));
+    float m = fbm(vPos*6.0);
+    base = mix(g2, g1, smoothstep(0.3, 0.7, m));
+    float cr = 1.0 - smoothstep(0.0, 0.05, vor(vPos*3.6));
+    base = mix(base, g2*0.5 + vec3(0.04, 0.0, 0.02), cr*0.6);
+    float sl = smoothstep(0.014, 0.004, abs(y - 0.64 - 0.012*sin(x*20.0))) * smoothstep(0.52, 0.46, abs(x)) * front;
+    float tk = smoothstep(0.17, 0.10, abs(fract(x*16.0) - 0.5)) * smoothstep(0.075, 0.04, abs(y - 0.64)) * smoothstep(0.52, 0.46, abs(x)) * front;
+    float scar = smoothstep(0.012, 0.004, abs(x - 0.05 + 0.04*sin(y*14.0))) * smoothstep(0.16, 0.10, abs(y - 0.45 + 0.0)) * front;
+    vec3 th = pow(uThread, vec3(2.2));
+    base = mix(base, th, max(max(sl, tk), scar*0.9));
+    rough = 0.55; coat = 0.35;
+  }
+  vec3 R = reflect(-V, N);
+  vec3 L1 = normalize(vec3(-0.55, 0.85, 0.65)), L2 = normalize(vec3(0.75, 0.25, 0.45)), L3 = normalize(vec3(0.10, 0.35, -0.95));
+  float d1 = max(dot(N,L1),0.0), d2 = max(dot(N,L2),0.0), d3 = max(dot(N,L3),0.0);
+  if(uMode == 3){ d1 = clamp(dot(N,L1)*0.5 + 0.5, 0.0, 1.0); d2 = clamp(dot(N,L2)*0.5 + 0.5, 0.0, 1.0); }
+  vec3 amb = mix(vec3(0.035,0.04,0.05), vec3(0.20,0.23,0.28), N.y*0.5+0.5);
+  vec3 light = amb + d1*vec3(1.25,1.18,1.08) + d2*vec3(0.30,0.38,0.50) + d3*vec3(0.30,0.36,0.44)*0.45;
+  float NdV = clamp(dot(N, V), 0.0, 1.0);
+  vec3 col = base*light*(1.0 - metal) + studio(R, rough*1.4)*(0.04 + 0.96*pow(1.0 - NdV, 5.0))*coat;
+  float shin = mix(500.0, 12.0, clamp(rough*1.2, 0.0, 1.0));
+  col += pow(max(dot(N, normalize(L1 + V)), 0.0), shin)*(1.0 - rough*0.8)*coat*vec3(2.2,2.1,2.0);
+  if(uMode == 3) col += vec3(0.5, 0.55, 0.9)*pow(1.0 - NdV, 3.0)*0.18;
+  col += emit;
+  col = col/(1.0 + col*0.18);
+  outc = vec4(pow(col, vec3(1.0/2.2)), 1.0);
+}`;
+const FS_HAL = `#version 300 es
+precision highp float; precision highp int;
+in vec3 vPos; in vec3 vN; in vec4 vAux; in vec3 vW; in vec3 vLoc;
+uniform vec3 uCam; uniform vec3 uC1; uniform vec3 uC2; uniform vec3 uGlow; uniform float uInten; uniform int uShape; uniform int uFlip;
+out vec4 outc;
+${GLSL_COMMON}
+${GLSL_STUDIO}
+float lineD(float d, float w){ return 1.0 - smoothstep(w, w + fwidth(d)*1.5 + 0.0015, d); }
+void main(){
+  float part = vAux.x;
+  vec3 N = normalize(vN); vec3 V = normalize(uCam - vW);
+  if(dot(N, V) < 0.0) N = -N;
+  float NdV = clamp(dot(N, V), 0.0, 1.0);
+  vec3 R = reflect(-V, N);
+  vec3 base = vec3(0.5); float rough = 0.3, metal = 0.0, coat = 1.0, alpha = 1.0; bool unlit = false; vec3 emit = vec3(0.0);
+  if(part < 10.5){
+    /* witch hat felt */
+    base = pow(uC1, vec3(2.2))*(0.85 + 0.3*vnoise(vPos*55.0)); rough = 0.80; coat = 0.12;
+  } else if(part < 11.5){
+    float u = vAux.y, v = vAux.z;
+    base = pow(uC2, vec3(2.2)); rough = 0.45; coat = 0.4;
+    float du = abs(u - 0.25);
+    float bw = 0.036, bh = 0.30;
+    float box = max(du/bw, abs(v - 0.5)/bh);
+    float frame = smoothstep(1.0, 0.96, box)*smoothstep(0.52, 0.60, box);
+    float hole = smoothstep(0.52, 0.46, box);
+    if(box < 1.0){ if(box > 0.55){ base = vec3(1.0, 0.72, 0.12)*0.85; metal = 1.0; rough = 0.2; } else { base = vec3(0.012); rough = 0.6; metal = 0.0; coat = 0.2; } }
+  } else if(part < 12.5){
+    base = pow(uC2, vec3(2.2)); rough = 0.45; coat = 0.5;
+  } else if(part < 13.5){
+    float r = vAux.y, a = vAux.z;
+    float veins = pow(abs(sin(a*10.0 + r*1.5)), 12.0)*smoothstep(0.1, 0.9, r);
+    float edge = smoothstep(1.4, 0.4, r);
+    base = pow(uC1, vec3(2.2))*(0.55 + 0.9*edge) + vec3(0.25, 0.04, 0.2)*veins*0.7;
+    base *= 0.85 + 0.3*vnoise(vPos*30.0);
+    rough = 0.55; coat = 0.45;
+  } else if(part < 14.5){
+    base = vec3(0.012, 0.011, 0.014); rough = 0.2; coat = 1.0;
+    vec3 q = vAux.yzw; float hg = smoothstep(0.30, 0.22, abs(q.x)) * smoothstep(-0.2, -0.5, q.y);
+    base = mix(base, vec3(0.7, 0.02, 0.02), hg*0.0);
+  } else if(part < 15.5){
+    float v = vAux.z;
+    base = mix(vec3(0.90, 0.86, 0.74), vec3(1.0, 0.98, 0.92), v); rough = 0.09; coat = 1.0;
+  } else if(part < 16.5){
+    base = vec3(0.50, 0.0, 0.02); rough = 0.03; coat = 1.0;
+  } else if(part < 17.5){
+    float v = vAux.z;
+    base = pow(uC1, vec3(2.2)); metal = 1.0; rough = 0.30 + 0.15*vnoise(vPos*80.0); coat = 0.0;
+    base *= 0.7 + 0.3*smoothstep(0.35, 0.65, abs(fract(v*14.0) - 0.5)*2.0);
+  } else if(part < 18.5){
+    unlit = true;
+    float core = vAux.w;
+    vec3 c = pow(uGlow, vec3(2.2));
+    emit = mix(c*0.55, mix(c, vec3(1.0), 0.75)*2.0, step(0.5, vAux.y));
+    alpha = 1.0;
+  } else if(part < 19.5){
+    /* cobweb in the corner (-1, 1) of the patch: strands out of the corner and sagging arcs between them */
+    unlit = true;
+    vec2 p = vec2(vAux.y, vAux.z); if(uFlip == 1) p.x = -p.x;
+    vec2 q = p - vec2(1.0, 1.0); float r = length(q) + 1e-4; float a = atan(-q.y, -q.x);
+    float seg = 1.5707963/7.0;
+    float ang = abs(fract(a/seg + 0.5) - 0.5)*seg*r;
+    float spoke = lineD(ang, 0.006);
+    float ring = 0.0;
+    for(int k=1;k<=6;k++){
+      float rk = float(k)*0.26;
+      float sag = 0.045*sin(fract(a/seg)*3.14159);
+      ring = max(ring, lineD(abs(r - rk + sag), 0.0045));
+    }
+    float inside = step(0.0, a) * step(a, 1.5707963) * smoothstep(1.85, 1.6, r);
+    alpha = max(spoke, ring)*inside*0.9;
+    if(alpha < 0.01) discard;
+    emit = vec3(0.92, 0.94, 1.0)*0.9;
+  } else if(part < 20.5){
+    float v = vAux.z;
+    base = mix(pow(uC1, vec3(2.2)), pow(uC1, vec3(2.2))*0.35, v); rough = 0.65; coat = 0.2;
+    base *= 0.8 + 0.2*sin(vAux.y*6.2831*8.0)*0.5;
+  } else if(part < 21.5){
+    /* glowing demon eyes: shape cut out of the patch */
+    unlit = true;
+    vec2 p = vec2(vAux.y, vAux.z);
+    float d;
+    if(uShape == 0){ d = 1.0 - length(p*vec2(1.0, 1.25)); }
+    else if(uShape == 1){ d = min(1.0 - abs(p.y)*4.2 - abs(p.x)*0.55 + 0.25 - 0.0, 1.0 - abs(p.x)); d = min(d, 0.9 - abs(p.y)*3.4 - pow(abs(p.x), 2.0)*0.5); }
+    else { vec2 q = vec2(abs(p.x), p.y); float cut = q.y - (0.55 - q.x*0.9); d = min(1.0 - length(q*vec2(1.0, 1.7)), -cut*1.2 + 0.1); }
+    float m = smoothstep(0.0, 0.08, d);
+    float glowv = smoothstep(-0.7, 0.2, d)*0.55*(1.0 - smoothstep(0.55, 0.98, max(abs(p.x), abs(p.y))));
+    alpha = max(m, glowv*0.7);
+    if(alpha < 0.01) discard;
+    vec3 c = pow(uGlow, vec3(2.2));
+    emit = mix(c*1.8, vec3(1.0, 0.95, 0.85)*1.2, smoothstep(0.35, 0.8, d))*max(m, 0.55);
+  } else {
+    base = vec3(0.55, 0.42, 0.28); rough = 0.4;
+  }
+  vec3 col;
+  if(unlit){ col = emit; }
+  else {
+    vec3 L1 = normalize(vec3(-0.55, 0.85, 0.65)), L2 = normalize(vec3(0.75, 0.25, 0.45)), L3 = normalize(vec3(0.10, 0.35, -0.95));
+    float d1 = max(dot(N,L1),0.0), d2 = max(dot(N,L2),0.0), d3 = max(dot(N,L3),0.0);
+    vec3 amb = mix(vec3(0.035,0.04,0.05), vec3(0.20,0.23,0.28), N.y*0.5+0.5);
+    vec3 light = amb + d1*vec3(1.25,1.18,1.08) + d2*vec3(0.30,0.38,0.50) + d3*vec3(0.30,0.36,0.44)*0.45;
+    vec3 envc = studio(R, rough*1.4);
+    float F = (0.04 + 0.96*pow(1.0 - NdV, 5.0))*coat;
+    vec3 refc = mix(vec3(1.0), base*2.2, metal);
+    col = base*light*(1.0 - metal) + envc*refc*(F + metal*0.55);
+    float shin = mix(500.0, 12.0, clamp(rough*1.2, 0.0, 1.0));
+    col += pow(max(dot(N, normalize(L1 + V)), 0.0), shin)*(1.0 - rough*0.8)*coat*vec3(2.2,2.1,2.0);
+    if(part > 12.5 && part < 13.5) col += pow(1.0 - NdV, 2.5)*vec3(0.5, 0.15, 0.55)*0.25;
+  }
+  col = col/(1.0 + col*0.18);
+  outc = vec4(pow(col, vec3(1.0/2.2)), alpha);
+}`;
+const progWrap = program(VS_WRAP, FS_WRAP), progHal = program(VS_ACC, FS_HAL);
+
+/* ---------- caches ---------- */
+const hwC = { m: {}, mats: {}, keys: {} };
+function hwMesh(name, build){ return hwC.m[name] || (hwC.m[name] = makeMesh(build())); }
+function hwKeyed(name, key, build){ key = key + '|' + hwLiftV; if(hwC.keys[name] !== key){ hwC.keys[name] = key; hwC.mats[name] = build(); } return hwC.mats[name]; }
+const hwD2R = Math.PI/180;
+function hwWrapOn(st){ return !!(st && st.dlc2 && st.dlc2.hw && st.dlc2.hw.wrap > 0); }
+function hwDrawWrap(st, vp, eye, M){
+  const H = st.dlc2.hw; if(!H || !H.wrap) return;
+  const u = progWrap.u, r = ITEMS.helmet.model.ranges[0];
+  gl.useProgram(progWrap.p);
+  gl.uniformMatrix4fv(u.uVP, false, vp); gl.uniformMatrix4fv(u.uM, false, M); gl.uniform3fv(u.uCam, eye); gl.uniform1i(u.uMode, H.wrap);
+  gl.uniform1f(u.uFolds, H.ghost.folds); gl.uniform1i(u.uWin, H.ghost.win ? 1 : 0); gl.uniform1f(u.uCrack, H.skull.crack);
+  if(H.wrap === 1){ gl.uniform3fv(u.uC1, hex2rgb(H.pump.c1)); gl.uniform3fv(u.uC2, hex2rgb(H.pump.c2)); gl.uniform3fv(u.uGlow, hex2rgb(H.pump.glow)); }
+  else if(H.wrap === 2){ gl.uniform3fv(u.uC1, hex2rgb(H.skull.bone)); gl.uniform3fv(u.uC2, hex2rgb(H.skull.bone)); }
+  else if(H.wrap === 3){ gl.uniform3fv(u.uC1, hex2rgb(H.ghost.c)); gl.uniform3fv(u.uC2, hex2rgb(H.ghost.c)); }
+  else { gl.uniform3fv(u.uC1, hex2rgb(H.zomb.c)); gl.uniform3fv(u.uC2, hex2rgb(H.zomb.c2)); gl.uniform3fv(u.uThread, hex2rgb(H.zomb.thread)); }
+  gl.uniform3fv(u.uGlow, hex2rgb(H.pump.glow));
+  gl.bindVertexArray(ITEMS.helmet.mesh.vao);
+  gl.drawElements(gl.TRIANGLES, r[1], gl.UNSIGNED_INT, r[0]*4);
+  gl.bindVertexArray(null);
+}
+function hwSet(u, c1, c2, glow, inten, shape, flip){
+  gl.uniform3fv(u.uC1, hex2rgb(c1 || '#ffffff')); gl.uniform3fv(u.uC2, hex2rgb(c2 || '#ffffff')); gl.uniform3fv(u.uGlow, hex2rgb(glow || '#ffffff'));
+  gl.uniform1f(u.uInten, inten || 1); gl.uniform1i(u.uShape, shape || 0); gl.uniform1i(u.uFlip, flip ? 1 : 0);
+}
+function hwFrameAt(hit, s, keepUp){
+  const n = hit.n; let Zf = [0, 0, 1];
+  const Xv = v3.norm(v3.cross([0, 1, 0], Math.abs(n[1]) > 0.98 ? [0, 0, 1] : n));
+  const Yv = v3.cross(n, Xv);
+  return dlc2Frame(Xv, n, Yv, hit.p, s);
+}
+function hwDrawAcc(st, vp, eye, M){
+  const H = st.dlc2.hw; if(!H) return;
+  hwLiftV = [0, 0.10, 0.03, 0.12, 0.025][H.wrap] || 0;
+  const any = H.hat.on || H.wings.on || H.spider.on || H.fangs.on || H.bolts.on || H.glow.on || H.wrap === 1;
+  if(!any) return;
+  gl.useProgram(progHal.p); const u = progHal.u;
+  gl.uniformMatrix4fv(u.uVP, false, vp); gl.uniformMatrix4fv(u.uM, false, M); gl.uniform3fv(u.uCam, eye);
+  const drawM = (mesh, mat) => { gl.uniformMatrix4fv(u.uAM, false, mat); gl.bindVertexArray(mesh.vao); gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0); };
+  /* pumpkin stem */
+  if(H.wrap === 1){
+    const mats = hwKeyed('stem', 'x', () => { const hit = hwRay([0, 3, 0.0], [0, -1, 0]); return hit ? dlc2Frame([1, 0, 0], [0, 1, 0], [0, 0, 1], v3.sub(hit.p, [0, 0.13, 0]), 1.15) : null; });
+    if(mats){ hwSet(u, H.pump.stem); drawM(hwMesh('stem', hwStemMesh), mats); }
+  }
+  /* witch hat */
+  if(H.hat.on){
+    const h = H.hat, key = JSON.stringify([h.size, h.fwd, h.tilt]);
+    const mat = hwKeyed('hat', key, () => { const hit = hwRay([0, 3, h.fwd], [0, -1, 0]); if(!hit) return null; const b = h.tilt*hwD2R, U = [0, Math.cos(b), -Math.sin(b)], Zf = [0, Math.sin(b), Math.cos(b)]; return dlc2Frame([1, 0, 0], U, Zf, v3.sub(hit.p, v3.mul(U, 0.14*h.size)), h.size); });
+    if(mat){ hwSet(u, h.c, h.band); drawM(hwKeyedMesh('hat', Math.round(h.bend*20), () => hwHatMesh(h.bend)), mat); }
+  }
+  /* wings */
+  if(H.wings.on){
+    const w = H.wings, key = JSON.stringify([w.size, w.y, w.spread, w.flap]);
+    const mats = hwKeyed('wings', key, () => { const out = []; for(const s of [1, -1]){
+      const hit = hwRay([s*w.spread, w.y, -3], [0, 0, 1]); if(!hit){ out.push(null); continue; }
+      const f = w.flap*hwD2R, X = v3.norm([s*Math.cos(f), 0, -Math.sin(f)]), Y = [0, 1, 0], Zv = v3.norm(v3.cross(X, Y));
+      out.push(dlc2Frame(X, Y, Zv, v3.sub(hit.p, v3.mul(hit.n, 0.03)), w.size*0.82)); } return out; });
+    hwSet(u, w.c, w.bone); const mesh = hwMesh('wing', hwWingMesh); mats.forEach(m => { if(m) drawM(mesh, m); });
+  }
+  /* spider on a thread */
+  if(H.spider.on){
+    const sp = H.spider, key = JSON.stringify([sp.size, sp.x, sp.drop]);
+    const mats = hwKeyed('spider', key, () => { const hit = hwRay([sp.x, 3, 0.55], [0, -1, 0]); const hit2 = hwRay([sp.x, 0.62, 3], [0, 0, -1]); if(!hit2) return null;
+      const top = [hit2.p[0], hit2.p[1] + 0.02, hit2.p[2] + 0.04], z0 = top[2] + 0.06, bodyY = top[1] - sp.drop;
+      return { body: dlc2Frame([1, 0, 0], [0, 1, 0], [0, 0, 1], [top[0], bodyY, z0], sp.size*1.3), thread: dlc2FrameS([1, 0, 0], [0, 1, 0], [0, 0, 1], [top[0], bodyY, z0], 1, sp.drop + 0.0, 1) }; });
+    if(mats){
+      hwSet(u, '#101018'); drawM(hwMesh('spider', hwSpiderMesh), mats.body);
+      const th = hwMesh('thread', () => dlc2Merge([hwTube([[0, 0, 0], [0, 0.5, 0], [0, 1, 0]], [0.004, 0.004, 0.004], 6, 23, 0)])); drawM(th, mats.thread);
+    }
+  }
+  /* fangs and blood */
+  if(H.fangs.on){
+    const f = H.fangs, key = JSON.stringify([f.size, f.gap, f.y]);
+    const mats = hwKeyed('fangs', key, () => { const out = []; for(const s of [1, -1]){ const hit = hwRay([s*f.gap, f.y, 3], [0, 0, -1]); const hit2 = hwRay([s*f.gap, f.y - 0.30*f.size, 3], [0, 0, -1]); if(!hit){ out.push(null); continue; } const z = Math.max(hit.p[2], hit2 ? hit2.p[2] : 0) + 0.01; const p = [hit.p[0], hit.p[1], z]; out.push({ f: dlc2Frame([1, 0, 0], [0, 1, 0], [0, 0, 1], v3.add(p, [0, 0.03, 0.0]), f.size), p }); } return out; });
+    hwSet(u); const fm = hwMesh('fang', hwFangMesh); mats.forEach(m => { if(m) drawM(fm, m.f); });
+    if(f.blood){
+      hwSet(u); const lens = [0.075, 0.12];
+      mats.forEach((m, i) => { if(!m) return; const s = i === 0 ? 1 : -1;
+        const dm = hwMesh('drip' + (i % 2), () => hwDripMesh(lens[i % 2]));
+        drawM(dm, dlc2Frame([1, 0, 0], [0, 1, 0], [0, 0, 1], v3.add(m.p, [s*0.0, -0.27*f.size, 0.02]), f.size*1.5));
+      });
+    }
+  }
+  /* bolts and arc */
+  if(H.bolts.on){
+    const b = H.bolts, key = JSON.stringify([b.size, b.y, b.z]);
+    const mats = hwKeyed('bolts', key, () => { const out = []; for(const s of [1, -1]){ const hit = hwRay([s*3, b.y, b.z], [-s, 0, 0]); if(!hit){ out.push(null); continue; }
+      const n = hit.n, Xv = v3.norm(v3.cross([0, 1, 0], n)), Zv = v3.cross(n, Xv);
+      out.push({ m: dlc2Frame(Xv, n, Zv, v3.sub(hit.p, v3.mul(n, 0.02)), b.size), p: hit.p, n }); } return out; });
+    hwSet(u, b.c); const bm = hwMesh('bolt', hwBoltMesh); mats.forEach(m => { if(m) drawM(bm, m.m); });
+    if(b.arc && mats[0] && mats[1]){
+      const ak = JSON.stringify([key, b.seed]);
+      const arc = hwKeyed('arc', ak, () => {
+        const rnd = hwSeedRand(b.seed + 11), pa = mats[0].p, pb = mats[1].p, K = 26, pts = [];
+        for(let k=0;k<=K;k++){ const t = k/K, x = pa[0] + (pb[0] - pa[0])*t; let p;
+          if(k === 0) p = v3.add(mats[0].p, v3.mul(mats[0].n, 0.40*b.size)); else if(k === K) p = v3.add(mats[1].p, v3.mul(mats[1].n, 0.40*b.size));
+          else { const hit = hwRay([x, 3, pa[2]*(1 - t) + pb[2]*t + 0.0], [0, -1, 0]); const base = hit ? v3.add(hit.p, v3.mul(hit.n, 0.20)) : [x, 1.0, 0]; p = [base[0] + (rnd() - 0.5)*0.16, base[1] + (rnd() - 0.5)*0.16, base[2] + (rnd() - 0.5)*0.2]; }
+          pts.push(p); }
+        return { core: makeMesh(dlc2Merge([hwTube(pts, pts.map(() => 0.011), 7, 18, 1)])), halo: makeMesh(dlc2Merge([hwTube(pts, pts.map(() => 0.036), 9, 18, 0)])) };
+      });
+      hwC.arc = arc;
+    } else hwC.arc = null;
+  } else hwC.arc = null;
+  /* glow and web patches, then the arc: all light or see-through, so last */
+  const patches = [];
+  if(H.glow.on){
+    const g = H.glow, key = JSON.stringify([g.size, g.spread, g.y]);
+    const ms = hwKeyed('glow', key, () => [1, -1].map(s => hwPatch((x, y) => ({ o: [s*g.spread + x, g.y + y, 3], d: [0, 0, -1] }), g.size, g.size*0.62, 21, 0.012)));
+    ms.forEach(m => { if(m) patches.push({ m, c: g.c, shape: g.style, kind: 'glow' }); });
+  }
+  if(H.spider.on && H.spider.web){
+    const sp = H.spider, key = JSON.stringify([sp.wx, sp.wy, sp.wsize, sp.flip]);
+    const mw = hwKeyed('web', key, () => { const s = sp.flip ? -1 : 1; return hwPatch((x, y) => ({ o: [s*sp.wx + x*s, sp.wy + y, 3], d: [0, 0, -1] }), sp.wsize, sp.wsize, 19, 0.014, 40, 40); });
+    if(mw) patches.push({ m: mw, kind: 'web', flip: sp.flip });
+  }
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.uniformMatrix4fv(u.uAM, false, IDENT);
+  patches.forEach(p => { hwSet(u, '#ffffff', '#ffffff', p.c || '#ffffff', 1, p.shape, p.flip); gl.bindVertexArray(p.m.vao); gl.drawElements(gl.TRIANGLES, p.m.count, gl.UNSIGNED_INT, 0); });
+  if(hwC.arc){
+    gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
+    hwSet(u, '#ffffff', '#ffffff', H.bolts.glow, 1);
+    gl.uniformMatrix4fv(u.uAM, false, IDENT);
+    gl.bindVertexArray(hwC.arc.halo.vao); gl.drawElements(gl.TRIANGLES, hwC.arc.halo.count, gl.UNSIGNED_INT, 0);
+    gl.depthMask(true);
+    gl.bindVertexArray(hwC.arc.core.vao); gl.drawElements(gl.TRIANGLES, hwC.arc.core.count, gl.UNSIGNED_INT, 0);
+  }
+  gl.disable(gl.BLEND);
+  gl.bindVertexArray(null);
+}
+function hwKeyedMesh(name, k, build){ const key = name + ':' + k; return hwC.m[key] || (hwC.m[key] = makeMesh(build())); }
+
+/* ---------- the Halloween tab ---------- */
+(function buildHalloweenTab(){
+  const nav = $('.tabs'), panel = $('.panel'); if(!nav || !panel) return;
+  const btn = el('button', 'for-helmet', 'Halloween'); btn.dataset.tab = 'halloween'; btn.addEventListener('click', () => showTab('halloween')); nav.appendChild(btn);
+  const pane = el('section', 'tabpane'); pane.id = 'tab-halloween'; panel.appendChild(pane);
+  const DUMMY = hwDefault();
+  const H = () => { if(cur.key !== 'helmet') return DUMMY; const D = S.dlc2 || (S.dlc2 = dlc2Default()); return D.hw || (D.hw = hwDefault()); };
+  const redraw = () => { dirtyFrame = true; };
+  const sec = (title, key, blurb) => {
+    const head = el('div', 'row'); head.style.alignItems = 'center'; head.style.justifyContent = 'space-between'; head.style.marginTop = '14px';
+    const h = el('h3', null, title); h.style.margin = '0';
+    const onBtn = el('button', 'btn small'); head.append(h, onBtn); pane.append(head, el('div', 'note', blurb));
+    const box = el('div'); pane.appendChild(box);
+    reg(toggleBtn(onBtn, () => H()[key].on, (v) => { H()[key].on = v; redraw(); }));
+    return box;
+  };
+  const sl = (box, label, min, max, step, grp, key, fmt) => { const r = slider(label, min, max, step, () => H()[grp][key], (v) => { H()[grp][key] = v; redraw(); }, fmt); box.appendChild(r); reg(r._upd); };
+  const col = (box, label, grp, key) => { const r = colourRow(label, () => H()[grp][key], (v) => { H()[grp][key] = v; redraw(); }); box.appendChild(r); reg(r._upd); };
+  const chk = (box, label, grp, key) => { const l = el('label', 'note'); l.style.cssText = 'display:flex;gap:7px;align-items:center;margin-top:8px'; const c = el('input'); c.type = 'checkbox'; l.append(c, document.createTextNode(' ' + label)); c.onchange = () => { H()[grp][key] = c.checked; redraw(); commit(); }; reg(() => { c.checked = !!H()[grp][key]; }); box.appendChild(l); };
+  const pct = (v) => Math.round(v*100) + '%', deg = (v) => Math.round(v) + '°';
+
+  pane.appendChild(Object.assign(el('div', 'note'), { innerHTML: '<b>Halloween bundle (Gold).</b> One wrap at a time, plus any accessories you like on top. It works together with the Critters tab (ears, horns, eyes, mouth).' }));
+  pane.appendChild(el('h3', null, 'Bundles'));
+  const qrow = el('div', 'row'); qrow.style.flexWrap = 'wrap'; pane.appendChild(qrow);
+  const clear = (D) => { const e = D.ears, f = D.fur, y = D.eyes, m = D.mouth; e.on = f.on = y.on = m.on = false; const h = D.hw; h.wrap = 0; ['hat', 'wings', 'spider', 'fangs', 'bolts', 'glow'].forEach(k => { h[k].on = false; }); };
+  const looks = [
+    ['Jack-o\'-lantern', (D) => { D.hw.wrap = 1; D.hw.glow.on = false; D.hw.wings.on = true; D.hw.wings.size = 0.8; D.hw.wings.c = '#2a1034'; }],
+    ['Witch', (D) => { D.hw.hat.on = true; D.hw.hat.c = '#1d1030'; D.hw.hat.band = '#7a2bd9'; D.hw.spider.on = true; D.hw.spider.x = 0.5; D.hw.glow.on = true; D.hw.glow.size = 0.2; D.hw.glow.spread = 0.26; D.hw.glow.c = '#7bff3a'; D.hw.glow.style = 1; }],
+    ['Vampire', (D) => { D.hw.fangs.on = true; D.hw.wings.on = true; D.hw.wings.c = '#5a0a16'; D.hw.glow.on = true; D.hw.glow.c = '#ff2020'; D.hw.glow.style = 2; Object.assign(D.ears, { on: true, style: 3, outer: '#16060a', rim: '#7a0a16', furry: false }); }],
+    ['Frankenstein', (D) => { D.hw.wrap = 4; D.hw.bolts.on = true; D.hw.bolts.arc = true; }],
+    ['Skeleton', (D) => { D.hw.wrap = 2; D.hw.glow.on = true; D.hw.glow.c = '#ff3b1d'; D.hw.glow.style = 0; D.hw.glow.size = 0.17; D.hw.spider.on = true; D.hw.spider.x = 0.55; D.hw.spider.web = true; }],
+    ['Ghost', (D) => { D.hw.wrap = 3; }],
+    ['Spooky monster', (D) => { Object.assign(D.fur, { on: true, c1: '#3b1d5a', c2: '#a95cff' }); D.eyes.on = true; D.mouth.on = true; Object.assign(D.ears, { on: true, style: 3, outer: '#16060a', rim: '#ff6a00', furry: false }); D.hw.fangs.on = true; D.hw.spider.on = true; D.hw.spider.web = true; }],
+    ['Clear Halloween', (D) => { clear(D); }]
+  ];
+  looks.forEach(([name, fn]) => { const b = el('button', 'btn small', name); b.onclick = () => { const D = S.dlc2 = dlc2Norm(S.dlc2 || dlc2Default()); clear(D); fn(D); S.dlc2 = dlc2Norm(D); redraw(); syncAll(); commit(); }; qrow.appendChild(b); });
+
+  /* wraps */
+  pane.appendChild(el('h3', null, 'Full-helmet wrap'));
+  const wseg = el('div', 'seg'); pane.appendChild(wseg); reg(seg(wseg, HW_WRAP_NAMES, () => H().wrap, (i) => { H().wrap = i; redraw(); commit(); }));
+  const wbox = el('div'); pane.appendChild(wbox);
+  const pumpB = el('div'), skullB = el('div'), ghostB = el('div'), zombB = el('div'); wbox.append(pumpB, skullB, ghostB, zombB);
+  col(pumpB, 'Pumpkin colour', 'pump', 'c1'); col(pumpB, 'Groove colour', 'pump', 'c2'); col(pumpB, 'Candle glow', 'pump', 'glow'); col(pumpB, 'Stem', 'pump', 'stem');
+  col(skullB, 'Bone colour', 'skull', 'bone'); sl(skullB, 'Cracks', 0, 1, 0.01, 'skull', 'crack', pct);
+  col(ghostB, 'Sheet colour', 'ghost', 'c'); sl(ghostB, 'Folds', 0, 1, 0.01, 'ghost', 'folds', pct); chk(ghostB, 'Cut a slot so the visor shows (no painted eyes)', 'ghost', 'win');
+  col(zombB, 'Skin colour', 'zomb', 'c'); col(zombB, 'Bruise colour', 'zomb', 'c2'); col(zombB, 'Stitches', 'zomb', 'thread');
+  reg(() => { pumpB.style.display = H().wrap === 1 ? '' : 'none'; skullB.style.display = H().wrap === 2 ? '' : 'none'; ghostB.style.display = H().wrap === 3 ? '' : 'none'; zombB.style.display = H().wrap === 4 ? '' : 'none'; });
+
+  const hb = sec('Witch hat', 'hat', 'A tall floppy hat with a buckle band, perched on top.');
+  sl(hb, 'Size', 0.5, 1.6, 0.01, 'hat', 'size', pct); sl(hb, 'Forward / back', -0.4, 0.5, 0.01, 'hat', 'fwd', (v) => v.toFixed(2)); sl(hb, 'Lean back', -20, 45, 1, 'hat', 'tilt', deg); sl(hb, 'Tip flop', 0, 1, 0.01, 'hat', 'bend', pct);
+  col(hb, 'Hat colour', 'hat', 'c'); col(hb, 'Band colour', 'hat', 'band');
+  const wb = sec('Bat wings', 'wings', 'Two spread wings on the back.');
+  sl(wb, 'Size', 0.5, 1.8, 0.01, 'wings', 'size', pct); sl(wb, 'Height', -0.2, 0.8, 0.01, 'wings', 'y', (v) => v.toFixed(2)); sl(wb, 'Gap', 0.05, 0.6, 0.01, 'wings', 'spread', (v) => v.toFixed(2)); sl(wb, 'Spread out', 0, 80, 1, 'wings', 'flap', deg);
+  col(wb, 'Wing colour', 'wings', 'c'); col(wb, 'Bone colour', 'wings', 'bone');
+  const sb = sec('Spider and cobweb', 'spider', 'A spider dangling on a thread in front of the visor, with an optional cobweb.');
+  sl(sb, 'Spider size', 0.5, 2, 0.01, 'spider', 'size', pct); sl(sb, 'Sideways', -0.7, 0.7, 0.01, 'spider', 'x', (v) => v.toFixed(2)); sl(sb, 'Thread length', 0.15, 1.2, 0.01, 'spider', 'drop', (v) => v.toFixed(2));
+  chk(sb, 'Cobweb', 'spider', 'web'); sl(sb, 'Web size', 0.3, 1, 0.01, 'spider', 'wsize', pct); sl(sb, 'Web across', 0.1, 0.75, 0.01, 'spider', 'wx', (v) => v.toFixed(2)); sl(sb, 'Web height', 0.2, 0.8, 0.01, 'spider', 'wy', (v) => v.toFixed(2)); chk(sb, 'Web on the other corner', 'spider', 'flip');
+  const fb = sec('Vampire fangs', 'fangs', 'Two fangs under the visor, with optional blood.');
+  sl(fb, 'Size', 0.5, 1.8, 0.01, 'fangs', 'size', pct); sl(fb, 'Gap', 0.08, 0.35, 0.01, 'fangs', 'gap', (v) => v.toFixed(2)); sl(fb, 'Height', -0.5, 0.1, 0.01, 'fangs', 'y', (v) => v.toFixed(2)); chk(fb, 'Blood drips', 'fangs', 'blood');
+  const bb = sec('Bolts and electric arc', 'bolts', 'Two bolts in the sides of the helmet with a crackling arc over the top.');
+  sl(bb, 'Size', 0.5, 1.6, 0.01, 'bolts', 'size', pct); sl(bb, 'Height', -0.3, 0.6, 0.01, 'bolts', 'y', (v) => v.toFixed(2)); sl(bb, 'Forward / back', -0.5, 0.6, 0.01, 'bolts', 'z', (v) => v.toFixed(2));
+  chk(bb, 'Electric arc', 'bolts', 'arc'); sl(bb, 'Crackle (new pattern)', 0, 99, 1, 'bolts', 'seed', (v) => Math.round(v)); col(bb, 'Bolt colour', 'bolts', 'c'); col(bb, 'Arc colour', 'bolts', 'glow');
+  const gb = sec('Glowing eyes', 'glow', 'Two glowing eyes above the visor.');
+  const gseg = el('div', 'seg'); gb.appendChild(gseg); reg(seg(gseg, HW_EYE_STYLES, () => H().glow.style, (i) => { H().glow.style = i; redraw(); commit(); }));
+  sl(gb, 'Size', 0.1, 0.5, 0.01, 'glow', 'size', pct); sl(gb, 'Gap', 0.1, 0.6, 0.01, 'glow', 'spread', (v) => v.toFixed(2)); sl(gb, 'Height', 0.2, 0.9, 0.01, 'glow', 'y', (v) => v.toFixed(2)); col(gb, 'Glow colour', 'glow', 'c');
+})();
+
 
 /* ======================================================================
    LICENCE MODE BRIDGE (only runs with ?lic=1, i.e. inside the Licence Centre)
@@ -2753,9 +3874,9 @@ function buildLocks(){
     b.onclick = goGold; n.parentNode.insertBefore(b, n);
   });
   const tabs = $('.tabs');
-  ['decals', 'designs'].forEach((t) => {
+  ['decals', 'designs', 'dlc2', 'halloween'].forEach((t) => {
     const b = tabs && tabs.querySelector('[data-tab="' + t + '"]'); if(!b || b.classList.contains('licTabLock')) return;
-    b.classList.add('licTabLock'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = t === 'decals' ? 'Pictures and shapes come with Silver Patreon. Text and the image library come with Gold.' : 'Gold Patreon';
+    b.classList.add('licTabLock'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = t === 'decals' ? 'Pictures and shapes come with Silver Patreon. Text and the image library come with Gold.' : (t === 'dlc2' || t === 'halloween') ? 'Gold Patreon exclusive' : 'Gold Patreon';
   });
   if(tabs) tabs.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.licTabLock'); if(b && B.classList.contains('lic-colours') && !(deco && b.getAttribute('data-tab') === 'decals')) goGold(e); }, true);
   const vs = $('#visorSeg');
