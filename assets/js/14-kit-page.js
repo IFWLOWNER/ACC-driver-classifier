@@ -89,11 +89,37 @@ function perksCss(){
     + '.kit-tier .p{display:block;font:700 22px/1.1 var(--font-display);letter-spacing:.03em}.kit-tier .c{display:block;margin-top:5px;font:700 13px/1.2 var(--font-mono);color:var(--ifwl-teal-deep,#086b5f)}.kit-tier .b{display:block;margin-top:4px;font-size:11px;color:var(--text-muted,#5b6576)}'
     + '.kit-steps{margin:10px 0;padding-left:20px;font-size:13px;line-height:1.6}.kit-steps li{margin:6px 0}'
     + '.kit-ref{display:inline-block;font:700 13px/1.4 var(--font-mono);background:rgba(14,156,138,.1);border-radius:8px;padding:3px 8px;user-select:all}'
+    + '.kit-team{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:1px solid rgba(14,156,138,.5);background:rgba(14,156,138,.07);border-radius:14px;padding:12px 14px;margin:0 0 12px}'
+    + '.kit-team .gt{flex:1 1 260px;min-width:0;font-size:13px;line-height:1.5}.kit-team .gt b{font-weight:800}'
+    + '.kit-team .tc{display:flex;gap:8px;flex:0 1 330px;flex-wrap:wrap}.kit-team input{flex:1 1 150px;min-width:0;font:700 14px/1.2 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;padding:9px 10px;border-radius:10px;border:1px solid var(--ifwl-line,#cfd6df);background:var(--panel-bg-raised,#fff);color:inherit}'
+    + '.kit-team .kit-err{flex:1 1 100%}.kit-codes{font:700 13px/1.7 var(--font-mono);background:rgba(14,156,138,.1);border-radius:10px;padding:8px 12px;margin:8px 0;user-select:all;white-space:pre-wrap}'
+    + '.kit-sw{display:inline-flex;gap:3px;vertical-align:middle;margin-left:6px}.kit-sw i{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid rgba(0,0,0,.25)}'
     + '@media(max-width:480px){.kit-tiers{grid-template-columns:1fr}}';
   document.head.appendChild(st);
 }
 function goldLink(label, cls){ return '<a class="kit-btn ' + (cls || 'gold') + '" href="' + PATREON_URL + '" target="_blank" rel="noopener noreferrer">' + LOCK_SVG + esc(label) + '</a>'; }
 var TOP_PAYPAL = /^https:\/\/(www\.)?paypal\.me\//;
+function moveToCareer(){
+  var bal = (state.wallet && state.wallet.balance) || 0;
+  var ov = dlg('<div class="kit-form"><h3>Move credits to your career balance</h3><div id="kitMvBody"></div></div>', 'narrow');
+  var body = ov.querySelector('#kitMvBody');
+  if(bal < 1){ body.innerHTML = '<div class="kit-note">Your Kit wallet is empty. Credits you earn from selling in the Kit Market land there.</div><div class="kit-form-actions"><button type="button" class="kit-btn ghost" data-a="x">Close</button></div>'; body.querySelector('[data-a=x]').onclick = function(){ ov.close(); }; return; }
+  body.innerHTML = '<p class="kit-note">Your Kit wallet holds <b>' + fmt(bal) + '</b> credits. Move any amount into your <b>career credits</b> for this season, one for one, to spend in the Career Shop and everywhere else career credits work.</p>'
+    + '<p class="kit-note warn"><b>This only works one way.</b> Career credits reset when the season changes, so anything you move over can be lost at the next reset. Only move what you plan to spend this season.</p>'
+    + '<div class="kit-field"><label for="kitMvAmt">Credits to move</label><input id="kitMvAmt" type="number" min="1" max="' + bal + '" step="1" value="' + bal + '" inputmode="numeric"></div>'
+    + '<div class="kit-err" id="kitMvErr" role="alert"></div><div class="kit-form-actions"><button type="button" class="kit-btn ghost" data-a="no">Cancel</button><button type="button" class="kit-btn teal" data-a="go">Move credits</button></div>';
+  body.querySelector('[data-a=no]').onclick = function(){ ov.close(); };
+  var go = body.querySelector('[data-a=go]');
+  go.onclick = function(){
+    var n = Math.floor(Number(body.querySelector('#kitMvAmt').value));
+    if(!(n >= 1) || n > bal){ body.querySelector('#kitMvErr').textContent = 'Enter a number between 1 and ' + fmt(bal) + '.'; return; }
+    go.disabled = true; go.textContent = 'Moving...'; body.querySelector('#kitMvErr').textContent = '';
+    api('kitWalletTransfer', null, { amount: n }).then(function(r){
+      state.wallet = r.wallet; paintHead(); ov.close(); toast(fmt(r.moved) + ' credits moved to your career balance.', 'good'); loadWallet();
+    }).catch(function(e){ go.disabled = false; go.textContent = 'Move credits'; body.querySelector('#kitMvErr').textContent = errMsg(e); });
+  };
+}
+
 function topUp(){
   var ov = dlg('<div class="kit-form"><h3>Top up your balance</h3><div id="kitTopBody"><div class="kit-empty">Loading&hellip;</div></div></div>', 'narrow');
   var body = ov.querySelector('#kitTopBody');
@@ -145,7 +171,9 @@ function boot(){
 }
 
 function tabsList(){
-  var t = [['design', 'Design'], ['collection', 'My Collection']];
+  var t = [['design', 'Design']];
+  if(state.mode === 'full') t.push(['designs', 'My designs']);
+  t.push(['collection', 'My Collection']);
   if(state.selling && state.selling.open) t.push(['market', 'Kit Market']);
   t.push(['wallet', 'Wallet']);
   if(isOps()) t.push(['staff', 'Staff']);
@@ -187,6 +215,7 @@ function showTab(name, first){
   document.querySelectorAll('#kitTabs .kit-tab').forEach(function(b){ var on = b.getAttribute('data-tab') === name; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
   document.querySelectorAll('#kitPanes .kit-pane').forEach(function(p){ p.hidden = p.id !== 'kitPane_' + name; });
   if(name === 'design') showDesign();
+  else if(name === 'designs') loadDesigns();
   else if(name === 'collection') loadCollection();
   else if(name === 'market') loadMarket();
   else if(name === 'wallet') loadWallet();
@@ -206,14 +235,39 @@ function showDesign(){
     var gold = state.mode === 'full' ? '' : state.mode === 'silver'
       ? '<div class="kit-gold" id="kitGoldBox"><div class="gt">' + LOCK_SVG + '<b>You have Silver Patreon.</b> Silver adds up to 4 shapes and 2 pictures on the helmet and on the suit, plus the Blue and Silver mirror visors. Gold adds the full designer (patterns, layouts, text, finishes, all visor tints), the image library, all 12 colour schemes, unlimited pictures and shapes, the Critters pack (ears, horns, fur, googly eyes, big mouth) and the Halloween bundle, and selling your own designs in the Kit Market. Look for the gold padlocks.</div>' + goldLink('See Gold on Patreon') + '</div>'
       : '<div class="kit-gold" id="kitGoldBox"><div class="gt">' + LOCK_SVG + '<b>Unlock more with Patreon.</b> You are using the free colour designer. <b>Silver Patreon</b> adds up to 4 shapes and 2 pictures on the helmet and on the suit, plus the Blue and Silver mirror visors. <b>Gold Patreon</b> adds the full designer (patterns, layouts, logos, text and finishes), every visor tint (Smoke, Clear and Blackout are free), the image library, all 12 colour schemes (4 are free), the Critters pack (ears, horns, fur, googly eyes, big mouth), the Halloween bundle, and selling your own designs in the Kit Market. Look for the gold padlocks.</div>' + goldLink('See the Patreon tiers') + '</div>';
-    pane.innerHTML = gold + '<div class="kit-bar"><div class="kit-note grow" id="kitDesignNote"></div>' + (canSell ? '<button type="button" class="kit-btn purple" id="kitSellBtn">Sell a design</button>' : '') + (lockedSell ? goldLink('Sell a design (Gold)', 'purple') : '') + '</div>'
+    pane.innerHTML = teamBox() + gold + '<div class="kit-bar"><div class="kit-note grow" id="kitDesignNote"></div>' + (state.mode === 'full' ? '<button type="button" class="kit-btn ghost" id="kitNewBtn" title="Keep this kit in My designs and begin a blank one">Start a new design</button>' : '') + (canSell ? '<button type="button" class="kit-btn purple" id="kitSellBtn">Sell a design</button>' : '') + (lockedSell ? goldLink('Sell a design (Gold)', 'purple') : '') + '</div>'
       + '<div class="kit-frame"><div class="kit-frame-load" id="kitStudioLoad">Loading Kit Studio&hellip;</div><iframe id="kitStudioFrame" title="Kit Studio" allow="fullscreen"></iframe></div>';
     studio.iframe = q('kitStudioFrame');
     window.addEventListener('message', onStudioMsg);
     studio.iframe.src = STUDIO_URL;
     if(canSell) q('kitSellBtn').addEventListener('click', sellDesign);
+    if(q('kitNewBtn')) q('kitNewBtn').addEventListener('click', startNewDesign);
+    q('kitTeamBtn').addEventListener('click', redeemCode); q('kitTeamCode').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); redeemCode(); } });
     paintDesignNote();
   }
+}
+/* ---- team codes: type a code you were given and the team kit is added to your own kit ---- */
+function teamBox(){
+  var on = state.team && state.team.on;
+  return '<div class="kit-team" id="kitTeamBox"><div class="gt">' + (on ? '<b>Your team kit is unlocked.</b> You can change names, numbers, shapes and colours below. Got another code? Type it here.' : '<b>Have a team code?</b> Type it here to unlock your IFWL team helmet and race suit. It works for everyone, whatever Patreon tier you have.') + '</div>'
+    + '<div class="tc"><input id="kitTeamCode" type="text" placeholder="IFWL-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="30" aria-label="Team code"><button type="button" class="kit-btn teal" id="kitTeamBtn">Unlock</button></div><div class="kit-err" id="kitTeamMsg" role="alert"></div></div>';
+}
+function redeemCode(){
+  var inp = q('kitTeamCode'), msg = q('kitTeamMsg'), btn = q('kitTeamBtn'), code = inp.value.trim();
+  msg.textContent = ''; msg.style.color = '';
+  if(code.length < 4){ msg.textContent = 'Type your code first.'; return; }
+  ask({ title: 'Unlock the team kit?', ok: 'Unlock it', intro: 'This puts the team helmet and race suit into your kit, <b>replacing the helmet and race suit you have now</b> (your old design is kept safe on our side). You can still change names, numbers, shapes and colours afterwards.', fields: [] }).then(function(v){
+    if(!v) return;
+    btn.disabled = true; msg.textContent = 'Unlocking...';
+    api('kitRedeem', null, { code: code }).then(function(res){
+      state.kit = res.kit; state.mode = res.mode; state.needsAvatar = true; dirty = false;
+      return refreshState().then(function(){
+        inp.value = ''; msg.style.color = '#0a7d5a'; msg.textContent = res.pack.title + ' unlocked. Check it over, then press Save my kit to put it on your avatar.';
+        var box = q('kitTeamBox'); if(box){ var gt = box.querySelector('.gt'); gt.innerHTML = '<b>Your team kit is unlocked.</b> You can change names, numbers, shapes and colours below. Got another code? Type it here.'; }
+        toast('Team kit unlocked.', 'good'); paintDesignNote(); return restudio();
+      });
+    }).catch(function(e){ msg.style.color = ''; msg.textContent = errMsg(e); }).then(function(){ btn.disabled = false; });
+  });
 }
 function paintDesignNote(){
   var n = q('kitDesignNote'); if(!n) return;
@@ -221,6 +275,7 @@ function paintDesignNote(){
   var t = '';
   if(state.designLocked) t += 'Your Gold designs are kept safe. While you are not a Gold member you can change ' + (state.mode === 'silver' ? 'colours and the Silver visors' : 'colours') + ' only. ';
   else if(state.mode === 'full') t += 'Design, then press <b>Save my kit</b> in the top bar. ';
+  else if(state.team && state.team.on) t += 'Your team kit: change names, numbers, shapes and colours (Decals tab for text and shapes), then press <b>Save my kit</b> in the top bar. ';
   else if(state.mode === 'silver') t += 'Set your colours, add shapes and pictures from the Decals tab, then press <b>Save my kit</b> in the top bar. ';
   else t += 'Choose a colour scheme (or set your own colours) and press <b>Save my kit</b> in the top bar. ';
   if(worn.length) t += 'You are wearing <b>' + esc(worn.join(' and ')) + '</b> from your collection, so that part shows on your avatar. Take it off in My Collection to use your own design again.';
@@ -239,7 +294,7 @@ function studioInit(opts){
   return Promise.all(jobs).then(function(){
     studio.lastEq = eq;
     var forAv = opts.avatar || studio.wantAvatar || state.needsAvatar; studio.wantAvatar = false;
-    send({ t: 'init', mode: state.mode, allowPatterns: !!state.colourPatterns, kit: out, equipped: eq, then: forAv ? 'avatar' : undefined, forVersion: (state.kit && state.kit.version) || 0 });
+    send({ t: 'init', mode: state.mode, team: !!(state.team && state.team.on), allowPatterns: !!state.colourPatterns, kit: out, equipped: eq, then: forAv ? 'avatar' : undefined, forVersion: (state.kit && state.kit.version) || 0 });
   });
 }
 function onStudioMsg(e){
@@ -263,8 +318,8 @@ function doSave(m){
     state.kit = res.kit; state.mode = res.mode; state.needsAvatar = false;
     var msg = { t: 'saved', version: res.kit.version, mode: res.mode, equipped: studio.lastEq };
     if(res.limited){
-      msg.reload = { kit: { suit: res.kit.suit, helmet: res.kit.helmet, suitImages: {}, helmetImages: {} }, allowPatterns: !!state.colourPatterns };
-      toast('Saved. Some changes are for Gold members only, so those parts were left as they were.', 'good');
+      if(!res.team) msg.reload = { kit: { suit: res.kit.suit, helmet: res.kit.helmet, suitImages: {}, helmetImages: {} }, allowPatterns: !!state.colourPatterns };
+      toast(res.team ? 'Saved. Pictures of your own and Gold-only extras are not part of the team kit, so those parts were left out.' : 'Saved. Some changes are for Gold members only, so those parts were left as they were.', 'good');
     }
     dirty = false; send(msg);
   }).catch(function(e){
@@ -294,6 +349,77 @@ function restudio(){
   paintDesignNote();
   if(studio.iframe && studio.ready) return studioInit({ avatar: true });
   return Promise.resolve();
+}
+
+/* ---- My designs: a locker of saved kits, and "Start a new design" ---- */
+var locker = { max: 20 };
+function hasAnyDesign(){ var k = state.kit || {}; return !!((k.suit && k.suit.layers && k.suit.layers.length) || (k.helmet && k.helmet.layers && k.helmet.layers.length)); }
+function afterKitSwap(kit, note){
+  state.kit = kit; state.needsAvatar = true; dirty = false;
+  return refreshState().then(function(){ paintDesignNote(); if(note) toast(note, 'good'); return restudio(); });
+}
+function startNewDesign(){
+  {
+    var stamp = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    ask({ title: 'Start a new design?', ok: 'Keep this and start fresh', intro: dirty
+        ? '<b>You have changes you have not saved.</b> Only the kit you last saved is kept; unsaved changes in the designer are lost. Press Cancel and <b>Save my kit</b> first if you want them.<br><br>'
+        : 'Your saved helmet and race suit are copied into <b>My designs</b> first, so you can bring them back whenever you like. Then the designer is cleared so you can start from scratch.',
+      fields: hasAnyDesign() ? [{ id: 'name', label: 'Name for the design you are keeping', value: 'Kit ' + stamp, help: 'You can see it in the My designs tab.' }] : [] }).then(function(v){
+      if(!v) return;
+      var btn = q('kitNewBtn'); if(btn){ btn.disabled = true; }
+      api('kitDesignSave', null, { name: (v.name || '').trim(), fresh: true }).then(function(r){
+        return afterKitSwap(r.kit, r.saved ? (r.already ? 'That design was already in My designs. Fresh start ready.' : 'Saved "' + r.saved.name + '" to My designs. Fresh start ready.') : 'Fresh start ready.');
+      }).catch(function(e){ toast(errMsg(e), 'bad'); if(e && e.status === 409) refreshState().catch(function(){}); }).then(function(){ if(btn) btn.disabled = false; });
+    });
+  }
+}
+function swatches(a){ return (a || []).map(function(c){ return '<i style="background:' + esc(/^#[0-9a-fA-F]{3,8}$/.test(c) ? c : '#ccc') + '"></i>'; }).join(''); }
+function loadDesigns(){
+  var pane = q('kitPane_designs'); if(!pane) return;
+  pane.innerHTML = '<div class="kit-empty">Loading&hellip;</div>';
+  api('kitDesignList').then(function(d){
+    locker.max = d.max || 20; locker.rows = {}; d.designs.forEach(function(x){ locker.rows[x.id] = x; });
+    var cards = d.designs.map(function(x){
+      return '<div class="kit-card kit-dcard"><div class="kit-card-img">' + (x.thumb ? '<img loading="lazy" src="' + esc(x.thumb) + '" alt="' + esc(x.name) + '">' : '<div class="none">No picture</div>') + '</div>'
+        + '<div class="kit-card-body"><div class="kit-card-title">' + esc(x.name) + '</div>'
+        + '<div class="kit-card-sub">Saved ' + esc(when(x.createdAtMs)) + '</div>'
+        + '<div class="kit-card-sub">' + (x.hasHelmet ? 'Helmet ' + x.helmetLayers + ' layers <span class="kit-sw">' + swatches(x.helmetColours) + '</span>' : '') + '</div>'
+        + '<div class="kit-card-sub">' + (x.hasSuit ? 'Race suit ' + x.suitLayers + ' layers <span class="kit-sw">' + swatches(x.suitColours) + '</span>' : '') + '</div>'
+        + '<div class="kit-card-actions"><button class="kit-btn small teal" data-dz="load" data-id="' + esc(x.id) + '">Use this design</button><button class="kit-btn small ghost" data-dz="del" data-id="' + esc(x.id) + '">Delete</button></div></div></div>';
+    }).join('');
+    pane.innerHTML = '<p class="kit-note" style="margin:0 0 14px">Your saved kits. <b>Start a new design</b> on the Design tab puts your current kit here first, and <b>Use this design</b> swaps one back in (your current kit is kept here too, so nothing is lost). ' + d.designs.length + ' of ' + locker.max + ' places used.</p>'
+      + '<div class="kit-bar" style="margin-bottom:12px"><button type="button" class="kit-btn teal" data-dz="keep"' + (hasAnyDesign() ? '' : ' disabled') + '>Keep my current kit here</button><button type="button" class="kit-btn ghost" data-dz="new">Start a new design</button></div>'
+      + (cards ? '<div class="kit-grid">' + cards + '</div>' : '<div class="kit-empty">Nothing saved here yet. Press <b>Keep my current kit here</b>, or <b>Start a new design</b>, and it will appear.</div>');
+  }).catch(function(e){ pane.innerHTML = '<div class="kit-empty">' + esc(errMsg(e)) + '</div>'; });
+}
+function designsClick(el){
+  var a = el.getAttribute('data-dz'), id = el.getAttribute('data-id');
+  if(a === 'new'){ showTab('design'); startNewDesign(); return; }
+  if(a === 'keep'){
+    ask({ title: 'Keep this kit in My designs', ok: 'Keep it', fields: [{ id: 'name', label: 'Name', value: 'Kit ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) }] }).then(function(v){
+      if(!v) return;
+      api('kitDesignSave', null, { name: (v.name || '').trim() }).then(function(r){ toast(r.already ? 'That kit was already in My designs.' : 'Saved to My designs.', 'good'); loadDesigns(); }).catch(function(e){ toast(errMsg(e), 'bad'); });
+    });
+    return;
+  }
+  var row = locker.rows && locker.rows[id]; if(!row) return;
+  if(a === 'del'){
+    ask({ title: 'Delete "' + row.name + '"?', ok: 'Delete it', danger: true, intro: 'This removes it from My designs for good.', fields: [] }).then(function(v){
+      if(!v) return;
+      api('kitDesignDelete', null, { id: id }).then(function(){ toast('Deleted.', 'good'); loadDesigns(); }).catch(function(e){ toast(errMsg(e), 'bad'); });
+    });
+  } else if(a === 'load'){
+    var stamp = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    ask({ title: 'Use "' + row.name + '"?', ok: 'Use this design', intro: (dirty ? '<b>You have unsaved changes in the designer, they will be lost.</b> ' : '') + 'It becomes your current helmet and race suit' + (hasAnyDesign() ? '. Your current kit is kept in My designs first.' : '.'),
+      fields: hasAnyDesign() ? [{ id: 'name', label: 'Name for the kit you have now', value: 'Kit ' + stamp }] : [] }).then(function(v){
+      if(!v) return;
+      var body = { id: id }; if(hasAnyDesign()) body.saveCurrentAs = (v.name || '').trim();
+      el.disabled = true;
+      api('kitDesignLoad', null, body).then(function(r){
+        return afterKitSwap(r.kit, '"' + row.name + '" is now your kit. Redrawing your avatar...').then(function(){ showTab('design', true); });
+      }).catch(function(e){ el.disabled = false; toast(errMsg(e), 'bad'); if(e && e.status === 409) refreshState().catch(function(){}); });
+    });
+  }
 }
 
 /* ---- sell one of my own designs (Gold) ---- */
@@ -503,8 +629,8 @@ function loadWallet(){
     state.wallet = d.wallet; paintHead();
     var s = d.selling || state.selling || {};
     var rows = (d.ledger || []).map(function(l){ return '<tr><td>' + esc(when(l.dateMs)) + '</td><td>' + esc(l.text || l.type) + '</td><td class="num ' + (l.amount >= 0 ? 'pos' : 'neg') + '">' + (l.amount >= 0 ? '+' : '') + fmt(l.amount) + '</td></tr>'; }).join('');
-    pane.innerHTML = '<div class="kit-section"><h3>Your balance</h3><div class="kit-row" style="gap:10px;flex-wrap:wrap;margin-bottom:10px"><div class="kit-chip"><span>Kit wallet (kept for life)</span><strong>' + fmt(d.wallet.balance) + '</strong></div><div class="kit-chip"><span>Career credits (this season)</span><strong>' + fmt(d.wallet.career || 0) + '</strong></div><button type="button" class="kit-btn teal" data-w="topup">Top up balance</button></div>'
-      + '<p class="kit-note">Credits you earn from selling in the Kit Market go here and <b>stay with you for life</b>: they are not reset between seasons, and neither are the helmets and suits you collect. When you buy something, your Kit wallet is used first, then your season career credits.</p>'
+    pane.innerHTML = '<div class="kit-section"><h3>Your balance</h3><div class="kit-row" style="gap:10px;flex-wrap:wrap;margin-bottom:10px"><div class="kit-chip"><span>Kit wallet (kept for life)</span><strong>' + fmt(d.wallet.balance) + '</strong></div><div class="kit-chip"><span>Career credits (this season)</span><strong>' + fmt(d.wallet.career || 0) + '</strong></div><button type="button" class="kit-btn teal" data-w="topup">Top up balance</button><button type="button" class="kit-btn ghost" data-w="tocareer">Move to career balance</button></div>'
+      + '<p class="kit-note">Credits you earn from selling in the Kit Market go here and <b>stay with you for life</b> (use <b>Move to career balance</b> if you want to spend some on career items this season; it only goes one way): they are not reset between seasons, and neither are the helmets and suits you collect. When you buy something, your Kit wallet is used first, then your season career credits.</p>'
       + '<p class="kit-note">How selling works: a new design costs ' + fmt(s.fee || 0) + ' credits to list. On the first sale the league keeps ' + (s.cutPct || 0) + '% and you get the rest. After that the creator earns ' + (s.royaltyPct || 0) + '% of every resale for life, the league keeps ' + (s.cutPct || 0) + '%, and the seller gets the rest.</p></div>'
       + '<div class="kit-section"><h3>Recent activity</h3>' + (rows ? '<div class="kit-scroll"><table class="kit-table"><thead><tr><th>When</th><th>What</th><th class="num">Credits</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="kit-empty">Nothing yet.</div>') + '</div>';
   }).catch(function(e){ pane.innerHTML = '<div class="kit-empty">' + esc(errMsg(e)) + '</div>'; });
@@ -514,7 +640,7 @@ function loadWallet(){
 function loadStaff(){
   var pane = q('kitPane_staff'); pane.innerHTML = '<div class="kit-empty">Loading&hellip;</div>';
   var jobs = [api('kitApprovalsList')];
-  if(isOwner()) jobs.push(api('kitSettingsGet'), api('kitOwnerSales'));
+  if(isOwner()) jobs.push(api('kitSettingsGet'), api('kitOwnerSales'), api('kitPackList'));
   Promise.all(jobs).then(function(r){
     var ap = r[0], html = '';
     var dot = q('kitStaffDot'); if(dot){ dot.textContent = ap.items.length; dot.hidden = !ap.items.length; }
@@ -538,10 +664,71 @@ function loadStaff(){
         + '</div><div class="kit-bar" style="margin-top:14px"><button class="kit-btn teal" type="button" data-s="savesettings">Save settings</button><span class="kit-err" id="ks_msg"></span></div></div>';
       html += '<div class="kit-section"><h3>Sales</h3><p class="kit-note">League treasury from Kit Market cuts: <b>' + fmt(sales.treasuryBalance) + ' credits</b>. Voiding a sale gives the buyer their credits back and returns the item to the seller. It only works on the most recent sale and while the buyer still owns the item.</p>'
         + (sales.sales.length ? '<div class="kit-scroll"><table class="kit-table"><thead><tr><th>When</th><th>Item</th><th class="num">Price</th><th class="num">League</th><th class="num">Royalty</th><th>Kind</th><th></th></tr></thead><tbody>' + sales.sales.map(function(x){ return '<tr><td>' + esc(when(x.dateMs)) + '</td><td>' + esc(x.title) + '</td><td class="num">' + fmt(x.price) + '</td><td class="num">' + fmt(x.leagueCut) + '</td><td class="num">' + fmt(x.royalty) + '</td><td>' + (x.voided ? 'voided' : esc(x.kind)) + '</td><td>' + (x.voided ? '' : '<button class="kit-btn small red" data-s="void" data-id="' + esc(x.id) + '">Void</button>') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="kit-empty">No sales yet.</div>') + '</div>';
+      html += teamAdminHtml(r[3]);
       pane.innerHTML = html; var sel = q('ks_rollout'); if(sel) sel.value = st.rollout;
     } else pane.innerHTML = html;
     pane._ap = ap;
   }).catch(function(e){ pane.innerHTML = '<div class="kit-empty">' + esc(errMsg(e)) + '</div>'; });
+}
+/* ---- Owner: team packs and codes ---- */
+function teamAdminHtml(d){
+  d = d || { packs: [], codes: [] };
+  var names = {}; d.packs.forEach(function(p){ names[p.id] = p.title; });
+  var packRows = d.packs.map(function(p){ return '<tr><td><b>' + esc(p.title) + '</b>' + (p.description ? '<br><span class="kit-note">' + esc(p.description) + '</span>' : '') + '</td><td>' + (p.has.helmet ? 'helmet ' : '') + (p.has.suit ? 'suit' : '') + '</td><td>' + (p.active ? 'On' : '<b>Off</b>') + '</td><td><button type="button" class="kit-btn small ghost" data-s="packset" data-id="' + esc(p.id) + '" data-on="' + (p.active ? '0' : '1') + '">' + (p.active ? 'Switch off' : 'Switch on') + '</button> <button type="button" class="kit-btn small ghost" data-s="packreplace" data-id="' + esc(p.id) + '" data-title="' + esc(p.title) + '">Replace designs</button></td></tr>'; }).join('');
+  var codeRows = d.codes.map(function(c){
+    var who = c.redeemers.length ? c.redeemers.slice(-5).map(function(x){ return esc(x.name || x.id); }).join(', ') + (c.usedCount > 5 ? ' &hellip;' : '') : '';
+    return '<tr><td><span class="kit-ref">' + esc(c.code) + '</span></td><td>' + esc(names[c.packId] || '') + (c.label ? '<br><span class="kit-note">' + esc(c.label) + '</span>' : '') + '</td><td class="num">' + c.usedCount + ' / ' + (c.uses ? c.uses : '&infin;') + '</td><td>' + who + '</td><td><button type="button" class="kit-btn small ghost" data-s="codeset" data-code="' + esc(c.code) + '" data-on="' + (c.active ? '0' : '1') + '">' + (c.active ? 'Switch off' : 'Switch on') + '</button></td></tr>';
+  }).join('');
+  var opts = d.packs.filter(function(p){ return p.active; }).map(function(p){ return '<option value="' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('');
+  return '<div class="kit-section" id="kitTeamAdmin"><h3>Team packs and codes</h3><p class="kit-note">A team pack is a helmet and/or race suit you have designed. Make a code, give it to anyone (any Patreon tier, or none), and when they type it in on their Kit page the pack is put into their kit. They can then change names, numbers, shapes and colours, but not the Gold-only things. Design the pack in Kit Studio, use <b>Designs &gt; Download design file</b>, and upload the files here.</p>'
+    + '<h4>Add a pack</h4><div class="kit-set"><div class="kit-field"><label for="tp_title">Pack name</label><input id="tp_title" type="text" maxlength="40" placeholder="IFWL Team Livery"></div>'
+    + '<div class="kit-field"><label for="tp_helmet">Helmet design file</label><input id="tp_helmet" type="file" accept=".json,application/json"></div><div class="kit-field"><label for="tp_suit">Race suit design file</label><input id="tp_suit" type="file" accept=".json,application/json"></div></div>'
+    + '<div class="kit-bar"><button class="kit-btn teal" type="button" data-s="packadd">Create pack</button><span class="kit-err" id="tp_msg"></span></div>'
+    + (d.packs.length ? '<h4>Packs</h4><div class="kit-scroll"><table class="kit-table"><thead><tr><th>Pack</th><th>Has</th><th>Status</th><th></th></tr></thead><tbody>' + packRows + '</tbody></table></div>' : '<p class="kit-note">No packs yet.</p>')
+    + (opts ? '<h4>Make codes</h4><div class="kit-set"><div class="kit-field"><label for="tc_pack">Pack</label><select id="tc_pack">' + opts + '</select></div>'
+      + '<div class="kit-field"><label for="tc_custom">A code you choose (optional)</label><input id="tc_custom" type="text" maxlength="30" placeholder="leave empty for random codes"></div>'
+      + '<div class="kit-field"><label for="tc_count">How many random codes</label><input id="tc_count" type="number" min="1" max="100" value="1"></div>'
+      + '<div class="kit-field"><label for="tc_uses">People who can use each code</label><input id="tc_uses" type="number" min="0" value="1"><div class="help">1 = one person only. 0 = anyone, as many as you like.</div></div>'
+      + '<div class="kit-field"><label for="tc_label">Note to yourself (optional)</label><input id="tc_label" type="text" maxlength="40" placeholder="e.g. Round 1 drivers"></div></div>'
+      + '<div class="kit-bar"><button class="kit-btn teal" type="button" data-s="codemake">Make codes</button><span class="kit-err" id="tc_msg"></span></div><div id="tc_out"></div>' : '')
+    + (d.codes.length ? '<h4>Codes</h4><div class="kit-scroll"><table class="kit-table"><thead><tr><th>Code</th><th>Pack</th><th class="num">Used</th><th>Used by</th><th></th></tr></thead><tbody>' + codeRows + '</tbody></table></div>' : '')
+    + '</div>';
+}
+function readJsonFile(inp){
+  return new Promise(function(res, rej){
+    var f = inp && inp.files && inp.files[0]; if(!f){ res(null); return; }
+    if(f.size > 6 * 1024 * 1024){ rej(new Error(f.name + ' is too big.')); return; }
+    var fr = new FileReader(); fr.onload = function(){ try{ res(JSON.parse(fr.result)); }catch(e){ rej(new Error(f.name + ' is not a design file.')); } }; fr.onerror = function(){ rej(new Error('Could not read ' + f.name + '.')); }; fr.readAsText(f);
+  });
+}
+function teamAdminClick(a, b){
+  var msg;
+  if(a === 'packadd' || a === 'packreplace'){
+    var replace = a === 'packreplace' ? b.getAttribute('data-id') : '';
+    msg = q('tp_msg'); var title = q('tp_title').value.trim() || (replace ? b.getAttribute('data-title') : '');
+    if(title.length < 3){ msg.textContent = 'Give the pack a name first.'; return true; }
+    msg.textContent = 'Uploading...';
+    Promise.all([readJsonFile(q('tp_helmet')), readJsonFile(q('tp_suit'))]).then(function(f){
+      if(!f[0] && !f[1]) throw new Error('Choose a helmet file, a suit file, or both.');
+      var body = { title: title }; if(f[0]) body.helmet = f[0]; if(f[1]) body.suit = f[1]; if(replace) body.packId = replace;
+      return api('kitPackSave', null, body);
+    }).then(function(){ toast(replace ? 'Pack replaced.' : 'Pack created.', 'good'); loadStaff(); }).catch(function(e){ msg.textContent = errMsg(e); });
+    return true;
+  }
+  if(a === 'packset'){ api('kitPackSave', null, { packId: b.getAttribute('data-id'), active: b.getAttribute('data-on') === '1' }).then(function(){ loadStaff(); }).catch(function(e){ toast(errMsg(e), 'bad'); }); return true; }
+  if(a === 'codeset'){ api('kitCodeSet', null, { code: b.getAttribute('data-code'), active: b.getAttribute('data-on') === '1' }).then(function(){ loadStaff(); }).catch(function(e){ toast(errMsg(e), 'bad'); }); return true; }
+  if(a === 'codemake'){
+    msg = q('tc_msg'); msg.textContent = 'Making...';
+    var custom = q('tc_custom').value.trim(), body2 = { packId: q('tc_pack').value, uses: Number(q('tc_uses').value), label: q('tc_label').value.trim() };
+    if(custom) body2.custom = custom; else body2.count = Number(q('tc_count').value);
+    api('kitCodeCreate', null, body2).then(function(r){
+      msg.textContent = '';
+      q('tc_out').innerHTML = '<p class="kit-note">Made ' + r.codes.length + ' code' + (r.codes.length === 1 ? '' : 's') + '. Copy and send them (they stay in the list below too):</p><div class="kit-codes">' + r.codes.map(esc).join('\n') + '</div><button type="button" class="kit-btn small ghost" data-s="copycodes" data-codes="' + esc(r.codes.join('\n')) + '">Copy</button>';
+    }).catch(function(e){ msg.textContent = errMsg(e); });
+    return true;
+  }
+  if(a === 'copycodes'){ var txt = b.getAttribute('data-codes'); try{ navigator.clipboard.writeText(txt).then(function(){ b.textContent = 'Copied'; }, function(){ b.textContent = 'Select and copy'; }); }catch(e){ b.textContent = 'Select and copy'; } return true; }
+  return false;
 }
 function openGroupPhoto(){
   var go = function(){ if(window.IFWL_KIT_GROUP) window.IFWL_KIT_GROUP.open(); };
@@ -552,6 +739,7 @@ function openGroupPhoto(){
 }
 function staffClick(e){
   var b = e.target.closest('[data-s]'); if(!b) return; var a = b.getAttribute('data-s'), id = b.getAttribute('data-id'), pane = q('kitPane_staff');
+  if(teamAdminClick(a, b)) return;
   if(a === 'view'){ var it = (pane._ap.items || []).filter(function(i){ return i.id === id; })[0]; if(it) K.openViewer({ title: it.title, itemId: it.id, item: { id: it.id, type: it.type, title: it.title, snapshot: { design: it.design, images: it.images } }, view: { item: it.type, pose: 'crossed', helmet: true } }); }
   else if(a === 'approve'){ api('kitApprove', null, { itemId: id }).then(function(){ toast('Approved. It is now in the Kit Market.', 'good'); loadStaff(); }).catch(function(er){ toast(errMsg(er), 'bad'); }); }
   else if(a === 'decline'){ ask({ title: 'Decline this design', ok: 'Decline', danger: true, intro: 'The creator is told the reason and their listing fee is refunded.', fields: [{ id: 'reason', label: 'Reason', type: 'textarea' }], validate: function(v){ return String(v.reason).trim().length < 3 ? 'A reason is required.' : ''; } }).then(function(v){ if(!v) return; api('kitDecline', null, { itemId: id, reason: v.reason }).then(function(){ toast('Declined and refunded.', 'good'); loadStaff(); }).catch(function(er){ toast(errMsg(er), 'bad'); }); }); }
@@ -576,6 +764,8 @@ function staffClick(e){
 document.addEventListener('click', function(e){
   var pane = e.target.closest && e.target.closest('.kit-pane'); if(!pane) return;
   if(e.target.closest('[data-w=topup]')){ topUp(); return; }
+  if(e.target.closest('[data-w=tocareer]')){ moveToCareer(); return; }
+  var dz = e.target.closest('[data-dz]'); if(dz && pane.id === 'kitPane_designs'){ designsClick(dz); return; }
   if(pane.id === 'kitPane_staff') { staffClick(e); return; }
   var act = e.target.closest('[data-act]');
   if(act){

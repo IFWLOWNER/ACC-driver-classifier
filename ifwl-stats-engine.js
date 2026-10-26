@@ -134,8 +134,34 @@
     if(!res.ok) throw new Error(`Could not load ${path} (${res.status})`);
     const text = await res.text();
     const data = decodeJsonText(text);
+    if(path === manifestUrl) noteDataSync(res, data);
     if(useCache) await writeBrowserCache(path, data);
     return data;
+  }
+
+  // When the session files were last synced onto the site: a timestamp the sync writes into manifest.json if it has one,
+  // otherwise the time the web server says manifest.json last changed (that file is rewritten every time the sync adds files).
+  let dataSyncInfo = null;
+  function noteDataSync(res, manifest){
+    let ms = 0, source = '';
+    try{
+      const keys = ['syncedAt','lastSync','lastSyncedAt','generatedAt','generated','updatedAt','updated','lastUpdated','timestamp'];
+      for(const k of keys){
+        const v = manifest && manifest[k];
+        const t = typeof v === 'number' ? (v < 1e12 ? v * 1000 : v) : (typeof v === 'string' ? Date.parse(v) : NaN);
+        if(Number.isFinite(t) && t > 0){ ms = t; source = 'manifest'; break; }
+      }
+      if(!ms){
+        const lm = res.headers && res.headers.get && res.headers.get('last-modified');
+        const t = lm ? Date.parse(lm) : NaN;
+        if(Number.isFinite(t) && t > 0){ ms = t; source = 'server'; }
+      }
+    }catch(_){ /* best-effort */ }
+    dataSyncInfo = { syncedAtMs: ms || 0, source, checkedAtMs: Date.now() };
+  }
+  async function getDataSync(opts = {}){
+    if(!dataSyncInfo || opts.force){ try{ await fetchJsonFile(manifestUrl, { force:true }); }catch(_){ /* leave as is */ } }
+    return dataSyncInfo || { syncedAtMs: 0, source: '', checkedAtMs: 0 };
   }
 
   function isValidLap(ms){ return Number.isFinite(Number(ms)) && ms > 0 && ms < 600000; }
@@ -262,6 +288,7 @@
         // ✅ ADDED: ACC's car class for this entry ("GT3", "GT4", ...) - used to
         // work out CLASS position in multiclass races (see classPositionInRows).
         carGroup: l.car?.carGroup || '',
+        cup: l.car?.cupCategory,
         bestLap: l.timing?.bestLap || 0,
         lapCount: l.timing?.lapCount || 0,
         lapObjects: lm.lapObjects,
@@ -592,6 +619,14 @@
       const lockedEntry = lockedByKey.get(key);
       if(lockedEntry && lockedEntry.cls) recommendedTier = lockedEntry.cls;
 
+      // when this driver last drove a session on this server, and when their running lap total first reached minLaps
+      let lastSessionMs = 0, lastSessionCode = '', qualifiedAtMs = 0, running = 0;
+      entry.rows.map(r => ({ r, ts: fileTimestamp(r) })).filter(x => x.ts > 0).sort((a, b) => a.ts - b.ts).forEach(x => {
+        running += Number(x.r.lapCount) || 0;
+        if(!qualifiedAtMs && minLaps > 0 && running >= minLaps) qualifiedAtMs = x.ts;
+        if(x.ts >= lastSessionMs){ lastSessionMs = x.ts; lastSessionCode = sessionCode(x.r); }
+      });
+
       standings.push({
         driver: entry.driver,
         key,
@@ -604,7 +639,8 @@
         sessionCount: summary.sessionCount,
         recommendedTier,
         bestLapMs: bestRow ? bestRow.bestLap : null,
-        bestLapCarModel: bestRow && bestRow.carModel != null ? bestRow.carModel : null
+        bestLapCarModel: bestRow && bestRow.carModel != null ? bestRow.carModel : null,
+        lastSessionMs, lastSessionCode, qualifiedAtMs
       });
     }
 
@@ -776,12 +812,29 @@
     }
     return '';
   }
+  // PC Pro/Am: one car class but two cup categories (Pro and Am in the same GT3 cars)
+  // is ranked within the driver's cup, the same way multiclass is ranked within the
+  // car class - this matches how race winnings are paid.
+  function groupKeyOfRow(r, mode){
+    if(mode === 'class') return carClassOfRow(r);
+    if(mode === 'cup') return 'cup' + String(r?.cup);
+    return '';
+  }
+  function classModeOfRows(rows){
+    const live = rows.filter(r => r && Number(r.lapCount || 0) > 0);
+    const classes = new Set(live.map(carClassOfRow).filter(Boolean));
+    if(classes.size > 1) return 'class';
+    const cups = new Set(live.map(r => Number(r.cup)).filter(Number.isFinite));
+    return cups.size > 1 ? 'cup' : 'overall';
+  }
   function classPositionInRows(rows, idx){
-    const cls = carClassOfRow(rows[idx]);
-    return rows.slice(0, idx + 1).filter(r => carClassOfRow(r) === cls).length;
+    const mode = classModeOfRows(rows);
+    if(mode === 'overall') return idx + 1;
+    const key = groupKeyOfRow(rows[idx], mode);
+    return rows.slice(0, idx + 1).filter(r => groupKeyOfRow(r, mode) === key).length;
   }
 
-  window.IFWLStats = { classPositionInRows, carClassOfRow, computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, computeServerBestByTrack, computeTierLapAverages, listRaceResultsInRange };
+  window.IFWLStats = { classPositionInRows, carClassOfRow, computeForDriver, buildAllRows, driverNameKey, computeLicenceServerStandings, computeServerBestByTrack, computeTierLapAverages, listRaceResultsInRange, getDataSync };
 
   // =======================================================
   // ✅ ADDED: Race Results detail view (ported from livetimings.html so the
@@ -856,6 +909,9 @@
         driver: driverName(l),
         carNo: l.car?.raceNumber ?? '-',
         carName: l.car?.carGroup ? `${l.car.carGroup} car model ${l.car.carModel}` : `Car model ${l.car?.carModel ?? '-'}`,
+        carGroup: l.car?.carGroup || '',
+        carModel: l.car?.carModel,
+        cup: l.car?.cupCategory,
         bestLap: l.timing?.bestLap || 0,
         totalTime: l.timing?.totalTime || 0,
         lapCount: l.timing?.lapCount || 0,

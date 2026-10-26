@@ -217,11 +217,12 @@ body:not(.lic-colours) .libItem.licGold .gl{display:none}
 body.lic-colours .licLib{display:none}
 body.lic-silver .licSilverV .gl{display:none}
 body.lic-silver .seg button.licSilverV{opacity:1}
-body.lic-deco .tabs button[data-tab="decals"] .gl{display:none}
-body.lic-deco .tabs button[data-tab="decals"]{opacity:1}
+body.lic-deco .tabs button[data-tab="decals"] .gl,body.lic-team .tabs button[data-tab="decals"] .gl{display:none}
+body.lic-deco .tabs button[data-tab="decals"],body.lic-team .tabs button[data-tab="decals"]{opacity:1}
 body.lic-deco #addTextBtn.licGold{position:relative;opacity:.82}
 body.lic-deco #addTextBtn .gl{margin-left:6px;vertical-align:middle}
 body.lic-colours:not(.lic-deco) #tab-decals .licLibPrev{display:none}
+body.lic-team #addImgBtn,body.lic-team #addSponsorBtn,body.lic-team .licLib,body.lic-team #tab-decals .licLibPrev{display:none!important}
 </style></head><body data-item="helmet">
 <div class="app">
   <header class="bar">
@@ -3840,7 +3841,7 @@ if(LIC){
 const post = (m) => { try{ parent.postMessage(Object.assign({ ifwl: 'kit' }, m), location.origin); }catch(e){} };
 const B = document.body;
 B.classList.add('lic');
-let mode = 'colours', deco = false, readOnly = { suit: false, helmet: false }, baseline = '', origByData = {}, lastDirty = null, roNames = { suit: '', helmet: '' }, inited = false;
+let mode = 'colours', deco = false, team = false, readOnly = { suit: false, helmet: false }, baseline = '', origByData = {}, lastDirty = null, roNames = { suit: '', helmet: '' }, inited = false;
 
 /* ---------- ready-made colour schemes (for accounts that can change colours only): one pick colours the helmet AND the suit together ---------- */
 const SCHEMES = [
@@ -3878,7 +3879,7 @@ function buildLocks(){
     const b = tabs && tabs.querySelector('[data-tab="' + t + '"]'); if(!b || b.classList.contains('licTabLock')) return;
     b.classList.add('licTabLock'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = t === 'decals' ? 'Pictures and shapes come with Silver Patreon. Text and the image library come with Gold.' : (t === 'dlc2' || t === 'halloween') ? 'Gold Patreon exclusive' : 'Gold Patreon';
   });
-  if(tabs) tabs.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.licTabLock'); if(b && B.classList.contains('lic-colours') && !(deco && b.getAttribute('data-tab') === 'decals')) goGold(e); }, true);
+  if(tabs) tabs.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('.licTabLock'); if(b && B.classList.contains('lic-colours') && !((deco || team) && b.getAttribute('data-tab') === 'decals')) goGold(e); }, true);
   const vs = $('#visorSeg');
   if(vs){
     [...vs.children].forEach((b, i) => { if(VISORS[i] && !FREE_VISORS.includes(VISORS[i].n)){ const sv = SILVER_VISORS.includes(VISORS[i].n); b.classList.add('licGold'); if(sv) b.classList.add('licSilverV'); b.insertAdjacentHTML('beforeend', LOCK_SVG); b.title = VISORS[i].n + (sv ? ' is a Silver Patreon visor (Gold has it too)' : ' is a Gold Patreon visor'); } });
@@ -3999,6 +4000,7 @@ async function loadLibrary(){
 function layerKinds(layers){ const c = { text: 0, shape: 0, image: 0 }; (layers || []).forEach((L) => { if(L && c[L.kind] !== undefined) c[L.kind]++; }); return c; }
 function fitsSilver(layers){ const c = layerKinds(layers); return c.text === 0 && c.shape <= SILVER_MAX_SHAPES && c.image <= SILVER_MAX_PICTURES; }
 licLayerGuard = (kind) => {
+  if(team){ return kind === 'image' ? 'Pictures of your own are not part of the team kit. You can move, resize or remove the team logos that are already on it.' : ''; }
   if(!deco) return '';
   const c = layerKinds(S.layers), noun = cur.noun;
   if(kind === 'text') return 'Text is a Gold Patreon extra.';
@@ -4008,11 +4010,12 @@ licLayerGuard = (kind) => {
 };
 function silverUi(){
   const note = document.querySelector('.licGoldNote span.t');
-  if(note) note.innerHTML = deco ? 'You have <b>Silver Patreon</b>: your colours, ' + SILVER_MAX_SHAPES + ' shapes and ' + SILVER_MAX_PICTURES + ' pictures on the helmet and on the suit, and two extra visor tints. Everything with a padlock is a <b>Gold Patreon</b> extra.' : (B.classList.contains('lic-silver') ? 'You have <b>Silver Patreon</b>: your colours and two extra visor tints. Everything with a padlock is a <b>Gold Patreon</b> extra.' : 'You can change colours. Everything with a padlock is a <b>Gold Patreon</b> extra.');
+  if(note && team) note.innerHTML = 'Your <b>team kit</b> is unlocked: change colours, names, numbers and shapes. Everything with a padlock is a <b>Gold Patreon</b> extra.';
+  else if(note) note.innerHTML = deco ? 'You have <b>Silver Patreon</b>: your colours, ' + SILVER_MAX_SHAPES + ' shapes and ' + SILVER_MAX_PICTURES + ' pictures on the helmet and on the suit, and two extra visor tints. Everything with a padlock is a <b>Gold Patreon</b> extra.' : (B.classList.contains('lic-silver') ? 'You have <b>Silver Patreon</b>: your colours and two extra visor tints. Everything with a padlock is a <b>Gold Patreon</b> extra.' : 'You can change colours. Everything with a padlock is a <b>Gold Patreon</b> extra.');
   const tb = $('#addTextBtn'); if(!tb) return;
-  const on = deco && !tb.classList.contains('licGold');
+  const on = deco && !team && !tb.classList.contains('licGold');
   if(on){ tb.classList.add('licGold'); tb.insertAdjacentHTML('beforeend', LOCK_SVG); tb.title = 'Text is a Gold Patreon extra'; }
-  if(!tb._licGuard){ tb._licGuard = true; tb.addEventListener('click', (e) => { if(deco){ e.stopImmediatePropagation(); goGold(e); toast('Text is a Gold Patreon extra.'); } }, true); }
+  if(!tb._licGuard){ tb._licGuard = true; tb.addEventListener('click', (e) => { if(deco && !team){ e.stopImmediatePropagation(); goGold(e); toast('Text is a Gold Patreon extra.'); } }, true); }
 }
 
 /* tell the member before saving, in plain words, if a design is over what can be stored */
@@ -4021,7 +4024,7 @@ function limitProblem(){
   for(const key of ['helmet', 'suit']){
     if(readOnly[key]) continue;
     const st = ITEMS[key].S, noun = key === 'suit' ? 'race suit' : 'helmet';
-    if(deco){
+    if(deco && !team){
       const c = layerKinds(st.layers);
       if(c.shape > SILVER_MAX_SHAPES) return 'Silver Patreon allows ' + SILVER_MAX_SHAPES + ' shapes on your ' + noun + ' and it has ' + c.shape + '. Remove some, then press Save again. Nothing was saved.';
       if(c.image > SILVER_MAX_PICTURES) return 'Silver Patreon allows ' + SILVER_MAX_PICTURES + ' pictures on your ' + noun + ' and it has ' + c.image + '. Remove some, then press Save again. Nothing was saved.';
@@ -4160,6 +4163,9 @@ async function applyInit(m){
   mode = m.mode === 'full' ? 'full' : (m.mode === 'silver' ? 'silver' : 'colours');
   B.classList.toggle('lic-colours', mode !== 'full');
   B.classList.toggle('lic-silver', mode === 'silver');
+  team = mode !== 'full' && !!m.team;
+  B.classList.toggle('lic-team', team);
+  document.querySelectorAll('#tab-decals > .note').forEach((n, i) => { if(i < 2) n.style.display = team ? 'none' : ''; });
   B.classList.toggle('lic-patterns', !!m.allowPatterns);
   B.classList.toggle('lic-view', !!m.view);
   readOnly = { suit: !!(m.equipped && m.equipped.suit), helmet: !!(m.equipped && m.equipped.helmet) };
@@ -4168,6 +4174,7 @@ async function applyInit(m){
   const kit = m.kit || {};
   deco = mode === 'silver' && fitsSilver((kit.helmet && kit.helmet.layers) || []) && fitsSilver((kit.suit && kit.suit.layers) || []);
   B.classList.toggle('lic-deco', deco);
+  if(team){ const tb = $('#addTextBtn'); if(tb){ tb.classList.remove('licGold'); tb.querySelectorAll('.gl').forEach((g) => g.remove()); tb.title = ''; } }
   silverUi();
   for(const key of ['helmet', 'suit']){
     const eq = m.equipped && m.equipped[key];

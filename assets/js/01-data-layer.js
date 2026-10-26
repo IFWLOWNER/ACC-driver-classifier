@@ -935,6 +935,28 @@
       body.innerHTML = `<h3 style="margin-top:0">${n.title}</h3>` + stripHtml + renderRacedayMarkdown(n.content) + renderVideoEmbeds(n.videoLinks || []);
       modal.classList.remove('hidden');
       let timer = null;
+      // "I'm not racing" - for a driver who is eligible but not signed up (or can't make it): hides this pop-up, the Home countdown and greys the event in Available Races
+      let nr = q('racedayNotRacing');
+      if(!nr){ nr = document.createElement('div'); nr.id = 'racedayNotRacing'; nr.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:stretch;margin:0 0 8px'; const act = q('racedayInfoDismissBtn').parentNode; act.parentNode.insertBefore(nr, act); }
+      let nrEvents = Array.isArray(n.events) ? n.events.slice(0, 4) : [];
+      const paintNr = () => {
+        nr.innerHTML = nrEvents.map(e => `<button type="button" class="btn ghost" data-not-racing-pop="${e.id}" style="font-size:12px">I'm not racing${nrEvents.length > 1 || e.title ? ' in ' + String(e.title || 'this event').replace(/[<>&]/g, '') : ''}</button>`).join('')
+          + (nrEvents.length ? '<div class="field-hint" style="text-align:center;margin:0">Hides this pop-up and the countdown for that race. You can undo it in Available Races.</div>' : '');
+        nr.querySelectorAll('[data-not-racing-pop]').forEach(b => {
+          b.onclick = async () => {
+            const e = nrEvents.find(x => x.id === b.dataset.notRacingPop); if(!e) return;
+            b.disabled = true; b.textContent = 'Saving\u2026';
+            try{ await setNotRacing({ id: e.id, eventDateMs: e.eventDateMs }, true); }
+            catch(err){ b.disabled = false; b.textContent = 'Could not save - try again'; return; }
+            nrEvents = nrEvents.filter(x => x.id !== e.id);
+            if(nrEvents.length){ paintNr(); return; }
+            if(timer) clearInterval(timer);
+            modal.classList.add('hidden'); nr.innerHTML = '';
+            if(queue.length) showNext();
+          };
+        });
+      };
+      paintNr();
       // ✅ ADDED: staff (and only staff) skip the 60s forced-read timer - they
       // still see the exact same briefing content and it's still acknowledged
       // server-side via myRacedayAcknowledge (so it stops reappearing and
@@ -1142,6 +1164,18 @@
     if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
     return d;
   }
+
+  // "I'm not racing": hide one event (this occurrence only) from the briefing pop-up, the Home countdown and the Available Races list
+  async function setNotRacing(ev, flag){
+    let startMs = 0;
+    try{ startMs = homeEventStartMs(ev) || 0; }catch(e){ startMs = 0; }
+    const untilMs = (startMs || ev.eventDateMs || (Date.now() + 20 * 3600000)) + 4 * 3600000;
+    const r = await apiPost('myNotRacing', { eventId: ev.id, notRacing: !!flag, untilMs });
+    try{ renderHomeNextRace(); }catch(e){}
+    try{ if(q('availableRacesBody') || q('lmuRacesBody')) await reloadAvailableRacesBothTabs(); }catch(e){}
+    return r;
+  }
+  window.IFWL_setNotRacing = setNotRacing;
 
   // ---- own profile ----
   async function fetchMyProfile(){
@@ -2770,11 +2804,13 @@
       // behind roster assignment if a roster exists), enforced server-side
       // in myAvailableRaces.
       const scheduleBits = [e.dayOfWeek, e.raceTimeUK ? ifwlConvertUkTimeToViewerLocal(e.raceTimeUK) : ''].filter(Boolean).join(' &middot; ');
-      return `<div class="race-event-card${notYetLicensed ? ' race-event-card-locked' : ''}" data-race-card="${e.id}">
+      const canSkip = !staffAll && !notYetLicensed && !e.pinned && !!(e.eventDateMs || (e.dayOfWeek && e.raceTimeUK));
+      return `<div class="race-event-card${notYetLicensed ? ' race-event-card-locked' : ''}${e.notRacing ? ' race-event-card-skip' : ''}" data-race-card="${e.id}">
         <div class="rec-thumb-wrap">
           <img src="${e.imageUrl || e.simgridImageUrl || placeholder}" alt="">
           ${dateStr ? `<span class="rec-ribbon left live">📅 ${dateStr}</span>` : ''}
           <span class="rec-ribbon right">${platformLabel}</span>
+          ${e.notRacing ? '<span class="rec-ribbon left skip" style="top:auto;bottom:8px">Not racing</span>' : ''}
         </div>
         <div class="rec-body">
           <div class="rec-title">${e.title}</div>
@@ -2826,6 +2862,9 @@
                 ? `<span class="btn ghost" style="font-size:11px;opacity:.8;pointer-events:none">🔓 ${e.discordRoleLabel || 'Discord area'} unlocked</span>`
                 : `<button class="btn teal" data-unlock-discord="${e.id}" style="font-size:11px">Unlock ${e.discordRoleLabel ? `"${e.discordRoleLabel}"` : 'this area'} on Discord</button>`
             ) : ''}
+            ${canSkip ? (e.notRacing
+              ? `<button class="btn teal" data-not-racing="${e.id}" data-flag="0" style="font-size:11px">I'm racing after all</button>`
+              : `<button class="btn ghost" data-not-racing="${e.id}" data-flag="1" style="font-size:11px">I'm not racing</button>`) : ''}
             ${(e.hasBriefing && !notYetLicensed) ? `<button class="btn teal" data-view-briefing="${e.id}" style="font-size:11px">📋 Raceday briefing</button>` : ''}
             ${(e.simgridLink && !notYetLicensed) ? `<a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>` : ''}
           </div>
@@ -2866,6 +2905,14 @@
     // eligibility re-check. Idempotent, so no harm if clicked more than
     // once; on success the button becomes a plain "unlocked" indicator
     // rather than re-fetching the whole list just for this one field.
+    body.querySelectorAll('[data-not-racing]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ev = events.find(x => x.id === btn.dataset.notRacing); if(!ev) return;
+        btn.disabled = true; const was = btn.textContent; btn.textContent = 'Saving\u2026';
+        try{ await setNotRacing(ev, btn.dataset.flag === '1'); }
+        catch(err){ btn.disabled = false; btn.textContent = was; alert('Could not save that: ' + (err.message || err)); }
+      });
+    });
     body.querySelectorAll('[data-view-briefing]').forEach(btn => {
       btn.addEventListener('click', () => {
         const ev = events.find(x => x.id === btn.dataset.viewBriefing);
@@ -3244,16 +3291,24 @@
     const linkedNames = new Set(await window.IFWL_ClaimAPI.fetchLinkedDriverNames());
     const unclaimed = standings.filter(s => !linkedNames.has(window.IFWLStats.driverNameKey(s.driver)));
 
+    // "synced at" line + who qualified most recently (quick reference at the top of the list)
+    const claimWhen = (ms) => ms ? new Date(ms).toLocaleString([], { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+    let syncInfo = { syncedAtMs: 0 };
+    try{ syncInfo = await window.IFWLStats.getDataSync(); }catch(e){ /* line is optional */ }
+    const recent = standings.filter(s => s.qualified && s.qualifiedAtMs).sort((a, b) => b.qualifiedAtMs - a.qualifiedAtMs).slice(0, 8);
+    const claimHead = `<div class="claim-sync">${syncInfo.syncedAtMs ? `Qualifying data synced at <strong>${homeEsc(claimWhen(syncInfo.syncedAtMs))}</strong> &middot; the server files are re-read about once an hour` : 'Qualifying data is re-read from the server files about once an hour'}${syncInfo.checkedAtMs ? ` &middot; checked ${homeEsc(new Date(syncInfo.checkedAtMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }))}` : ''}</div>`
+      + (recent.length ? `<div class="claim-recent"><div class="claim-recent-h">Recently qualified (15+ laps)</div><div class="claim-recent-list">${recent.map(s => `<span class="claim-chip${linkedNames.has(window.IFWLStats.driverNameKey(s.driver)) ? ' linked' : ''}" title="${linkedNames.has(window.IFWLStats.driverNameKey(s.driver)) ? 'Already linked to a licence' : 'Not linked to a licence yet'}"><b>${homeEsc(s.driver)}</b><i>${homeEsc(claimWhen(s.qualifiedAtMs))}</i></span>`).join('')}</div></div>` : '');
+
     if(!unclaimed.length){
-      body.innerHTML = '<div class="empty">Everyone on the server has already been linked. Nothing to claim right now.</div>';
+      body.innerHTML = claimHead + '<div class="empty">Everyone on the server has already been linked. Nothing to claim right now.</div>';
       return;
     }
 
-    body.innerHTML = unclaimed.map((s, i) => `
+    body.innerHTML = claimHead + unclaimed.map((s, i) => `
       <div class="claim-row">
         <div>
           <div class="claim-name">${s.driver}</div>
-          <div class="claim-meta">${s.totalLaps} lap(s) &middot; gap ${s.avgGapPct != null ? '+' + s.avgGapPct + '%' : '-'}</div>
+          <div class="claim-meta">${s.totalLaps} lap(s) &middot; gap ${s.avgGapPct != null ? '+' + s.avgGapPct + '%' : '-'}${s.lastSessionMs ? ` &middot; last session ${homeEsc(claimWhen(s.lastSessionMs))}` : ''}${s.qualified && s.qualifiedAtMs ? ` &middot; qualified ${homeEsc(claimWhen(s.qualifiedAtMs))}` : ''}</div>
         </div>
         <button class="btn purple" data-claim="${i}">This is me</button>
       </div>
@@ -5148,7 +5203,7 @@
     return 0;
   }
   function homeEventForMe(e){
-    if(!e || e.pinned || e.eligible === false) return false;
+    if(!e || e.pinned || e.eligible === false || e.notRacing) return false;
     const plat = String(currentProfile?.platform || '').toLowerCase();
     const ep = String(e.platform || 'both').toLowerCase();
     if(plat && plat !== 'both' && ep !== 'both' && ep !== plat) return false;
@@ -5240,6 +5295,9 @@
           <div class="hn-when">Your races will appear here as soon as they're scheduled for your licence.</div>
         </div>`;
         homeStartCountdownTimer();
+      } else if(events.some(e => e.notRacing)){
+        body.innerHTML = '<div class="empty">You have marked yourself as not racing in your upcoming events, so there is no countdown. <button class="btn ghost" type="button" id="hnUndoNr" style="margin-left:6px">Open Available Races to undo</button></div>';
+        q('hnUndoNr')?.addEventListener('click', () => switchView('availableRaces'));
       } else {
         body.innerHTML = '<div class="empty">No upcoming races scheduled for your licence yet. Check Available Races for what\'s open.</div>';
       }
@@ -5256,6 +5314,7 @@
           ? '<div class="hn-live">Racing now</div>'
           : `<div class="hn-cd ${homeCountdownState(first.start)}" data-cd-target="${first.start}" data-cd-mode="boxes">${homeCountdownBoxes(first.start)}</div>`}
         <div class="hn-when">${homeEsc(homeShortWhen(first.start))} &middot; your local time</div>
+        ${first.e.password ? `<div class="hn-pw"><span class="hn-pw-l">Server join password</span><code id="hnPwText">${homeEsc(first.e.password)}</code><button class="btn ghost" type="button" id="hnPwCopy">Copy</button></div>` : ''}
         <div class="hn-actions">
           <button class="btn teal" type="button" id="hnDetailsBtn">Race details &amp; password</button>
           <button class="btn ghost" type="button" id="hnCalBtn">Add to calendar</button>
@@ -5264,6 +5323,12 @@
       ${rest.length ? `<div class="hn-others">${rest.slice(0, 3).map(r => `<div class="hn-other-row"><div><div class="hn-other-name">${homeEsc(homeSeriesLabel(r.e))}</div><div class="hn-other-sub">${homeEsc(r.e.title)} &middot; ${homeEsc(homeShortWhen(r.start))}</div></div><div class="hn-other-in" data-in-target="${r.start}">${homeEsc(homeIn(r.start))}</div></div>`).join('')}${rest.length > 3 ? `<div class="hn-other-row"><span class="hn-other-sub">+${rest.length - 3} more in Available Races</span></div>` : ''}</div>` : ''}`;
     q('hnDetailsBtn')?.addEventListener('click', () => switchView('availableRaces'));
     q('hnCalBtn')?.addEventListener('click', () => homeDownloadIcs(first.e, first.start));
+    q('hnPwCopy')?.addEventListener('click', async () => {
+      const btn = q('hnPwCopy'), txt = first.e.password || '';
+      try{ await navigator.clipboard.writeText(txt); }
+      catch(e){ const r = document.createRange(); r.selectNodeContents(q('hnPwText')); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); try{ document.execCommand('copy'); }catch(_){} }
+      btn.textContent = 'Copied'; setTimeout(() => { if(btn.isConnected) btn.textContent = 'Copy'; }, 1800);
+    });
     homeStartCountdownTimer();
   }
   window.renderHomeNextRace = renderHomeNextRace;
