@@ -27,7 +27,7 @@ function place(el){
 function build(){
   var h = '', n = 0;
   function row(label, idx, active, sub){ n++; return '<button type="button" class="m-row' + (active ? ' on' : '') + (sub ? ' sub' : '') + '" data-i="' + idx + '">' + esc(label) + '</button>'; }
-  var targets = [];
+  var targets = [], staffRow = '';
   Array.prototype.forEach.call(bar.children, function(el){
     if(el.id === 'mNavMenuBtn' || el.id === 'mNavHelpBtn') return;
     if(!shown(el)) return;
@@ -38,11 +38,14 @@ function build(){
       if(!items.length) return;
       h += '<div class="m-group">' + esc(tidy(t)) + '</div>';
       items.forEach(function(b){ targets.push(b); h += row(tidy(b), targets.length - 1, false, true); });
+    } else if(el.classList.contains('view-tab') && el.getAttribute('data-view') === 'staffHub' && tidy(el)){
+      /* staff: Staff Hub goes at the TOP of the sheet (it used to sit at the very bottom of a long list and was missed) */
+      targets.push(el); staffRow = '<button type="button" class="m-row m-staff-row' + (el.classList.contains('active') ? ' on' : '') + '" data-i="' + (targets.length - 1) + '">&#9881; ' + esc(tidy(el)) + ' Hub</button>';
     } else if(el.classList.contains('view-tab') && tidy(el)){
       targets.push(el); h += row(tidy(el), targets.length - 1, el.classList.contains('active'), false);
     }
   });
-  sheet.innerHTML = '<div class="m-sheet-in">' + h + '</div>';
+  sheet.innerHTML = '<div class="m-sheet-in">' + staffRow + h + '</div>';
   sheet._targets = targets;
 }
 function openSheet(){
