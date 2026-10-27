@@ -4612,13 +4612,15 @@
     const apShowLastRun = (lr, enabled) => {
       const box = q('apLastRun');
       if(!box) return;
-      if(!lr){ box.textContent = 'No placement check has run yet. It runs every 30 minutes.'; return; }
+      if(!lr){ box.textContent = 'No placement check has run yet. It runs every hour, on the hour.'; return; }
       const when = lr.atMs ? new Date(lr.atMs).toLocaleString() : 'unknown time';
       const line = d => `  - ${d.name} (${d.platform}): ${d.from || 'baseline'} -> ${d.tier}  [${d.laps} laps, gap ${d.gap > 0 ? '+' : ''}${d.gap}%]`;
       const parts = [`Last check: ${when}`];
       if((lr.placed || []).length) parts.push(`Placed ${lr.placed.length}:\n` + lr.placed.slice(0, 30).map(line).join('\n'));
       if((lr.wouldPlace || []).length) parts.push(`Waiting (would be placed if auto-placement were on) - ${lr.wouldPlace.length}:\n` + lr.wouldPlace.slice(0, 30).map(line).join('\n'));
       if(!(lr.placed || []).length && !(lr.wouldPlace || []).length) parts.push('Nobody was waiting to be placed.');
+      if((lr.skipped || []).length) parts.push(`Qualified but NOT placed - ${lr.skipped.length}:\n` + lr.skipped.slice(0, 40).map(d => `  - ${d.name} (${d.platform}, ${d.laps} laps): ${d.why}`).join('\n'));
+      if(!enabled) parts.push('Auto-placement is switched OFF, so nobody is moved automatically - tick it above and press Save to turn it on.');
       (lr.notes || []).forEach(n => parts.push('Note: ' + n));
       box.textContent = parts.join('\n');
     };
