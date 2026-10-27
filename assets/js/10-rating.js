@@ -88,7 +88,7 @@
   };
   function pillarNow(k, d, dg) {
     const x = d[k];
-    if (k === 'I') return 'Base ' + x.base + (x.lost ? ' minus ' + x.lost + ' from licence points (fading)' : ' - nothing deducted') + (dg ? '. Licence points on your record: ' + dg.licencePointsNow + ' (' + dg.countedPoints + ' counted since the start date' + (dg.beforeStart ? ', ' + dg.beforeStart + ' earlier entr' + (dg.beforeStart === 1 ? 'y' : 'ies') + ' not counted' : '') + ')' : '');
+    if (k === 'I') return (x.start != null ? x.start + ' to start + ' + (x.base - x.start) + ' for ' + x.races + (x.races === 1 ? ' race' : ' races') + ' completed (+' + x.perRace + ' each' + (x.capped ? ', maxed out' : '') + ') = ' + x.base : 'Base ' + x.base) + (x.lost ? ' minus ' + x.lost + ' from licence points (fading)' : ' - nothing deducted') + (dg ? '. Licence points on your record: ' + dg.licencePointsNow + ' (' + dg.countedPoints + ' counted since the start date' + (dg.beforeStart ? ', ' + dg.beforeStart + ' earlier entr' + (dg.beforeStart === 1 ? 'y' : 'ies') + ' not counted' : '') + ')' : '');
     if (k === 'F') return x.up || x.downWeighted ? 'Overall effect of feedback so far: ' + (x.net >= 0 ? 'positive' : 'negative') : 'No feedback yet - sitting in the middle';
     if (k === 'W') return x.races ? 'Last ' + x.races + ' race' + (x.races === 1 ? '' : 's') + ': ' + x.avgClean + '% clean' : 'No races yet';
     return x.finishes + ' race finish' + (x.finishes === 1 ? '' : 'es') + ', ' + x.streak + ' night streak, ' + x.attendance + '% of ' + (x.seasonName || 'the season') + ' attended, ' + x.seasons + ' season' + (x.seasons === 1 ? '' : 's') + ' raced';
