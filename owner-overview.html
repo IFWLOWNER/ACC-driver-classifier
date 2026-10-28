@@ -188,6 +188,21 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
 
 /* ---------- Career Control tab ---------- */
 .cc-bar{margin-bottom:14px}
+.pg-results{position:relative;z-index:5;margin:-8px 0 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--panel);box-shadow:var(--shadow);max-width:560px;overflow:hidden}
+.pg-res{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:9px 12px;cursor:pointer;font:inherit;color:var(--text)}
+.pg-res:hover{background:var(--brand-tint)}
+.pg-svgwrap{border-radius:14px;overflow:hidden;box-shadow:var(--shadow);background:#0e1522}
+.pg-svgwrap svg{display:block;width:100%;height:auto}
+.pg-presets{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.pg-cost{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;margin-left:6px}
+.pg-cost .search-input{min-width:0;width:74px;padding:6px 8px}
+.pg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
+.pg-pos{display:flex;flex-direction:column;gap:3px;font-size:11.5px;font-weight:700;color:var(--text-dim);border:1px solid var(--line);border-radius:var(--radius-sm);padding:7px 8px;background:var(--panel-alt)}
+.pg-pos.hit{border-color:var(--brand);background:var(--brand-tint);color:var(--text)}
+.pg-pos.chg{border-color:var(--amber);background:var(--amber-tint)}
+.pg-pos .search-input{min-width:0;width:100%;padding:5px 7px}
+.pg-pos small{font-weight:600;color:var(--text-mute)}
+.pg-result{margin-top:12px;font-size:13px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--panel-alt);border:1px solid var(--line)}
 .cc-dim{color:var(--text-mute);font-size:12px;font-weight:600}
 .cc-h{margin:22px 0 10px;font-size:15px;font-weight:800}
 .cc-x{border:0;background:none;cursor:pointer;font-size:14px;color:inherit;padding:0 0 0 4px}
@@ -518,6 +533,7 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
       <button class="sub-tab-btn active" data-cc-sub="receipts" type="button">All Receipts</button>
       <button class="sub-tab-btn" data-cc-sub="races" type="button">Race Receipts</button>
       <button class="sub-tab-btn" data-cc-sub="wallets" type="button">Driver Wallets</button>
+      <button class="sub-tab-btn" data-cc-sub="progress" type="button">Driver Progress</button>
       <button class="sub-tab-btn" data-cc-sub="market" type="button">Marketplace</button>
       <button class="sub-tab-btn" data-cc-sub="catalog" type="button">Shop Catalog</button>
       <button class="sub-tab-btn" data-cc-sub="costs" type="button">Seasonal Costs</button>
@@ -551,6 +567,16 @@ table.datagrid td.num{font-family:'JetBrains Mono',monospace;text-align:right;fo
       </div>
       <div class="stat-strip" id="ccWalletStats"></div>
       <div id="ccWalletWrap"></div>
+    </div>
+
+    <div class="cc-sub-panel hidden" id="cc-sub-progress">
+      <div class="panel-toolbar cc-bar" style="position:relative">
+        <input type="text" class="search-input" id="ccPgSearch" placeholder="Search a driver by name, licence # or Discord ID&hellip;" autocomplete="off" style="min-width:320px">
+        <button class="btn" id="ccPgRefresh" type="button">Reload</button>
+        <span class="cc-dim">Draws a driver's season money as a graph and sheet, with a what-if for the position money.</span>
+      </div>
+      <div id="ccPgResults" class="pg-results hidden"></div>
+      <div id="ccPgBody"><div class="grid-wrap"><div class="grid-empty">Search for a driver above (or press Progress on a wallet) to see where their money went.</div></div></div>
     </div>
 
     <div class="cc-sub-panel hidden" id="cc-sub-market">
@@ -2296,7 +2322,7 @@ window.addEventListener('ifwl-owner-ready', () => {
     { key: 'careerSeasonSpent', label: 'Spent', type: 'number', value: r => Number(r.careerSeasonSpent || 0), render: r => money(-r.careerSeasonSpent), cls: 'num' },
     { key: 'careerTxCount', label: 'Transactions', type: 'number', value: r => Number(r.careerTxCount || 0), render: r => r.careerTxCount || 0, cls: 'num' },
     { key: 'careerShopSeasonKey', label: 'Season', render: r => E(r.careerShopSeasonKey || '—') },
-    { key: 'manage', label: '', render: r => `<button class="btn primary" data-cc-wallet="${E(r.discordId)}" type="button">Manage</button> <button class="btn" data-cc-wrec="${E(r.discordId)}" type="button">Receipts</button>` }
+    { key: 'manage', label: '', render: r => `<button class="btn primary" data-cc-wallet="${E(r.discordId)}" type="button">Manage</button> <button class="btn" data-cc-wrec="${E(r.discordId)}" type="button">Receipts</button> <button class="btn" data-cc-wprog="${E(r.discordId)}" type="button">Progress</button>` }
   ];
   function walletStats(){
     const rows = walletRows();
@@ -2317,6 +2343,7 @@ window.addEventListener('ifwl-owner-ready', () => {
       host.addEventListener('click', e => {
         const w = e.target.closest('[data-cc-wallet]'); if(w){ openWalletModal(w.dataset.ccWallet); return; }
         const r = e.target.closest('[data-cc-wrec]'); if(r){ viewDriverReceipts(r.dataset.ccWrec); }
+        const pg = e.target.closest('[data-cc-wprog]'); if(pg){ openProgress(pg.dataset.ccWprog); }
       });
     }catch(e){ $('ccWalletWrap').innerHTML = failBox('Could not load wallets: ' + e.message); }
   }
@@ -2350,6 +2377,7 @@ window.addEventListener('ifwl-owner-ready', () => {
           <div class="cc-chips">${(ledger.ownedItemIds || []).length ? ledger.ownedItemIds.map(id => `<span class="pill blue">${E(itemName(id))}</span>`).join('') : '<span class="cc-dim">Nothing owned this season.</span>'}</div>
           <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn" id="ccWViewRec" type="button">View their receipts</button>
+            <button class="btn primary" id="ccWViewProg" type="button">Money graph &amp; what-if</button>
             <button class="btn" id="ccWResetPerks" type="button">Reset career perks</button>
           </div>
         </div>
@@ -2376,6 +2404,7 @@ window.addEventListener('ifwl-owner-ready', () => {
       </tbody></table></div>`, { wide: true });
     const reload = async () => { await getDrivers(true); walletStats(); walletGrid && walletGrid.render(); openWalletModal(driverId); };
     $('ccWViewRec').addEventListener('click', () => viewDriverReceipts(driverId));
+    $('ccWViewProg').addEventListener('click', () => { closeModal(); openProgress(driverId); });
     $('ccWResetPerks').addEventListener('click', async () => {
       if(!confirm(`Reset ALL career perks for ${driverDisplayName(d.name)}? This cannot be undone.`)) return;
       try{ await apiPost('staffResetCareerPerks', { driverId }); toast('Career perks reset.'); }catch(e){ toast('Could not reset perks: ' + e.message, true); }
@@ -2396,6 +2425,459 @@ window.addEventListener('ifwl-owner-ready', () => {
       try{ await apiPost('staffCareerShopRefund', { driverId, purchaseId: btn.dataset.ccRefund, reclaimItem: box.querySelector('.ccRfReclaim').checked, reason }); toast('Purchase refunded.'); reload(); }
       catch(e){ toast('Could not refund: ' + e.message, true); btn.disabled = false; }
     }));
+  }
+
+  /* ============================================================
+     3b. DRIVER PROGRESS  (balance graph + sheet + what-if)
+     Search a driver -> their season ledger drawn as a balance line, a per-race
+     profit/loss chart, a "where the money went" breakdown and a sheet. The
+     position-money table can be edited as a WHAT-IF (never saved anywhere) and
+     the same picture can be saved as an image or copied to send to the driver.
+     Uses only ?staffCareerShopDriverLedger and ?seasonalCosts (already Owner-gated).
+     ============================================================ */
+  const PG = { id: null, name: '', tier: '', season: '', ledger: null, events: [], table: {}, scen: {}, costMult: 100, showAll: false, includeWhatIf: true, m: null };
+  const pgN = v => Number(v) || 0;
+  const pgR = v => Math.round(pgN(v));
+  const PG_LABEL = {
+    race: 'Race prize money', sponsorship: 'Sponsorship deals', backingSponsorshipCut: 'Driver backing', backingRaceSettlement: 'Driver backing',
+    backingContractStart: 'Driver backing', marketplaceSale: 'Marketplace sales', marketplacePurchase: 'Marketplace purchases', marketplaceVoid: 'Marketplace voids',
+    purchase: 'Shop purchases', refund: 'Refunds', craft: 'Crafting parts', manual: 'Staff credit / debit', kitWalletTransfer: 'Moved from Kit wallet'
+  };
+  const pgLabelOf = t => PG_LABEL[t] || (t ? rcptPretty(t) : 'Other');
+  const pgShort = n => { const a = Math.abs(n), s = n < 0 ? '-' : ''; return a >= 1e6 ? s + '£' + (a / 1e6).toFixed(1).replace(/\.0$/, '') + 'm' : a >= 1e3 ? s + '£' + (a / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'k' : s + '£' + Math.round(a); };
+  const pgDay = ms => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const pgDayY = ms => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  function pgTicks(min, max, n){
+    if(max <= min) max = min + 1;
+    const raw = (max - min) / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), norm = raw / mag;
+    const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+    const out = []; for(let v = Math.floor(min / step) * step; v <= Math.ceil(max / step) * step + step / 2; v += step) out.push(Math.round(v * 1e6) / 1e6);
+    return out;
+  }
+  function pgWrap(text, maxChars){
+    const lines = []; let cur = '';
+    String(text).split(/\s+/).forEach(w => { if((cur + ' ' + w).trim().length > maxChars && cur){ lines.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); });
+    if(cur) lines.push(cur); return lines;
+  }
+
+  /* ----- turn the ledger into dated events with a running balance ----- */
+  function pgBuildEvents(ledger){
+    const txs = (ledger.transactions || []).map((t, i) => ({ t, i })).sort((a, b) => (pgN(a.t.dateMs) - pgN(b.t.dateMs)) || (b.i - a.i)).map(x => x.t);
+    const total = txs.reduce((s, t) => s + pgN(t.amount), 0);
+    const start = pgN(ledger.balance) - total; // what the balance was before the first entry we still hold
+    let bal = start;
+    const events = txs.map((t, idx) => {
+      const isRace = t.type === 'race';
+      const amount = pgN(t.amount);
+      bal += amount;
+      const ev = { idx, tx: t, dateMs: pgN(t.dateMs), type: t.type || (t.isManual ? 'manual' : ''), amount, bal, isRace, desc: String(t.description || t.reason || '') };
+      if(isRace){
+        ev.pos = pgN(t.position) || (rcptTxPosition(t, { position: null }) || 0);
+        ev.overall = pgN(t.overallPosition) || null; ev.cls = t.carClass || ''; ev.track = rcptPretty(t.track);
+        ev.gross = pgN(t.raceEarningsGross); ev.entry = pgN(t.entryFee); ev.tyres = pgN(t.tyreSpend); ev.fuel = pgN(t.fuelSpend);
+        ev.parts = pgN(t.engineSpend) + pgN(t.suspensionSpend) + pgN(t.damperSpend) + pgN(t.aeroSpend);
+        ev.costs = ev.entry + ev.tyres + ev.fuel + ev.parts;
+        ev.drift = amount - (ev.gross - ev.costs);
+      }
+      return ev;
+    });
+    return { events, start };
+  }
+
+  /* ----- apply the what-if (position money + race-cost %) ----- */
+  function pgScenario(events, start, table, scen, costMult){
+    let cum = 0, active = false;
+    events.forEach(ev => {
+      ev.grossW = ev.gross; ev.costsW = ev.costs; ev.netW = ev.amount;
+      if(ev.isRace){
+        const orig = pgN(table[ev.pos]), want = scen[ev.pos] !== undefined ? pgN(scen[ev.pos]) : orig;
+        let g = ev.gross;
+        if(ev.pos && want !== orig){
+          const rc = ev.tx.receipt && ev.tx.receipt.v ? ev.tx.receipt : null;
+          if(rc){ g = want; (rc.bonuses || []).forEach(b => { g = Math.round(g * (1 + pgN(b.pct) / 100)); }); }
+          else g = Math.round(want * (orig > 0 ? ev.gross / orig : 1));
+        }
+        const cW = Math.round(ev.costs * costMult / 100);
+        ev.grossW = g; ev.costsW = cW; ev.netW = ev.amount + (g - ev.gross) - (cW - ev.costs);
+        if(ev.netW !== ev.amount) active = true;
+      }
+      cum += ev.netW - ev.amount;
+      ev.balW = ev.bal + cum;
+    });
+    return active;
+  }
+
+  /* ----- totals, buckets and the plain-English reasons ----- */
+  function pgModel(){
+    const events = PG.events, start = PG.start;
+    const scenActive = pgScenario(events, start, PG.table, PG.scen, PG.costMult);
+    const races = events.filter(e => e.isRace);
+    const sum = (arr, k) => arr.reduce((s, e) => s + pgN(e[k]), 0);
+    const m = { name: PG.name, seasonLabel: PG.season, events, races, start, scenActive };
+    m.prize = sum(races, 'gross'); m.entry = sum(races, 'entry'); m.tyres = sum(races, 'tyres'); m.fuel = sum(races, 'fuel'); m.parts = sum(races, 'parts');
+    m.costs = m.entry + m.tyres + m.fuel + m.parts; m.raceNet = sum(races, 'amount');
+    m.prizeW = sum(races, 'grossW'); m.costsW = sum(races, 'costsW'); m.raceNetW = sum(races, 'netW');
+    m.balance = events.length ? events[events.length - 1].bal : start;
+    m.balanceW = events.length ? events[events.length - 1].balW : start;
+    m.redRaces = races.filter(e => e.amount < 0).length; m.redRacesW = races.filter(e => e.netW < 0).length;
+    const posList = races.map(e => e.pos).filter(Boolean);
+    m.avgPos = posList.length ? posList.reduce((a, b) => a + b, 0) / posList.length : 0; m.bestPos = posList.length ? Math.min(...posList) : 0;
+    // everything that isn't a race
+    const inB = {}, outB = {};
+    const add = (o, k, v) => { if(v) o[k] = (o[k] || 0) + v; };
+    races.forEach(e => {
+      add(inB, 'Race prizes', e.gross); add(outB, 'Entry fees', e.entry); add(outB, 'Tyres', e.tyres); add(outB, 'Fuel', e.fuel); add(outB, 'Parts maintenance', e.parts);
+      if(e.drift > 0) add(inB, 'Adjustments', e.drift); else if(e.drift < 0) add(outB, 'Adjustments', -e.drift);
+    });
+    events.filter(e => !e.isRace).forEach(e => { const k = pgLabelOf(e.type); if(e.amount > 0) add(inB, k, e.amount); else add(outB, k, -e.amount); });
+    m.inB = inB; m.outB = outB;
+    m.otherIn = Object.keys(inB).filter(k => k !== 'Race prizes' && k !== 'Adjustments').reduce((s, k) => s + inB[k], 0);
+    m.otherOut = Object.keys(outB).filter(k => !['Entry fees', 'Tyres', 'Fuel', 'Parts maintenance', 'Adjustments'].includes(k)).reduce((s, k) => s + outB[k], 0);
+    // lowest point
+    let low = events.length ? { bal: events[0].bal, dateMs: events[0].dateMs } : { bal: start, dateMs: 0 };
+    events.forEach(e => { if(e.bal < low.bal) low = { bal: e.bal, dateMs: e.dateMs }; });
+    m.low = low;
+    const firstNeg = events.find(e => e.bal < 0); m.firstNeg = firstNeg || null;
+    m.insights = pgInsights(m);
+    return m;
+  }
+  function pgInsights(m){
+    const L = [], r = m.races, n = r.length;
+    if(n){
+      L.push(`Raced ${n} time${n === 1 ? '' : 's'} this season, averaging P${m.avgPos.toFixed(1)} (best P${m.bestPos}). Prize money ${money(m.prize)}, about ${money(m.prize / n)} a race.`);
+      L.push(`Each race costs about ${money(m.costs / n)}: entry ${money(m.entry / n)}, tyres ${money(m.tyres / n)}, fuel ${money(m.fuel / n)} and parts ${money(m.parts / n)}. Racing on its own has ${m.raceNet >= 0 ? 'made' : 'lost'} ${money(Math.abs(m.raceNet))} so far.`);
+      const reds = r.filter(e => e.amount < 0);
+      if(reds.length){
+        const worst = reds.slice().sort((a, b) => a.amount - b.amount).slice(0, 3).map(e => `P${e.pos} at ${e.track} paid ${money(e.gross)} against ${money(e.costs)} of costs`);
+        L.push(`${reds.length} of ${n} races lost money because the prize did not cover the costs: ${worst.join('; ')}.`);
+      }
+      const avgCost = m.costs / n; const posKeys = Object.keys(PG.table).map(Number).filter(p => pgN(PG.table[p]) > 0).sort((a, b) => a - b);
+      const be = posKeys.filter(p => pgN(PG.table[p]) >= avgCost);
+      if(posKeys.length && avgCost > 0) L.push(be.length ? `At about ${money(avgCost)} of costs a race, the current position money only breaks even from P${Math.max(...be)} upward, before any bonuses.` : `The current position money never reaches the average race cost of ${money(avgCost)}, even for a win.`);
+    } else L.push('No race results are in this season\'s ledger yet.');
+    if(m.otherOut > 0) L.push(`Away from racing, ${money(m.otherOut)} went on shop items, marketplace buys and similar. ${m.otherIn > 0 ? money(m.otherIn) + ' came in from sponsorship, sales and credits.' : 'Nothing has come in from sponsorship or sales.'}`);
+    if(m.low.bal < 0) L.push(`The balance went below zero ${m.firstNeg ? 'on ' + pgDayY(m.firstNeg.dateMs) : ''} and bottomed out at ${money(m.low.bal)} on ${pgDayY(m.low.dateMs)}.`);
+    else if(m.events.length) L.push(`The balance has not gone below zero this season (lowest ${money(m.low.bal)} on ${pgDayY(m.low.dateMs)}).`);
+    return L;
+  }
+
+  /* ----- the picture (one SVG, used on screen and for the PNG) ----- */
+  function pgSvg(m, o){
+    o = o || {};
+    const W = 1000, PX = 36, wi = !!(o.whatIf && m.scenActive);
+    const C = { bg: '#0e1522', card: '#151f31', line: '#26334a', text: '#e9eff8', dim: '#8fa0b8', green: '#2fd897', red: '#ff5a67', amber: '#ffb347', blue: '#5ab0ff', purple: '#a98bff', grey: '#7b8aa3' };
+    const F = 'Inter, "Segoe UI", Arial, Helvetica, sans-serif';
+    const esc = rcptEsc, out = []; let y = 0;
+    const T = (txt, x, yy, size, fill, weight, anchor, extra) => `<text x="${x}" y="${yy}" font-size="${size}" fill="${fill}" font-weight="${weight || 400}" text-anchor="${anchor || 'start'}"${extra || ''}>${esc(txt)}</text>`;
+    const balCol = v => v < 0 ? C.red : C.green;
+
+    // header
+    out.push(T('IFWL', PX, 40, 22, C.blue, 800, 'start', ' letter-spacing="3"'));
+    out.push(T('LICENCE CENTRE  ·  CAREER MONEY', PX, 58, 11, C.dim, 700, 'start', ' letter-spacing="1.5"'));
+    out.push(T(m.name || 'Driver', PX, 100, 30, C.text, 800));
+    out.push(T((m.seasonLabel ? m.seasonLabel + '  ·  ' : '') + m.events.length + ' transactions  ·  ' + m.races.length + ' races', PX, 122, 13, C.dim, 600));
+    out.push(T('BALANCE NOW', W - PX, 40, 11, C.dim, 700, 'end', ' letter-spacing="1.5"'));
+    out.push(T(money(m.balance), W - PX, 88, 38, balCol(m.balance), 800, 'end'));
+    if(wi) out.push(T('WHAT-IF: ' + money(m.balanceW) + '  (' + moneyS(m.balanceW - m.balance) + ')', W - PX, 114, 14, C.amber, 800, 'end'));
+    y = 148;
+
+    // KPI tiles
+    const kp = [
+      ['PRIZE MONEY', money(m.prize), C.green, wi ? money(m.prizeW) : ''],
+      ['RACE COSTS', money(-m.costs), C.red, wi ? money(-m.costsW) : ''],
+      ['NET FROM RACING', moneyS(m.raceNet), balCol(m.raceNet), wi ? moneyS(m.raceNetW) : ''],
+      ['SHOP & OTHER SPEND', money(-m.otherOut), m.otherOut > 0 ? C.amber : C.dim, ''],
+      ['RACES IN THE RED', m.redRaces + ' of ' + m.races.length, m.redRaces ? C.red : C.green, wi ? m.redRacesW + ' of ' + m.races.length : '']
+    ];
+    const tw = (W - PX * 2 - 12 * 4) / 5;
+    kp.forEach((k, i) => {
+      const x = PX + i * (tw + 12);
+      out.push(`<rect x="${x}" y="${y}" width="${tw}" height="76" rx="10" fill="${C.card}" stroke="${C.line}"/>`);
+      out.push(T(k[0], x + 12, y + 22, 10, C.dim, 700, 'start', ' letter-spacing="1"'));
+      out.push(T(k[1], x + 12, y + 50, 21, k[2], 800));
+      if(k[3]) out.push(T('what-if ' + k[3], x + 12, y + 68, 11, C.amber, 700));
+    });
+    y += 76 + 30;
+
+    // ---- chart 1: balance over time
+    out.push(T('Balance over the season', PX, y, 15, C.text, 800));
+    out.push(T(wi ? 'solid = what really happened   dashed = what-if' : 'every dot is one transaction - the line is the balance after it', W - PX, y, 11, wi ? C.amber : C.dim, 600, 'end'));
+    y += 12;
+    const ph = 270, pl = PX + 56, pr = W - PX, pt = y + 8, pb = pt + ph;
+    const ev = m.events, t0 = ev.length ? ev[0].dateMs : Date.now(), t1 = ev.length ? ev[ev.length - 1].dateMs : t0 + 1;
+    const span = Math.max(1, t1 - t0), padT = span * 0.02;
+    const xOf = t => pl + ((t - (t0 - padT)) / (span + padT * 2)) * (pr - pl);
+    const vals = [m.start, 0].concat(ev.map(e => e.bal)); if(wi) ev.forEach(e => vals.push(e.balW));
+    let vmin = Math.min.apply(null, vals), vmax = Math.max.apply(null, vals);
+    const ticks = pgTicks(vmin, vmax, 5); vmin = ticks[0]; vmax = ticks[ticks.length - 1];
+    const yOf = v => pb - ((v - vmin) / (vmax - vmin)) * ph;
+    out.push(`<rect x="${pl}" y="${pt}" width="${pr - pl}" height="${ph}" rx="6" fill="${C.card}"/>`);
+    if(vmin < 0) out.push(`<rect x="${pl}" y="${yOf(0)}" width="${pr - pl}" height="${pb - yOf(0)}" fill="${C.red}" opacity=".10"/>`);
+    ticks.forEach(v => {
+      const yy = yOf(v), zero = Math.abs(v) < 1e-6;
+      out.push(`<line x1="${pl}" x2="${pr}" y1="${yy}" y2="${yy}" stroke="${zero ? C.dim : C.line}" stroke-width="${zero ? 1.6 : 1}" ${zero ? '' : 'stroke-dasharray="3 5"'}/>`);
+      out.push(T(pgShort(v), pl - 8, yy + 4, 11, zero ? C.text : C.dim, zero ? 800 : 600, 'end'));
+    });
+    if(vmin < 0) out.push(T('IN THE RED', pl + 10, pb - 8, 10, C.red, 800, 'start', ' letter-spacing="1.5" opacity=".8"'));
+    const nTick = 6;
+    for(let i = 0; i <= nTick; i++){ const tt = t0 + span * i / nTick; out.push(T(pgDay(tt), xOf(tt), pb + 18, 11, C.dim, 600, 'middle')); }
+    const pts = [[xOf(t0 - padT * 0.5), m.start]].concat(ev.map(e => [xOf(e.dateMs), e.bal]));
+    const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + yOf(p[1]).toFixed(1)).join(' ');
+    if(ev.length){
+      out.push(`<path d="${line} L${pts[pts.length - 1][0].toFixed(1)} ${yOf(0).toFixed(1)} L${pts[0][0].toFixed(1)} ${yOf(0).toFixed(1)} Z" fill="${C.blue}" opacity=".07"/>`);
+      if(wi){
+        const wp = [[pts[0][0], m.start]].concat(ev.map(e => [xOf(e.dateMs), e.balW])).map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + yOf(p[1]).toFixed(1)).join(' ');
+        out.push(`<path d="${wp}" fill="none" stroke="${C.amber}" stroke-width="2.4" stroke-dasharray="7 5" stroke-linejoin="round"/>`);
+      }
+      out.push(`<path d="${line}" fill="none" stroke="${C.blue}" stroke-width="2.6" stroke-linejoin="round"/>`);
+      ev.forEach(e => {
+        const cx = xOf(e.dateMs), cy = yOf(e.bal);
+        const tip = `${pgDayY(e.dateMs)} - ${e.isRace ? e.track + ' P' + e.pos : (e.desc || pgLabelOf(e.type))}: ${moneyS(e.amount)}, balance ${money(e.bal)}`;
+        let mk;
+        if(e.isRace) mk = `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4.6" fill="${e.amount >= 0 ? C.green : C.red}" stroke="${C.bg}" stroke-width="1.5"/>`;
+        else if(e.amount < 0) mk = `<rect x="${(cx - 4.5).toFixed(1)}" y="${(cy - 4.5).toFixed(1)}" width="9" height="9" fill="${C.amber}" stroke="${C.bg}" stroke-width="1.5"/>`;
+        else mk = `<path d="M${cx.toFixed(1)} ${(cy - 6).toFixed(1)} L${(cx + 6).toFixed(1)} ${cy.toFixed(1)} L${cx.toFixed(1)} ${(cy + 6).toFixed(1)} L${(cx - 6).toFixed(1)} ${cy.toFixed(1)} Z" fill="${C.purple}" stroke="${C.bg}" stroke-width="1.5"/>`;
+        out.push(`<g>${'<title>' + esc(tip) + '</title>'}${mk}</g>`);
+      });
+      // label the biggest non-race items
+      const big = ev.filter(e => !e.isRace && Math.abs(e.amount) >= 1000).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 4);
+      const placed = [];
+      big.forEach(e => {
+        const cx = xOf(e.dateMs); if(placed.some(px => Math.abs(px - cx) < 170)) return; placed.push(cx);
+        const lx = Math.max(pl + 70, Math.min(pr - 70, cx)), up = yOf(e.bal) > pt + 34;
+        out.push(T((e.type === 'marketplacePurchase' ? 'Marketplace' : e.type === 'purchase' ? 'Shop' : pgLabelOf(e.type)) + ' ' + moneyS(e.amount), lx, up ? yOf(e.bal) - 12 : yOf(e.bal) + 22, 11, e.amount < 0 ? C.amber : C.purple, 800, 'middle'));
+      });
+    } else out.push(T('No transactions yet', (pl + pr) / 2, (pt + pb) / 2, 14, C.dim, 600, 'middle'));
+    y = pb + 46;
+    // legend
+    const lg = [[C.green, 'race made money', 'c'], [C.red, 'race lost money', 'c'], [C.amber, 'spent (shop, market, parts)', 's'], [C.purple, 'money in (sponsor, sale, credit)', 'd']];
+    let lx = PX + 56;
+    lg.forEach(([col, txt, shape]) => {
+      out.push(shape === 'c' ? `<circle cx="${lx + 5}" cy="${y - 4}" r="4.6" fill="${col}"/>` : shape === 's' ? `<rect x="${lx}" y="${y - 9}" width="9" height="9" fill="${col}"/>` : `<path d="M${lx + 5} ${y - 11} L${lx + 11} ${y - 5} L${lx + 5} ${y + 1} L${lx - 1} ${y - 5} Z" fill="${col}"/>`);
+      out.push(T(txt, lx + 16, y, 11, C.dim, 600)); lx += 28 + txt.length * 6;
+    });
+    y += 30;
+
+    // ---- chart 2: profit / loss per race
+    out.push(T('Profit or loss in each race', PX, y, 15, C.text, 800));
+    out.push(T('prize minus entry, tyres, fuel and parts (sponsor cuts not included)', W - PX, y, 11, C.dim, 600, 'end'));
+    y += 12;
+    const R = m.races;
+    if(R.length){
+      const ph2 = 190, pt2 = y + 8, pb2 = pt2 + ph2, labH = 56;
+      const v2 = R.map(e => e.amount).concat(wi ? R.map(e => e.netW) : []).concat([0]);
+      let a = Math.min.apply(null, v2), b = Math.max.apply(null, v2);
+      const tk = pgTicks(a, b, 4); a = tk[0]; b = tk[tk.length - 1];
+      const y2 = v => pb2 - ((v - a) / (b - a)) * ph2;
+      out.push(`<rect x="${pl}" y="${pt2}" width="${pr - pl}" height="${ph2 + labH}" rx="6" fill="${C.card}"/>`);
+      tk.forEach(v => { const yy = y2(v), z = Math.abs(v) < 1e-6; out.push(`<line x1="${pl}" x2="${pr}" y1="${yy}" y2="${yy}" stroke="${z ? C.dim : C.line}" stroke-width="${z ? 1.6 : 1}" ${z ? '' : 'stroke-dasharray="3 5"'}/>`); out.push(T(pgShort(v), pl - 8, yy + 4, 11, z ? C.text : C.dim, z ? 800 : 600, 'end')); });
+      const slot = (pr - pl) / R.length, bw = Math.min(40, slot * 0.62);
+      R.forEach((e, i) => {
+        const cx = pl + slot * (i + 0.5), top = y2(Math.max(0, e.amount)), bot = y2(Math.min(0, e.amount));
+        const tip = `${e.track} P${e.pos}${e.cls ? ' (' + e.cls + ')' : ''}: prize ${money(e.gross)}, costs ${money(e.costs)}, result ${moneyS(e.amount)}` + (wi ? `; what-if ${moneyS(e.netW)}` : '');
+        out.push(`<g><title>${esc(tip)}</title><rect x="${(cx - bw / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1.5, bot - top).toFixed(1)}" rx="3" fill="${e.amount >= 0 ? C.green : C.red}"/></g>`);
+        if(wi){ const wy = y2(e.netW); out.push(`<g><title>${esc(tip)}</title><line x1="${(cx - bw / 2 - 4).toFixed(1)}" x2="${(cx + bw / 2 + 4).toFixed(1)}" y1="${wy.toFixed(1)}" y2="${wy.toFixed(1)}" stroke="${C.amber}" stroke-width="3"/><circle cx="${cx.toFixed(1)}" cy="${wy.toFixed(1)}" r="3.4" fill="${C.amber}"/></g>`); }
+        if(R.length <= 22){ const up = e.amount >= 0; out.push(T(pgShort(e.amount), cx, up ? top - 5 : y2(0) - 5, 10, up ? C.green : C.red, 800, 'middle')); }
+        out.push(T('P' + e.pos, cx, pb2 + 16, 12, C.text, 800, 'middle'));
+        const rot = R.length > 9;
+        out.push(T(e.track.length > 9 ? e.track.slice(0, 9) + '.' : e.track, cx, pb2 + 30, 10, C.dim, 600, rot ? 'start' : 'middle', rot ? ` transform="rotate(35 ${cx.toFixed(1)} ${pb2 + 30})"` : ''));
+      });
+      y = pb2 + labH + 30;
+    } else { out.push(T('No races yet', (pl + pr) / 2, y + 40, 14, C.dim, 600, 'middle')); y += 90; }
+
+    // ---- breakdown
+    out.push(T('Where the money went', PX, y, 15, C.text, 800));
+    y += 14;
+    const rows = (o2, sign) => Object.keys(o2).sort((a, b) => o2[b] - o2[a]).map(k => [k, o2[k]]);
+    const inR = rows(m.inB), outR = rows(m.outB);
+    const maxV = Math.max(1, ...inR.map(r => r[1]), ...outR.map(r => r[1]));
+    const colW = (W - PX * 2 - 24) / 2, barMax = colW - 150 - (m.scenActive && o.whatIf ? 230 : 110);
+    const whatIfOf = (label, side) => { if(!wi) return null; if(side === 'in' && label === 'Race prizes') return m.prizeW; const f = m.costsW / (m.costs || 1); if(side === 'out' && ['Entry fees', 'Tyres', 'Fuel', 'Parts maintenance'].includes(label)) return Math.round(m.outB[label] * f); return null; };
+    const drawCol = (x0, title, list, col, side) => {
+      out.push(T(title, x0, y + 4, 11, col, 800, 'start', ' letter-spacing="1.5"'));
+      let yy = y + 20;
+      list.forEach(([k, v]) => {
+        const bwv = Math.max(2, (v / maxV) * barMax), w2 = whatIfOf(k, side);
+        out.push(T(k, x0, yy + 11, 12, C.text, 600));
+        out.push(`<rect x="${x0 + 150}" y="${yy}" width="${bwv.toFixed(1)}" height="14" rx="3" fill="${col}" opacity=".85"/>`);
+        out.push(T(money(v) + (w2 != null && w2 !== v ? '  ->  ' + money(w2) : ''), x0 + 150 + bwv + 8, yy + 11, 11.5, w2 != null && w2 !== v ? C.amber : C.text, 800));
+        yy += 24;
+      });
+      if(!list.length) out.push(T('nothing', x0, yy + 11, 12, C.dim, 600));
+      return yy;
+    };
+    const yA = drawCol(PX, 'MONEY IN', inR, C.green, 'in'), yB = drawCol(PX + colW + 24, 'MONEY OUT', outR, C.red, 'out');
+    y = Math.max(yA, yB) + 10;
+    const tIn = Object.keys(m.inB).reduce((s, k) => s + m.inB[k], 0), tOut = Object.keys(m.outB).reduce((s, k) => s + m.outB[k], 0);
+    out.push(T('Total in ' + money(tIn) + '   -   total out ' + money(tOut) + '   =   ' + moneyS(tIn - tOut) + (m.start ? '   (balance before the first entry shown: ' + money(m.start) + ')' : ''), PX, y + 10, 12, C.dim, 700));
+    y += 36;
+
+    // ---- reasons
+    out.push(T('In plain English', PX, y, 15, C.text, 800)); y += 22;
+    m.insights.forEach(s => { pgWrap('•  ' + s, 128).forEach((ln, i) => { out.push(T(i ? '    ' + ln : ln, PX, y, 12.5, C.text, 500, 'start', ' xml:space="preserve"')); y += 19; }); y += 4; });
+    y += 8;
+    if(wi){
+      out.push(`<rect x="${PX}" y="${y}" width="${W - PX * 2}" height="34" rx="8" fill="${C.amber}" opacity=".14" stroke="${C.amber}"/>`);
+      out.push(T('WHAT-IF: the amber line and numbers show an example with different position money. They are not real balances.', W / 2, y + 22, 12, C.amber, 800, 'middle'));
+      y += 50;
+    }
+    out.push(T('ifwl.net  ·  figures come from this driver\'s season ledger (latest 200 entries are kept)', PX, y + 6, 10.5, C.dim, 600));
+    y += 30;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${y}" width="${W}" height="${y}" font-family='${F}'><rect width="${W}" height="${y}" fill="${C.bg}"/>${out.join('')}</svg>`;
+  }
+
+  /* ----- sheet (table) ----- */
+  function pgSheet(m){
+    const wi = m.scenActive;
+    const rowsHtml = m.events.map(e => {
+      const what = e.isRace ? `${E(e.track)}${e.cls ? ' <span class="pill grey">' + E(e.cls) + '</span>' : ''}` : E(e.desc || pgLabelOf(e.type));
+      return `<tr><td>${E(fmtDate(e.dateMs))}</td><td><span class="pill ${e.isRace ? 'blue' : 'grey'}">${E(e.isRace ? 'race' : (e.type || 'other'))}</span></td><td class="wrap">${what}</td>
+        <td class="num">${e.isRace ? 'P' + e.pos : ''}</td><td class="num">${e.isRace ? money(e.gross) : ''}</td><td class="num">${e.isRace ? money(-e.costs) : ''}</td>
+        <td class="num">${monoNum(e.amount, true)}</td><td class="num"><strong>${monoNum(e.bal)}</strong></td>
+        ${wi ? `<td class="num" style="color:var(--amber)">${e.isRace ? moneyS(e.netW) : ''}</td><td class="num" style="color:var(--amber)">${money(e.balW)}</td>` : ''}</tr>`;
+    }).join('');
+    return `<div class="grid-wrap" style="max-height:46vh"><table class="datagrid" style="min-width:760px"><thead><tr><th>Date</th><th>Type</th><th>What happened</th><th>Pos</th><th>Prize</th><th>Race costs</th><th>Change</th><th>Balance</th>${wi ? '<th>What-if change</th><th>What-if balance</th>' : ''}</tr></thead><tbody>${rowsHtml || '<tr><td colspan="8" class="grid-empty">No transactions.</td></tr>'}</tbody></table></div>`;
+  }
+
+  /* ----- what-if controls ----- */
+  const pgPosOrd = n => n + ord(n);
+  function pgWhatIfHtml(m){
+    const keys = Object.keys(PG.table).map(Number).filter(Boolean).sort((a, b) => a - b);
+    const fin = {}; m.races.forEach(e => { if(e.pos) fin[e.pos] = (fin[e.pos] || 0) + 1; });
+    const shown = PG.showAll ? keys : keys.filter(p => fin[p] || p <= (Object.keys(fin).length ? 0 : 10));
+    const cells = shown.map(p => {
+      const cur = PG.scen[p] !== undefined ? PG.scen[p] : pgN(PG.table[p]), changed = PG.scen[p] !== undefined && pgN(PG.scen[p]) !== pgN(PG.table[p]);
+      return `<label class="pg-pos${fin[p] ? ' hit' : ''}${changed ? ' chg' : ''}"><span>${pgPosOrd(p)}${fin[p] ? ' <b>×' + fin[p] + '</b>' : ''}</span><input type="number" min="0" step="50" data-pg-pos="${p}" value="${cur}" class="search-input"><small>now ${money(pgN(PG.table[p]))}</small></label>`;
+    }).join('');
+    return `<div class="cc-box" style="margin:14px 0">
+      <h4>What if the position money changed?</h4>
+      <p class="cc-dim" style="margin:0 0 10px">Change what each finishing place pays and the graph, bars and sheet redraw with a dashed amber line next to the real one. This is only a picture. Nothing is saved and no balance changes. Places this driver finished in are highlighted (×2 means twice).</p>
+      <div class="pg-presets">
+        <button class="btn" data-pg-preset="reset" type="button">Reset to current</button>
+        <button class="btn" data-pg-preset="1.1" type="button">+10%</button><button class="btn" data-pg-preset="1.25" type="button">+25%</button><button class="btn" data-pg-preset="1.5" type="button">+50%</button><button class="btn" data-pg-preset="2" type="button">Double</button>
+        <label class="pg-cost">Race costs <input type="number" id="ccPgCost" class="search-input" min="0" max="300" step="5" value="${PG.costMult}"> % of now</label>
+        <button class="btn" data-pg-showall type="button">${PG.showAll ? 'Only finished places' : 'Show all ' + keys.length + ' places'}</button>
+      </div>
+      <div class="pg-grid">${cells || '<span class="cc-dim">No position table loaded.</span>'}</div>
+      <div class="pg-result" id="ccPgResult"></div>
+    </div>`;
+  }
+  function pgResultText(m){
+    if(!m.scenActive) return '<span class="cc-dim">No changes yet. Edit a place above, or press +25%.</span>';
+    const d = m.balanceW - m.balance;
+    return `Balance now <strong>${money(m.balance)}</strong> &rarr; with these numbers it would be <strong style="color:var(--amber)">${money(m.balanceW)}</strong> (${moneyS(d)}). Racing on its own: ${moneyS(m.raceNet)} &rarr; <strong style="color:var(--amber)">${moneyS(m.raceNetW)}</strong>. Races in the red: ${m.redRaces} &rarr; ${m.redRacesW}.`;
+  }
+
+  /* ----- page ----- */
+  function pgRender(){
+    const body = $('ccPgBody'); if(!body || !PG.ledger) return;
+    PG.m = pgModel(); const m = PG.m;
+    const keepScroll = body.querySelector('.grid-wrap') ? body.querySelector('.grid-wrap').scrollTop : 0;
+    if(!$('ccPgSvg')){
+      body.innerHTML = `
+        <div class="cc-toolbar"><div><strong style="font-size:16px">${E(PG.name)}</strong> <span class="pill ${tierPillClass(PG.tier)}">${E(PG.tier || 'No Licence')}</span> <span class="cc-dim">${E(PG.season || '')}</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <label class="cc-check" style="font-weight:600"><input type="checkbox" id="ccPgInc" ${PG.includeWhatIf ? 'checked' : ''}> include the what-if in the image</label>
+            <button class="btn primary" id="ccPgSave" type="button">⬇ Save as image</button><button class="btn" id="ccPgCopy" type="button">Copy image</button><button class="btn" id="ccPgCsv" type="button">Export sheet (CSV)</button>
+          </div></div>
+        <div id="ccPgWhat"></div>
+        <div id="ccPgSvg" class="pg-svgwrap"></div>
+        <h4 style="margin:18px 0 8px">Sheet (${m.events.length} entries, oldest first)</h4>
+        <div id="ccPgSheet"></div>`;
+      $('ccPgWhat').innerHTML = pgWhatIfHtml(m);
+      $('ccPgInc').addEventListener('change', e => { PG.includeWhatIf = e.target.checked; });
+      $('ccPgSave').addEventListener('click', () => pgImage('save'));
+      $('ccPgCopy').addEventListener('click', () => pgImage('copy'));
+      $('ccPgCsv').addEventListener('click', pgCsv);
+      $('ccPgWhat').addEventListener('input', e => {
+        const t = e.target;
+        if(t.dataset.pgPos){ const v = t.value === '' ? 0 : Math.max(0, Number(t.value) || 0); PG.scen[t.dataset.pgPos] = v; t.closest('.pg-pos').classList.toggle('chg', v !== pgN(PG.table[t.dataset.pgPos])); pgRender(); }
+        else if(t.id === 'ccPgCost'){ PG.costMult = Math.max(0, Math.min(300, Number(t.value) || 0)); pgRender(); }
+      });
+      $('ccPgWhat').addEventListener('click', e => {
+        const p = e.target.closest('[data-pg-preset]'), s = e.target.closest('[data-pg-showall]');
+        if(p){
+          if(p.dataset.pgPreset === 'reset'){ PG.scen = {}; PG.costMult = 100; }
+          else { const f = Number(p.dataset.pgPreset); Object.keys(PG.table).forEach(k => { PG.scen[k] = Math.round(pgN(PG.table[k]) * f / 10) * 10; }); }
+          $('ccPgWhat').innerHTML = pgWhatIfHtml(PG.m); pgRender();
+        } else if(s){ PG.showAll = !PG.showAll; $('ccPgWhat').innerHTML = pgWhatIfHtml(PG.m); pgRender(); }
+      });
+    }
+    $('ccPgSvg').innerHTML = pgSvg(m, { whatIf: true });
+    $('ccPgSheet').innerHTML = pgSheet(m);
+    const res = $('ccPgResult'); if(res) res.innerHTML = pgResultText(m);
+    const g = $('ccPgSheet').querySelector('.grid-wrap'); if(g) g.scrollTop = keepScroll;
+  }
+
+  async function pgPick(driverId){
+    const d = (S.drivers || []).find(x => x.discordId === driverId) || { name: driverId, discordId: driverId };
+    PG.id = driverId; PG.name = driverDisplayName(d.name); PG.tier = d.tier || ''; PG.season = d.careerShopSeasonKey || '';
+    PG.scen = {}; PG.costMult = 100; PG.showAll = false; PG.ledger = null;
+    $('ccPgResults').classList.add('hidden');
+    $('ccPgBody').innerHTML = loading('Loading ' + PG.name + '\'s season…');
+    try{
+      const [ledger, costs] = await Promise.all([apiGet('staffCareerShopDriverLedger', `&driverId=${encodeURIComponent(driverId)}`), getCosts().catch(() => null)]);
+      if(!S.seasonLabel){ try{ S.seasonLabel = (await fetchSeasonWindow()).label || ''; }catch(_){} }
+      if(S.seasonLabel) PG.season = S.seasonLabel;
+      PG.ledger = ledger; PG.table = (costs && costs.raceEarnings) || (S.costs && S.costs.raceEarnings) || {};
+      const b = pgBuildEvents(ledger); PG.events = b.events; PG.start = b.start;
+      pgRender();
+    }catch(e){ $('ccPgBody').innerHTML = failBox('Could not load that driver: ' + e.message); }
+  }
+
+  function pgSearch(){
+    const t = $('ccPgSearch').value.trim().toLowerCase(), box = $('ccPgResults');
+    if(t.length < 2){ box.classList.add('hidden'); return; }
+    const rows = (S.drivers || []).filter(d => (d.name || '').toLowerCase().includes(t) || (d.licenceNumber || '').toLowerCase().includes(t) || (d.discordId || '').includes(t))
+      .sort((a, b) => (Number(b.careerTxCount) || 0) - (Number(a.careerTxCount) || 0)).slice(0, 10);
+    box.innerHTML = rows.length ? rows.map(d => `<button type="button" class="pg-res" data-pg-pick="${E(d.discordId)}"><strong>${E(driverDisplayName(d.name))}</strong> <span class="cc-dim">${E(d.tier || 'No Licence')} · ${money(d.careerShopBalance || 0)} · ${Number(d.careerTxCount) || 0} transactions</span></button>`).join('') : '<div class="cc-dim" style="padding:10px">No driver matches.</div>';
+    box.classList.remove('hidden');
+  }
+  subLoaders.progress = async () => {
+    try{ await getDrivers(false); await getCosts().catch(() => null); }catch(e){ $('ccPgBody').innerHTML = failBox('Could not load drivers: ' + e.message); }
+  };
+  $('ccPgSearch').addEventListener('input', pgSearch);
+  $('ccPgSearch').addEventListener('keydown', e => { if(e.key === 'Enter'){ const f = $('ccPgResults').querySelector('[data-pg-pick]'); if(f) pgPick(f.dataset.pgPick); } });
+  $('ccPgResults').addEventListener('click', e => { const b = e.target.closest('[data-pg-pick]'); if(b) pgPick(b.dataset.pgPick); });
+  $('ccPgRefresh').addEventListener('click', async () => { await getDrivers(true).catch(() => {}); if(PG.id) pgPick(PG.id); });
+  function openProgress(driverId){ switchSub('progress'); getDrivers(false).then(() => pgPick(driverId)).catch(e => toast('Could not open progress: ' + e.message, true)); }
+
+  /* ----- image + csv ----- */
+  function pgImageCanvas(){
+    return new Promise((resolve, reject) => {
+      const svg = pgSvg(PG.m, { whatIf: PG.includeWhatIf });
+      const vb = svg.match(/viewBox="0 0 (\d+) (\d+)"/), w = Number(vb[1]), h = Number(vb[2]), sc = 2;
+      const img = new Image();
+      img.onload = () => { const c = document.createElement('canvas'); c.width = w * sc; c.height = h * sc; const g = c.getContext('2d'); g.drawImage(img, 0, 0, c.width, c.height); resolve(c); };
+      img.onerror = () => reject(new Error('Could not draw the image on this device.'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+  async function pgImage(mode){
+    if(!PG.m) return;
+    try{
+      const c = await pgImageCanvas();
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      if(!blob) throw new Error('Could not create the image.');
+      if(mode === 'copy'){
+        if(!(navigator.clipboard && window.ClipboardItem)){ toast('This browser cannot copy images - use Save as image.', true); return; }
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); toast('Image copied - paste it into Discord.'); return;
+      }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = 'IFWL-money-' + PG.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + (PG.includeWhatIf && PG.m.scenActive ? '-what-if' : '') + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+    }catch(e){ toast(e.message || 'Could not make the image.', true); }
+  }
+  function pgCsv(){
+    const m = PG.m; if(!m) return;
+    const head = ['Date', 'Type', 'What happened', 'Class position', 'Prize', 'Entry', 'Tyres', 'Fuel', 'Parts', 'Change', 'Balance after'];
+    if(m.scenActive) head.push('What-if prize', 'What-if change', 'What-if balance');
+    const rows = m.events.map(e => {
+      const r = [new Date(e.dateMs).toISOString(), e.type, e.isRace ? e.track : e.desc, e.isRace ? e.pos : '', e.isRace ? e.gross : '', e.isRace ? e.entry : '', e.isRace ? e.tyres : '', e.isRace ? e.fuel : '', e.isRace ? e.parts : '', e.amount, e.bal];
+      if(m.scenActive) r.push(e.isRace ? e.grossW : '', e.netW, e.balW);
+      return r;
+    });
+    downloadCsv('ifwl-money-' + PG.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.csv', head, rows);
   }
 
   /* ============================================================
