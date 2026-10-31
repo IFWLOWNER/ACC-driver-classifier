@@ -6453,13 +6453,33 @@
   q('quickCareerBtn')?.addEventListener('click', () => { location.href = 'career.html'; });
   q('quickReportBtn')?.addEventListener('click', () => switchView('submitTicket'));
   q('editProfileBackBtn')?.addEventListener('click', () => switchView('home'));
+  // Nav drop-downs (Racing, Trophies, Tools, Support, Staff) are pinned to their button using the
+  // browser's own measurement of where the button is, instead of relying on the menu's CSS
+  // containing block. On some phones (Android Chrome, "Desktop site" / wide layout) the menu was
+  // opening a long way below its button. Phone layout (<=720px) is still handled by 19-mobile-nav.js.
+  function ddPlace(dropdown){
+    const menu = dropdown.querySelector('.view-tab-menu'), toggle = dropdown.querySelector('.dropdown-toggle');
+    if(!menu || !toggle) return;
+    if(window.innerWidth <= 720){ menu.style.position = ''; menu.style.left = ''; menu.style.maxHeight = ''; menu.style.overflowY = ''; return; }
+    const tb = toggle.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.marginTop = '0';
+    menu.style.top = Math.round(tb.bottom + 4) + 'px';
+    const w = menu.offsetWidth || 220;
+    menu.style.left = Math.max(8, Math.min(Math.round(tb.left), window.innerWidth - w - 8)) + 'px';
+    menu.style.maxHeight = Math.max(160, Math.round(window.innerHeight - tb.bottom - 16)) + 'px';
+    menu.style.overflowY = 'auto';
+  }
+  function ddReplaceOpen(){ document.querySelectorAll('.view-tab-dropdown.open').forEach(ddPlace); }
+  window.addEventListener('scroll', ddReplaceOpen, { passive: true });
+  window.addEventListener('resize', ddReplaceOpen);
   document.querySelectorAll('.view-tab-dropdown').forEach(dropdown => {
     const toggle = dropdown.querySelector('.dropdown-toggle');
     toggle.addEventListener('click', (e) => {
       e.stopPropagation();
       const wasOpen = dropdown.classList.contains('open');
       document.querySelectorAll('.view-tab-dropdown').forEach(d => d.classList.remove('open'));
-      if(!wasOpen) dropdown.classList.add('open');
+      if(!wasOpen){ dropdown.classList.add('open'); ddPlace(dropdown); }
     });
   });
   document.addEventListener('click', () => {
@@ -6891,9 +6911,25 @@
       return true;
     }
 
+    // Session reminder: Practice / Qualifying tickets are voided on initial review when the incident
+    // actually happened in a race, so ask the driver to confirm before the usual guidance pop-up.
+    const sessionSel = q('ticketEventSelect');
+    function ticketSessionIsPQ(){ const v = sessionSel ? sessionSel.value : ''; return v === 'Practice' || v === 'Qualifying'; }
+    function ticketSessionHintSync(){ const h = q('ticketSessionHint'); if(h) h.classList.toggle('hidden', !ticketSessionIsPQ()); }
+    if(sessionSel){ sessionSel.addEventListener('change', ticketSessionHintSync); ticketSessionHintSync(); }
+    function ticketSessionModalClose(){ const m = q('ticketSessionModal'); if(m) m.classList.add('hidden'); }
+    if(q('ticketSessionBackBtn')) q('ticketSessionBackBtn').addEventListener('click', () => { ticketSessionModalClose(); if(sessionSel) sessionSel.focus(); });
+    if(q('ticketSessionOkBtn')) q('ticketSessionOkBtn').addEventListener('click', () => { ticketSessionModalClose(); ticketOpenGuidanceModal(); });
+
     submitBtn.addEventListener('click', () => {
       if(!validateForm()) return;
       statusMsg.textContent = ''; statusMsg.className = 'save-status';
+      if(ticketSessionIsPQ() && q('ticketSessionModal')){
+        q('ticketSessionModalName').textContent = sessionSel.value;
+        q('ticketSessionModalName2').textContent = sessionSel.value;
+        q('ticketSessionModal').classList.remove('hidden');
+        return;
+      }
       ticketOpenGuidanceModal();
     });
     q('ticketModalCancelBtn').addEventListener('click', ticketCloseGuidanceModal);
@@ -6937,7 +6973,7 @@
         q('ticketNewDriverContainer').classList.add('hidden');
         q('ticketNewDriverInput').value = ''; q('ticketNewDriverNumber').value = '';
         q('ticketFullIncident').value = '';
-        q('ticketEventSelect').value = 'Practice';
+        q('ticketEventSelect').value = 'Race 1'; ticketSessionHintSync();
         q('ticketProofUrl').value = '';
         q('ticketTrackSelect').value = '';
         q('ticketNewTrackContainer').classList.add('hidden');

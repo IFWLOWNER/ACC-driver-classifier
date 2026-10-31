@@ -144,6 +144,7 @@
     <p class="sub">
       Your statement must be <b>precise</b>, <b>to the point</b>, and contain <b>factual information only</b>.
       Maximum <b>1000 characters</b>.
+      Statements must be added within <b>24 hours</b> of the ticket being submitted (league rules).
     </p>
 
     <div class="card">
@@ -229,6 +230,24 @@
       submitBtn.disabled = true;
     } else {
       linkStatus.textContent = `Ticket: ${ticketId}`;
+      // Tell the driver up front if this link has already closed (24-hour rule) or been used
+      (async () => {
+        try {
+          const snap = await db.collection("tickets").doc(ticketId).collection("invites").doc(inviteId).get();
+          if (!snap.exists) return;
+          const inv = snap.data() || {};
+          const expMs = inv.expiresAt && inv.expiresAt.toDate ? inv.expiresAt.toDate().getTime() : (Number(inv.expiresAtMs) || 0);
+          let msg = "";
+          if (inv.active === false) msg = "This statement link has been switched off by staff. Please contact the Head Steward.";
+          else if (expMs && expMs < Date.now()) msg = "This statement link has closed. Statements must be added within 24 hours of the ticket being submitted, per league rules.";
+          else if (inv.used === true) msg = "A statement has already been submitted with this link.";
+          else if (expMs) {
+            const mins = Math.max(0, Math.floor((expMs - Date.now()) / 60000));
+            linkStatus.textContent = `Ticket: ${ticketId} \u2022 this link closes in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+          }
+          if (msg) { setStatus(msg, "err"); submitBtn.disabled = true; }
+        } catch (e) { /* the check on submit still applies */ }
+      })();
     }
 
     submitBtn.addEventListener("click", async () => {
@@ -256,6 +275,15 @@
         }
 
         const invite = inviteSnap.data() || {};
+        const expMs = invite.expiresAt && invite.expiresAt.toDate ? invite.expiresAt.toDate().getTime() : (Number(invite.expiresAtMs) || 0);
+        if (invite.active === false) {
+          setStatus("This statement link has been switched off by staff. Please contact the Head Steward.", "err");
+          return;
+        }
+        if (expMs && expMs < Date.now()) {
+          setStatus("This statement link has closed. Statements must be added within 24 hours of the ticket being submitted, per league rules. Please contact the Head Steward if you think this is a mistake.", "err");
+          return;
+        }
         if (invite.used === true) {
           setStatus("This invite has already been used.", "err");
           return;
