@@ -1710,13 +1710,19 @@
         ${sec('Platform', platformLabel ? `<div class="dm-val">${platformLabel}</div>` : '<div class="dm-val" style="color:var(--text-muted)">-</div>')}
         ${sec('Race Team', r.teamName ? `<div class="dm-val">${r.teamLogoUrl ? `<img src="${socEsc(r.teamLogoUrl)}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:6px">` : ''}${socEsc(r.teamName)}</div>` : '<div class="dm-val" style="color:var(--text-muted)">No team</div>')}
         ${sec('Driver Name', (r.accDriverNames && r.accDriverNames.length) ? `<div class="dm-val">${r.accDriverNames.map(socEsc).join(' &middot; ')}</div>` : '<div class="dm-val" style="color:var(--text-muted)">-</div>')}
+        ${r.discordId ? sec('LMU Results', '<div data-lmu-history="' + socEsc(r.discordId) + '" class="field-hint">Loading&hellip;</div>', true) : ''}
         ${sec('Trophies', trophies ? `<div class="dir-card-trophies" style="position:static;padding:0">${trophies}</div>` : '', true)}
         ${links.length ? sec('Socials', links.map(l => `<a class="dm-soc-row" href="${socEsc(l.url)}" target="_blank" rel="noopener noreferrer"><span class="soc-btn soc-${l.key}">${socIconSvg(l.key)}</span><span class="h">${socEsc(l.text)}</span><svg class="out" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>`).join(''), true) : ''}
       </div>`;
     m.classList.add('open');
     document.body.style.overflow = 'hidden';
     q('dmCloseBtn').addEventListener('click', closeDriverModal);
+    // LMU finishes for this driver (the section removes itself when they have none)
+    const lmuEl = m.querySelector('[data-lmu-history]');
+    if(lmuEl && window.IFWL_LMU) window.IFWL_LMU.mountHistory(lmuEl, r.discordId);
+    else if(lmuEl) lmuEl.closest('.dm-sec')?.remove();
   }
+  window.openDriverModal = openDriverModal;
 
   /* Patron Home: full-screen backdrop from the driver's own card header image */
   function applyPatronHome(){
