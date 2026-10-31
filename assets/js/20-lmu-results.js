@@ -127,14 +127,39 @@
       + '<div class="lmu-step"></div></div>';
   }
 
+  /* Same figures-on-a-podium look as the ACC race podium (13-kit.js / 07-kit.css), used when the Avatar & Kit
+     feature is switched on for this account; otherwise the plain podium above is shown. */
+  const kitOn = () => { const K = window.IFWL_KIT; return !!(K && K.state && K.state.enabled && K.state.podiumsOpen !== false); };
+  function kitColumn(r, place) {
+    if (!r || r.dnf) return '<div class="kit-pcol empty ' + (place === 1 ? 'p1' : place === 2 ? 'p2' : 'p3') + '"></div>';
+    const K = window.IFWL_KIT, cls = place === 1 ? 'p1' : place === 2 ? 'p2' : 'p3';
+    const shown = r.displayName || r.name;
+    const url = r.avatar && (r.avatar.urlSmall || r.avatar.url);
+    let fig;
+    if (url) fig = '<img class="kit-pfig ' + cls + '" src="' + esc(url) + '" alt="' + esc(shown) + '" loading="lazy" width="90" height="150">';
+    else {
+      const glow = r.stock === 'tier' ? K.tierColour(r.tier) : '';
+      fig = '<img class="kit-pfig stock ' + cls + '" src="' + esc(K.STOCK) + '" alt="' + esc(shown) + '" loading="lazy" width="90" height="150"' + (glow ? ' style="filter:drop-shadow(0 0 7px ' + esc(glow) + ')"' : '') + '>';
+    }
+    const nm = r.discordId ? '<button type="button" class="lmu-link" data-lmu-driver="' + esc(r.discordId) + '">' + esc(shown) + '</button>' : esc(shown);
+    return '<div class="kit-pcol ' + cls + '"><div class="kit-pfigwrap">' + fig + '</div>'
+      + '<div class="kit-pname" title="' + esc(shown) + '">' + nm + '</div>'
+      + '<div class="kit-pcar">' + esc((r.carNum ? '#' + r.carNum + ' ' : '') + (r.car || r.team || '')) + '</div>'
+      + '<div class="kit-pplinth ' + cls + '"><span>' + place + '</span></div></div>';
+  }
+
   function classHtml(c) {
     const rows = c.rows || [];
     const top = [rows[0], rows[1], rows[2]];
+    const useKit = kitOn();
+    if (useKit) window.IFWL_KIT.loadCss();
     const table = '<div class="lmu-tw"><table class="lmu-tbl"><thead><tr><th>Pos</th><th>Driver</th><th>Car</th><th class="num">Laps</th><th class="num">Best lap</th><th class="num">Pts</th></tr></thead><tbody>'
       + rows.map((r) => '<tr class="' + (r.dnf ? 'dnf' : '') + '"><td>' + (r.dnf ? '-' : r.pos) + '</td><td>' + nameHtml(r) + (r.dnf ? '<span class="lmu-tag">DNF</span>' : '') + '</td><td>' + (r.carNum ? '#' + esc(r.carNum) + ' ' : '') + esc(r.car || r.team || '') + '</td><td class="num">' + (r.laps || '-') + '</td><td class="num">' + lapFmt(r.bestLapMs) + '</td><td class="num">' + (r.points != null ? esc(r.points) : '-') + '</td></tr>').join('')
       + '</tbody></table></div>';
     return '<div class="lmu-class"><div class="lmu-class-h"><span class="lmu-class-name">' + esc(c.name) + '</span><span class="lmu-class-n">' + rows.length + ' car' + (rows.length === 1 ? '' : 's') + '</span></div>'
-      + '<div class="lmu-podium">' + slotHtml(top[1], 2) + slotHtml(top[0], 1) + slotHtml(top[2], 3) + '</div>'
+      + (useKit
+        ? '<div class="kit-podium"><div class="kit-pgroup"><div class="kit-pstage">' + kitColumn(top[1], 2) + kitColumn(top[0], 1) + kitColumn(top[2], 3) + '</div></div></div>'
+        : '<div class="lmu-podium">' + slotHtml(top[1], 2) + slotHtml(top[0], 1) + slotHtml(top[2], 3) + '</div>')
       + '<details class="lmu-full"><summary>Full results</summary>' + table + '</details></div>';
   }
 
@@ -155,6 +180,7 @@
     }
     function paint() {
       const list = root.__races || [];
+      root.__paint = paint;
       root.innerHTML = list.slice(0, root.__shown).map(raceHtml).join('')
         + (list.length > root.__shown ? '<button type="button" class="btn ghost lmu-more" data-lmu-more>Show older races (' + (list.length - root.__shown) + ')</button>' : '');
     }
@@ -327,6 +353,8 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll); else mountAll();
   window.addEventListener('ifwl-auth-changed', mountAll);
+  // the Avatar & Kit settings arrive a moment after the page: redraw the podiums with figures once they do
+  window.addEventListener('ifwl-kit-ready', () => document.querySelectorAll('[data-lmu-results]').forEach((el) => { if (el.__paint && el.__races) el.__paint(); }));
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-view="lmuResults"],[data-view="staffLmuResults"]');
     if (b) setTimeout(mountAll, 50);
