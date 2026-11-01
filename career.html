@@ -2205,6 +2205,25 @@ body.eve-ui .field-group input[type="text"],body.eve-ui .field-group input[type=
       });
     }
 
+    // ✅ ADDED: LMU (and any other race with no ACC race file) - the races above are built from ACC race files,
+    // so a race that was paid from an uploaded LMU result never appeared. Those races exist only as the real
+    // settlement entry in the ledger, so list every ledger race that no ACC file accounted for. Everything shown
+    // comes from that entry (prize, costs, position in class, receipt), exactly like an ACC race.
+    {
+      const accDates = new Set(races.map(r => r.dateMs));
+      costBreakdownByDateMs.forEach((tx, dateMs) => {
+        if(accDates.has(dateMs) || dateMs < startMs || dateMs > endMs) return;
+        const pos = Number(tx.position);
+        if(!(pos >= 1)) return;
+        races.push({
+          source: 'ledger:' + dateMs, track: tx.track || '', dateMs, position: pos, points: 0, cleanBonus: !!tx.cleanBonus, totalPoints: 0,
+          lapCount: Number(tx.receipt && tx.receipt.fuel && tx.receipt.fuel.lapCount) || 0, mileageKm: 0, pitCount: 0, bestLapMs: 0,
+          raceEarnings: Number(tx.raceEarningsGross) || 0, consistencyPct: null,
+          costBreakdown: tx, backingTxs: backingByDateMs.get(dateMs) || [], fromLedger: true
+        });
+      });
+    }
+
     races.sort((a,b) => a.dateMs - b.dateMs);
 
     const totals = races.reduce((acc, r) => {
