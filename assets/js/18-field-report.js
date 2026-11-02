@@ -191,6 +191,13 @@
     });
   }
 
+  const carClassRow = (r) => { if (window.IFWLStats && window.IFWLStats.carClassOfRow) return window.IFWLStats.carClassOfRow(r); const g = String(r && r.carGroup || '').trim().toUpperCase(); if (g && g !== 'FREE') return g; const m = Number(r && r.carModel); if (isFinite(m)) return m >= 50 && m <= 61 ? 'GT4' : (m >= 80 && m <= 89 ? 'GT2' : 'GT3'); return ''; };
+  function classModeOf(rows) {
+    const live = rows.filter((r) => r && Number(r.lapCount || 0) > 0);
+    if (new Set(live.map(carClassRow).filter(Boolean)).size > 1) return 'class';
+    return new Set(live.map((r) => Number(r.cup)).filter(isFinite)).size > 1 ? 'cup' : 'overall';
+  }
+  const classKeyOf = (r, mode) => mode === 'class' ? carClassRow(r) : (mode === 'cup' ? 'cup' + String(r.cup) : '');
   let seasonCache = null;
   async function loadSeasonIndex(onProg, force) {
     if (!force && seasonCache && Date.now() - seasonCache.at < 600000) return seasonCache;
@@ -204,7 +211,14 @@
         await pool(list, 5, async (meta) => {
           const det = await window.IFWLStats.loadRaceDetail(meta.file);
           const rows = det.rows || []; out.races.push({ meta, track: meta.track || det.track || '', n: rows.length });
-          rows.forEach((x) => { const k = nameKey(x.driver); if (!out.byKey.has(k)) out.byKey.set(k, []); out.byKey.get(k).push({ meta, pos: Number(x.racePos), of: rows.length, best: Number(x.bestLap) || 0, laps: Number(x.lapCount) || 0, car: x.carName || '' }); });
+          // CLASS position: in a multiclass race (GT3 + GT4) a driver is ranked inside their car class, in a Pro/Am race inside their cup - the same rule the race payouts use.
+          const cm = classModeOf(rows), tot = {}, run = {};
+          rows.forEach((x) => { const g = classKeyOf(x, cm); tot[g] = (tot[g] || 0) + 1; });
+          rows.forEach((x) => {
+            const k = nameKey(x.driver); const g = classKeyOf(x, cm); run[g] = (run[g] || 0) + 1;
+            if (!out.byKey.has(k)) out.byKey.set(k, []);
+            out.byKey.get(k).push({ meta, pos: Number(x.racePos), cpos: run[g], cof: tot[g], mode: cm, of: rows.length, best: Number(x.bestLap) || 0, laps: Number(x.lapCount) || 0, car: x.carName || '' });
+          });
           done++; if (onProg) onProg('Reading this season\'s races… ' + done + ' of ' + list.length);
         });
       } else out.error = 'No season window is set, so there is no season record.';
@@ -216,12 +230,17 @@
     const keys = Array.from(new Set(namesOf(d).map(nameKey))); const seen = new Set(); let rows = [];
     keys.forEach((k) => (idx.byKey.get(k) || []).forEach((r) => { const id = r.meta.file; if (!seen.has(id)) { seen.add(id); rows.push(r); } }));
     rows.sort((a, b) => (b.meta.tsMs || 0) - (a.meta.tsMs || 0));
-    const pos = rows.map((r) => r.pos).filter(isNum);
-    const s = { starts: rows.length, wins: pos.filter((p) => p === 1).length, pods: pos.filter((p) => p <= 3).length, top10: pos.filter((p) => p <= 10).length, avg: pos.length ? pos.reduce((a, c) => a + c, 0) / pos.length : null, best: pos.length ? Math.min.apply(null, pos) : null, recent: rows.slice(0, 5).map((r) => r.pos), laps: rows.reduce((a, r) => a + r.laps, 0), last: rows[0] ? { pos: rows[0].pos, track: rows[0].meta.track, date: rows[0].meta.dateLabel } : null };
+    // everything below is CLASS position (equals overall position in a single-class race)
+    rows.forEach((r) => { r.p = isNum(r.cpos) ? r.cpos : r.pos; });
+    const pos = rows.map((r) => r.p).filter(isNum);
+    const s = { starts: rows.length, wins: pos.filter((p) => p === 1).length, pods: pos.filter((p) => p <= 3).length, top10: pos.filter((p) => p <= 10).length, avg: pos.length ? pos.reduce((a, c) => a + c, 0) / pos.length : null, best: pos.length ? Math.min.apply(null, pos) : null, recent: rows.slice(0, 5).map((r) => r.p), laps: rows.reduce((a, r) => a + r.laps, 0), last: rows[0] ? { pos: rows[0].p, track: rows[0].meta.track, date: rows[0].meta.dateLabel } : null,
+      multi: rows.some((r) => r.mode && r.mode !== 'overall'), owins: rows.filter((r) => r.pos === 1).length, opods: rows.filter((r) => r.pos <= 3).length };
+    { // recency-weighted finishing percentile inside the class (0 = won every race, 1 = last) - races with fewer than 3 in the class are ignored
+      let sw = 0, sv = 0, k = 0; for (const r of rows) { if (!isNum(r.p) || !(r.cof >= 3)) continue; const w = Math.pow(0.85, k++); sw += w; sv += w * (r.p - 1) / (r.cof - 1); if (k >= 8) break; } s.nform = sw > 0 && k >= 2 ? sv / sw : null; }
     const l3 = s.recent.slice(0, 3).filter(isNum); s.form = l3.length >= 2 ? l3.reduce((a, c) => a + c, 0) / l3.length : null;
     s.trend = (s.form != null && s.avg != null && s.starts >= 4) ? s.avg - s.form : null; // positive = recent finishes better than usual
     let tk = null;
-    if (trackText) { const tn = nk(trackText); const tr = rows.filter((r) => { const t = nk(r.meta.track); return t && (t.includes(tn) || tn.includes(t)); }); const tp = tr.map((r) => r.pos).filter(isNum); tk = { starts: tr.length, best: tp.length ? Math.min.apply(null, tp) : null, bestLap: tr.map((r) => r.best).filter((v) => v > 0).sort((a, b) => a - b)[0] || null }; }
+    if (trackText) { const tn = nk(trackText); const tr = rows.filter((r) => { const t = nk(r.meta.track); return t && (t.includes(tn) || tn.includes(t)); }); const tp = tr.map((r) => r.p).filter(isNum); const tn2 = tr.filter((r) => isNum(r.p) && r.cof >= 3).map((r) => (r.p - 1) / (r.cof - 1)); tk = { starts: tr.length, best: tp.length ? Math.min.apply(null, tp) : null, nAvg: tn2.length ? tn2.reduce((a, c) => a + c, 0) / tn2.length : null, bestLap: tr.map((r) => r.best).filter((v) => v > 0).sort((a, b) => a - b)[0] || null }; }
     return { s, tk };
   }
 
@@ -248,6 +267,7 @@
       d.promoted = L && L.lastTierMove && L.lastTierMove.dateMs && (now - L.lastTierMove.dateMs) < 70 * 86400000 && tierInfo(L.lastTierMove.to, tiers).order > tierInfo(L.lastTierMove.from, tiers).order ? L.lastTierMove : null;
       d.fresh = !L || (d.starts === 0 && d.sessions === 0);
     });
+    { const ps = drivers.map((d) => d.pace).filter(isNum); const best = ps.length ? Math.min.apply(null, ps) : null; drivers.forEach((d) => { d.paceRel = best != null && isNum(d.pace) ? Math.max(0, d.pace - best) : null; }); }
     // composite "watch score" 0-100: pace 40, season form 30, rating 20, consistency 10 (only what exists)
     const pPace = pct(drivers, (d) => d.pace, false);
     const pForm = pct(drivers.filter((d) => d.season && d.season.starts >= 2), (d) => d.season.avg - 0.6 * (d.season.wins || 0) - 0.15 * (d.season.pods || 0), false);
@@ -289,10 +309,135 @@
     return { meta, drivers, picks, dark, rising, fresh, boards, teams, facts, story: storylines({ drivers, picks, dark, rising, fresh, boards, teams, facts }), now };
   }
 
+  /* ============================================================
+     4b. CLASSES (groups) AND THE TOP-FIVE PREDICTION
+     A field with two classes (GT3 + GT4 on the Monday multiclass, Pro + Am on PC) is split so each
+     class gets its own who-to-watch, prediction and records pages, and every driver is ranked against
+     their own class only (a GT4 driver is never compared with a GT3 car).
+     ============================================================ */
+  const CLASS_ORDER = ['GT2', 'GT3', 'GT4'], CAT_ORDER = ['Pro', 'Pro-Am', 'Am', 'Beginner'];
+  const catLabelOf = (d) => { const c = String(d.cls || '').trim(); return /^GT\d$/i.test(c) ? '' : c; };
+  const ordIdx = (arr, v) => { const i = arr.indexOf(v); return i < 0 ? 99 : i; };
+  function buildGroups(drivers, mode) {
+    mode = mode || 'auto'; const mains = drivers.filter((d) => !d.coDriver);
+    const variants = (f) => { const m = new Map(); mains.forEach((d) => { const k = f(d); if (k) m.set(k, (m.get(k) || 0) + 1); }); return Array.from(m.entries()).filter((e) => e[1] >= 2); };
+    let eff = mode;
+    if (mode === 'auto') eff = variants((d) => d.carClass).length > 1 ? 'class' : (variants(catLabelOf).length > 1 ? 'cat' : 'none');
+    const keyOf = (d) => eff === 'class' ? (d.carClass || 'GT3') : eff === 'cat' ? (catLabelOf(d) || 'Unclassified') : eff === 'both' ? ((d.carClass || 'GT3') + (catLabelOf(d) ? ' ' + catLabelOf(d) : '')) : 'All';
+    const map = new Map(); drivers.forEach((d) => { const k = keyOf(d); if (!map.has(k)) map.set(k, []); map.get(k).push(d); });
+    let groups = Array.from(map.entries()).map(([key, ds]) => ({ key, name: key === 'All' ? 'Whole field' : key, drivers: ds, mains: ds.filter((d) => !d.coDriver).length }));
+    const rankOf = (g) => { const p = g.key.split(' '); return ordIdx(CLASS_ORDER, p[0]) * 10 + ordIdx(CAT_ORDER, p.slice(1).join(' ') || g.key); };
+    groups.sort((a, b) => (eff === 'class' || eff === 'both') ? rankOf(a) - rankOf(b) : eff === 'cat' ? ordIdx(CAT_ORDER, a.key) - ordIdx(CAT_ORDER, b.key) || b.mains - a.mains : 0);
+    // a "group" of one or two cars is not worth its own pages - fold them together so nobody is dropped
+    if (groups.length > 1) { const big = groups.filter((g) => g.mains >= 3), small = groups.filter((g) => g.mains < 3); if (small.length && big.length) { const o = { key: 'Other', name: 'Other entries', drivers: [].concat.apply([], small.map((g) => g.drivers)), mains: small.reduce((a, g) => a + g.mains, 0) }; groups = big.concat([o]); } else if (!big.length) groups = [{ key: 'All', name: 'Whole field', drivers, mains: mains.length }]; }
+    return { mode: groups.length > 1 ? eff : 'none', groups };
+  }
+
+  const mulberry = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const gauss = (r) => { let u = 0; while (!u) u = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+  const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
+  function zmap(items, val, hi) {
+    const a = items.map((d) => ({ d, v: val(d) })).filter((x) => isNum(x.v)); const out = new Map(); if (a.length < 3) return out;
+    const mean = a.reduce((s, x) => s + x.v, 0) / a.length, sd = Math.sqrt(a.reduce((s, x) => s + (x.v - mean) * (x.v - mean), 0) / a.length); if (sd < 1e-9) return out;
+    a.forEach((x) => out.set(x.d.key, clamp((hi ? 1 : -1) * (x.v - mean) / sd, -2.5, 2.5))); return out;
+  }
+  const PRED_SIMS = 6000;
+  /* Strength = weighted blend of each driver's standing INSIDE their class (pace 34, recent class form 30, IFWL rating 14,
+     consistency 8, cleanliness 6, licence tier 8, track history 8 - only what exists). Then 6000 simulated races: each driver gets
+     their strength plus a random swing that is bigger when there is little data or a high race risk, with a small chance of a
+     bad race. Counting finishing places over the simulated races gives win / podium / top-5 chances. Same seed every time. */
+  function predict(m) {
+    const gname = (m.group && m.group.name && m.meta.groupName) ? m.group.name : 'the field';
+    const pool = m.drivers.filter((d) => !d.coDriver); m.pred = null; if (pool.length < 3) return;
+    const comps = [
+      { k: 'pace', w: 0.34, z: zmap(pool.filter((d) => d.sessions >= 1), (d) => d.pace, false) },
+      { k: 'form', w: 0.30, z: zmap(pool.filter((d) => d.season && d.season.starts >= 2 && isNum(d.season.nform)), (d) => d.season.nform, false) },
+      { k: 'rating', w: 0.14, z: zmap(pool, (d) => d.rating, true) },
+      { k: 'cons', w: 0.08, z: zmap(pool.filter((d) => d.sessions >= 3), (d) => d.cons, true) },
+      { k: 'clean', w: 0.06, z: zmap(pool.filter((d) => d.sessions >= 3), (d) => d.risk, false) },
+      { k: 'tier', w: 0.08, z: zmap(pool.filter((d) => d.tierName && !d.tierI.lmu), (d) => d.tierI.order, true) },
+      { k: 'track', w: 0.08, z: zmap(pool.filter((d) => d.track && d.track.starts >= 1 && isNum(d.track.nAvg)), (d) => d.track.nAvg, false) }
+    ];
+    pool.forEach((d) => { let sw = 0, sv = 0; d.pz = []; comps.forEach((c) => { const z = c.z.get(d.key); if (isNum(z)) { sw += c.w; sv += c.w * z; d.pz.push({ k: c.k, z, w: c.w }); } }); d.strength = sw >= 0.3 ? sv / sw : null; });
+    const have = pool.filter((d) => d.strength != null); if (have.length < 3) return;
+    const mean = have.reduce((s, d) => s + d.strength, 0) / have.length, sd = Math.sqrt(have.reduce((s, d) => s + (d.strength - mean) * (d.strength - mean), 0) / have.length) || 1;
+    pool.forEach((d) => {
+      const info = (d.starts || 0) + 0.3 * (d.sessions || 0); d.info = info;
+      d.S = d.strength == null ? -0.7 : (d.strength - mean) / sd;
+      d.sig = d.strength == null ? 1.25 : 0.62 + 1.0 / Math.sqrt(1 + info) + (isNum(d.risk) ? 0.3 * d.risk / 100 : 0.12);
+      d.pDnf = 0.03 + 0.1 * (isNum(d.risk) ? d.risk / 100 : 0.3);
+      d.conf = d.strength == null ? 'NO DATA' : info >= 8 ? 'HIGH' : info >= 3 ? 'MEDIUM' : 'LOW';
+    });
+    const n = pool.length, rnd = mulberry(hashStr(gname + '|' + pool.map((d) => d.key).join(',')));
+    const win = new Array(n).fill(0), pod = new Array(n).fill(0), t5 = new Array(n).fill(0), sumPos = new Array(n).fill(0), perf = new Array(n), idx = new Array(n);
+    for (let s = 0; s < PRED_SIMS; s++) {
+      for (let i = 0; i < n; i++) { const d = pool[i]; perf[i] = d.S + d.sig * gauss(rnd) - (rnd() < d.pDnf ? 3 : 0); idx[i] = i; }
+      idx.sort((a, b) => perf[b] - perf[a]);
+      for (let p = 0; p < n; p++) { const i = idx[p]; sumPos[i] += p + 1; if (p === 0) win[i]++; if (p < 3) pod[i]++; if (p < 5) t5[i]++; }
+    }
+    pool.forEach((d, i) => { d.pred = { exp: sumPos[i] / PRED_SIMS, pWin: win[i] / PRED_SIMS, pPod: pod[i] / PRED_SIMS, pTop5: t5[i] / PRED_SIMS }; });
+    const order = pool.slice().sort((a, b) => a.pred.exp - b.pred.exp || b.pred.pTop5 - a.pred.pTop5);
+    order.forEach((d, i) => { d.pred.rank = i + 1; });
+    const top = order.slice(0, 5), next = order.slice(5, 10);
+    const wild = order.slice(5).filter((d) => (d.conf === 'LOW' || d.conf === 'NO DATA' || d.conf === 'MEDIUM') && (d.pred.pWin >= 0.02 || d.pred.pTop5 >= 0.15)).sort((a, b) => b.pred.pTop5 - a.pred.pTop5).slice(0, 3);
+    // plain-English reasons: strongest positives, plus one caution
+    const paceRank = new Map(); pool.filter((d) => isNum(d.pace)).sort((a, b) => a.pace - b.pace).forEach((d, i) => paceRank.set(d.key, i + 1));
+    const trk = m.meta.track;
+    const txt = {
+      pace: (d) => { const r = paceRank.get(d.key); return r === 1 ? 'Quickest pace in ' + gname : ordinal(r) + '-quickest pace in ' + gname + (isNum(d.paceRel) ? ' (+' + r2(d.paceRel) + '% off the best)' : ''); },
+      form: (d) => { const s = d.season; return 'Recent class finishes (latest first): ' + s.recent.filter(isNum).slice(0, 5).map((p) => 'P' + p).join(' ') + (s.wins ? ' - ' + plural(s.wins, 'win') + ' this season' : ''); },
+      rating: (d) => 'IFWL rating ' + Math.round(d.rating) + (d.ratingLevel ? ' (' + d.ratingLevel + ')' : ''),
+      cons: (d) => Math.round(d.cons) + '% consistency - rarely has a bad lap',
+      clean: (d) => 'Clean racer - race risk only ' + Math.round(d.risk) + '%',
+      tier: (d) => 'Licensed ' + d.tierName,
+      track: (d) => 'Knows ' + trk + ': ' + plural(d.track.starts, 'start') + ', best class finish P' + d.track.best
+    };
+    const cau = {
+      pace: (d) => 'Pace is ' + (isNum(d.paceRel) ? r2(d.paceRel) + '% ' : '') + 'off the class best',
+      form: (d) => 'Recent results have lagged (avg class finish P' + r1(d.season.avg) + ')',
+      clean: (d) => 'Race risk ' + Math.round(d.risk) + '% - can get ragged',
+      cons: (d) => 'Only ' + Math.round(d.cons) + '% consistent over a race'
+    };
+    pool.forEach((d) => {
+      const pos = d.pz.filter((p) => p.z > 0.25).sort((a, b) => b.w * b.z - a.w * a.z).slice(0, 3).map((p) => { try { return txt[p.k](d); } catch (e) { return ''; } }).filter(Boolean);
+      const neg = d.pz.filter((p) => p.z < -0.6 && cau[p.k]).sort((a, b) => a.w * a.z - b.w * b.z)[0];
+      d.predWhy = pos.length ? pos : (d.why || []).slice(0, 2);
+      d.predCaution = d.conf === 'NO DATA' ? 'No IFWL race history - a big unknown' : d.conf === 'LOW' ? 'Little race data on record - wide margin of error' : (neg ? (function () { try { return cau[neg.k](d); } catch (e) { return ''; } })() : '');
+    });
+    const withData = pool.filter((d) => d.strength != null).length;
+    m.pred = { all: order, top, next, wild, sims: PRED_SIMS, pool: n, withData, gname, quality: withData / n >= 0.75 ? 'good' : withData / n >= 0.4 ? 'fair' : 'thin' };
+  }
+
+  function eventFacts(drivers, input) {
+    const count = (f) => { const m = new Map(); drivers.forEach((d) => { const k = f(d); if (k) m.set(k, (m.get(k) || 0) + 1); }); return Array.from(m.entries()).sort((a, b) => b[1] - a[1]); };
+    const carCount = new Map(); drivers.filter((d) => !d.coDriver).forEach((d) => { if (d.carName) carCount.set(d.carName, (carCount.get(d.carName) || 0) + 1); });
+    const tierMix = new Map(); drivers.forEach((d) => { const k = d.tierName || 'No IFWL licence'; if (!tierMix.has(k)) tierMix.set(k, { name: k, n: 0, order: d.tierName ? d.tierI.order : -1, color: d.tierName ? d.tierI.color : '#5f6d82' }); tierMix.get(k).n++; });
+    const tm = new Set(); drivers.forEach((d) => { const t = (d.team2 || '').trim(); if (t) tm.add(t); });
+    return {
+      entries: new Set(drivers.map((d) => d.entryIdx >= 0 ? 'e' + d.entryIdx : d.key)).size, drivers: drivers.length, licensed: drivers.filter((d) => d.lic && d.accepted).length,
+      cars: Array.from(carCount.entries()).sort((a, b) => b[1] - a[1]), classes: count((d) => d.cls), platforms: count((d) => d.platform), carClasses: count((d) => d.carClass),
+      tiers: Array.from(tierMix.values()).sort((a, b) => b.order - a.order), teams: tm.size, countries: count((d) => d.country),
+      starts: drivers.reduce((a, d) => a + d.starts, 0), withData: drivers.filter((d) => d.scoreParts > 0).length, seasonRaces: input.seasonRaces || 0, seasonLabel: input.seasonLabel || '', ratingVisible: !!input.ratingVisible
+    };
+  }
+
+  /* one report model: either a single field, or one model per class + an event-level overview */
+  function analyseAll(input) {
+    const bg = buildGroups(input.drivers, input.split);
+    const gms = bg.groups.map((g) => {
+      g.drivers.forEach((d) => { d.groupName = bg.groups.length > 1 ? g.name : ''; });
+      const gm = analyse(Object.assign({}, input, { drivers: g.drivers, meta: Object.assign({}, input.meta, { groupName: bg.groups.length > 1 ? g.name : '' }) }));
+      gm.group = { key: g.key, name: g.name }; predict(gm); return gm;
+    });
+    if (gms.length === 1) { const m = gms[0]; m.groups = gms; m.grouped = false; m.splitMode = 'none'; return m; }
+    return { meta: input.meta, drivers: input.drivers, facts: eventFacts(input.drivers, input), groups: gms, grouped: true, splitMode: bg.mode, picks: [], dark: [], rising: [], fresh: [], teams: [], boards: {}, story: [], now: input.nowMs || Date.now() };
+  }
+
   function whyLines(d, meta, now) {
     const a = [], s = d.season || {};
-    if (s.starts) { if (s.wins) a.push(plural(s.wins, 'win') + ' and ' + plural(s.pods, 'podium') + ' from ' + plural(s.starts, 'start') + ' this season (avg finish P' + r1(s.avg) + ')'); else if (s.pods) a.push(plural(s.pods, 'podium') + ' from ' + plural(s.starts, 'start') + ' this season (avg finish P' + r1(s.avg) + ')'); else a.push('Avg finish P' + r1(s.avg) + ' from ' + plural(s.starts, 'start') + ' this season'); }
-    if (d.pace != null) a.push(d.pace <= 0.25 ? 'Pace right on the field best (+' + r2(d.pace) + '%)' : 'Pace +' + r2(d.pace) + '% off the field best' + (d.sessions ? ' across ' + plural(d.sessions, 'session') : ''));
+    if (s.starts) { const cl = s.multi ? 'class ' : ''; if (s.wins) a.push(plural(s.wins, cl + 'win') + ' and ' + plural(s.pods, cl + 'podium') + ' from ' + plural(s.starts, 'start') + ' this season (avg ' + cl + 'finish P' + r1(s.avg) + ')'); else if (s.pods) a.push(plural(s.pods, cl + 'podium') + ' from ' + plural(s.starts, 'start') + ' this season (avg ' + cl + 'finish P' + r1(s.avg) + ')'); else a.push('Avg ' + cl + 'finish P' + r1(s.avg) + ' from ' + plural(s.starts, 'start') + ' this season'); }
+    if (d.paceRel != null) { const fb = meta.groupName ? 'class best' : 'field best'; a.push(d.paceRel <= 0.15 ? 'Pace right on the ' + fb : 'Pace +' + r2(d.paceRel) + '% off the ' + fb + (d.sessions ? ' across ' + plural(d.sessions, 'session') : '')); }
     if (d.cons != null && d.sessions >= 3) a.push(Math.round(d.cons) + '% consistency' + (d.risk != null ? ', race risk ' + Math.round(d.risk) + '%' + (d.risk <= 30 ? ' (a clean racer)' : d.risk >= 60 ? ' (can get ragged)' : '') : ''));
     if (d.rating != null) a.push('IFWL rating ' + Math.round(d.rating) + (d.ratingLevel ? ' (' + d.ratingLevel + ')' : ''));
     if (d.promoted) a.push('Promoted to ' + d.promoted.to + ' ' + Math.max(0, Math.round((now - d.promoted.dateMs) / 86400000)) + ' days ago');
@@ -306,7 +451,7 @@
     const o = [], nm = (d) => d.display || d.name;
     const f = c.picks[0]; if (f) o.push(nm(f) + ' (#' + (f.num || '?') + ') tops the numbers: ' + f.why.slice(0, 2).join('; ') + '.');
     const w = c.boards.wins[0]; if (w) o.push(nm(w) + ' has the most wins in the field this season with ' + plural(w.season.wins, 'victory', 'victories') + (c.boards.wins[1] && c.boards.wins[1].season.wins === w.season.wins ? ', level with ' + nm(c.boards.wins[1]) : '') + '.');
-    const fa = c.boards.fastest[0]; if (fa && fa !== f) o.push(nm(fa) + ' has the quickest raw pace on record (+' + r2(fa.pace) + '% to the benchmark)' + (f ? ', but ' + nm(f) + ' is the stronger all-round package.' : '.'));
+    const fa = c.boards.fastest[0]; if (fa && fa !== f) o.push(nm(fa) + ' has the quickest raw pace on record' + (f ? ', but ' + nm(f) + ' is the stronger all-round package.' : '.'));
     const cl = c.boards.cleanest[0]; if (cl) o.push(nm(cl) + ' is the cleanest racer on the grid, with an average race risk of just ' + Math.round(cl.risk) + '%.');
     if (c.teams.length >= 1 && c.teams[0].avg != null) o.push('Team battle: ' + c.teams[0].name + ' bring the strongest line-up (average watch score ' + c.teams[0].avg + ')' + (c.teams[1] && c.teams[1].avg != null ? ', ahead of ' + c.teams[1].name + ' (' + c.teams[1].avg + ').' : '.'));
     if (c.dark[0]) o.push('Dark horse: ' + nm(c.dark[0]) + ' (' + c.dark[0].tierName + ') is performing above their licence level on pace and results.');
@@ -334,7 +479,9 @@
     return s;
   };
   const tierChip = (x, y, d, s) => d.tierName ? chip(x, y, d.tierName, d.tierI.color, { s: s || 11 }) : chip(x, y, 'NO IFWL LICENCE', '#8d9bb0', { s: s || 11 });
-  const paceTxt = (d) => d.pace != null ? '+' + r2(d.pace) + '%' : '-';
+  const paceTxt = (d) => { const v = d.paceRel != null ? d.paceRel : d.pace; return v != null ? '+' + r2(v) + '%' : '-'; };
+  const gTitle = (m, base) => m.meta && m.meta.groupName ? base + '  -  ' + m.meta.groupName : base;
+  const gKick = (m) => m.meta && m.meta.groupName ? 'IFWL FIELD REPORT  ·  ' + m.meta.groupName.toUpperCase() : 'IFWL FIELD REPORT';
   const wps = (d) => d.starts ? ((d.season.wins || 0) + '-' + (d.season.pods || 0) + '-' + d.starts) : '-';
 
   function frame(pid, o, body) {
@@ -376,6 +523,7 @@
     b += panel(kx, y2, kw, h2, 'Make-up of the field');
     const groups = [['Driver category', f.classes], ['Platform', f.platforms], ['Car class', f.carClasses]];
     groups.forEach((g, i) => { const y = y2 + 58 + i * 68; const parts = g[1].map((c, j) => ({ name: c[0], n: c[1], c: PAL[j % PAL.length] })); b += tx(kx + 20, y, g[0].toUpperCase(), { s: 10.5, w: 800, c: FAINT, ls: 1.2 }); if (parts.length) b += stackBar(kx + 20, y + 8, kw - 40, 14, parts) + legend(kx + 20, y + 40, parts, kw - 40); else b += tx(kx + 20, y + 28, 'not in the files', { s: 12, c: FAINT }); });
+    if (m.grouped) { b += overviewGroups(m, pid, imgs); return frame(pid, { big: true, title: me.title || 'Field report', sub: [me.series, me.track, me.date].filter(Boolean).join('  ·  ') || 'Prepared from the entry list', right: me.prepared ? 'PREPARED FOR ' + me.prepared.toUpperCase() : 'COMMENTARY FACT SHEET', date: me.generated, page: pg.n, pages: pg.of }, b); }
     // top picks
     const py = 548; b += tx(M, py + 6, 'TOP FIVE TO WATCH', { s: 12, w: 800, c: GOLD, ls: 2.4 }) + tx(W - M, py + 6, 'Full breakdown on the next page', { s: 12, c: MUTE, a: 'end' });
     const cw = (W - 2 * M - 4 * 14) / 5, cy = py + 22, chh = 340;
@@ -416,7 +564,59 @@
     const ry = y0 + 28 + dh + 16, rh = 330 - 12; b += panel(RX, ry, RW, rh, 'On the rise  /  freshly promoted');
     m.rising.forEach((d, i) => { const y = ry + 46 + i * 88; b += avatar(RX + 40, y + 28, 22, d, imgs, pid) + tx(RX + 76, y + 20, d.display || d.name, { s: 16, w: 800, mw: RW - 170 }) + tx(RX + RW - 18, y + 20, d.num ? '#' + d.num : '', { s: 15, w: 800, a: 'end' }) + chip(RX + 76, y + 42, d.label, GOOD, { s: 10 }).svg; wrap(d.why.slice(0, 2).join('. '), 12, 600, RW - 96, 2).forEach((l, k) => { b += tx(RX + 76, y + 62 + k * 14, l, { s: 12, c: '#c9d4e3' }); }); });
     if (!m.rising.length) b += tx(RX + 20, ry + 86, 'No obvious risers or fresh promotions in this field.', { s: 13, c: MUTE, mw: RW - 40 });
-    return frame(pid, { title: 'Who to watch', sub: 'Ranked on pace (40%), season form (30%), IFWL rating (20%) and consistency (10%) - using only what exists for each driver', page: pg.n, pages: pg.of, date: m.meta.generated, right: (m.meta.title || '').toUpperCase() }, b);
+    return frame(pid, { kicker: gKick(m), title: gTitle(m, 'Who to watch'), sub: 'Ranked on pace (40%), season form (30%), IFWL rating (20%) and consistency (10%) - using only what exists for each driver', page: pg.n, pages: pg.of, date: m.meta.generated, right: (m.meta.title || '').toUpperCase() }, b);
+  }
+
+  /* ---------- class overview block + prediction page ---------- */
+  const pct0 = (p) => Math.round(p * 100) + '%';
+  const confCol = (c) => c === 'HIGH' ? GOOD : c === 'MEDIUM' ? WARN : '#ff8a8a';
+  function overviewGroups(m, pid, imgs) {
+    let b = ''; const gs = m.groups.slice(0, 4), k = gs.length, py = 548;
+    b += tx(M, py + 6, 'PREDICTED TOP FIVE  -  BY CLASS', { s: 12, w: 800, c: GOLD, ls: 2.4 }) + tx(W - M, py + 6, 'Chance of winning shown  ·  full breakdown on each class page' + (m.groups.length > 4 ? '  ·  first 4 classes shown' : ''), { s: 12, c: MUTE, a: 'end' });
+    const gw = (W - 2 * M - (k - 1) * 14) / k, cy = py + 22, ch = 362;
+    gs.forEach((g, gi) => {
+      const x = M + gi * (gw + 14); b += panel(x, cy, gw, ch) + tx(x + 20, cy + 30, g.group.name.toUpperCase(), { s: 15, w: 800, c: GOLD, ls: 1.2, mw: gw - 150 }) + tx(x + gw - 20, cy + 30, plural(g.drivers.filter((d) => !d.coDriver).length, 'car'), { s: 12, c: MUTE, a: 'end', w: 700 });
+      if (!g.pred) { b += tx(x + gw / 2, cy + 120, 'Not enough linked race data', { s: 14, c: MUTE, a: 'middle' }) + tx(x + gw / 2, cy + 142, 'to predict this class yet.', { s: 14, c: MUTE, a: 'middle' }); return; }
+      g.pred.top.forEach((d, i) => {
+        const y = cy + 52 + i * 61; if (i) b += rc(x + 16, y - 6, gw - 32, 1, { f: 'rgba(255,255,255,.07)' });
+        b += tx(x + 22, y + 28, i + 1, { s: 22, w: 800, c: i === 0 ? GOLD : MUTE }) + avatar(x + 70, y + 24, 17, d, imgs, pid)
+          + tx(x + 98, y + 20, d.display || d.name, { s: 15, w: 800, mw: gw - 98 - 86 }) + tx(x + 98, y + 38, [d.num ? '#' + d.num : '', d.tierName, d.carName].filter(Boolean).join('  ·  '), { s: 11.5, c: MUTE, mw: gw - 98 - 86 })
+          + tx(x + gw - 18, y + 24, pct0(d.pred.pWin), { s: 19, w: 800, c: i === 0 ? GOLD : INK, a: 'end' }) + tx(x + gw - 18, y + 38, 'TO WIN', { s: 9, w: 800, c: FAINT, a: 'end', ls: 1 });
+      });
+    });
+    return b;
+  }
+
+  function pagePredict(m, pid, imgs, pg) {
+    let b = ''; const LW = 900, RX = M + LW + 20, RW = W - M - RX, y0 = 120, P = m.pred;
+    const ttl = { kicker: gKick(m), title: gTitle(m, 'Predicted top five'), sub: 'Who is most likely to finish in the top five, worked out from the data  ·  ' + (P ? plural(P.sims, 'simulated race') : 'not enough data'), page: pg.n, pages: pg.of, date: m.meta.generated, right: (m.meta.title || '').toUpperCase() };
+    if (!P) { b += panel(M, y0 + 20, W - 2 * M, 150) + tx(W / 2, y0 + 90, 'Not enough linked race data in this class to make a prediction.', { s: 18, c: MUTE, a: 'middle' }) + tx(W / 2, y0 + 120, 'Check the licence names match, or add the entry CSV so more drivers can be linked.', { s: 14, c: FAINT, a: 'middle' }); return frame(pid, ttl, b); }
+    b += tx(M, y0 + 14, 'PREDICTED TOP FIVE', { s: 12, w: 800, c: GOLD, ls: 2.4 }) + tx(M + LW, y0 + 14, 'in predicted finishing order', { s: 12, c: MUTE, a: 'end' });
+    P.top.forEach((d, i) => {
+      const y = y0 + 28 + i * 148, pr = d.pred; b += rc(M, y, LW, 138, { r: 18, f: 'rgba(255,255,255,.04)', s: i === 0 ? rgba(GOLD, 0.65) : 'rgba(255,255,255,.1)', sw: i === 0 ? 2 : 1 });
+      b += tx(M + 18, y + 52, String(i + 1), { s: 40, w: 800, c: i === 0 ? GOLD : MUTE }) + avatar(M + 108, y + 69, 34, d, imgs, pid);
+      const x1 = M + 162; b += tx(x1, y + 36, d.display || d.name, { s: 24, w: 800, mw: 300 }); if (d.pron) b += tx(x1 + Math.min(300, textW(d.display || d.name, 24, 800)) + 12, y + 36, 'say: ' + d.pron, { s: 12.5, c: TEAL, w: 700, mw: 130 });
+      const c1 = chip(x1, y + 60, d.conf + ' CONFIDENCE', confCol(d.conf), { s: 9.5 }); b += c1.svg; b += tierChip(x1 + c1.w + 8, y + 60, d, 10).svg;
+      b += tx(x1, y + 82, [d.num ? '#' + d.num : '', d.carName, d.team2].filter(Boolean).join('  ·  '), { s: 13, c: MUTE, mw: 430 });
+      let ly = y + 98; (d.predWhy || []).slice(0, 2).forEach((l) => { b += rc(x1, ly - 2, 5, 5, { r: 2.5, f: TEAL }) + tx(x1 + 13, ly + 3, l, { s: 12.5, c: '#c9d4e3', mw: 440 }); ly += 15; });
+      if (d.predCaution) b += rc(x1, ly - 2, 5, 5, { r: 2.5, f: WARN }) + tx(x1 + 13, ly + 3, d.predCaution, { s: 12.5, c: '#ffd9a0', mw: 440 });
+      const sx = M + LW - 296; [['WIN', pr.pWin, GOLD], ['PODIUM', pr.pPod, INK], ['TOP 5', pr.pTop5, GOOD]].forEach((s, k) => { const xx = sx + 48 + k * 96; b += tx(xx, y + 56, pct0(s[1]), { s: k === 0 ? 30 : 26, w: 800, a: 'middle', c: s[2] }) + tx(xx, y + 74, s[0], { s: 9.5, w: 800, c: FAINT, a: 'middle', ls: 1 }); });
+      b += rc(sx, y + 94, 280, 8, { r: 4, f: 'rgba(255,255,255,.07)' }) + rc(sx, y + 94, 280 * pr.pTop5, 8, { r: 4, f: GOOD }) + tx(sx, y + 122, 'Likely to finish around P' + r1(pr.exp) + ' in class', { s: 12, c: MUTE, w: 600 });
+    });
+    // right column
+    let ry = y0 + 28; b += panel(RX, ry, RW, 250, 'Next in line  -  chance of a top five');
+    P.next.forEach((d, i) => { const y = ry + 52 + i * 38; b += tx(RX + 20, y + 14, d.pred.rank, { s: 13, w: 800, c: FAINT }) + tx(RX + 46, y + 14, d.display || d.name, { s: 14, w: 700, mw: 190 }) + (d.num ? tx(RX + 244, y + 14, '#' + d.num, { s: 12, c: FAINT, w: 700 }) : '') + rc(RX + 286, y + 4, 70, 8, { r: 4, f: 'rgba(255,255,255,.07)' }) + rc(RX + 286, y + 4, 70 * d.pred.pTop5, 8, { r: 4, f: BLUE }) + tx(RX + RW - 18, y + 14, pct0(d.pred.pTop5), { s: 14, w: 800, a: 'end' }); });
+    if (!P.next.length) b += tx(RX + 20, ry + 86, 'Nobody else in the class.', { s: 13, c: MUTE });
+    ry += 250 + 14; b += panel(RX, ry, RW, 198, 'Wildcards  -  could upset the order');
+    P.wild.forEach((d, i) => { const y = ry + 46 + i * 50; b += tx(RX + 20, y + 14, d.display || d.name, { s: 14.5, w: 800, mw: RW - 150 }) + tx(RX + RW - 18, y + 14, pct0(d.pred.pTop5) + ' top 5', { s: 13, w: 800, a: 'end', c: BLUE }) + tx(RX + 20, y + 32, d.predCaution || (d.predWhy && d.predWhy[0]) || '', { s: 11.5, c: MUTE, mw: RW - 40 }); });
+    if (!P.wild.length) b += tx(RX + 20, ry + 84, 'No obvious wildcards - the data is fairly clear.', { s: 13, c: MUTE, mw: RW - 40 });
+    ry += 198 + 14; const rh = H - 46 - 10 - ry; b += panel(RX, ry, RW, rh, 'How this is worked out');
+    const q = P.quality === 'good' ? 'Good data coverage' : P.quality === 'fair' ? 'Patchy data coverage' : 'Thin data coverage - treat with care';
+    const lines = wrap('Each driver is ranked against their own class on pace, recent class results, IFWL rating, consistency, race risk, licence tier and track history (if a track was entered). We then run ' + P.sims.toLocaleString('en-GB') + ' simulated races with realistic ups and downs - more swing where data is thin - and count how often each driver wins, makes the podium and finishes top five.', 12, 600, RW - 40, 6);
+    lines.forEach((l, k) => { b += tx(RX + 20, ry + 50 + k * 16, l, { s: 12, c: '#b9c6d8' }); });
+    const ly2 = ry + 50 + lines.length * 16 + 8; wrap('A guide, not a promise: qualifying, grid slots, weather and incidents are not in the numbers.', 12, 700, RW - 40, 3).forEach((l, k) => { b += tx(RX + 20, ly2 + k * 16, l, { s: 12, c: '#ffd9a0', w: 700 }); });
+    b += tx(RX + 20, ry + rh - 16, q + ': ' + P.withData + ' of ' + P.pool + ' drivers have enough history.', { s: 11.5, c: FAINT, w: 700, mw: RW - 40 });
+    return frame(pid, ttl, b);
   }
 
   function board(x, y, w, h, title, rows, fmt, col) {
@@ -434,19 +634,19 @@
     m.teams.slice(0, 5).forEach((t, i) => { const y = y0 + 52 + i * 57; b += tx(tx0 + 20, y + 14, t.name, { s: 15, w: 800, mw: tw - 130 }) + tx(tx0 + tw - 20, y + 14, t.avg == null ? '-' : t.avg, { s: 17, w: 800, a: 'end', c: GOLD }) + rc(tx0 + 20, y + 22, tw - 40, 7, { r: 3.5, f: 'rgba(255,255,255,.06)' }) + (t.avg != null ? rc(tx0 + 20, y + 22, (tw - 40) * t.avg / 100, 7, { r: 3.5, f: TEAL }) : '') + tx(tx0 + 20, y + 46, t.drivers.map((d) => (d.display || d.name).split(' ').slice(-1)[0] + (d.num ? ' #' + d.num : '')).join(' · '), { s: 12, c: MUTE, mw: tw - 40 }); });
     if (!m.teams.length) b += tx(tx0 + 20, y0 + 80, 'No teams with two or more drivers in the files.', { s: 13, c: MUTE, mw: tw - 40 });
     const bw = (W - 2 * M - 32) / 3, bh = 188, ry1 = y0 + 362, ry2 = ry1 + bh + 16;
-    b += board(M, ry1, bw, bh, 'Fastest on pace', m.boards.fastest, (d) => '+' + r2(d.pace) + '%')
+    b += board(M, ry1, bw, bh, m.meta.groupName ? 'Fastest on pace (gap to class best)' : 'Fastest on pace', m.boards.fastest, (d) => '+' + r2(d.paceRel != null ? d.paceRel : d.pace) + '%')
       + board(M + bw + 16, ry1, bw, bh, 'Cleanest racers (lowest risk)', m.boards.cleanest, (d) => Math.round(d.risk) + '%', GOOD)
       + board(M + 2 * (bw + 16), ry1, bw, bh, 'Most consistent', m.boards.consistent, (d) => Math.round(d.cons) + '%', BLUE)
       + board(M, ry2, bw, bh, 'Most wins this season', m.boards.wins, (d) => d.season.wins, GOLD)
       + board(M + bw + 16, ry2, bw, bh, 'Most podiums this season', m.boards.pods, (d) => d.season.pods, GOLD)
       + board(M + 2 * (bw + 16), ry2, bw, bh, 'Most race starts (experience)', m.boards.experienced, (d) => d.starts, PURPLE);
-    return frame(pid, { title: 'Records & storylines', sub: m.facts.seasonLabel ? m.facts.seasonLabel + ' season record  ·  ' + m.facts.seasonRaces + ' races on file' : 'Season record', page: pg.n, pages: pg.of, date: m.meta.generated, right: (m.meta.title || '').toUpperCase() }, b);
+    return frame(pid, { kicker: gKick(m), title: gTitle(m, 'Records & storylines'), sub: m.facts.seasonLabel ? m.facts.seasonLabel + ' season record  ·  ' + m.facts.seasonRaces + ' races on file' : 'Season record', page: pg.n, pages: pg.of, date: m.meta.generated, right: (m.meta.title || '').toUpperCase() }, b);
   }
 
-  const COLX = { num: 36, drv: 92, tier: 392, rtg: 556, car: 612, team: 800, cls: 960, plt: 1020, pace: 1078, cons: 1146, risk: 1204, wps: 1262 };
+  const COLX = { num: 36, drv: 92, tier: 392, rtg: 556, car: 612, team: 800, cls: 926, plt: 1022, pace: 1078, cons: 1146, risk: 1204, wps: 1262 };
   function pageEntries(m, pid, rows, pg, part, parts) {
     let b = ''; const y0 = 122, rh = 38;
-    const heads = [['num', '#'], ['drv', 'DRIVER'], ['tier', 'IFWL TIER'], ['rtg', 'RTG'], ['car', 'CAR'], ['team', 'TEAM'], ['cls', 'CAT'], ['plt', 'PLT'], ['pace', 'PACE'], ['cons', 'CONS'], ['risk', 'RISK'], ['wps', 'W-P-STARTS']];
+    const heads = [['num', '#'], ['drv', 'DRIVER'], ['tier', 'IFWL TIER'], ['rtg', 'RTG'], ['car', 'CAR'], ['team', 'TEAM'], ['cls', 'CLASS / CAT'], ['plt', 'PLT'], ['pace', 'PACE'], ['cons', 'CONS'], ['risk', 'RISK'], ['wps', 'W-P-STARTS']];
     heads.forEach((h) => { b += tx(COLX[h[0]], y0 + 10, h[1], { s: 10.5, w: 800, c: FAINT, ls: 1.2 }); });
     b += rc(M, y0 + 18, W - 2 * M, 1, { f: 'rgba(255,255,255,.12)' });
     rows.forEach((d, i) => {
@@ -454,10 +654,10 @@
       const cy = y + 25; const star = d.label ? tx(COLX.num - 22, cy, '★', { s: 14, c: d.label === 'DARK HORSE' ? TEAL : GOLD, w: 800 }) : '';
       b += star + tx(COLX.num, cy, (d.coDriver ? '' : (d.num || '-')), { s: 17, w: 800, c: INK }) + tx(COLX.drv, d.pron ? cy - 4 : cy, (d.coDriver ? '↳ ' : '') + (d.display || d.name), { s: 15, w: 700, mw: 292 }) + (d.pron ? tx(COLX.drv, cy + 10, 'say: ' + d.pron, { s: 10.5, c: TEAL, mw: 292, w: 600 }) : '');
       b += d.tierName ? chip(COLX.tier, cy, d.tierName.replace(/^IFWL-?/i, ''), d.tierI.color, { s: 10.5 }).svg : tx(COLX.tier, cy, 'No licence', { s: 12, c: FAINT });
-      b += tx(COLX.rtg, cy, d.rating != null ? Math.round(d.rating) : '-', { s: 14, w: 800, c: d.rating != null ? INK : FAINT }) + tx(COLX.car, cy, d.carName || '-', { s: 12.5, c: '#c9d4e3', mw: 180 }) + tx(COLX.team, cy, d.team2 || '-', { s: 12.5, c: '#c9d4e3', mw: 150 })
-        + tx(COLX.cls, cy, d.cls || '-', { s: 12, c: MUTE, mw: 56 }) + tx(COLX.plt, cy, (d.platform || '-').slice(0, 7), { s: 12, c: MUTE, mw: 54 }) + tx(COLX.pace, cy, paceTxt(d), { s: 13.5, w: 800 }) + tx(COLX.cons, cy, d.cons != null ? Math.round(d.cons) + '%' : '-', { s: 13.5, w: 700 }) + tx(COLX.risk, cy, d.risk != null ? Math.round(d.risk) + '%' : '-', { s: 13.5, w: 700, c: d.risk != null ? (d.risk <= 30 ? GOOD : d.risk >= 60 ? BAD : INK) : FAINT }) + tx(COLX.wps, cy, wps(d), { s: 13.5, w: 800 });
+      b += tx(COLX.rtg, cy, d.rating != null ? Math.round(d.rating) : '-', { s: 14, w: 800, c: d.rating != null ? INK : FAINT }) + tx(COLX.car, cy, d.carName || '-', { s: 12.5, c: '#c9d4e3', mw: 180 }) + tx(COLX.team, cy, d.team2 || '-', { s: 12.5, c: '#c9d4e3', mw: 116 })
+        + tx(COLX.cls, cy, d.groupName || d.cls || '-', { s: 12, c: d.groupName ? INK : MUTE, mw: 90, w: d.groupName ? 700 : 600 }) + tx(COLX.plt, cy, (d.platform || '-').slice(0, 7), { s: 12, c: MUTE, mw: 54 }) + tx(COLX.pace, cy, paceTxt(d), { s: 13.5, w: 800 }) + tx(COLX.cons, cy, d.cons != null ? Math.round(d.cons) + '%' : '-', { s: 13.5, w: 700 }) + tx(COLX.risk, cy, d.risk != null ? Math.round(d.risk) + '%' : '-', { s: 13.5, w: 700, c: d.risk != null ? (d.risk <= 30 ? GOOD : d.risk >= 60 ? BAD : INK) : FAINT }) + tx(COLX.wps, cy, wps(d), { s: 13.5, w: 800 });
     });
-    return frame(pid, { title: 'Entry list', sub: parts > 1 ? 'Part ' + part + ' of ' + parts + '  ·  ★ = on the watch list  ·  PACE = average gap to the field best' : '★ = on the watch list  ·  PACE = average gap to the field best  ·  W-P-STARTS = wins, podiums, race starts this season', page: pg.n, pages: pg.of, date: m.meta.generated, right: (m.meta.title || '').toUpperCase() }, b);
+    return frame(pid, { title: 'Entry list', sub: (parts > 1 ? 'Part ' + part + ' of ' + parts + '  ·  ' : '') + '★ = on the watch list  ·  PACE = gap to the best ' + (m.grouped ? 'in their class' : 'in the field') + (parts > 1 ? '' : '  ·  W-P-STARTS = ' + (m.grouped ? 'class ' : '') + 'wins, podiums, race starts this season'), page: pg.n, pages: pg.of, date: m.meta.generated, right: (m.meta.title || '').toUpperCase() }, b);
   }
 
   function pageSay(m, pid, rows, pg, part, parts) {
@@ -467,16 +667,19 @@
   }
 
   const numSort = (a, b) => { const x = parseInt(a.num, 10), y = parseInt(b.num, 10); if (isNaN(x) && isNaN(y)) return 0; if (isNaN(x)) return 1; if (isNaN(y)) return -1; return x - y || (a.coDriver ? 1 : 0) - (b.coDriver ? 1 : 0); };
+  const gslug = (g) => '-' + String(g || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   function renderPages(m, imgs) {
-    clipN = 0; const sorted = m.drivers.slice().sort(numSort); const ROWS = 20; const entryParts = Math.max(1, Math.ceil(sorted.length / ROWS));
+    clipN = 0; imgs = imgs || {}; const gOrder = new Map((m.groups || []).map((g, i) => [g.group && g.group.name, i]));
+    const sorted = m.drivers.slice().sort(m.grouped ? ((a, b) => (gOrder.get(a.groupName) ?? 99) - (gOrder.get(b.groupName) ?? 99) || numSort(a, b)) : numSort); const ROWS = 20; const entryParts = Math.max(1, Math.ceil(sorted.length / ROWS));
     const pron = sorted.filter((d) => d.pron); const sayParts = pron.length >= 6 ? Math.ceil(pron.length / 60) : 0;
-    const of = 3 + entryParts + sayParts; let n = 0; const out = [];
-    out.push({ name: 'overview', svg: pageOverview(m, 'fr' + (n) + '_', imgs || {}, { n: ++n, of }) });
-    out.push({ name: 'who-to-watch', svg: pageWatch(m, 'fr' + n + '_', imgs || {}, { n: ++n, of }) });
-    out.push({ name: 'records', svg: pageRecords(m, 'fr' + n + '_', imgs || {}, { n: ++n, of }) });
-    for (let p = 0; p < entryParts; p++) out.push({ name: 'entry-list' + (entryParts > 1 ? '-' + (p + 1) : ''), svg: pageEntries(m, 'fr' + n + '_', sorted.slice(p * ROWS, (p + 1) * ROWS), { n: ++n, of }, p + 1, entryParts) });
-    for (let p = 0; p < sayParts; p++) out.push({ name: 'say-it-right' + (sayParts > 1 ? '-' + (p + 1) : ''), svg: pageSay(m, 'fr' + n + '_', pron.slice(p * 60, (p + 1) * 60), { n: ++n, of }, p + 1, sayParts) });
-    return out;
+    const plan = [{ name: 'overview', fn: (pid, pg) => pageOverview(m, pid, imgs, pg) }];
+    (m.groups || [m]).forEach((gm) => { const sfx = m.grouped ? gslug(gm.group && gm.group.name) : '';
+      plan.push({ name: 'who-to-watch' + sfx, fn: (pid, pg) => pageWatch(gm, pid, imgs, pg) });
+      plan.push({ name: 'prediction' + sfx, fn: (pid, pg) => pagePredict(gm, pid, imgs, pg) });
+      plan.push({ name: 'records' + sfx, fn: (pid, pg) => pageRecords(gm, pid, imgs, pg) }); });
+    for (let p = 0; p < entryParts; p++) plan.push({ name: 'entry-list' + (entryParts > 1 ? '-' + (p + 1) : ''), fn: (pid, pg) => pageEntries(m, pid, sorted.slice(p * ROWS, (p + 1) * ROWS), pg, p + 1, entryParts) });
+    for (let p = 0; p < sayParts; p++) plan.push({ name: 'say-it-right' + (sayParts > 1 ? '-' + (p + 1) : ''), fn: (pid, pg) => pageSay(m, pid, pron.slice(p * 60, (p + 1) * 60), pg, p + 1, sayParts) });
+    return plan.map((pl, i) => ({ name: pl.name, svg: pl.fn('fr' + i + '_', { n: i + 1, of: plan.length }) }));
   }
 
   /* ============================================================
@@ -519,8 +722,8 @@
   }
   function csvOf(m) {
     const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const head = ['Car', 'Driver', 'Steam ID', 'SimGrid username', 'Category', 'Car model', 'Team', 'Platform', 'IFWL match', 'Licence no.', 'IFWL tier', 'IFWL rating', 'Pace gap %', 'Consistency %', 'Race risk %', 'Sessions', 'Season starts', 'Wins', 'Podiums', 'Avg finish', 'Watch score', 'Watch label', 'Pronunciation'];
-    const rows = m.drivers.slice().sort(numSort).map((d) => [d.num, d.display || d.name, d.steamId, d.username, d.cls, d.carName, d.team2, d.platform, d.lic ? (d.accepted ? d.how : 'unconfirmed') : 'none', d.lic && d.accepted ? d.lic.licenceNumber : '', d.tierName, d.rating == null ? '' : Math.round(d.rating), d.pace == null ? '' : r2(d.pace), d.cons == null ? '' : Math.round(d.cons), d.risk == null ? '' : Math.round(d.risk), d.sessions, d.starts, d.season ? d.season.wins : '', d.season ? d.season.pods : '', d.season && d.season.avg != null ? r1(d.season.avg) : '', d.score == null ? '' : d.score, d.label, d.pron]);
+    const head = ['Car', 'Driver', 'Steam ID', 'SimGrid username', 'Category', 'Car model', 'Team', 'Platform', 'IFWL match', 'Licence no.', 'IFWL tier', 'IFWL rating', 'Pace gap %', 'Consistency %', 'Race risk %', 'Sessions', 'Season starts', 'Wins', 'Podiums', 'Avg finish', 'Watch score', 'Watch label', 'Pronunciation', 'Class group', 'Pace vs class best %', 'Class wins', 'Class podiums', 'Predicted finish (class)', 'Win chance %', 'Podium chance %', 'Top 5 chance %', 'Prediction confidence'];
+    const rows = m.drivers.slice().sort((a, b) => String(a.groupName || '').localeCompare(String(b.groupName || '')) || numSort(a, b)).map((d) => [d.num, d.display || d.name, d.steamId, d.username, d.cls, d.carName, d.team2, d.platform, d.lic ? (d.accepted ? d.how : 'unconfirmed') : 'none', d.lic && d.accepted ? d.lic.licenceNumber : '', d.tierName, d.rating == null ? '' : Math.round(d.rating), d.pace == null ? '' : r2(d.pace), d.cons == null ? '' : Math.round(d.cons), d.risk == null ? '' : Math.round(d.risk), d.sessions, d.starts, d.season ? d.season.wins : '', d.season ? d.season.pods : '', d.season && d.season.avg != null ? r1(d.season.avg) : '', d.score == null ? '' : d.score, d.label, d.pron, d.groupName || '', d.paceRel == null ? '' : r2(d.paceRel), d.season ? d.season.wins : '', d.season ? d.season.pods : '', d.pred ? r1(d.pred.exp) : '', d.pred ? Math.round(d.pred.pWin * 100) : '', d.pred ? Math.round(d.pred.pPod * 100) : '', d.pred ? Math.round(d.pred.pTop5 * 100) : '', d.pred ? d.conf : '']);
     return '﻿' + [head].concat(rows).map((r) => r.map(q).join(',')).join('\r\n');
   }
   async function toDataUrl(url) { try { const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 5000); const r = await fetch(url, { mode: 'cors', signal: ctl.signal }); clearTimeout(t); if (!r.ok) return ''; const b = await r.blob(); if (b.size > 2.5e6) return ''; return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = () => res(''); fr.readAsDataURL(b); }); } catch (_) { return ''; } }
@@ -528,7 +731,7 @@
   /* ============================================================
      7. THE PANEL
      ============================================================ */
-  const CSS = '.frx{--l:rgba(127,127,127,.28)}.frx .frx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:14px}.frx label{display:block;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin-bottom:4px}.frx input[type=text],.frx input[type=date]{width:100%;box-sizing:border-box}'
+  const CSS = '.frx{--l:rgba(127,127,127,.28)}.frx .frx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:14px}.frx label{display:block;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin-bottom:4px}.frx input[type=text],.frx input[type=date],.frx select{width:100%;box-sizing:border-box}.frx select{padding:9px 10px;border-radius:10px;border:1px solid var(--l);background:transparent;color:inherit;font:inherit;font-size:13px}.frx select option{color:#111}'
     + '.frx .frx-drop{border:1px dashed var(--l);border-radius:12px;padding:12px}.frx .frx-drop textarea{width:100%;min-height:70px;font-family:monospace;font-size:11px;margin-top:8px;box-sizing:border-box}.frx .frx-file{font-size:12px;opacity:.75;margin-top:6px}'
     + '.frx .frx-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}.frx .frx-st{font-size:13px;opacity:.85}.frx .frx-h{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;opacity:.7;margin:22px 0 8px}'
     + '.frx .frx-warn{border:1px solid var(--l);border-left-width:4px;border-radius:10px;padding:8px 12px;margin:6px 0;font-size:13px}.frx .frx-warn.bad{border-left-color:#ff5464}.frx .frx-warn.warn{border-left-color:#ffb454}.frx .frx-warn.info{border-left-color:#5aa9ff}'
@@ -547,7 +750,8 @@
       + '<div><label>Series / class (optional)</label><input type="text" data-f="series" placeholder="e.g. IFWL GT3 Championship" maxlength="80"></div>'
       + '<div><label>Track (optional - adds track history)</label><input type="text" data-f="track" placeholder="e.g. Spa" maxlength="60"></div>'
       + '<div><label>Race date (optional)</label><input type="date" data-f="date" value=""></div>'
-      + '<div><label>Prepared for (optional)</label><input type="text" data-f="prepared" placeholder="e.g. Commentary team" maxlength="60"></div></div>'
+      + '<div><label>Prepared for (optional)</label><input type="text" data-f="prepared" placeholder="e.g. Commentary team" maxlength="60"></div>'
+      + '<div><label>Split the report by</label><select data-f="split"><option value="auto">Auto - car class (GT3 / GT4) or driver category (Pro / Am)</option><option value="class">Car class (GT3 / GT4 ...)</option><option value="cat">Driver category (Pro / Am ...)</option><option value="both">Car class + category</option><option value="none">One combined field</option></select></div></div>'
       + '<div class="frx-grid"><div class="frx-drop"><label>Entrylist JSON (ACC server file)</label><input type="file" data-f="jsonFile" accept=".json,application/json"><div class="frx-file" data-f="jsonName"></div><details><summary style="cursor:pointer;font-size:12px;margin-top:8px;opacity:.75">or paste it</summary><textarea data-f="jsonText" placeholder="Paste the entrylist.json text here"></textarea></details></div>'
       + '<div class="frx-drop"><label>Entry CSV (SimGrid export)</label><input type="file" data-f="csvFile" accept=".csv,text/csv,text/plain"><div class="frx-file" data-f="csvName"></div><details><summary style="cursor:pointer;font-size:12px;margin-top:8px;opacity:.75">or paste it</summary><textarea data-f="csvText" placeholder="Paste the CSV text here"></textarea></details></div></div>'
       + '<div class="frx-row"><button class="btn teal" type="button" data-a="build">Build the field report</button><span class="frx-st" data-f="status"></span></div>'
@@ -566,8 +770,8 @@
       await loadPerf(S.drivers, status);
       S.drivers.forEach((d) => { const r = seasonFor(d, idx, meta.track); d.season = r.s; d.track = r.tk; });
       status('Working out who to watch…');
-      let m = analyse({ drivers: S.drivers, tiers: S.tiers, nowMs: S.nowMs, meta, ratingVisible: S.ratingVisible, seasonRaces: idx.races.length, seasonLabel: idx.season && idx.season.label ? idx.season.label : '' });
-      const want = m.picks.concat(m.dark, m.rising).filter((d) => d.lic && d.accepted && d.lic.avatarUrl && !S.imgs[d.key]);
+      let m = analyseAll({ split: ($('split') && $('split').value) || 'auto', drivers: S.drivers, tiers: S.tiers, nowMs: S.nowMs, meta, ratingVisible: S.ratingVisible, seasonRaces: idx.races.length, seasonLabel: idx.season && idx.season.label ? idx.season.label : '' });
+      const want = [].concat.apply([], (m.groups || [m]).map((g) => g.picks.concat(g.dark, g.rising, g.pred ? g.pred.top : []))).filter((d) => d.lic && d.accepted && d.lic.avatarUrl && !S.imgs[d.key]);
       await Promise.all(want.map(async (d) => { const u = await toDataUrl(d.lic.avatarUrl); if (u) S.imgs[d.key] = u; }));
       S.m = m; S.pages = renderPages(m, S.imgs); S.seasonError = idx.error; return m;
     }
@@ -578,6 +782,7 @@
       const f = m.facts, how = { steam: 0, username: 0, name: 0, check: 0, ok: 0, none: 0 };
       S.drivers.forEach((d) => { if (!d.lic) how.none++; else if (d.how === 'check') { if (d.accepted) how.ok++; else how.check++; } else how[d.how] = (how[d.how] || 0) + 1; });
       let h = '<div class="frx-h">What was found</div><div class="notice-card">' + plural(f.drivers, 'driver') + ' in ' + plural(f.entries, 'entry', 'entries') + '. Matched to an IFWL licence: <strong>' + f.licensed + '</strong> (' + how.steam + ' by Steam ID, ' + how.username + ' by SimGrid name, ' + how.name + ' by name' + (how.ok ? ', ' + how.ok + ' confirmed by you' : '') + ').' + (how.check ? ' <strong>' + how.check + ' need a quick check below.</strong>' : '') + (how.none ? ' ' + how.none + ' have no IFWL licence.' : '') + (S.seasonError ? '<br>' + esc2(S.seasonError) : '') + (S.ratingVisible ? '' : '<br>IFWL rating is not shown to your account right now, so it is left out of the scores.') + '</div>';
+      h += '<div class="frx-h">Classes</div><div class="notice-card">' + (m.grouped ? 'The field was split into ' + m.groups.map((g) => '<strong>' + esc2(g.group.name) + '</strong> (' + plural(g.drivers.filter((d) => !d.coDriver).length, 'car') + ')').join(', ') + '. Each class gets its own who-to-watch, predicted top five and records pages, and drivers are only ranked against their own class. Class names come from the CSV class column, or from the entrylist driver category (3 = Pro, 2 = Pro-Am, 1 = Am, 0 = Beginner).' : 'Treated as one field' + (($('split') && $('split').value === 'auto') ? ' - no separate car classes or driver categories were found in the files.' : '.')) + ' Wrong split? Change <em>Split the report by</em> above, then <button class="btn ghost" type="button" data-a="update" style="padding:4px 10px;margin-left:4px">Update report</button></div>';
       if (S.warnings && S.warnings.length) h += '<div class="frx-h">Checks on your files</div>' + S.warnings.map((w) => '<div class="frx-warn ' + w.lvl + '">' + esc2(w.text) + '</div>').join('');
       const chk = S.drivers.filter((d) => d.lic && d.how === 'check');
       if (chk.length) h += '<div class="frx-h">Please confirm these name matches</div><div class="table-wrap"><table class="frx-t"><thead><tr><th>Use</th><th>In your file</th><th>Possible IFWL licence</th><th>Tier</th></tr></thead><tbody>' + chk.map((d) => '<tr><td><input type="checkbox" data-chk="' + d.key + '"' + (d.accepted ? ' checked' : '') + '></td><td>' + esc2(d.name) + (d.num ? ' <small>#' + esc2(d.num) + '</small>' : '') + '</td><td>' + esc2(d.lic.name) + ' <small>' + esc2(d.lic.licenceNumber) + '</small></td><td>' + esc2(d.lic.tier) + '</td></tr>').join('') + '</tbody></table></div><div class="field-hint">Tick the ones that really are the same person, then press Update report. Unticked names are treated as having no licence.</div><div class="frx-row"><button class="btn purple" type="button" data-a="update">Update report</button></div>';
@@ -627,5 +832,5 @@
   function mountAll() { document.querySelectorAll('[data-field-report]').forEach(mount); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll); else mountAll();
   window.addEventListener('ifwl-auth-changed', mountAll);
-  window.IFWL_FieldReport = { mount, mountAll, parseEntrylistJson, parseEntryCsv, buildDrivers, analyse, renderPages, csvOf, pdfMulti, _seasonFor: seasonFor, _matchLicences: matchLicences };
+  window.IFWL_FieldReport = { mount, mountAll, parseEntrylistJson, parseEntryCsv, buildDrivers, analyse, analyseAll, buildGroups, predict, renderPages, csvOf, pdfMulti, _seasonFor: seasonFor, _matchLicences: matchLicences };
 })();
