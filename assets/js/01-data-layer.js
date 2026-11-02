@@ -1154,14 +1154,14 @@
     const url = `${FN}?${action}=1&token=${encodeURIComponent(token)}${extra||''}`;
     const r = await fetch(url, {cache:'no-store'});
     const d = await r.json().catch(()=>({}));
-    if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
+    if(!r.ok){ if(r.status === 403 && d && d.suspended){ try{ window.IFWL_AUTH?.suspended?.(d); }catch(_){} } const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
     return d;
   }
   async function apiPost(action, body){
     const token = window.IFWL_AUTH?.sessionToken() || '';
     const r = await fetch(`${FN}?${action}=1&token=${encodeURIComponent(token)}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
     const d = await r.json().catch(()=>({}));
-    if(!r.ok){ const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
+    if(!r.ok){ if(r.status === 403 && d && d.suspended){ try{ window.IFWL_AUTH?.suspended?.(d); }catch(_){} } const err = new Error(d?.error || `Request "${action}" failed (${r.status})`); err.body = d; err.status = r.status; throw err; }
     return d;
   }
 
@@ -6536,37 +6536,39 @@
   // index.js for the backend half (that's also where the Discord webhook
   // now lives, instead of sitting exposed in client JS like the old portal).
   let ticketLicenceRoster = [];
-  let ticketLegacyRoster = [];
 
   function ticketSafeStr(v){ return (typeof v === 'string' ? v : '').trim(); }
   function ticketExtractNumbers(text){ const nums = String(text||'').match(/\d+/g); return nums ? nums.join('') : ''; }
 
+  // Licensed drivers only. One row per in-game (ACC / LMU) name so the ticket still carries the exact
+  // name the stewards and the clean-race check match on, but every row is searchable by anything that
+  // identifies the licence: licence name, Discord name, in-game name(s) or licence number.
+  function ticketBuildEntries(drivers){
+    const entries = [];
+    (drivers || []).forEach(p => {
+      const names = (Array.isArray(p.names) ? p.names : (p.accDriverNames || [])).map(ticketSafeStr).filter(Boolean);
+      if(!names.length && ticketSafeStr(p.name)) names.push(ticketSafeStr(p.name));
+      const licName = ticketSafeStr(p.name), disc = ticketSafeStr(p.discordUsername), num = ticketSafeStr(p.licenceNumber);
+      const hay = [licName, disc, num, ...names].join(' ').toLowerCase();
+      names.forEach(n => entries.push({ fullName:n, licenceName:licName, discord:disc, tier:ticketSafeStr(p.tier||''), licenceNumber:num, searchText:hay,
+        starts:[n, licName, disc, num].map(x => x.toLowerCase()).filter(Boolean) }));
+    });
+    return entries;
+  }
   async function loadTicketLicenceRoster(){
+    ticketLicenceRoster = [];
+    // Preferred: the logged-in directory (includes Discord names). Falls back to the public roster
+    // (no Discord names) if that endpoint is not available yet.
+    try{
+      const data = await apiGet('ticketDriverDirectory');
+      ticketLicenceRoster = ticketBuildEntries(data.drivers);
+      return;
+    }catch(e){ console.warn('ticketDriverDirectory unavailable, using public licence roster', e); }
     try{
       const r = await fetch(`${FN}?licenceRoster=1`);
       const data = await r.json();
-      const roster = Array.isArray(data.drivers) ? data.drivers : [];
-      const entries = [];
-      roster.forEach(p => (p.accDriverNames||[]).forEach(n => {
-        const name = ticketSafeStr(n);
-        if(!name) return;
-        entries.push({ fullName:name, number:ticketExtractNumbers(name), tier: ticketSafeStr(p.tier||''), licenceNumber: ticketSafeStr(p.licenceNumber||''), searchText:`${name} ${p.licenceNumber||''}`.toLowerCase() });
-      }));
-      ticketLicenceRoster = entries;
+      ticketLicenceRoster = ticketBuildEntries((Array.isArray(data.drivers) ? data.drivers : []).map(p => ({ name:p.name, licenceNumber:p.licenceNumber, tier:p.tier, names:p.accDriverNames })));
     }catch(e){ console.warn('Could not load licence roster for ticket form', e); ticketLicenceRoster = []; }
-  }
-
-  async function loadTicketLegacyRoster(){
-    try{
-      const data = await apiGet('legacyDriverRoster');
-      const rows = Array.isArray(data.drivers) ? data.drivers : [];
-      const withText = rows.map(d => ({...d, searchText:`${d.fullName} ${d.name} ${d.number} ${ticketExtractNumbers(d.fullName)}`.toLowerCase().replace(/\s+/g,' ').trim()}));
-      const numbered = withText.filter(d => !isNaN(parseInt(d.number,10)));
-      const unnumbered = withText.filter(d => isNaN(parseInt(d.number,10)));
-      numbered.sort((a,b) => parseInt(a.number,10)-parseInt(b.number,10));
-      unnumbered.sort((a,b) => a.fullName.localeCompare(b.fullName));
-      ticketLegacyRoster = [...numbered, ...unnumbered];
-    }catch(e){ console.warn('Could not load legacy driver roster for ticket form', e); ticketLegacyRoster = []; }
   }
 
   async function loadTicketTrackList(){
@@ -6599,18 +6601,25 @@
     const searchInput = q('ticketAccusedSearch');
     const resultsEl = q('ticketAccusedResults');
     const hiddenSelect = q('ticketAccusedSelect');
-    const manualBtn = q('ticketAccusedManualBtn');
     const clearBtn = q('ticketAccusedClearBtn');
     const manualContainer = q('ticketNewDriverContainer');
     const manualNameInput = q('ticketNewDriverInput');
     const manualNumberInput = q('ticketNewDriverNumber');
+    const pickedEl = q('ticketAccusedPicked');
     if(!searchInput) return;
 
     function closeResults(){ resultsEl.classList.add('hidden'); resultsEl.innerHTML=''; }
     function openResults(){ resultsEl.classList.remove('hidden'); }
+    const esc = t => String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    function pickDriver(fullName){
-      const name = fullName || '';
+    function setPicked(d){
+      if(!pickedEl) return;
+      if(!d){ pickedEl.classList.add('hidden'); pickedEl.innerHTML = ''; return; }
+      pickedEl.innerHTML = `Reporting <strong>${esc(d.fullName)}</strong>` + (d.licenceName && d.licenceName !== d.fullName ? ` &middot; licence name ${esc(d.licenceName)}` : '') + (d.licenceNumber ? ` &middot; ${esc(d.licenceNumber)}` : '') + '. Check this is the right driver before you submit.';
+      pickedEl.classList.remove('hidden');
+    }
+    function pickDriver(d){
+      const name = d.fullName || '';
       if(name && !Array.from(hiddenSelect.options).some(o => o.value === name)){
         const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
         hiddenSelect.appendChild(opt);
@@ -6619,64 +6628,46 @@
       searchInput.value = name;
       manualContainer.classList.add('hidden');
       manualNameInput.value = ''; manualNumberInput.value = '';
+      setPicked(d);
       closeResults();
-    }
-    function showManual(prefillQuery){
-      hiddenSelect.value = '__ADD_NEW__';
-      const q2 = ticketSafeStr(prefillQuery);
-      if(q2 && /^\d+$/.test(q2)){ manualNumberInput.value = q2; manualNameInput.value=''; }
-      else{ manualNameInput.value = q2; }
-      manualContainer.classList.remove('hidden');
-      closeResults();
-      setTimeout(() => manualNameInput.focus(), 50);
     }
 
-    function filterLicence(qtext){ const q2 = qtext.toLowerCase(); return q2 ? ticketLicenceRoster.filter(d => d.searchText.includes(q2)) : []; }
-    function filterLegacy(qtext){ const q2 = qtext.toLowerCase(); return q2 ? ticketLegacyRoster.filter(d => d.searchText.includes(q2)) : []; }
+    // Every word typed has to match somewhere on the licence (name, Discord name, in-game name, licence
+    // number), so "alex 0111" or "ifwl 0111" or "@alexr" all work. Nothing is listed until something is typed.
+    function filterLicence(qtext){
+      const terms = qtext.toLowerCase().split(/\s+/).map(t => t.replace(/^@/, '')).filter(Boolean);
+      if(!terms.length) return [];
+      const hits = ticketLicenceRoster.filter(d => terms.every(t => d.searchText.includes(t)));
+      const t0 = terms[0];
+      const score = d => d.fullName.toLowerCase().startsWith(t0) ? 0 : d.starts.some(x => x.startsWith(t0)) ? 1 : 2;
+      return hits.sort((a, b) => score(a) - score(b) || a.fullName.localeCompare(b.fullName));
+    }
 
     searchInput.addEventListener('input', () => {
+      // typing again always un-picks: the accused is whoever was last CLICKED in the list, never free text
+      hiddenSelect.value = ''; setPicked(null);
       const qtext = ticketSafeStr(searchInput.value);
-      if(!qtext){ hiddenSelect.value=''; closeResults(); return; }
-      const licenceMatches = filterLicence(qtext).slice(0,15);
-      const legacyMatches = filterLegacy(qtext).slice(0,30);
+      if(!qtext){ closeResults(); return; }
+      const matches = filterLicence(qtext);
       resultsEl.innerHTML = '';
-
-      if(!licenceMatches.length && !legacyMatches.length){
-        openResults();
-        resultsEl.innerHTML = `<div class="no-results"><div>No results for "${qtext.replace(/</g,'&lt;')}"</div>
-          <div style="margin-top:8px"><button type="button" class="btn ghost" id="ticketAddNewFromSearch" style="font-size:11px">+ Add this driver</button></div></div>`;
-        q('ticketAddNewFromSearch').addEventListener('click', () => showManual(qtext));
+      openResults();
+      if(!matches.length){
+        resultsEl.innerHTML = `<div class="no-results"><div>No licensed driver matches "${esc(qtext)}"</div>
+          <div class="field-hint" style="margin-top:6px">Tickets can only be raised against a driver who has an IFWL licence. Try their name, Discord name, in-game driver name or licence number.</div></div>`;
         return;
       }
-      openResults();
-      if(licenceMatches.length){
-        const header = document.createElement('div');
-        header.className = 'result-section-header';
-        header.textContent = 'Licensed IFWL Drivers';
-        resultsEl.appendChild(header);
-        licenceMatches.forEach(d => {
-          const item = document.createElement('div');
-          item.className = 'result-item';
-          item.innerHTML = `<div>${d.fullName.replace(/</g,'&lt;')}${d.tier?`<span class="licence-tier-tag">${d.tier}</span>`:''}</div><div class="result-meta">${d.licenceNumber||''}</div>`;
-          item.addEventListener('click', () => pickDriver(d.fullName));
-          resultsEl.appendChild(item);
-        });
-      }
-      if(legacyMatches.length){
-        if(licenceMatches.length){
-          const header2 = document.createElement('div');
-          header2.className = 'result-section-header';
-          header2.textContent = 'All Drivers';
-          resultsEl.appendChild(header2);
-        }
-        legacyMatches.forEach(d => {
-          const item = document.createElement('div');
-          item.className = 'result-item';
-          item.innerHTML = `<div>${d.fullName.replace(/</g,'&lt;')}</div><div class="result-meta">${d.number?'#'+d.number:''}</div>`;
-          item.addEventListener('click', () => pickDriver(d.fullName));
-          resultsEl.appendChild(item);
-        });
-      }
+      const header = document.createElement('div');
+      header.className = 'result-section-header';
+      header.textContent = 'Licensed IFWL Drivers' + (matches.length > 15 ? ` (showing 15 of ${matches.length} - keep typing to narrow it down)` : '');
+      resultsEl.appendChild(header);
+      matches.slice(0, 15).forEach(d => {
+        const item = document.createElement('div');
+        item.className = 'result-item';
+        const who = [d.licenceName && d.licenceName !== d.fullName ? d.licenceName : '', d.discord ? '@' + d.discord : ''].filter(Boolean).join(' \u00b7 ');
+        item.innerHTML = `<div>${esc(d.fullName)}${d.tier?`<span class="licence-tier-tag">${esc(d.tier)}</span>`:''}</div><div class="result-meta">${esc(who)}${who && d.licenceNumber ? ' \u00b7 ' : ''}${esc(d.licenceNumber)}</div>`;
+        item.addEventListener('click', () => pickDriver(d));
+        resultsEl.appendChild(item);
+      });
     });
 
     document.addEventListener('click', (e) => {
@@ -6687,14 +6678,11 @@
       e.preventDefault();
       const qtext = ticketSafeStr(searchInput.value);
       if(!qtext) return;
-      const licenceMatches = filterLicence(qtext), legacyMatches = filterLegacy(qtext);
-      if(licenceMatches.length===1 && !legacyMatches.length) pickDriver(licenceMatches[0].fullName);
-      else if(legacyMatches.length===1 && !licenceMatches.length) pickDriver(legacyMatches[0].fullName);
-      else if(!licenceMatches.length && !legacyMatches.length) showManual(qtext);
+      const matches = filterLicence(qtext);
+      if(matches.length === 1) pickDriver(matches[0]);
     });
-    manualBtn.addEventListener('click', () => showManual(searchInput.value));
     clearBtn.addEventListener('click', () => {
-      searchInput.value=''; hiddenSelect.value=''; manualContainer.classList.add('hidden');
+      searchInput.value=''; hiddenSelect.value=''; setPicked(null); manualContainer.classList.add('hidden');
       manualNameInput.value=''; manualNumberInput.value=''; closeResults();
     });
   }
@@ -6872,7 +6860,7 @@
       const name = (currentProfile.accDriverNames||[])[0] || currentProfile.name || 'you';
       reportingAs.textContent = `Reporting as: ${name}`;
     }
-    await Promise.all([loadTicketLicenceRoster(), loadTicketLegacyRoster(), loadTicketTrackList()]);
+    await Promise.all([loadTicketLicenceRoster(), loadTicketTrackList()]);
     setupTicketAccusedPicker();
 
     // ✅ ADDED: Gold Patreon perk - video evidence upload, up to 100MB,
@@ -6910,7 +6898,7 @@
       const accusedNameManual = ticketSafeStr(q('ticketNewDriverInput').value);
       const accusedValid = (accused && accused !== '__ADD_NEW__') || (accused === '__ADD_NEW__' && accusedNameManual);
       if(!competition || !accusedValid || !summary){
-        statusMsg.textContent = 'Please fill in all required fields: Accused, Competition, Full Incident Summary.';
+        statusMsg.textContent = !(accused && accused !== '__ADD_NEW__') ? 'Search for the accused driver and pick them from the list - they must have an IFWL licence.' : 'Please fill in all required fields: Accused, Competition, Full Incident Summary.';
         statusMsg.className = 'save-status error';
         return false;
       }
@@ -6975,7 +6963,7 @@
         statusMsg.textContent = `Ticket submitted (ID: ${result.id}). Thank you!`;
         statusMsg.className = 'save-status success';
 
-        q('ticketAccusedSearch').value = ''; q('ticketAccusedSelect').value = '';
+        q('ticketAccusedSearch').value = ''; q('ticketAccusedSelect').value = ''; { const pk = q('ticketAccusedPicked'); if(pk){ pk.classList.add('hidden'); pk.innerHTML = ''; } }
         q('ticketNewDriverContainer').classList.add('hidden');
         q('ticketNewDriverInput').value = ''; q('ticketNewDriverNumber').value = '';
         q('ticketFullIncident').value = '';

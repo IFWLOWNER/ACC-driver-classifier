@@ -102,6 +102,17 @@
     return window.IFWL_Api.apiPost('staffLicenceBan', { driverId: id, lift: true });
   }
 
+  // Licence suspension: blocks the driver from the IFWL licence system (sign-in + any
+  // session they hold). Separate from a ban. Server enforces Owner/Ops, reason, 1-365 days.
+  async function staffSuspendLicence(id, days, reason, indefinite){
+    if(!reason || !reason.trim()) throw new Error('A reason is required - the driver sees it.');
+    if(!indefinite && (!Number.isFinite(days) || days < 1 || days > 365)) throw new Error('Suspension length must be 1-365 days, or tick indefinite.');
+    return window.IFWL_Api.apiPost('staffLicenceSuspend', { driverId: id, reason: reason.trim(), days: indefinite ? null : days, indefinite: !!indefinite });
+  }
+  async function staffReinstateLicence(id){
+    return window.IFWL_Api.apiPost('staffLicenceSuspend', { driverId: id, lift: true });
+  }
+
   // ✅ ADDED: image moderation - removes a profile photo or header image
   // with a mandatory reason, optionally banning in the same action. No
   // demo-mode fallback for this one - it's a moderation action, always
@@ -283,7 +294,17 @@
 
     alerts.sort((a,b) => (a.acknowledged === b.acknowledged ? 0 : a.acknowledged ? 1 : -1) || (b.createdAtMs||0) - (a.createdAtMs||0));
 
-    wrap.innerHTML = alerts.map(a => `
+    wrap.innerHTML = alerts.map(a => a.type === 'erasureRequest' ? `
+      <div class="note-item" style="${a.acknowledged ? 'opacity:.55' : ''}">
+        <span class="points-value" style="font-size:15px;display:inline;margin-right:8px;color:#d92d20">DATA DELETION</span>
+        <strong>${a.driverName || 'A driver'}</strong> has asked to delete their licence and data
+        <div class="note-meta">
+          ${new Date(a.createdAtMs || Date.now()).toLocaleString()}
+          ${a.acknowledged ? ` &middot; acknowledged by ${a.acknowledgedBy || 'staff'}` : ''}
+        </div>
+        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn teal" data-open-erasure type="button">Open deletion requests</button>${a.acknowledged ? '' : `<button class="btn ghost" data-ack-alert="${a.id}" type="button">Acknowledge</button>`}</div>
+      </div>
+    ` : `
       <div class="note-item" style="${a.acknowledged ? 'opacity:.55' : ''}">
         <span class="points-value ${staffAlertBandClass(a.band)}" style="font-size:15px;display:inline;margin-right:8px">${staffAlertBandLabel(a.band)}</span>
         <strong>${a.driverName || 'Unknown driver'}</strong> is now on <strong>${a.points}</strong> licence points
@@ -295,6 +316,7 @@
       </div>
     `).join('');
 
+    wrap.querySelectorAll('[data-open-erasure]').forEach(btn => btn.addEventListener('click', () => { if(window.switchView) window.switchView('staffErasure'); }));
     wrap.querySelectorAll('[data-ack-alert]').forEach(btn => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
@@ -1498,6 +1520,24 @@
         <span class="save-status" id="edBanStatus"></span>
       `}
       <hr style="border-color:var(--ifwl-line);margin:18px 0">
+      <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Suspend licence (blocks login to the licence system)</label>
+      <div class="req-meta" style="margin-bottom:8px">Not a ban. The driver can't log in or use the Licence Centre until it ends or you reinstate them; they see the reason. Owner/Ops can't be suspended.</div>
+      ${p.suspension && p.suspension.active !== false && (!p.suspension.endsAtMs || p.suspension.endsAtMs > Date.now()) ? `
+        <div class="request-card">
+          <span class="request-status-pill declined">Suspended</span>
+          <div class="req-meta">${p.suspension.endsAtMs ? ('until ' + new Date(p.suspension.endsAtMs).toLocaleString()) : 'Indefinite - until reinstated'} &middot; set by ${(p.suspension.setBy||'staff')}</div>
+          ${p.suspension.reason ? `<p style="color:var(--text-muted);font-size:13px;margin:6px 0 0">${p.suspension.reason}</p>` : ''}
+          <button class="btn ghost" id="edReinstateBtn" type="button" style="margin-top:8px">Reinstate licence</button>
+          <span class="save-status" id="edSuspendStatus"></span>
+        </div>
+      ` : `
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:8px"><input type="checkbox" id="edSuspendIndef" style="width:auto"> Indefinite (until I reinstate them)</label>
+        <div class="field-group" id="edSuspendDaysGroup"><label>Suspension length (1-365 days)</label><input type="number" id="edSuspendDays" min="1" max="365" value="7"></div>
+        <div class="field-group"><label>Reason (shown to the driver)</label><input type="text" id="edSuspendReason" placeholder="e.g. Under review after repeated ticket misuse"></div>
+        <button class="btn ghost" id="edSuspendBtn" type="button" style="background:rgba(255,170,0,.16);color:var(--ifwl-amber)">Suspend licence</button>
+        <span class="save-status" id="edSuspendStatus"></span>
+      `}
+      <hr style="border-color:var(--ifwl-line);margin:18px 0">
       <label style="display:block;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Licence points</label>
       <div class="request-card" style="margin-bottom:12px">
         <strong style="font-size:22px;font-family:var(--font-mono);color:var(--ifwl-amber)">${Number(p.licencePoints||0)}</strong>
@@ -1587,6 +1627,23 @@
       if(!confirm('Lift this ban now?')) return;
       try{ await staffLiftBan(id); openEditor(id); }
       catch(e){ alert('Could not lift ban: ' + e.message); }
+    });
+    q('edSuspendIndef')?.addEventListener('change', ()=>{
+      q('edSuspendDaysGroup').classList.toggle('hidden', q('edSuspendIndef').checked);
+    });
+    q('edSuspendBtn')?.addEventListener('click', async ()=>{
+      const indef = q('edSuspendIndef').checked;
+      const days = Number(q('edSuspendDays').value);
+      const reason = q('edSuspendReason').value.trim();
+      if(!confirm('Suspend this licence? They will be unable to log in to the IFWL licence system' + (indef ? ' until you reinstate them.' : ' for ' + days + ' day(s).'))) return;
+      q('edSuspendStatus').textContent = 'Applying...';
+      try{ await staffSuspendLicence(id, days, reason, indef); openEditor(id); }
+      catch(e){ q('edSuspendStatus').textContent = e.message; }
+    });
+    q('edReinstateBtn')?.addEventListener('click', async ()=>{
+      if(!confirm('Reinstate this licence now?')) return;
+      try{ await staffReinstateLicence(id); openEditor(id); }
+      catch(e){ q('edSuspendStatus').textContent = e.message; }
     });
     q('edPointsBtn')?.addEventListener('click', async ()=>{
       const delta = Number(q('edPointsDelta').value);
@@ -4614,11 +4671,12 @@
       if(!box) return;
       if(!lr){ box.textContent = 'No placement check has run yet. It runs every hour, on the hour.'; return; }
       const when = lr.atMs ? new Date(lr.atMs).toLocaleString() : 'unknown time';
-      const line = d => `  - ${d.name} (${d.platform}): ${d.from || 'baseline'} -> ${d.tier}  [${d.laps} laps, gap ${d.gap > 0 ? '+' : ''}${d.gap}%]`;
+      const line = d => `  - ${d.name} (${d.platform}): ${d.from || 'baseline'} -> ${d.tier}  [${d.laps} laps, gap ${d.gap > 0 ? '+' : ''}${d.gap}%]${d.linkedFrom ? ` [will link in-game name '${d.linkedFrom}']` : ''}`;
       const parts = [`Last check: ${when}`];
       if((lr.placed || []).length) parts.push(`Placed ${lr.placed.length}:\n` + lr.placed.slice(0, 30).map(line).join('\n'));
       if((lr.wouldPlace || []).length) parts.push(`Waiting (would be placed if auto-placement were on) - ${lr.wouldPlace.length}:\n` + lr.wouldPlace.slice(0, 30).map(line).join('\n'));
       if(!(lr.placed || []).length && !(lr.wouldPlace || []).length) parts.push('Nobody was waiting to be placed.');
+      if((lr.linked || []).length) parts.push(`Linked automatically by name - ${lr.linked.length}:\n` + lr.linked.slice(0, 40).map(d => `  - in-game '${d.inGame}' -> ${d.name} (${d.platform})`).join('\n'));
       if((lr.skipped || []).length) parts.push(`Qualified but NOT placed - ${lr.skipped.length}:\n` + lr.skipped.slice(0, 40).map(d => `  - ${d.name} (${d.platform}, ${d.laps} laps): ${d.why}`).join('\n'));
       if(!enabled) parts.push('Auto-placement is switched OFF, so nobody is moved automatically - tick it above and press Save to turn it on.');
       (lr.notes || []).forEach(n => parts.push('Note: ' + n));
@@ -4792,6 +4850,7 @@
       const platformLabel = p.platform === 'pc' ? 'PC' : p.platform === 'console' ? 'Console' : p.platform === 'both' ? 'PC + Console' : '-';
       const statusBits = [];
       if(p.banActive) statusBits.push('<span class="licdb-ban">Banned</span>');
+      if(p.suspendedActive) statusBits.push('<span class="licdb-ban">Suspended</span>');
       if(!(p.accDriverNames || []).length) statusBits.push('<span class="field-hint">Unlinked</span>');
       return `<tr>
         <td class="ops-or-headmod-tab"><input type="checkbox" class="licdb-row-check" data-id="${p.discordId}"${licDbSelected.has(p.discordId) ? ' checked' : ''}></td>
@@ -7701,7 +7760,7 @@ Flashing Headlights:
 
     function driverRow(d, extra, note){
       const bits = [d.discordUsername && '@' + d.discordUsername, 'ID ' + d.discordId, d.simgridUsername && 'SimGrid: ' + d.simgridUsername, d.steamId && 'Steam: ' + d.steamId, (d.accDriverNames || []).length && 'ACC: ' + d.accDriverNames.join(', ')].filter(Boolean);
-      return `<div class="olc-row"><div style="min-width:0;flex:1"><b>${E(d.name || '(no name)')}</b> <span style="color:var(--text-muted)">${E(d.licenceNumber || '')}</span> ${badge(d.tier || 'No Licence')}${d.patreonOutlineTier ? badge(d.patreonOutlineTier, 'amber') : ''}${d.banActive ? badge('Banned', 'red') : ''}<div class="meta">${E(bits.join(' · '))}</div>${note ? '<div class="meta" style="color:var(--ifwl-amber);font-weight:700">' + note + '</div>' : ''}<div class="meta">Created ${fmtMs(d.createdAtMs)} · last login ${fmtMs(d.lastLoginMs)}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn teal" type="button" data-olc-open="${E(d.discordId)}">Inspect</button>${extra || ''}</div></div>`;
+      return `<div class="olc-row"><div style="min-width:0;flex:1"><b>${E(d.name || '(no name)')}</b> <span style="color:var(--text-muted)">${E(d.licenceNumber || '')}</span> ${badge(d.tier || 'No Licence')}${d.patreonOutlineTier ? badge(d.patreonOutlineTier, 'amber') : ''}${d.banActive ? badge('Banned', 'red') : ''}${d.suspendedActive ? badge('Suspended', 'amber') : ''}<div class="meta">${E(bits.join(' · '))}</div>${note ? '<div class="meta" style="color:var(--ifwl-amber);font-weight:700">' + note + '</div>' : ''}<div class="meta">Created ${fmtMs(d.createdAtMs)} · last login ${fmtMs(d.lastLoginMs)}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn teal" type="button" data-olc-open="${E(d.discordId)}">Inspect</button>${extra || ''}</div></div>`;
     }
     async function runList(){
       const L = $('olcList');
@@ -7769,7 +7828,7 @@ Flashing Headlights:
       const s = r.summary, raw = r.raw || {}, dsc = r.discord || {};
       const photo = raw.avatarMode === 'upload' && raw.photoUploadUrl ? raw.photoUploadUrl : (raw.avatarMode === 'url' && raw.avatarUrl ? raw.avatarUrl : '');
       const discAv = dsc.user && dsc.user.avatar ? `https://cdn.discordapp.com/avatars/${dsc.user.id}/${dsc.user.avatar}.png?size=128` : '';
-      const badges = [badge(s.tier || 'No Licence'), s.patreonOutlineTier ? badge('Patron: ' + s.patreonOutlineTier, 'amber') : '', s.banActive ? badge('Banned', 'red') : '', r.blocked ? badge('Discord ID blocked', 'red') : '', dsc.ok && dsc.inGuild === false ? badge('Not in Discord server', 'red') : (dsc.inGuild ? badge('In Discord server', 'green') : ''), (r.linkedAccounts || []).length ? badge('Linked to ' + r.linkedAccounts.length, 'green') : '', (r.mergedFrom || []).length ? badge('Merged ' + r.mergedFrom.length, 'green') : '', (r.duplicates || []).length ? badge((r.duplicates.length) + ' possible duplicate(s)', 'amber') : ''].join('');
+      const badges = [badge(s.tier || 'No Licence'), s.patreonOutlineTier ? badge('Patron: ' + s.patreonOutlineTier, 'amber') : '', s.banActive ? badge('Banned', 'red') : '', s.suspendedActive ? badge('Suspended', 'amber') : '', r.blocked ? badge('Discord ID blocked', 'red') : '', dsc.ok && dsc.inGuild === false ? badge('Not in Discord server', 'red') : (dsc.inGuild ? badge('In Discord server', 'green') : ''), (r.linkedAccounts || []).length ? badge('Linked to ' + r.linkedAccounts.length, 'green') : '', (r.mergedFrom || []).length ? badge('Merged ' + r.mergedFrom.length, 'green') : '', (r.duplicates || []).length ? badge((r.duplicates.length) + ' possible duplicate(s)', 'amber') : ''].join('');
       const totalRelated = (r.related || []).reduce((n, x) => n + (x.count || 0), 0);
       let html = `<div class="olc-head"><img src="${E(photo || discAv || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2264%22 height=%2264%22><rect width=%2264%22 height=%2264%22 fill=%22%231a2027%22/></svg>')}" alt=""><div style="flex:1;min-width:200px"><h4>${E(s.name || '(no name)')} <span style="color:var(--text-muted);font-size:14px">${E(s.licenceNumber)}</span></h4><div class="meta" style="font-size:12px;color:var(--text-muted)">Discord ID <code>${E(r.discordId)}</code> ${s.discordUsername ? '· @' + E(s.discordUsername) : ''}</div><div class="olc-badges">${badges}</div></div></div>
       <div class="olc-actions">
