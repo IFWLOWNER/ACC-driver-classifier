@@ -205,7 +205,7 @@ function setupLastRace(){
   }).catch(function(){});
 }
 /* the Licence Centre has its own pop-ups (rules, season checklist, notices...). Wait until none is open so two never stack. */
-var BLOCKERS = ['ifwlLoginWall', 'rulesGateWall', 'ticketNoticeModal', 'inboxNoticeModal', 'licencePointsNoticeModal', 'ownerClauseModal', 'seasonChecklistModal', 'trophyAwardModal', 'rankChangeModal', 'racedayInfoModal', 'ticketGuidanceModal'];
+var BLOCKERS = ['ifwlLoginWall', 'rulesGateWall', 'ticketNoticeModal', 'inboxNoticeModal', 'licencePointsNoticeModal', 'ticketOutcomeModal', 'ownerClauseModal', 'seasonChecklistModal', 'trophyAwardModal', 'rankChangeModal', 'racedayInfoModal', 'ticketGuidanceModal'];
 function popupOpen(){
   if(document.body.classList.contains('login-wall-open')) return true;
   for(var i = 0; i < BLOCKERS.length; i++){ var e = q(BLOCKERS[i]); if(e && !e.classList.contains('hidden') && getComputedStyle(e).display !== 'none') return true; }

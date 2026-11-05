@@ -2825,6 +2825,7 @@
             ${endedBadge}
             ${scheduleBits ? `<div class="rec-row"><span class="rec-row-icon">🗓️</span>${scheduleBits}</div>` : ''}
             <div class="rec-row"><span class="rec-row-icon">🖥️</span>Hosted by ${e.hostedBy || 'GPortal'}</div>
+            ${e.serverName ? `<div class="rec-row"><span class="rec-row-icon">🔎</span>Server name: <code>${String(e.serverName).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</code> <span style="color:var(--text-muted);font-size:12px">- search for this in the in-game server list</span></div>` : ''}
             ${tierLocked
               ? `<div class="rec-row warn"><span class="rec-row-icon">🔒</span>Requires ${(e.tiers||[]).length ? (e.tiers.length === 1 ? `the ${e.tiers[0]} licence` : `one of: ${e.tiers.join(', ')}`) : 'a different licence tier'} - password hidden until you're licensed for it</div>`
               : needsLmuSub
@@ -3967,6 +3968,53 @@
       try{ await apiPost('licencePointsNoticeSeen', { noticeId: notice.id }); }
       catch(e){ /* best-effort - worst case it re-shows next visit */ }
       notice.seen = true;
+    };
+  }
+
+  // ✅ ADDED: Ticket outcome pop-up. When a ticket against this driver is
+  // finalised the server adds an entry to licence.ticketOutcomeNotices
+  // (kind nfa / dq / fine / time / points). This shows the oldest unseen one
+  // as a big full-screen headline with a short fixed explanation underneath,
+  // acks it via ticketOutcomeNoticeSeen on dismiss (never shown again, on
+  // any device), then shows the next one if several landed together.
+  function checkTicketOutcomeNotice(){
+    const notices = Array.isArray(currentProfile?.ticketOutcomeNotices) ? currentProfile.ticketOutcomeNotices : [];
+    const unseen = notices.filter(n => n && !n.seen).sort((a,b) => (a.dateMs||0) - (b.dateMs||0));
+    if(!unseen.length) return;
+    const n = unseen[0];
+    const esc2 = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    let modal = document.getElementById('ticketOutcomeModal');
+    if(!modal){
+      modal = document.createElement('div');
+      modal.id = 'ticketOutcomeModal';
+      modal.className = 'hidden';
+      document.body.appendChild(modal);
+    }
+    const rows = [];
+    if(n.rule) rows.push(['Rule', n.rule]);
+    if(n.track) rows.push(['Track', n.track]);
+    if(n.penalty) rows.push(['Penalty', n.penalty + (n.penaltyTime ? ' (' + n.penaltyTime + ')' : '')]);
+    if(n.pointsAdded > 0) rows.push(['Licence points', '+' + n.pointsAdded + (n.pointsTotal != null ? ' (now ' + n.pointsTotal + ')' : '')]);
+    else if(n.leeway) rows.push(['Licence points', 'Beginner leeway - not counted']);
+    rows.push(['Ticket', n.ticketId || '']);
+    const remaining = unseen.length - 1;
+    modal.className = 'tno-' + esc2(n.kind || 'points');
+    modal.innerHTML = '<div class="tno-card" role="alertdialog" aria-modal="true" aria-labelledby="tnoHeadline">'
+      + '<div class="tno-kicker">Steward decision</div>'
+      + '<div class="tno-headline" id="tnoHeadline">' + esc2(n.headline || 'DECISION') + '</div>'
+      + '<div class="tno-sub">' + esc2(n.sub || '') + '</div>'
+      + '<p class="tno-explain">' + esc2(n.explanation || '') + '</p>'
+      + '<div class="tno-rows">' + rows.map(r => '<div><span>' + esc2(r[0]) + '</span><strong>' + esc2(r[1]) + '</strong></div>').join('') + '</div>'
+      + '<button type="button" class="tno-btn" id="ticketOutcomeDismissBtn">I Understand' + (remaining > 0 ? ' (' + remaining + ' more)' : '') + '</button>'
+      + '<div class="tno-foot">Full ticket details are in your Ticket History.</div></div>';
+    document.body.classList.add('tno-open');
+    document.getElementById('ticketOutcomeDismissBtn').onclick = async () => {
+      modal.className = 'hidden';
+      document.body.classList.remove('tno-open');
+      n.seen = true;
+      try{ await apiPost('ticketOutcomeNoticeSeen', { noticeId: n.id }); }
+      catch(e){ /* best-effort - worst case it re-shows next visit */ }
+      if(remaining > 0) setTimeout(checkTicketOutcomeNotice, 150);
     };
   }
 
@@ -6105,6 +6153,7 @@
     checkInboxNotice();
     checkOwnerClauseNotice();
     checkLicencePointsNotice();
+    checkTicketOutcomeNotice();
     // ✅ ADDED: Season 4 checklist - Home view only (see switchView for the
     // re-check when navigating back to Home later in the same visit).
     if(document.querySelector('#viewTabs > .view-tab.active')?.dataset.view === 'home'){
