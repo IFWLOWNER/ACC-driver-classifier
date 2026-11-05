@@ -2559,7 +2559,7 @@
       q('sgPassword').value = ev.password || '';
       q('sgDayOfWeek').value = ev.dayOfWeek || '';
       q('sgRaceTimeUK').value = ev.raceTimeUK || '';
-      q('sgHostedBy').value = ev.hostedBy || '';
+      q('sgHostedBy').value = ev.hostedBy || ''; q('sgServerName').value = ev.serverName || '';
       q('sgPinned').checked = !!ev.pinned;
       q('sgDiscordRoleId').value = ev.discordRoleId || '';
       q('sgDiscordRoleLabel').value = ev.discordRoleLabel || '';
@@ -2763,7 +2763,7 @@
     sgEditingEventImageUrl = '';
     q('sgTitle').value = ''; q('sgLink').value = ''; q('sgNotes').value = '';
     q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
-    q('sgDayOfWeek').value = ''; q('sgRaceTimeUK').value = ''; q('sgHostedBy').value = '';
+    q('sgDayOfWeek').value = ''; q('sgRaceTimeUK').value = ''; q('sgHostedBy').value = ''; q('sgServerName').value = '';
     q('sgPinned').checked = false;
     q('sgDiscordRoleId').value = ''; q('sgDiscordRoleLabel').value = '';
     q('sgSeries').value = '';
@@ -2791,7 +2791,7 @@
     const password = q('sgPassword').value.trim();
     const dayOfWeek = q('sgDayOfWeek').value;
     const raceTimeUK = q('sgRaceTimeUK').value.trim();
-    const hostedBy = q('sgHostedBy').value.trim();
+    const hostedBy = q('sgHostedBy').value.trim(); const serverName = q('sgServerName').value.trim();
     const pinned = q('sgPinned').checked;
     const discordRoleId = q('sgDiscordRoleId').value.trim();
     const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
@@ -2829,7 +2829,7 @@
 
     q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, pinned, imageUrl, discordRoleId, discordRoleLabel, game, lmuRequiredTierIds });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, serverName, pinned, imageUrl, discordRoleId, discordRoleLabel, game, lmuRequiredTierIds });
       const wasEditing = !!sgEditingEventId;
       sgResetForm();
       q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
@@ -2994,7 +2994,7 @@
         const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
         const dayOfWeek = q('sgDayOfWeek').value;
         const raceTimeUK = q('sgRaceTimeUK').value.trim();
-        const hostedBy = q('sgHostedBy').value.trim();
+        const hostedBy = q('sgHostedBy').value.trim(); const serverName = q('sgServerName').value.trim();
         if(!tiers.length){ status.innerHTML = '<div class="empty">Select at least one tier below first - it applies to every round being added.</div>'; return; }
         if(discordRoleId && !/^\d{5,25}$/.test(discordRoleId)){ status.innerHTML = '<div class="empty">Discord Role ID should be the numeric role ID (Copy Role ID in Discord), not a role name.</div>'; return; }
         if(raceTimeUK && !/^([01]\d|2[0-3]):[0-5]\d$/.test(raceTimeUK)){ status.innerHTML = '<div class="empty">Time should be 24h HH:MM, e.g. 20:00.</div>'; return; }
@@ -3031,7 +3031,7 @@
           try{
             await window.IFWL_SimgridAPI.saveSimgridEvent({
               title, simgridLink: url, platform, series, tiers, notes, password, imageUrl,
-              dayOfWeek, raceTimeUK, hostedBy,
+              dayOfWeek, raceTimeUK, hostedBy, serverName,
               discordRoleId, discordRoleLabel,
               eventDateMs,
               eventDateLabel: eventDateMs ? '' : (r.dateText || title)
