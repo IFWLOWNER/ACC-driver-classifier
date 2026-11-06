@@ -2558,6 +2558,31 @@ This will not change Firestore status.`);
 
       try {
         const ref = db.collection("tickets").doc(selectedTicketId);
+
+        // ✅ CHANGED (6 Nov 2026): points are no longer written by this page. The finalisation trigger in the
+        // Licence Centre (rtGate) adds them, so each ticket is counted ONCE and Beginner leeway / season reset /
+        // band notices apply. This page only passes on the Head Steward's decision with the finalisation:
+        // licencePointsOverride = the (editable) points value, 0 if "Skip" is ticked;
+        // licencePointsTargetId = the licence linked to the accused. Before this change the page ALSO added the
+        // points itself, so every ticket was counted twice.
+        const skipPoints = !!$("finalSkipLicencePoints")?.checked;
+        const rawPoints = Number($("finalLicencePoints")?.value);
+        const pointsToApply = Number.isFinite(rawPoints) ? Math.max(0, Math.round(rawPoints)) : 0;
+        const pointsReason = `Ticket ${selectedTicketId} — ${finalCode} (auto-applied at finalisation)`;
+        let pointsPlan = { override: null, linked: null };
+        try {
+          if (skipPoints || pointsToApply <= 0) {
+            pointsPlan.override = 0;
+          } else {
+            const profiles = await loadAllLicenceProfiles();
+            const linked = findLinkedLicenceForTicket(t, profiles);
+            if (linked) { pointsPlan.override = pointsToApply; pointsPlan.linked = linked; }
+            else pointsPlan.override = 0; // no licence yet: stays "pending" below and is applied from the Linked Driver Licence panel
+          }
+        } catch (planErr) {
+          console.error("Could not work out licence points plan; the trigger will use its own default:", planErr);
+        }
+
         const updatePayload = {
           status: "Finalised",
           stewardDecision: finalDecision,
@@ -2569,6 +2594,10 @@ This will not change Firestore status.`);
           finalisedBy: currentEmail || finalStewardTag,
           finalisedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
+        if (pointsPlan.override !== null) {
+          updatePayload.licencePointsOverride = pointsPlan.override;
+          if (pointsPlan.linked) updatePayload.licencePointsTargetId = pointsPlan.linked.id;
+        }
 
         const discordMessage = buildFinalDiscordMessage(selectedTicketId, t, {
           code: finalCode,
@@ -2597,27 +2626,20 @@ This will not change Firestore status.`);
         // the Linked Driver Licence panel once a licence is linked.
         let licencePointsNote = "";
         try {
-          const skipPoints = !!$("finalSkipLicencePoints")?.checked;
-          const rawPoints = Number($("finalLicencePoints")?.value);
-          const pointsToApply = Number.isFinite(rawPoints) ? Math.max(0, Math.round(rawPoints)) : 0;
-
           if (!skipPoints && pointsToApply > 0) {
-            const profiles = await loadAllLicenceProfiles();
-            const linked = findLinkedLicenceForTicket(t, profiles);
-            const pointsReason = `Ticket ${selectedTicketId} — ${finalCode} (auto-applied at finalisation)`;
-
-            if (linked) {
-              await applyLicencePoints(linked.id, pointsToApply, pointsReason);
+            if (pointsPlan.linked) {
+              // The trigger applies these points (once). Record what was decided so the panel can show it.
               await ref.update({
                 licencePointsApplied: {
                   points: pointsToApply,
-                  licenceId: linked.id,
-                  driverName: linked.name || "",
+                  licenceId: pointsPlan.linked.id,
+                  driverName: pointsPlan.linked.name || "",
                   reason: pointsReason,
-                  appliedAtMs: Date.now()
+                  appliedAtMs: Date.now(),
+                  viaTrigger: true
                 }
               });
-            } else {
+            } else if (pointsPlan.override === 0) {
               await ref.update({
                 licencePointsPending: {
                   points: pointsToApply,
@@ -2629,8 +2651,8 @@ This will not change Firestore status.`);
             }
           }
         } catch (licErr) {
-          console.error("Licence points auto-apply failed:", licErr);
-          licencePointsNote = " ⚠ Licence points could not be auto-applied: " + (licErr?.message || licErr);
+          console.error("Licence points note failed:", licErr);
+          licencePointsNote = " ⚠ Could not record the licence points decision: " + (licErr?.message || licErr);
         }
 
         selectedTicketSnap = await ref.get();
