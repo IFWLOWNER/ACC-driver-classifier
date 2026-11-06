@@ -43,6 +43,19 @@
   }
   function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
 
+  const KIND_LABEL = { practice: 'Practice', qualifying: 'Qualifying', race: 'Race', other: 'Session' };
+  const dayTime = (ms) => { try { return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ms)); } catch (e) { return ''; } };
+  function sessionName(x, list) {
+    if (x.label) return x.label;
+    if (x.kind !== 'race') return KIND_LABEL[x.kind] || 'Session';
+    const races = list.filter((y) => y.kind === 'race' && !y.label);
+    return races.length > 1 ? 'Race ' + (races.indexOf(x) + 1) : 'Race';
+  }
+  function sessionsHtml(list) {
+    if (!Array.isArray(list) || !list.length) return '';
+    return '<div style="margin-top:8px;font-size:13px">' + list.map((x) => '<div><b>' + esc(sessionName(x, list)) + '</b> &middot; ' + esc(dayTime(x.startMs)) + (x.durationMin ? ' &middot; ' + x.durationMin + ' min' : '') + '</div>').join('') + '<div class="se-sm">Times shown in your own time zone.</div></div>';
+  }
+
   /* ======================= DRIVER ======================= */
   function mountDriver(root) {
     if (root.__se) return; root.__se = true; ensureCss();
@@ -50,10 +63,11 @@
     async function load() { try { S.events = (await api('siteEventsList')).events; } catch (e) { S.events = null; root.innerHTML = ''; return; } render(); }
     function card(e) {
       const m = e.mine, msg = S.msg[e.id];
-      let h = '<div class="se-box" data-ev="' + esc(e.id) + '"><div class="se-h"><div><span class="se-title">' + esc(e.title) + '</span><span class="se-chip">' + (e.platform === 'pc' ? 'PC' : 'Console') + '</span><span class="se-chip">Sign up on the site</span></div>'
+      let h = '<div class="se-box" data-ev="' + esc(e.id) + '">' + (e.imageUrl ? '<img src="' + esc(e.imageUrl) + '" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:10px">' : '') + '<div class="se-h"><div><span class="se-title">' + esc(e.title) + '</span><span class="se-chip">' + (e.platform === 'pc' ? 'PC' : 'Console') + '</span><span class="se-chip">Sign up on the site</span></div>'
         + '<div class="se-sm">' + e.entryCount + (e.maxEntries ? ' / ' + e.maxEntries : '') + ' entered' + (e.closed ? ' &middot; <b>closed</b>' : (e.closesAtMs ? ' &middot; closes ' + esc(fmt(e.closesAtMs)) : '')) + '</div></div>'
         + '<div class="se-sm" style="margin-top:4px">' + [e.eventDateLabel || fmt(e.eventDateMs), e.track && ('Track: ' + e.track), e.serverName && ('Server: ' + e.serverName)].filter(Boolean).map(esc).join(' &middot; ') + '</div>'
-        + (e.notes ? '<div style="margin-top:6px;font-size:13px">' + esc(e.notes) + '</div>' : '');
+        + (e.notes ? '<div style="margin-top:6px;font-size:13px">' + esc(e.notes) + '</div>' : '')
+        + sessionsHtml(e.sessions);
       if (m) h += '<div class="se-row"><span class="se-good">You are entered: #' + m.raceNumber + ' &middot; ' + esc(m.carName) + '</span></div>';
       if (e.canJoin || m) {
         h += '<div class="se-row"><select class="se-in" data-f="car">' + (e.cars || []).map((c) => '<option value="' + esc(c.id) + '"' + (m && m.carId === c.id ? ' selected' : '') + '>' + esc(c.carClass + ' - ' + c.name) + '</option>').join('') + '</select>'
@@ -92,33 +106,62 @@
   }
 
   /* ======================= STAFF ======================= */
+  function blankDraft() { return { title: '', seriesId: '', track: '', closesAtMs: 0, maxEntries: 40, serverName: '', notes: '', tiers: [], carIds: [], open: true, imageUrl: '', sessions: [] }; }
   function mountStaff(root) {
     if (root.__ses) return; root.__ses = true; ensureCss();
-    const S = { d: null, msg: '', err: false, busy: false, editing: null, build: {} };
+    const S = { d: null, msg: '', err: false, busy: false, editingId: null, draft: blankDraft(), build: {} };
     const say = (m, e) => { S.msg = m; S.err = !!e; render(); };
     async function load() { try { S.d = await api('staffSiteEventList'); S.msg = ''; } catch (e) { S.msg = e.message; S.err = true; } render(); }
+    const fromEvent = (e) => ({ title: e.title || '', seriesId: e.seriesId || '', track: e.track || '', closesAtMs: e.closesAtMs || 0, maxEntries: e.maxEntries || 40, serverName: e.serverName || '', notes: e.notes || '', tiers: (e.tiers || []).slice(), carIds: (e.carIds || []).slice(), open: e.open !== false, imageUrl: e.imageUrl || '', sessions: (e.sessions || []).map((x) => Object.assign({}, x)) });
+    // copy what is typed in the form into S.draft (called before ANY redraw and before saving, so nothing is lost)
+    function readForm() {
+      const f = root.querySelector('#seForm'); if (!f) return;
+      const v = (i) => { const el = f.querySelector('#' + i); return el ? el.value : ''; };
+      const D = S.draft;
+      D.title = v('seTitle'); D.seriesId = v('seSeries'); D.track = v('seTrack'); D.closesAtMs = fromLocalInput(v('seCloses'));
+      D.maxEntries = Number(v('seMax')) || 40; D.serverName = v('seServer'); D.notes = v('seNotes');
+      D.tiers = Array.from(f.querySelectorAll('#seTiers input:checked')).map((c) => c.value);
+      D.carIds = Array.from(f.querySelectorAll('#seCars input:checked')).map((c) => c.value);
+      const o = f.querySelector('#seOpen'); if (o) D.open = o.checked;
+      D.sessions = Array.from(f.querySelectorAll('[data-sess]')).map((row) => ({
+        kind: row.querySelector('[data-s=kind]').value, label: row.querySelector('[data-s=label]').value.trim(),
+        startMs: fromLocalInput(row.querySelector('[data-s=start]').value), durationMin: Number(row.querySelector('[data-s=dur]').value) || 0
+      }));
+    }
     function form() {
-      const ed = S.editing || {}, d = S.d;
-      return '<div class="se-box"><b>' + (ed.id ? 'Edit event' : 'New sign-up event') + '</b><div class="se-sm">For races that are not on SimGrid. Drivers sign up on the Available Races page and choose their car.</div>'
+      const D = S.draft, d = S.d, editing = !!S.editingId;
+      if (!D.seriesId && d.series.length) D.seriesId = d.series[0].id;
+      const sess = D.sessions.map((x, i) => '<div class="se-row" data-sess="' + i + '" style="margin-top:6px">'
+        + '<select class="se-in" data-s="kind">' + ['practice', 'qualifying', 'race', 'other'].map((k) => '<option value="' + k + '"' + (x.kind === k ? ' selected' : '') + '>' + KIND_LABEL[k] + '</option>').join('') + '</select>'
+        + '<input class="se-in" data-s="label" placeholder="Name (optional, e.g. Race 2)" value="' + esc(x.label) + '" style="width:170px">'
+        + '<input class="se-in" data-s="start" type="datetime-local" value="' + esc(toLocalInput(x.startMs)) + '">'
+        + '<input class="se-in sm" data-s="dur" type="number" min="0" max="1440" placeholder="mins" value="' + esc(x.durationMin || '') + '" title="Length in minutes (optional)">'
+        + '<button class="btn ghost" data-a="sessdel" data-i="' + i + '" style="font-size:11px">Remove</button></div>').join('');
+      return '<div class="se-box" id="seForm"><b>' + (editing ? 'Edit event' : 'New sign-up event') + '</b><div class="se-sm">For races that are not on SimGrid. Drivers sign up on the Available Races page and choose their car.</div>'
         + '<div class="se-grid" style="margin-top:10px">'
-        + '<div><label>Title</label><input class="se-in wide" id="seTitle" value="' + esc(ed.title || '') + '" placeholder="Dynamic BoP test"></div>'
-        + '<div><label>Series (sets platform + BoP)</label><select class="se-in wide" id="seSeries">' + d.series.map((s) => '<option value="' + esc(s.id) + '"' + (ed.seriesId === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>').join('') + '</select></div>'
-        + '<div><label>Track (optional now, needed to build files)</label><input class="se-in wide" id="seTrack" value="' + esc(ed.track || '') + '" placeholder="monza"></div>'
-        + '<div><label>Race date/time (your time)</label><input class="se-in wide" id="seDate" type="datetime-local" value="' + esc(toLocalInput(ed.eventDateMs)) + '"></div>'
-        + '<div><label>Sign-ups close (optional)</label><input class="se-in wide" id="seCloses" type="datetime-local" value="' + esc(toLocalInput(ed.closesAtMs)) + '"></div>'
-        + '<div><label>Max entries</label><input class="se-in wide" id="seMax" type="number" min="2" max="120" value="' + esc(ed.maxEntries || 40) + '"></div>'
-        + '<div><label>Server name drivers search for</label><input class="se-in wide" id="seServer" value="' + esc(ed.serverName || '') + '"></div></div>'
-        + '<div style="margin-top:10px"><label class="se-sm">Notes shown to drivers</label><textarea class="se-in wide" id="seNotes">' + esc(ed.notes || '') + '</textarea></div>'
-        + '<div style="margin-top:10px"><div class="se-sm">Licence tiers allowed (none ticked = any licence)</div><div class="se-checks" id="seTiers">' + d.tierNames.map((t) => '<label><input type="checkbox" value="' + esc(t) + '"' + ((ed.tiers || []).indexOf(t) >= 0 ? ' checked' : '') + '>' + esc(t) + '</label>').join('') + '</div></div>'
-        + '<details style="margin-top:10px"><summary class="se-sm" style="cursor:pointer">Limit the cars (none ticked = every GT3 and GT4 car)</summary><div class="se-checks" id="seCars" style="margin-top:6px">' + d.catalog.map((c) => '<label><input type="checkbox" value="' + esc(c.id) + '"' + ((ed.carIds || []).indexOf(c.id) >= 0 ? ' checked' : '') + '>' + esc(c.carClass + ' ' + c.name) + '</label>').join('') + '</div></details>'
-        + '<div class="se-row"><label><input type="checkbox" id="seOpen"' + (ed.open === false ? '' : ' checked') + '> Sign-ups open</label>'
-        + '<button class="btn" data-a="save"' + (S.busy ? ' disabled' : '') + '>' + (ed.id ? 'Save changes' : 'Create event') + '</button>' + (ed.id ? '<button class="btn ghost" data-a="cancel">Cancel</button>' : '') + '</div></div>';
+        + '<div><label>Title</label><input class="se-in wide" id="seTitle" value="' + esc(D.title) + '" placeholder="Dynamic BoP test"></div>'
+        + '<div><label>Series (sets platform + BoP)</label><select class="se-in wide" id="seSeries">' + d.series.map((s) => '<option value="' + esc(s.id) + '"' + (D.seriesId === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>').join('') + '</select></div>'
+        + '<div><label>Track (can be added later, needed to build files)</label><input class="se-in wide" id="seTrack" value="' + esc(D.track) + '" placeholder="monza"></div>'
+        + '<div><label>Sign-ups close (optional)</label><input class="se-in wide" id="seCloses" type="datetime-local" value="' + esc(toLocalInput(D.closesAtMs)) + '"></div>'
+        + '<div><label>Max entries</label><input class="se-in wide" id="seMax" type="number" min="2" max="120" value="' + esc(D.maxEntries) + '"></div>'
+        + '<div><label>Server name drivers search for</label><input class="se-in wide" id="seServer" value="' + esc(D.serverName) + '"></div></div>'
+        + '<div style="margin-top:12px"><b style="font-size:13px">Schedule</b><div class="se-sm">Add each session with its own time (your time; drivers see their own). The first race sets the event date.</div>' + sess
+        + '<div class="se-row"><button class="btn ghost" data-a="sessadd" data-k="practice">+ Practice</button><button class="btn ghost" data-a="sessadd" data-k="qualifying">+ Qualifying</button><button class="btn ghost" data-a="sessadd" data-k="race">+ Race</button><button class="btn ghost" data-a="sessadd" data-k="other">+ Other</button></div></div>'
+        + '<div style="margin-top:12px"><b style="font-size:13px">Picture</b><div class="se-row" style="margin-top:6px">'
+        + (D.imageUrl ? '<img src="' + esc(D.imageUrl) + '" alt="" style="width:160px;height:90px;object-fit:cover;border-radius:8px">' : '<span class="se-sm">No picture yet</span>')
+        + '<input type="file" id="seImg" accept="image/*" class="se-sm">' + (D.imageUrl ? '<button class="btn ghost" data-a="imgdel" style="font-size:11px">Remove picture</button>' : '') + '</div><div class="se-sm" id="seImgMsg">Shown at the top of the sign-up card. Up to 5 MB.</div></div>'
+        + '<div style="margin-top:10px"><label class="se-sm">Notes shown to drivers</label><textarea class="se-in wide" id="seNotes">' + esc(D.notes) + '</textarea></div>'
+        + '<div style="margin-top:10px"><div class="se-sm">Licence tiers allowed (none ticked = any licence)</div><div class="se-checks" id="seTiers">' + d.tierNames.map((t) => '<label><input type="checkbox" value="' + esc(t) + '"' + (D.tiers.indexOf(t) >= 0 ? ' checked' : '') + '>' + esc(t) + '</label>').join('') + '</div></div>'
+        + '<details style="margin-top:10px"><summary class="se-sm" style="cursor:pointer">Limit the cars (none ticked = every GT3 and GT4 car)</summary><div class="se-checks" id="seCars" style="margin-top:6px">' + d.catalog.map((c) => '<label><input type="checkbox" value="' + esc(c.id) + '"' + (D.carIds.indexOf(c.id) >= 0 ? ' checked' : '') + '>' + esc(c.carClass + ' ' + c.name) + '</label>').join('') + '</div></details>'
+        + '<div class="se-row"><label><input type="checkbox" id="seOpen"' + (D.open ? ' checked' : '') + '> Sign-ups open</label>'
+        + '<button class="btn" data-a="save"' + (S.busy ? ' disabled' : '') + '>' + (editing ? 'Save changes' : 'Create event') + '</button>' + (editing ? '<button class="btn ghost" data-a="cancel">Cancel</button>' : '') + '</div></div>';
     }
     function evBox(e) {
       const B = S.build[e.id] || {};
       const rows = (e.entries || []).map((x) => '<tr><td>#' + esc(x.raceNumber) + '</td><td>' + esc(x.name) + '</td><td>' + esc(x.carClass + ' ' + x.carName) + '</td><td>' + esc(x.tier) + '</td><td>' + esc(x.category) + '</td><td class="se-sm">' + esc(x.playerID) + '</td><td><button class="btn ghost" data-a="rm" data-d="' + esc(x.driverId) + '" style="font-size:11px">Remove</button></td></tr>').join('');
       return '<div class="se-box" data-ev="' + esc(e.id) + '"><div class="se-h"><div><span class="se-title">' + esc(e.title) + '</span><span class="se-chip">' + (e.platform === 'pc' ? 'PC' : 'Console') + '</span><span class="se-chip">' + esc(e.seriesId) + '</span>' + (e.open ? '' : '<span class="se-chip">closed</span>') + '</div>'
         + '<div class="se-sm">' + (e.entries || []).length + (e.maxEntries ? ' / ' + e.maxEntries : '') + ' entered</div></div>'
+        + (e.sessions && e.sessions.length ? '<div class="se-sm" style="margin-top:6px">' + e.sessions.map((x) => esc(sessionName(x, e.sessions)) + ' ' + esc(dayTime(x.startMs))).join(' &middot; ') + '</div>' : '')
         + '<div class="se-wrap" style="margin-top:8px">' + (rows ? '<table class="se-t"><thead><tr><th>#</th><th>Driver</th><th>Car</th><th>Licence</th><th>Cat</th><th>Player ID</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="se-sm">Nobody has signed up yet.</div>') + '</div>'
         + '<div class="se-row"><button class="btn ghost" data-a="edit">Edit</button><button class="btn ghost" data-a="toggle">' + (e.open ? 'Close sign-ups' : 'Reopen sign-ups') + '</button><button class="btn ghost" data-a="del">Delete event</button></div>'
         + '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ifwl-line,#dde3ec)"><b>Build the files</b><div class="se-sm">bop.json uses this series\' current dynamic BoP. entrylist.json uses these sign-ups, each driver locked to the car they chose.</div>'
@@ -136,16 +179,23 @@
       const b = ev.target.closest('button[data-a]'); if (!b || S.busy) return; const a = b.dataset.a;
       const box = b.closest('[data-ev]'), id = box && box.dataset.ev, e = id && S.d.events.find((x) => x.id === id);
       try {
-        if (a === 'cancel') { S.editing = null; render(); return; }
-        if (a === 'edit') { S.editing = e; render(); root.scrollIntoView({ behavior: 'smooth' }); return; }
+        if (a === 'cancel') { S.editingId = null; S.draft = blankDraft(); render(); return; }
+        if (a === 'edit') { S.editingId = id; S.draft = fromEvent(e); render(); root.querySelector('#seForm').scrollIntoView({ behavior: 'smooth' }); return; }
+        if (a === 'sessadd') { readForm(); S.draft.sessions.push({ kind: b.dataset.k, label: '', startMs: 0, durationMin: 0 }); render(); return; }
+        if (a === 'sessdel') { readForm(); S.draft.sessions.splice(Number(b.dataset.i), 1); render(); return; }
+        if (a === 'imgdel') { readForm(); S.draft.imageUrl = ''; render(); return; }
         if (a === 'save') {
-          const val = (i) => root.querySelector('#' + i).value;
-          const checked = (sel) => Array.from(root.querySelectorAll(sel + ' input:checked')).map((c) => c.value);
-          S.busy = true; render();
-          await api('staffSiteEventSave', { eventId: S.editing && S.editing.id, title: val('seTitle'), seriesId: val('seSeries'), track: val('seTrack'), eventDateMs: fromLocalInput(val('seDate')), eventDateLabel: '', closesAtMs: fromLocalInput(val('seCloses')), maxEntries: Number(val('seMax')), serverName: val('seServer'), notes: val('seNotes'), tiers: checked('#seTiers'), carIds: checked('#seCars'), open: root.querySelector('#seOpen').checked });
-          S.editing = null; S.busy = false; await load(); say('Saved.', false); return;
+          readForm();
+          const D = S.draft;
+          if (!D.title.trim()) { say('Give the event a title.', true); return; }
+          if (D.sessions.some((x) => !(x.startMs > 0))) { say('Every session needs a date and time (or remove the empty row).', true); return; }
+          S.busy = true;
+          const payload = { eventId: S.editingId || undefined, title: D.title, seriesId: D.seriesId, track: D.track, closesAtMs: D.closesAtMs, maxEntries: D.maxEntries, serverName: D.serverName, notes: D.notes, tiers: D.tiers, carIds: D.carIds, open: D.open, imageUrl: D.imageUrl, sessions: D.sessions };
+          try { await api('staffSiteEventSave', payload); }
+          catch (er) { S.busy = false; say(er.message, true); return; }   // the form keeps everything you typed
+          S.editingId = null; S.draft = blankDraft(); S.busy = false; await load(); say('Saved.', false); return;
         }
-        if (a === 'toggle') { S.busy = true; await api('staffSiteEventSave', { eventId: id, title: e.title, seriesId: e.seriesId, track: e.track, eventDateMs: e.eventDateMs, maxEntries: e.maxEntries, closesAtMs: e.closesAtMs, serverName: e.serverName, notes: e.notes, tiers: e.tiers, carIds: e.carIds, open: !e.open }); S.busy = false; await load(); return; }
+        if (a === 'toggle') { S.busy = true; await api('staffSiteEventSave', { eventId: id, title: e.title, seriesId: e.seriesId, open: !e.open }); S.busy = false; await load(); return; }
         if (a === 'del') { if (!confirm('Delete "' + e.title + '" and all its sign-ups?')) return; S.busy = true; await api('staffSiteEventDelete', { eventId: id }); S.busy = false; await load(); return; }
         if (a === 'rm') { if (!confirm('Remove this driver from the event?')) return; S.busy = true; await api('staffSiteEventEntryRemove', { eventId: id, driverId: b.dataset.d }); S.busy = false; await load(); return; }
         if (a === 'build') {
@@ -159,6 +209,17 @@
         if (a === 'dlbop') download(utf16Blob(S.build[id].res.bop), 'bop.json');
         if (a === 'dlel') download(utf16Blob(S.build[id].res.entrylist), 'entrylist.json');
       } catch (er) { S.busy = false; say(er.message, true); }
+    });
+    root.addEventListener('change', async (ev) => {
+      if (!ev.target || ev.target.id !== 'seImg' || !ev.target.files || !ev.target.files[0]) return;
+      const msg = root.querySelector('#seImgMsg'), file = ev.target.files[0];
+      readForm();
+      try {
+        if (!window.IFWL_UploadAPI) throw new Error('Image upload is not available on this page.');
+        if (msg) msg.textContent = 'Uploading\u2026';
+        const up = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'simgridEvent');
+        S.draft.imageUrl = up.url; render();
+      } catch (er) { if (msg) { msg.textContent = er.message; msg.className = 'se-bad'; } }
     });
     load();
   }
