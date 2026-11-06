@@ -51,6 +51,18 @@
     const races = list.filter((y) => y.kind === 'race' && !y.label);
     return races.length > 1 ? 'Race ' + (races.indexOf(x) + 1) : 'Race';
   }
+  function trackOptions(tracks, sel) {
+    const t = tracks || [], on = t.filter((x) => x.onFile), off = t.filter((x) => !x.onFile);
+    const opt = (x) => '<option value="' + esc(x.id) + '"' + (sel === x.id ? ' selected' : '') + '>' + esc(x.label) + '</option>';
+    return '<option value="">Pick a track&hellip;</option>' + (on.length ? '<optgroup label="BoP on file">' + on.map(opt).join('') + '</optgroup>' : '')
+      + (off.length ? '<optgroup label="No BoP on file (standard 0 kg)">' + off.map(opt).join('') + '</optgroup>' : '');
+  }
+  function carOptions(cars, sel) {
+    const by = {}; cars.forEach((c) => { (by[c.carClass || 'Other'] = by[c.carClass || 'Other'] || []).push(c); });
+    const order = ['GT3', 'GT4', 'GT2'];
+    return Object.keys(by).sort((a, b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); })
+      .map((k) => '<optgroup label="' + esc(k) + '">' + by[k].map((c) => '<option value="' + esc(c.id) + '"' + (sel === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</optgroup>').join('');
+  }
   function sessionsHtml(list) {
     if (!Array.isArray(list) || !list.length) return '';
     return '<div style="margin-top:8px;font-size:13px">' + list.map((x) => '<div><b>' + esc(sessionName(x, list)) + '</b> &middot; ' + esc(dayTime(x.startMs)) + (x.durationMin ? ' &middot; ' + x.durationMin + ' min' : '') + '</div>').join('') + '<div class="se-sm">Times shown in your own time zone.</div></div>';
@@ -65,12 +77,12 @@
       const m = e.mine, msg = S.msg[e.id];
       let h = '<div class="se-box" data-ev="' + esc(e.id) + '">' + (e.imageUrl ? '<img src="' + esc(e.imageUrl) + '" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:10px">' : '') + '<div class="se-h"><div><span class="se-title">' + esc(e.title) + '</span><span class="se-chip">' + (e.platform === 'pc' ? 'PC' : 'Console') + '</span><span class="se-chip">Sign up on the site</span></div>'
         + '<div class="se-sm">' + e.entryCount + (e.maxEntries ? ' / ' + e.maxEntries : '') + ' entered' + (e.closed ? ' &middot; <b>closed</b>' : (e.closesAtMs ? ' &middot; closes ' + esc(fmt(e.closesAtMs)) : '')) + '</div></div>'
-        + '<div class="se-sm" style="margin-top:4px">' + [e.eventDateLabel || fmt(e.eventDateMs), e.track && ('Track: ' + e.track), e.serverName && ('Server: ' + e.serverName)].filter(Boolean).map(esc).join(' &middot; ') + '</div>'
+        + '<div class="se-sm" style="margin-top:4px">' + [e.eventDateLabel || fmt(e.eventDateMs), (e.trackLabel || e.track) && ('Track: ' + (e.trackLabel || e.track)), e.serverName && ('Server: ' + e.serverName)].filter(Boolean).map(esc).join(' &middot; ') + '</div>'
         + (e.notes ? '<div style="margin-top:6px;font-size:13px">' + esc(e.notes) + '</div>' : '')
         + sessionsHtml(e.sessions);
       if (m) h += '<div class="se-row"><span class="se-good">You are entered: #' + m.raceNumber + ' &middot; ' + esc(m.carName) + '</span></div>';
       if (e.canJoin || m) {
-        h += '<div class="se-row"><select class="se-in" data-f="car">' + (e.cars || []).map((c) => '<option value="' + esc(c.id) + '"' + (m && m.carId === c.id ? ' selected' : '') + '>' + esc(c.carClass + ' - ' + c.name) + '</option>').join('') + '</select>'
+        h += '<div class="se-row"><select class="se-in" data-f="car">' + carOptions(e.cars || [], m && m.carId) + '</select>'
           + '<input class="se-in sm" data-f="num" type="number" min="1" max="999" placeholder="Race #" value="' + esc(m ? m.raceNumber : (e.suggestedNumber || '')) + '" title="Your race number">'
           + (e.needConsoleChoice ? '<select class="se-in" data-f="console"><option value="">Xbox or PlayStation?</option><option value="xbox">Xbox</option><option value="ps">PlayStation</option></select>' : '')
           + '<button class="btn" data-a="join"' + (S.busy ? ' disabled' : '') + '>' + (m ? 'Update my entry' : 'Sign up') + '</button>'
@@ -123,10 +135,20 @@
       D.tiers = Array.from(f.querySelectorAll('#seTiers input:checked')).map((c) => c.value);
       D.carIds = Array.from(f.querySelectorAll('#seCars input:checked')).map((c) => c.value);
       const o = f.querySelector('#seOpen'); if (o) D.open = o.checked;
+      const cb = f.querySelector('#seCarsBox'); if (cb) D.carsOpen = cb.open;
       D.sessions = Array.from(f.querySelectorAll('[data-sess]')).map((row) => ({
         kind: row.querySelector('[data-s=kind]').value, label: row.querySelector('[data-s=label]').value.trim(),
         startMs: fromLocalInput(row.querySelector('[data-s=start]').value), durationMin: Number(row.querySelector('[data-s=dur]').value) || 0
       }));
+    }
+    function carGroups(catalog, picked) {
+      const by = {}; catalog.forEach((c) => { (by[c.carClass || 'Other'] = by[c.carClass || 'Other'] || []).push(c); });
+      const order = ['GT3', 'GT4', 'GT2']; const names = Object.keys(by).sort((a, b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); });
+      return names.map((k) => { const n = by[k].filter((c) => picked.indexOf(c.id) >= 0).length;
+        return '<div style="margin:8px 0 4px"><b style="font-size:13px">' + esc(k) + '</b> <span class="se-sm">(' + n + ' of ' + by[k].length + ')</span> '
+          + '<button class="btn ghost" data-a="clsall" data-c="' + esc(k) + '" style="font-size:11px;padding:2px 8px">Select all ' + esc(k) + '</button> '
+          + '<button class="btn ghost" data-a="clsnone" data-c="' + esc(k) + '" style="font-size:11px;padding:2px 8px">None</button></div>'
+          + '<div class="se-checks">' + by[k].map((c) => '<label><input type="checkbox" value="' + esc(c.id) + '"' + (picked.indexOf(c.id) >= 0 ? ' checked' : '') + '>' + esc(c.name) + '</label>').join('') + '</div>'; }).join('');
     }
     function form() {
       const D = S.draft, d = S.d, editing = !!S.editingId;
@@ -141,7 +163,7 @@
         + '<div class="se-grid" style="margin-top:10px">'
         + '<div><label>Title</label><input class="se-in wide" id="seTitle" value="' + esc(D.title) + '" placeholder="Dynamic BoP test"></div>'
         + '<div><label>Series (sets platform + BoP)</label><select class="se-in wide" id="seSeries">' + d.series.map((s) => '<option value="' + esc(s.id) + '"' + (D.seriesId === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>').join('') + '</select></div>'
-        + '<div><label>Track (can be added later, needed to build files)</label><input class="se-in wide" id="seTrack" value="' + esc(D.track) + '" placeholder="monza"></div>'
+        + '<div><label>Track (needed to build the files)</label><select class="se-in wide" id="seTrack">' + trackOptions(d.tracks, D.track) + '</select></div>'
         + '<div><label>Sign-ups close (optional)</label><input class="se-in wide" id="seCloses" type="datetime-local" value="' + esc(toLocalInput(D.closesAtMs)) + '"></div>'
         + '<div><label>Max entries</label><input class="se-in wide" id="seMax" type="number" min="2" max="120" value="' + esc(D.maxEntries) + '"></div>'
         + '<div><label>Server name drivers search for</label><input class="se-in wide" id="seServer" value="' + esc(D.serverName) + '"></div></div>'
@@ -152,7 +174,7 @@
         + '<input type="file" id="seImg" accept="image/*" class="se-sm">' + (D.imageUrl ? '<button class="btn ghost" data-a="imgdel" style="font-size:11px">Remove picture</button>' : '') + '</div><div class="se-sm" id="seImgMsg">Shown at the top of the sign-up card. Up to 5 MB.</div></div>'
         + '<div style="margin-top:10px"><label class="se-sm">Notes shown to drivers</label><textarea class="se-in wide" id="seNotes">' + esc(D.notes) + '</textarea></div>'
         + '<div style="margin-top:10px"><div class="se-sm">Licence tiers allowed (none ticked = any licence)</div><div class="se-checks" id="seTiers">' + d.tierNames.map((t) => '<label><input type="checkbox" value="' + esc(t) + '"' + (D.tiers.indexOf(t) >= 0 ? ' checked' : '') + '>' + esc(t) + '</label>').join('') + '</div></div>'
-        + '<details style="margin-top:10px"><summary class="se-sm" style="cursor:pointer">Limit the cars (none ticked = every GT3 and GT4 car)</summary><div class="se-checks" id="seCars" style="margin-top:6px">' + d.catalog.map((c) => '<label><input type="checkbox" value="' + esc(c.id) + '"' + (D.carIds.indexOf(c.id) >= 0 ? ' checked' : '') + '>' + esc(c.carClass + ' ' + c.name) + '</label>').join('') + '</div></details>'
+        + '<details id="seCarsBox" style="margin-top:10px"' + (D.carsOpen || D.carIds.length ? ' open' : '') + '><summary class="se-sm" style="cursor:pointer">Cars allowed: ' + (D.carIds.length ? D.carIds.length + ' picked' : 'every car (nothing ticked)') + '</summary><div id="seCars" style="margin-top:6px">' + carGroups(d.catalog, D.carIds) + '</div></details>'
         + '<div class="se-row"><label><input type="checkbox" id="seOpen"' + (D.open ? ' checked' : '') + '> Sign-ups open</label>'
         + '<button class="btn" data-a="save"' + (S.busy ? ' disabled' : '') + '>' + (editing ? 'Save changes' : 'Create event') + '</button>' + (editing ? '<button class="btn ghost" data-a="cancel">Cancel</button>' : '') + '</div></div>';
     }
@@ -165,7 +187,7 @@
         + '<div class="se-wrap" style="margin-top:8px">' + (rows ? '<table class="se-t"><thead><tr><th>#</th><th>Driver</th><th>Car</th><th>Licence</th><th>Cat</th><th>Player ID</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="se-sm">Nobody has signed up yet.</div>') + '</div>'
         + '<div class="se-row"><button class="btn ghost" data-a="edit">Edit</button><button class="btn ghost" data-a="toggle">' + (e.open ? 'Close sign-ups' : 'Reopen sign-ups') + '</button><button class="btn ghost" data-a="del">Delete event</button></div>'
         + '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ifwl-line,#dde3ec)"><b>Build the files</b><div class="se-sm">bop.json uses this series\' current dynamic BoP. entrylist.json uses these sign-ups, each driver locked to the car they chose.</div>'
-        + '<div class="se-row"><input class="se-in" data-f="track" placeholder="Track (e.g. monza)" value="' + esc(B.track || e.track || '') + '"><label class="se-sm"><input type="checkbox" data-f="draft"' + (B.draft ? ' checked' : '') + '> use the latest unapproved draft BoP</label>'
+        + '<div class="se-row"><select class="se-in" data-f="track">' + trackOptions(S.d.tracks, B.track || e.track || '') + '</select><label class="se-sm"><input type="checkbox" data-f="draft"' + (B.draft ? ' checked' : '') + '> use the latest unapproved draft BoP</label>'
         + '<button class="btn" data-a="build"' + (S.busy || !(e.entries || []).length ? ' disabled' : '') + '>Build bop.json + entrylist.json</button></div>'
         + (B.res ? '<div class="se-row"><button class="btn" data-a="dlbop">Download bop.json</button><button class="btn" data-a="dlel">Download entrylist.json</button><span class="se-sm">' + B.res.entrylist.entries.length + ' entries &middot; ' + B.res.carsMoved + ' car model(s) with BoP changes &middot; BoP from ' + esc(B.res.offsetsFrom) + '</span></div>'
           + (B.res.warnings && B.res.warnings.length ? '<div class="se-pre se-warn" style="margin-top:6px">' + B.res.warnings.map(esc).join('\n') + '</div>' : '') : '')
@@ -181,6 +203,11 @@
       try {
         if (a === 'cancel') { S.editingId = null; S.draft = blankDraft(); render(); return; }
         if (a === 'edit') { S.editingId = id; S.draft = fromEvent(e); render(); root.querySelector('#seForm').scrollIntoView({ behavior: 'smooth' }); return; }
+        if (a === 'clsall' || a === 'clsnone') {
+          readForm(); const cls = b.dataset.c; const ids = S.d.catalog.filter((c) => (c.carClass || 'Other') === cls).map((c) => c.id);
+          S.draft.carIds = a === 'clsall' ? Array.from(new Set(S.draft.carIds.concat(ids))) : S.draft.carIds.filter((x) => ids.indexOf(x) < 0);
+          S.draft.carsOpen = true; render(); return;
+        }
         if (a === 'sessadd') { readForm(); S.draft.sessions.push({ kind: b.dataset.k, label: '', startMs: 0, durationMin: 0 }); render(); return; }
         if (a === 'sessdel') { readForm(); S.draft.sessions.splice(Number(b.dataset.i), 1); render(); return; }
         if (a === 'imgdel') { readForm(); S.draft.imageUrl = ''; render(); return; }
