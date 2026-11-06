@@ -199,6 +199,22 @@
   .roster-btn{ padding:8px 12px; font-size:.82rem; flex:0 0 auto; }
 
   .divider{ border:0; border-top:1px solid var(--line); margin:16px 0; }
+  /* Field swapper (v0.4) */
+  .swap-grid{ display:grid; grid-template-columns:minmax(260px,340px) 1fr; gap:22px; align-items:start; }
+  @media (max-width:900px){ .swap-grid{ grid-template-columns:1fr; } }
+  .swap-opt{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2); margin-bottom:8px; cursor:pointer; }
+  .swap-opt input[type="radio"], .swap-opt input[type="checkbox"]{ margin-top:3px; accent-color:var(--amber); }
+  .swap-opt b{ display:block; font-size:.9rem; }
+  .swap-opt small{ color:var(--muted); line-height:1.4; display:block; }
+  .swap-opt.sel{ border-color:var(--amber); }
+  .swap-topn{ width:84px !important; display:inline-block; padding:6px 8px !important; margin-left:6px; }
+  .swap-info{ font-size:.86rem; color:var(--muted); line-height:1.5; margin:10px 0 0; }
+  .swap-info strong{ color:var(--text); }
+  .swap-note{ border:1px solid #4a3a10; background:#1d1707; color:#e9c46a; border-radius:10px; padding:10px 12px; font-size:.82rem; line-height:1.5; margin-top:12px; }
+  .grid-pill{ display:inline-block; min-width:34px; text-align:center; font-family:var(--font-mono); font-weight:700; font-size:.82rem; padding:3px 8px; border-radius:7px; background:var(--panel-2); border:1px solid var(--line); }
+  .grid-pill.set{ border-color:var(--amber); color:var(--amber); }
+  .swap-move.up{ color:var(--green); } .swap-move.down{ color:var(--red); } .swap-move.same{ color:var(--muted); }
+  .swap-preview{ max-height:420px; overflow:auto; }
 
   .commentator-box{ margin-top:4px; }
   .commentator-box h3{ margin:0 0 6px; font-family:var(--font-display); font-weight:600; letter-spacing:.02em; font-size:.9rem; text-transform:uppercase; color:var(--muted); }
@@ -381,7 +397,7 @@
           <p>Load the SimGrid CSV + base entrylist JSON, confirm every class, add race control, export.</p>
         </div>
       </div>
-      <div class="version">v0.3 — Race Control build - Licence centre  LIVE</div>
+      <div class="version">v0.4 — Race Control build - Licence centre  LIVE · Field swapper</div>
     </header>
 
     <section class="hero">
@@ -503,15 +519,58 @@
                   <th>Car</th>
                   <th>Class</th>
                   <th>Source</th>
+                  <th>Grid</th>
                 </tr>
               </thead>
               <tbody id="driverRows">
-                <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">No drivers loaded yet.</td></tr>
+                <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:34px">No drivers loaded yet.</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </section>
+    </section>
+
+    <section class="card" id="swapCard" style="margin-top:20px">
+      <div class="card-head">
+        <h2>Field swapper <span style="font-size:.7rem;color:var(--amber);font-family:var(--font-mono)">NEW v0.4</span></h2>
+        <p>Flip the grid from a Race or Qualifying result file. Load your entrylist above first, then drop the result file here.</p>
+      </div>
+      <div class="card-body">
+        <div class="swap-grid">
+          <div>
+            <label class="upload-zone" id="swapDrop">
+              <input type="file" id="swapFile" accept=".json,application/json" />
+              <span class="upload-title"><span class="upload-icon">R/Q</span>Result file</span>
+              <small>The race (_R) or qualifying (_Q) results JSON from the server's results folder.</small>
+              <span class="file-pill" id="swapName"></span>
+            </label>
+            <div class="swap-info" id="swapInfo">No result file loaded yet.</div>
+
+            <label class="field-label">How to set the grid</label>
+            <label class="swap-opt sel" id="swapOptReverse"><input type="radio" name="swapMode" value="reverse" checked><span><b>Reverse the whole field</b><small>Winner starts last, last place starts on pole.</small></span></label>
+            <label class="swap-opt" id="swapOptTop"><input type="radio" name="swapMode" value="top"><span><b>Reverse the top <input type="number" id="swapTopN" class="swap-topn" min="2" max="60" value="8"> only</b><small>Flip the first N finishers; everyone else keeps their finishing order behind them.</small></span></label>
+            <label class="swap-opt" id="swapOptSame"><input type="radio" name="swapMode" value="same"><span><b>Same order as the result</b><small>No flip - start where you finished / qualified.</small></span></label>
+            <label class="swap-opt" id="swapOptClass"><input type="checkbox" id="swapByClass"><span><b>Flip within each class</b><small>Reverses each class (GT3 / GT4 / etc.) separately but keeps the class slots where they were.</small></span></label>
+
+            <div class="btn-row">
+              <button class="btn-primary" id="swapApplyBtn" type="button" disabled>Apply to entrylist</button>
+              <button class="btn-soft" id="swapClearBtn" type="button">Clear grid positions</button>
+            </div>
+            <div class="status" id="swapStatus">Load an entrylist and a result file.</div>
+          </div>
+
+          <div>
+            <div class="table-wrap swap-preview">
+              <table>
+                <thead><tr><th>New grid</th><th>#</th><th>Driver</th><th>Class</th><th>Result</th><th>Move</th></tr></thead>
+                <tbody id="swapRows"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">Preview appears once a result file is loaded.</td></tr></tbody>
+              </table>
+            </div>
+            <div class="swap-note"><strong>Heads up:</strong> ACC only uses these grid positions when no qualifying session runs before the race on the server. It fits a reverse-grid Race 2 (finish Race 1, flip the entrylist, upload it, run Race 2 with no qualifying). If a qualifying session runs first, the server sets the grid itself and ignores these numbers.</div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="output-grid">
@@ -981,7 +1040,7 @@
       const q = els.search.value.trim().toLowerCase();
       const filtered = reviewRows.filter(r => !q || [r.number, r.name, r.team, r.car, r.playerID].join(' ').toLowerCase().includes(q));
       if(!filtered.length){
-        els.rows.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">No matching drivers.</td></tr>`;
+        els.rows.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:34px">No matching drivers.</td></tr>`;
       } else {
         els.rows.innerHTML = filtered.map(r => {
           const isStaffRow = r.isStaffRow;
@@ -1012,6 +1071,7 @@
             <td>${escapeHtml(String(r.car || '—'))}</td>
             <td>${classCell}</td>
             <td>${sourceTag(r.source)}</td>
+            <td>${gridCell(r)}</td>
           </tr>`;
         }).join('');
         document.querySelectorAll('.category-select').forEach(sel => sel.addEventListener('change', e => {
@@ -1032,6 +1092,252 @@
       }
       updateStats();
     }
+
+
+    // ============================================================
+    // v0.4 FIELD SWAPPER
+    // Reads an ACC Race/Qualifying result JSON, matches each result car to an
+    // entrylist entry (player ID first, race number as a fallback) and writes a
+    // unique defaultGridPosition (1..N) onto every driver entry. Race-control
+    // rows keep -1. The state is stored and re-applied on every output refresh so
+    // removing/adding/reclassing entries afterwards can never leave gaps or clashes.
+    // ============================================================
+    const swapStaffSet = new WeakSet(); // entries added through the staff/commentator buttons
+    let swapState = null; // { lines, fileName, sessionType, track, active }
+
+    function gridCell(r){
+      const g = toInt(r.entry.defaultGridPosition);
+      if(r.isStaffRow || g === null || g < 1) return '<span style="color:var(--muted)">—</span>';
+      return `<span class="grid-pill set">${g}</span>`;
+    }
+
+    function swapIdKeys(id){
+      const raw = String(id ?? '').trim().toUpperCase();
+      if(!raw) return [];
+      const keys = [raw];
+      const m = raw.match(/^[SMP]?(\d{15,})$/);
+      if(m) keys.push(m[1]);
+      return keys;
+    }
+
+    function swapEntryIsStaff(e){
+      if(swapStaffSet.has(e) || e.__presetId || e.__source === 'preset' || e.__ifwlCommentator) return true;
+      const d = Array.isArray(e.drivers) && e.drivers.length ? e.drivers[0] : {};
+      const hasInfo = !!(d.firstName || d.lastName || d.shortName);
+      if(e.isServerAdmin === 1 && !hasInfo) return true;
+      // preset staff are recognised by their fixed race number + ID even after markers are stripped
+      return PRESET_STAFF.some(p => toInt(e.raceNumber) === p.raceNumber && d.playerID === p.playerID);
+    }
+
+    function swapParseResult(text){
+      const data = JSON.parse(text);
+      const lines = data && data.sessionResult && data.sessionResult.leaderBoardLines;
+      if(!Array.isArray(lines) || !lines.length) throw new Error('This does not look like an ACC result file (no sessionResult.leaderBoardLines).');
+      const out = lines.map((l, i) => {
+        const car = l.car || {};
+        const drivers = Array.isArray(car.drivers) ? car.drivers : [];
+        const ids = [];
+        drivers.forEach(d => swapIdKeys(d.playerId).forEach(k => ids.push(k)));
+        const name = drivers[0] ? (`${drivers[0].firstName || ''} ${drivers[0].lastName || ''}`.trim() || drivers[0].shortName || '') : '';
+        return { rank: i + 1, raceNumber: toInt(car.raceNumber), ids, cls: String(car.carGroup || ''), name };
+      });
+      return { lines: out, sessionType: String(data.sessionType || ''), track: String(data.trackName || ''), server: String(data.serverName || '') };
+    }
+
+    function swapSessionLabel(t){
+      const u = String(t || '').toUpperCase();
+      if(u === 'R') return 'Race';
+      if(u === 'Q') return 'Qualifying';
+      if(u === 'P' || u === 'FP') return 'Practice';
+      return u ? `Session ${u}` : 'Session';
+    }
+
+    function swapOptions(){
+      const mode = (document.querySelector('input[name="swapMode"]:checked') || {}).value || 'reverse';
+      const topN = Math.max(2, toInt(document.getElementById('swapTopN').value) || 8);
+      const byClass = document.getElementById('swapByClass').checked;
+      return { mode, topN, byClass };
+    }
+
+    // Pure: works out the plan for a list of entries. Never mutates.
+    function swapCompute(entries, st, opts){
+      const used = new Set();
+      const matched = [];
+      const unmatched = [];
+      const staff = [];
+      entries.forEach(e => {
+        if(swapEntryIsStaff(e)){ staff.push(e); return; }
+        const ids = [];
+        (Array.isArray(e.drivers) ? e.drivers : []).forEach(d => swapIdKeys(d.playerID).forEach(k => ids.push(k)));
+        let line = st.lines.find(l => !used.has(l.rank) && l.ids.some(k => ids.includes(k)));
+        if(!line){
+          const num = toInt(e.raceNumber);
+          line = st.lines.find(l => !used.has(l.rank) && num !== null && l.raceNumber === num);
+        }
+        if(line){ used.add(line.rank); matched.push({ e, line }); }
+        else if(e.isServerAdmin === 1) staff.push(e);   // an admin who isn't in the result file isn't racing
+        else unmatched.push(e);
+      });
+      matched.sort((a, b) => a.line.rank - b.line.rank);
+      unmatched.sort((a, b) => (toInt(a.raceNumber) || 99999) - (toInt(b.raceNumber) || 99999));
+
+      // result order closes up around missing cars so there are no holes in the grid
+      let head = matched, tail = [];
+      if(opts.mode === 'top'){
+        const n = Math.min(opts.topN, matched.length);
+        head = matched.slice(0, n); tail = matched.slice(n);
+      }
+      let reordered;
+      if(opts.mode === 'same'){
+        reordered = matched.slice();
+      } else {
+        let sw;
+        if(opts.byClass){
+          const groups = new Map();
+          head.forEach(m => { const k = m.line.cls || ''; if(!groups.has(k)) groups.set(k, []); groups.get(k).push(m); });
+          const rev = new Map(); groups.forEach((arr, k) => rev.set(k, arr.slice().reverse()));
+          const seen = new Map();
+          sw = head.map(m => { const k = m.line.cls || ''; const i = seen.get(k) || 0; seen.set(k, i + 1); return rev.get(k)[i]; });
+        } else {
+          sw = head.slice().reverse();
+        }
+        reordered = sw.concat(tail);
+      }
+      const plan = [];
+      reordered.forEach((m, i) => plan.push({ e: m.e, pos: i + 1, rank: m.line.rank, cls: m.line.cls, name: m.line.name, matched: true }));
+      unmatched.forEach((e, i) => plan.push({ e, pos: reordered.length + i + 1, rank: null, cls: '', name: '', matched: false }));
+      const resultOnly = st.lines.filter(l => !used.has(l.rank));
+      return { plan, staff, unmatched, resultOnly };
+    }
+
+    function swapEntryName(e){
+      const d = Array.isArray(e.drivers) && e.drivers.length ? e.drivers[0] : {};
+      return `${d.firstName || ''} ${d.lastName || ''}`.trim() || d.shortName || d.playerID || '(driver)';
+    }
+
+    function swapApplyToEntries(){
+      if(!swapState || !swapState.active || !generatedRoot || !Array.isArray(generatedRoot.entries)) return;
+      const res = swapCompute(generatedRoot.entries, swapState, swapState.opts);
+      res.plan.forEach(p => { p.e.defaultGridPosition = p.pos; });
+      res.staff.forEach(e => { e.defaultGridPosition = -1; });
+    }
+
+    function swapSetStatus(msg, type=''){
+      const el = document.getElementById('swapStatus');
+      el.className = 'status' + (type ? ' ' + type : '');
+      el.textContent = msg;
+    }
+
+    function swapRenderPreview(){
+      const body = document.getElementById('swapRows');
+      const info = document.getElementById('swapInfo');
+      const applyBtn = document.getElementById('swapApplyBtn');
+      if(!swapState){
+        body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">Preview appears once a result file is loaded.</td></tr>';
+        applyBtn.disabled = true;
+        info.textContent = 'No result file loaded yet.';
+        return;
+      }
+      const root = generatedRoot || baseJson;
+      const entries = root && Array.isArray(root.entries) ? root.entries : [];
+      const opts = swapOptions();
+      info.innerHTML = `<strong>${escapeHtml(swapSessionLabel(swapState.sessionType))}</strong> result${swapState.track ? ' · ' + escapeHtml(swapState.track) : ''} · ${swapState.lines.length} cars in the file`;
+      if(!entries.length){
+        body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">Load your entrylist JSON first - nothing to swap yet.</td></tr>';
+        applyBtn.disabled = true;
+        swapSetStatus('Load your base entrylist JSON (and CSV) first, then apply.', 'warn');
+        return;
+      }
+      const res = swapCompute(entries, swapState, opts);
+      applyBtn.disabled = false;
+      body.innerHTML = res.plan.map(p => {
+        let move = '<span class="swap-move same">—</span>';
+        if(p.matched){
+          const d = p.rank - p.pos; // positive = moves up the grid vs result
+          if(d > 0) move = `<span class="swap-move up">▲ ${d}</span>`;
+          else if(d < 0) move = `<span class="swap-move down">▼ ${-d}</span>`;
+          else move = '<span class="swap-move same">=</span>';
+        }
+        return `<tr>
+          <td><span class="grid-pill set">${p.pos}</span></td>
+          <td><span class="plate cat-${toInt((p.e.drivers && p.e.drivers[0] && p.e.drivers[0].driverCategory)) ?? 0}">${escapeHtml(p.e.raceNumber ?? '')}</span></td>
+          <td><div class="driver-name">${escapeHtml(swapEntryName(p.e))}</div>${p.matched ? '' : '<div class="driver-sub">Not in the result file - placed at the back</div>'}</td>
+          <td>${escapeHtml(p.cls || '—')}</td>
+          <td>${p.rank ?? '—'}</td>
+          <td>${move}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">No driver entries to place.</td></tr>';
+      const bits = [`${res.plan.filter(p => p.matched).length} matched`];
+      if(res.unmatched.length) bits.push(`${res.unmatched.length} entrylist driver(s) not in the result file go to the back`);
+      if(res.resultOnly.length) bits.push(`${res.resultOnly.length} car(s) in the result file are not on this entrylist (skipped)`);
+      if(res.staff.length) bits.push(`${res.staff.length} race control row(s) stay at -1`);
+      swapSetStatus(bits.join(' · ') + '.', res.unmatched.length || res.resultOnly.length ? 'warn' : 'ok');
+    }
+
+    function swapSyncOptionStyles(){
+      const mode = swapOptions().mode;
+      document.getElementById('swapOptReverse').classList.toggle('sel', mode === 'reverse');
+      document.getElementById('swapOptTop').classList.toggle('sel', mode === 'top');
+      document.getElementById('swapOptSame').classList.toggle('sel', mode === 'same');
+      document.getElementById('swapOptClass').classList.toggle('sel', document.getElementById('swapByClass').checked);
+      document.getElementById('swapByClass').disabled = (mode === 'same');
+    }
+
+    async function swapLoadFile(file){
+      if(!file) return;
+      try{
+        const parsed = swapParseResult(await readFileSmart(file));
+        swapState = { ...parsed, fileName: file.name, active: false, opts: swapOptions() };
+        setFilePill(document.getElementById('swapName'), file.name);
+        swapRenderPreview();
+      }catch(err){
+        swapState = null;
+        document.getElementById('swapName').classList.remove('show');
+        swapRenderPreview();
+        swapSetStatus('Could not read that file: ' + err.message, 'bad');
+      }
+    }
+
+    function swapApply(){
+      if(!swapState) return;
+      if(!generatedRoot){
+        if(baseJson) previewExistingJson();
+        else { swapSetStatus('Load your base entrylist JSON first.', 'warn'); return; }
+      }
+      swapState.opts = swapOptions();
+      swapState.active = true;
+      updateOutputFromReview();   // re-applies the swap onto the entries and refreshes the JSON
+      renderRows();
+      swapRenderPreview();
+      const n = generatedRoot.entries.filter(e => toInt(e.defaultGridPosition) > 0).length;
+      showToast('Grid updated');
+      swapSetStatus(`Applied - ${n} driver(s) now have a grid slot from the ${swapSessionLabel(swapState.sessionType).toLowerCase()} result. Download the entrylist when ready.`, 'ok');
+    }
+
+    function swapClear(){
+      const root = generatedRoot || baseJson;
+      if(!root || !Array.isArray(root.entries) || !root.entries.length){ swapSetStatus('Nothing to clear yet.', 'warn'); return; }
+      if(swapState) swapState.active = false;
+      if(!generatedRoot && baseJson) previewExistingJson();
+      generatedRoot.entries.forEach(e => { e.defaultGridPosition = -1; });
+      updateOutputFromReview();
+      renderRows();
+      swapSetStatus('All grid positions set back to -1 (no forced grid).', 'ok');
+    }
+
+    document.getElementById('swapFile').addEventListener('change', () => swapLoadFile(document.getElementById('swapFile').files[0]));
+    (function(){
+      const zone = document.getElementById('swapDrop');
+      ['dragenter','dragover'].forEach(evt => zone.addEventListener(evt, e => { e.preventDefault(); zone.classList.add('dragover'); }));
+      ['dragleave','drop'].forEach(evt => zone.addEventListener(evt, e => { e.preventDefault(); zone.classList.remove('dragover'); }));
+      zone.addEventListener('drop', e => { const f = e.dataTransfer.files && e.dataTransfer.files[0]; if(f) swapLoadFile(f); });
+    })();
+    document.querySelectorAll('input[name="swapMode"]').forEach(r => r.addEventListener('change', () => { swapSyncOptionStyles(); swapRenderPreview(); }));
+    document.getElementById('swapByClass').addEventListener('change', () => { swapSyncOptionStyles(); swapRenderPreview(); });
+    document.getElementById('swapTopN').addEventListener('input', swapRenderPreview);
+    document.getElementById('swapApplyBtn').addEventListener('click', swapApply);
+    document.getElementById('swapClearBtn').addEventListener('click', swapClear);
+    swapSyncOptionStyles();
 
     function removeEntryAtIndex(idx){
       if(!generatedRoot || !Array.isArray(generatedRoot.entries)) return;
@@ -1076,6 +1382,7 @@
         updateGuidance();
         return;
       }
+      swapApplyToEntries();
       if(Array.isArray(generatedRoot.entries)){
         generatedRoot.entries.forEach(e => {
           delete e.__source;
@@ -1143,6 +1450,7 @@
         __source: 'preset',
         __presetId: preset.id
       });
+      swapStaffSet.add(generatedRoot.entries[generatedRoot.entries.length - 1]);
       rebuildReviewRows();
       updateOutputFromReview();
       setStatus(`Added ${preset.name} — ${preset.role} (#${preset.raceNumber}).`, 'ok');
@@ -1185,6 +1493,7 @@
         __source: 'staff',
         __ifwlCommentator: true
       });
+      swapStaffSet.add(generatedRoot.entries[generatedRoot.entries.length - 1]);
       rebuildReviewRows();
       updateOutputFromReview();
       setStatus(`Added race control entry: ${name}.`, 'ok');
@@ -1220,10 +1529,11 @@
 
     function resetAll(){
       baseJson = null; csvRows = []; generatedRoot = null; reviewRows = []; hasDownloaded = false; lastCsvNumbers = new Set();
+      swapState = null; document.getElementById('swapFile').value = ''; document.getElementById('swapName').classList.remove('show'); swapRenderPreview(); swapSetStatus('Load an entrylist and a result file.');
       els.jsonFile.value = ''; els.csvFile.value = '';
       els.jsonName.classList.remove('show'); els.csvName.classList.remove('show');
       els.output.value = ''; els.search.value = '';
-      els.rows.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:34px">No drivers loaded yet.</td></tr>`;
+      els.rows.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:34px">No drivers loaded yet.</td></tr>`;
       els.downloadBtn.disabled = true; els.copyBtn.disabled = true;
       updateStats(); renderRoster(); updateGuidance(); setStatus('Reset complete. Load your JSON and CSV to begin.');
     }
