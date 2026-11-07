@@ -145,6 +145,29 @@
     return out;
   }
 
+  /* which rail section is the page the person is on right now (highlighted when no panel is open) */
+  var TOGGLE_SEC = { racing: 'race', trophies: 'trophy', tools: 'tools', support: 'help', staff: 'staff' };
+  function activeSecId(){
+    if(!bar) return null;
+    var t = bar.querySelector(':scope > .view-tab.active');
+    if(t){
+      var v = t.getAttribute('data-view');
+      if(v === 'home') return 'home';
+      if(v === 'staffHub') return 'staff';
+      if(t.id === 'navKitBtn') return 'kit';
+      if(t.classList.contains('join-team-tab')) return 'team';
+      if(t.id === 'navLiveTimingsBtn' || v === 'availableRaces' || v === 'seasons' || v === 'commentatorWatch') return 'race';
+      if(v && /^staff/.test(v)) return 'staff';
+    }
+    var g = bar.querySelector(':scope > .view-tab-dropdown .dropdown-toggle.active');
+    if(g){ var n = tidy(g).toLowerCase().replace(/[^a-z]/g, ''); for(var k in TOGGLE_SEC){ if(n.indexOf(k) === 0) return TOGGLE_SEC[k]; } }
+    var f = (window.IFWL_PAGE && window.IFWL_PAGE.file) || '';
+    if(/licence-kit/.test(f)) return 'kit';
+    if(/licence-staff/.test(f)) return 'staff';
+    if(/licence-home|licence\.html/.test(f) || !f) return 'home';
+    return null;
+  }
+
   /* ---------- who is logged in ---------- */
   function who(){
     var name = 'Account';
@@ -160,7 +183,7 @@
     var w = who(), h = '<div class="rl-logo">IFWL</div>';
     secs.forEach(function(s){
       if(s.sepBefore) h += '<div class="rl-sep"></div>';
-      h += '<button type="button" class="rl-btn' + (openId === s.id ? ' on' : (!openId && s.id === 'home' ? ' on' : '')) + '" data-sec="' + s.id + '" aria-label="' + esc(s.label) + '">' + svg(s.icon) + '<span>' + esc(s.label) + '</span>' + (s.badge ? '<b class="rl-dot">' + esc(s.badge) + '</b>' : '') + '</button>';
+      h += '<button type="button" class="rl-btn' + (openId === s.id ? ' on' : (!openId && s.id === activeSecId() ? ' on' : '')) + '" data-sec="' + s.id + '" aria-label="' + esc(s.label) + '">' + svg(s.icon) + '<span>' + esc(s.label) + '</span>' + (s.badge ? '<b class="rl-dot">' + esc(s.badge) + '</b>' : '') + '</button>';
       if(s.id === 'kit') h += '<div class="rl-sep"></div>';
     });
     h += '<div class="rl-spacer"></div><button type="button" class="rl-btn' + (openId === 'me' ? ' on' : '') + '" data-sec="me" aria-label="Account"><span class="rl-av">' + avatarHtml(w) + '</span><span>Me</span></button>';
@@ -237,7 +260,7 @@
   function sigOf(list){
     var w = who();
     function its(a){ return (a || []).map(function(i){ return i.label + '|' + i.tag + '|' + i.badge; }).join(';'); }
-    return JSON.stringify([w.name, w.role, w.src, document.body.classList.contains('real-staff'), list.map(function(s){
+    return JSON.stringify([w.name, w.role, w.src, document.body.classList.contains('real-staff'), activeSecId(), list.map(function(s){
       return [s.id, s.badge || '', its(s.items), its(s.top), (s.groups || []).map(function(g){ return g.title + ':' + its(g.items); }).join('/'), s.direct ? s.direct.label : ''];
     })]);
   }
@@ -254,8 +277,33 @@
   }
   function queue(){ if(queued) return; queued = true; (window.requestAnimationFrame || setTimeout)(refresh, 0); }
 
+  /* ---------- Home layout: licence + next race on top, then a "Your career" row ----------
+     Only moves two existing panels (their ids and handlers are untouched) into a new row under the licence row. */
+  function homeLayout(){
+    var top = document.querySelector('.home-top-row');
+    if(!top || $('rlRow2')) return;
+    var career = $('careerBalancePanel'), qual = $('qualStandingPanel');
+    if(!career && !qual) return;
+    var title = document.createElement('div'); title.id = 'rlCareerTitle'; title.className = 'rl-sec-title';
+    title.innerHTML = '<h2>Your career</h2><small>Economy &amp; qualification</small>';
+    var row = document.createElement('div'); row.id = 'rlRow2'; row.className = 'rl-row2';
+    top.parentNode.insertBefore(title, top.nextSibling);
+    top.parentNode.insertBefore(row, title.nextSibling);
+    if(career) row.appendChild(career);
+    if(qual) row.appendChild(qual);
+    function sync(){
+      var any = false;
+      Array.prototype.forEach.call(row.children, function(c){ try{ if(getComputedStyle(c).display !== 'none') any = true; }catch(e){} });
+      title.classList.toggle('rl-none', !any); row.classList.toggle('rl-none', !any);
+    }
+    try{ new MutationObserver(sync).observe(row, { attributes: true, subtree: true, attributeFilter: ['class', 'style', 'hidden'] }); }catch(e){}
+    sync();
+    window.addEventListener('load', sync);
+  }
+
   function build(){
     document.body.classList.add('ifwl-rail');
+    homeLayout();
     rail = document.createElement('aside'); rail.className = 'rl-rail'; rail.setAttribute('aria-label', 'Main menu');
     scrim = document.createElement('div'); scrim.className = 'rl-scrim';
     fly = document.createElement('aside'); fly.className = 'rl-flyout'; fly.setAttribute('aria-live', 'polite');
