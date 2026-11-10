@@ -162,6 +162,7 @@
     var g = bar.querySelector(':scope > .view-tab-dropdown .dropdown-toggle.active');
     if(g){ var n = tidy(g).toLowerCase().replace(/[^a-z]/g, ''); for(var k in TOGGLE_SEC){ if(n.indexOf(k) === 0) return TOGGLE_SEC[k]; } }
     var f = (window.IFWL_PAGE && window.IFWL_PAGE.file) || '';
+    if(/licence-teams/.test(f)) return 'race';
     if(/licence-kit/.test(f)) return 'kit';
     if(/licence-staff/.test(f)) return 'staff';
     if(/licence-home|licence\.html/.test(f) || !f) return 'home';
@@ -251,6 +252,7 @@
     if(!t) return;
     var keepOpen = !!t.keep;
     if(!keepOpen) closeFly();
+    if(t.el && t.el.id === 'navMyRaceTeamBtn'){ location.href = 'licence-teams.html'; return; }   /* the team page now lives in the Licence Centre */
     if(t.el) t.el.click();
     else if(t.view && typeof window.switchView === 'function') window.switchView(t.view);
     if(keepOpen) setTimeout(function(){ if(openId === 'me'){ drawFly('me'); drawRail(); } }, 60);
