@@ -22,7 +22,7 @@ var fmt = function(n){ return Number(n || 0).toLocaleString('en-GB'); };
 /* ---- stylesheet: fetched only once the kit is switched on for this account, so everyone else downloads nothing extra ---- */
 function loadCss(){
   if(document.getElementById('ifwlKitCss')) return;
-  var l = document.createElement('link'); l.id = 'ifwlKitCss'; l.rel = 'stylesheet'; l.href = ASSETS + 'css/07-kit.css?v=e06f6e55';
+  var l = document.createElement('link'); l.id = 'ifwlKitCss'; l.rel = 'stylesheet'; l.href = ASSETS + 'css/07-kit.css?v=49b0fecc';
   document.head.appendChild(l);
 }
 
@@ -86,7 +86,9 @@ function renderPodium(host, podium, opts){
     return '<div class="kit-pgroup">' + (podium.groups.length > 1 || g.label !== 'Overall' ? '<h4>' + esc(g.label) + '</h4>' : '')
       + '<div class="kit-pstage">' + podiumColumn(by[2], 2) + podiumColumn(by[1], 1) + podiumColumn(by[3], 3) + '</div></div>';
   }).join('');
-  host.innerHTML = head + '<div class="kit-podium">' + groups + '</div>';
+  /* console races sit on the red banner, PC races on the blue one (SimGrid's own colours) - the platform is in the race file's folder name */
+  var plat = /(^|\/)console-/i.test(String(podium.file || '')) ? 'console' : /(^|\/)pc-/i.test(String(podium.file || '')) ? 'pc' : '';
+  host.innerHTML = head + '<div class="kit-podium' + (plat ? ' plat-' + plat : '') + '">' + groups + '</div>';
 }
 function loadPodium(file){
   return api('racePodium', file ? { file: file } : { latest: 1 }).then(function(d){ return d.podium; });
