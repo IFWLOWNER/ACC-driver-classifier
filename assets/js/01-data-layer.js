@@ -4018,6 +4018,78 @@
     };
   }
 
+  // ✅ ADDED: Race team stint-change pop-up. When a team manager publishes or
+  // changes a stint plan the server adds an entry to licence.stintNotices for
+  // each driver whose OWN stints (or stint times) changed. It stays until the
+  // driver answers on the Race Team page (the server clears it then, on every
+  // device) or - for "taken off the plan" - until they press OK. "Remind me
+  // later" hides it for this browser session only, so it can't be forgotten.
+  function checkStintNotice(){
+    const notices = Array.isArray(currentProfile?.stintNotices) ? currentProfile.stintNotices : [];
+    const now = Date.now();
+    let snoozed = {};
+    try{ snoozed = JSON.parse(sessionStorage.getItem('ifwlStintLater') || '{}') || {}; }catch(_){}
+    const live = notices.filter(n => n && !n.seen && !snoozed[n.id]
+      && !(n.eventDateMs && n.eventDateMs + 36 * 3600 * 1000 < now))      // race is long over - don't nag
+      .sort((a,b) => (a.dateMs||0) - (b.dateMs||0));
+    if(!live.length) return;
+    const n = live[0];
+    const esc2 = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const kind = ['new','changed','schedule','removed'].indexOf(n.kind) >= 0 ? n.kind : 'changed';
+    const COPY = {
+      new:      { head: 'Stints set',      text: 'Your team lead has put you down for the stints below. Please confirm you can make them.' },
+      changed:  { head: 'Stints changed',  text: 'Your stints for this event have changed. Please check them and confirm you can still make it.' },
+      schedule: { head: 'Times changed',   text: 'The times for your stints have changed. Please check them and confirm you can still make it.' },
+      removed:  { head: 'Off the plan',    text: 'You are no longer scheduled for a stint in this event. There is nothing for you to confirm.' }
+    }[kind];
+    const dayStr = (function(){ if(!n.eventDateMs) return ''; try{ return new Date(n.eventDateMs).toLocaleDateString(undefined, { weekday:'short', day:'numeric', month:'short' }); }catch(_){ return ''; } })();
+    // "HH:MM UTC" on the event's calendar day -> the viewer's own local time
+    function localTime(t){
+      const m = String(t || '').trim().match(/^(\d{1,2}):(\d{2})/);
+      if(!m || !n.eventDateMs) return String(t || '');
+      const base = new Date(n.eventDateMs + 12 * 3600 * 1000);      // intended calendar day, whatever timezone it was entered in
+      const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), Number(m[1]), Number(m[2])));
+      try{ return d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' }) + ' (' + String(t).trim() + ')'; }catch(_){ return String(t); }
+    }
+    const rows = (n.after || []).map(s => ['Stint ' + s.n, s.time ? localTime(s.time) : 'time to be confirmed']);
+    if(kind === 'changed' && (n.before || []).length) rows.push(['Before', n.before.map(x => 'Stint ' + x).join(', ')]);
+    const remaining = live.length - 1;
+    let modal = document.getElementById('stintNoticeModal');
+    if(!modal){ modal = document.createElement('div'); modal.id = 'stintNoticeModal'; modal.className = 'hidden'; document.body.appendChild(modal); }
+    modal.className = 'sn-' + kind;
+    modal.innerHTML = '<div class="sn-card" role="alertdialog" aria-modal="true" aria-labelledby="snHeadline">'
+      + '<div class="sn-kicker">Race team' + (n.teamName ? ' &middot; ' + esc2(n.teamName) : '') + '</div>'
+      + '<div class="sn-headline" id="snHeadline">' + esc2(COPY.head) + '</div>'
+      + '<div class="sn-sub">' + esc2(n.eventLabel || 'Race event') + (dayStr ? ' &middot; ' + esc2(dayStr) : '') + '</div>'
+      + '<p class="sn-explain">' + esc2(COPY.text) + '</p>'
+      + (rows.length ? '<div class="sn-rows">' + rows.map(r => '<div><span>' + esc2(r[0]) + '</span><strong>' + esc2(r[1]) + '</strong></div>').join('') + '</div>' : '')
+      + (kind === 'removed'
+          ? '<button type="button" class="sn-btn" id="snOkBtn">OK' + (remaining > 0 ? ' (' + remaining + ' more)' : '') + '</button>'
+          : '<button type="button" class="sn-btn" id="snGoBtn">Review &amp; confirm</button><button type="button" class="sn-later" id="snLaterBtn">Remind me later</button>')
+      + '<div class="sn-foot">You answer on the Race Team page &rarr; Claim Your Stints.</div></div>';
+    document.body.classList.add('sn-open');
+    function close(){ modal.className = 'hidden'; document.body.classList.remove('sn-open'); }
+    const okBtn = document.getElementById('snOkBtn');
+    if(okBtn) okBtn.onclick = async () => {
+      close(); n.seen = true;
+      try{ await apiPost('stintNoticeSeen', { noticeId: n.id }); }catch(e){ /* best-effort - re-shows next visit */ }
+      if(remaining > 0) setTimeout(checkStintNotice, 150);
+    };
+    const goBtn = document.getElementById('snGoBtn');
+    if(goBtn) goBtn.onclick = () => {
+      close();
+      if(/licence-teams\.html/.test(location.pathname) && typeof window.rtFocusEvent === 'function' && window.rtFocusEvent(n.eventId)) return;
+      location.href = 'licence-teams.html?event=' + encodeURIComponent(n.eventId || '');
+    };
+    const laterBtn = document.getElementById('snLaterBtn');
+    if(laterBtn) laterBtn.onclick = () => {
+      snoozed[n.id] = 1;
+      try{ sessionStorage.setItem('ifwlStintLater', JSON.stringify(snoozed)); }catch(_){}
+      close();
+      if(remaining > 0) setTimeout(checkStintNotice, 150);
+    };
+  }
+
   // =====================================================================
   // ✅ ADDED: AC RALLY KNOCKOUT EVENTS - driver-facing (Available Races)
   // Separate self-service system from the SimGrid roster above - drivers
@@ -6154,6 +6226,7 @@
     checkOwnerClauseNotice();
     checkLicencePointsNotice();
     checkTicketOutcomeNotice();
+    checkStintNotice();
     // ✅ ADDED: Season 4 checklist - Home view only (see switchView for the
     // re-check when navigating back to Home later in the same visit).
     if(document.querySelector('#viewTabs > .view-tab.active')?.dataset.view === 'home'){

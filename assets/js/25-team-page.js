@@ -132,7 +132,58 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
   // so a driver can flag both independently. Optional 4th arg keeps this
   // backward compatible with any old call site that only ever sent stints.
   async function rtSetAvailability(eventId, driverName, stints, availableStints){ return rtApiCall('?raceTeamEventAvailability=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, stints, availableStints: availableStints || []}) }); }
-  async function rtFinalizeEvent(eventId, stints){ return rtApiCall('?raceTeamEventFinalize=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, stints}) }); }
+  async function rtFinalizeEvent(eventId, stints, notifyDm){ return rtApiCall('?raceTeamEventFinalize=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, stints, notifyDm: !!notifyDm}) }); }
+  async function rtNotifyRetry(eventId){ return rtApiCall('?raceTeamEventNotifyRetry=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId}) }); }
+
+  // ---- "tell the drivers" helpers: DM switch, delivery report, per-driver chips ----
+  const RT_DM_PREF_KEY = 'IFWL_RT_NOTIFY_DM';
+  function rtDmPref(){ try{ return localStorage.getItem(RT_DM_PREF_KEY) !== '0'; }catch(_){ return true; } }
+  function rtSetDmPref(on){ try{ localStorage.setItem(RT_DM_PREF_KEY, on ? '1' : '0'); }catch(_){} }
+  const RT_DM_REASONS = {
+    dms_closed: 'has Discord DMs from server members turned off',
+    not_in_server: "isn't in the IFWL Discord any more",
+    network: 'Discord could not be reached - press Re-send',
+    discord_error: 'Discord had a problem - press Re-send',
+    rate_limited: 'Discord was busy - press Re-send',
+    time_budget: 'ran out of time - press Re-send',
+    bot_unauthorised: 'the bot is not authorised - tell Ben',
+    discord_rejected: 'Discord refused the message',
+    no_bot_token: 'the bot is not set up - tell Ben',
+    bad_id: 'has no valid Discord id',
+    not_on_roster: "name isn't on this team's roster",
+    ambiguous_name: 'two drivers share this name - tell them yourself',
+    no_team_roster: "this event's team has no roster on file"
+  };
+  const RT_KIND_LABEL = { new: 'new stints', changed: 'stints changed', schedule: 'times changed', removed: 'taken off the plan' };
+  const rtLastNotify = {};
+  function rtNotifyReportHtml(n){
+    if(!n) return '';
+    if(n.error) return '<div class="rt-notify-report bad"><strong>Drivers could not be notified automatically.</strong> ' + esc(n.error) + '</div>';
+    const rows = n.drivers || [];
+    if(!rows.length) return '<div class="rt-notify-report ok">Nobody\'s stints changed, so nobody needed telling and nobody had to reconfirm.</div>';
+    const failedDm = rows.filter(r => r.dm === 'failed');
+    const noNotice = rows.filter(r => r.notice === 'failed');
+    let h = '<div class="rt-notify-report ' + ((failedDm.length || noNotice.length) ? 'warn' : 'ok') + '"><strong>' + rows.length + ' driver' + (rows.length === 1 ? '' : 's') + ' told on the site</strong> (pop-up on their next visit)';
+    if(n.dmRequested) h += ' &middot; Discord DM: <strong>' + (n.dmSent || 0) + ' sent</strong>' + (failedDm.length ? ', <strong>' + failedDm.length + ' not delivered</strong>' : '');
+    else h += ' &middot; no Discord DMs sent';
+    h += '.';
+    const bad = rows.filter(r => r.dm === 'failed' || r.notice === 'failed');
+    if(bad.length) h += '<ul>' + bad.map(r => '<li><strong>' + esc(r.name) + '</strong> &mdash; ' + esc(RT_DM_REASONS[r.reason] || r.reason || 'not delivered') + '</li>').join('') + '</ul>' + (failedDm.length ? '<div class="field-hint">They will still see the pop-up when they next open the site. Ping them on Discord yourself or press Re-send once it is sorted.</div>' : '');
+    return h + '</div>';
+  }
+  function rtDmChip(row){
+    if(!row) return '';
+    if(row.dm === 'sent') return '<span class="rt-dm-chip ok" title="Discord DM delivered">DM sent</span>';
+    if(row.dm === 'off') return '<span class="rt-dm-chip off" title="No Discord DM was requested">no DM</span>';
+    return '<span class="rt-dm-chip bad" title="' + esc(RT_DM_REASONS[row.reason] || 'not delivered') + '">DM not delivered</span>';
+  }
+  function rtNeedsResend(event){ return (event.dmLog || []).some(r => r && (r.dm !== 'sent' || r.notice !== 'sent')); }
+  function rtApplyNotifyToEvent(ev, notify){
+    if(!ev || !notify || !Array.isArray(notify.drivers)) return;
+    const touched = new Set(notify.drivers.map(d => d.key));
+    const kept = (ev.dmLog || []).filter(r => !touched.has(r.key));
+    ev.dmLog = kept.concat(notify.drivers.map(d => ({ key: d.key, name: d.name, kind: d.kind, notice: d.notice, dm: d.dm, reason: d.reason, atMs: d.atMs })));
+  }
   async function rtAcknowledgeEvent(eventId, driverName, status, reason){ return rtApiCall('?raceTeamEventAcknowledge=1', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({eventId, driverName, status, reason}) }); }
   async function rtDeleteEvent(eventId){ return rtApiCall(`?raceTeamEventDelete=1&id=${encodeURIComponent(eventId)}`, { method: 'POST' }); }
   function driverNameKey(name){ return String(name || '').trim().toLowerCase(); }
@@ -191,8 +242,9 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
   function stintTimeToUtcDate(event, timeStr){
     const parts = parseStintTimeParts(timeStr);
     if(!parts || !event || !event.eventDateMs) return null;
-    const base = new Date(event.eventDateMs);
-    return new Date(Date.UTC(base.getFullYear(), base.getMonth(), base.getDate(), parts.hh, parts.mm, 0));
+    // +12h then read the UTC date: gives the intended calendar day whatever timezone the event was created in
+    const base = new Date(event.eventDateMs + 12 * 3600 * 1000);
+    return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), parts.hh, parts.mm, 0));
   }
   function formatStintTimeLocal(event, timeStr){
     const raw = String(timeStr || '').trim();
@@ -309,11 +361,16 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
         <select data-rt-alloc-stint="${i}"><option value="">— Unassigned —</option>${options}</select>
         ${stintTimeSelectHtml(i, stintTimes[i])}</div>`;
     }).join('');
+    const dmRows = Array.isArray(event.dmLog) ? event.dmLog : [];
     const ackRows = Object.values(event.acknowledgements||{}).map(a => {
       const cls = a.status === 'yes' ? 'good' : a.status === 'no' ? 'bad' : 'pending';
       const text = a.status === 'yes' ? '✅ Confirmed' : a.status === 'no' ? `❌ Declined — ${esc(a.reason||'no reason given')}` : '⏳ Awaiting response';
-      return `<div class="rt-ack-row ${cls}"><strong>${esc(a.driverName)}</strong><span>${text}</span></div>`;
+      const dl = dmRows.filter(r => r.key === driverNameKey(a.driverName))[0];
+      return `<div class="rt-ack-row ${cls}"><strong>${esc(a.driverName)}</strong><span>${text} ${rtDmChip(dl)}</span></div>`;
     }).join('') || '<div class="empty">No stint plan finalised yet.</div>';
+    const goneRows = dmRows.filter(r => r.kind === 'removed' && !(event.acknowledgements || {})[r.key]).map(r =>
+      `<div class="rt-ack-row"><strong>${esc(r.name)}</strong><span>Taken off the plan ${rtDmChip(r)}</span></div>`).join('');
+    const resendBtn = event.finalized && rtNeedsResend(event) ? '<button type="button" class="btn ghost" data-rt-resend="1">Re-send to drivers not reached</button>' : '';
 
     return `<div class="rt-event-card" data-rt-event-id="${esc(event.id)}">
       <div class="rt-event-head" style="${esc(rtEventBannerStyle(event))}">
@@ -328,11 +385,12 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       </div>
       <div class="rt-event-section"><h5>Stint allocation &amp; times</h5>
         <div class="rt-alloc-grid">${allocationRows}</div>
+        <label class="rt-dm-switch"><input type="checkbox" data-rt-notify-dm="1" ${rtDmPref() ? 'checked' : ''}> Also send changed drivers a Discord DM <span class="field-hint">(they always get a pop-up on the site; only drivers whose own stints or times changed are told, everyone else keeps their confirmation)</span></label>
         <button type="button" class="btn ghost" data-rt-save-times="1">Save stint times</button>
-        <button type="button" class="btn purple" data-rt-populate="1">Populate stints</button>
+        <button type="button" class="btn purple" data-rt-populate="1">${event.finalized ? 'Update stints' : 'Populate stints'}</button>
         ${event.finalized ? '<button type="button" class="btn teal" data-rt-draft="1">Make draft image</button>' : ''}
       </div>
-      <div class="rt-event-section"><h5>Acknowledgements</h5>${ackRows}</div>
+      <div class="rt-event-section"><h5>Acknowledgements</h5>${rtNotifyReportHtml(rtLastNotify[event.id])}${ackRows}${goneRows}${resendBtn ? `<div style="margin-top:10px">${resendBtn} <span class="save-status" data-rt-resend-status="1"></span></div>` : ''}</div>
     </div>`;
   }
 
@@ -405,9 +463,14 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
           const timeInputs = [...card.querySelectorAll('[data-rt-stint-time]')].sort((a,b) => Number(a.dataset.rtStintTime) - Number(b.dataset.rtStintTime));
           const stintTimes = timeInputs.map(inp => inp.value.trim());
           try{
-            const result = await rtSaveEvent({ eventId: event.id, teamId: currentTeamId, teamName: currentTeamName, platform: event.platform, simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car, stintCount: event.stintCount, stintTimes, roundName: event.roundName, eventDateMs: event.eventDateMs });
+            const notifyDm = !!card.querySelector('[data-rt-notify-dm]')?.checked; rtSetDmPref(notifyDm);
+            const result = await rtSaveEvent({ eventId: event.id, teamId: currentTeamId, teamName: currentTeamName, platform: event.platform, simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car, stintCount: event.stintCount, stintTimes, roundName: event.roundName, eventDateMs: event.eventDateMs, notifyDm });
             const idx = currentEvents.findIndex(e => e.id === event.id);
-            if(idx !== -1){ currentEvents[idx].stintTimes = stintTimes; if(result.simgridImageUrl) currentEvents[idx].simgridImageUrl = result.simgridImageUrl; }
+            if(idx !== -1){
+              currentEvents[idx].stintTimes = stintTimes; if(result.simgridImageUrl) currentEvents[idx].simgridImageUrl = result.simgridImageUrl;
+              if(result.acknowledgements) currentEvents[idx].acknowledgements = result.acknowledgements;
+              if(result.notify){ rtLastNotify[event.id] = result.notify; rtApplyNotifyToEvent(currentEvents[idx], result.notify); }
+            }
             renderEventsBody();
             renderClaimBody();
           }catch(e){ alert('Could not save stint times: ' + e.message); }
@@ -432,16 +495,31 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
             if(!confirm(`Heads up — these assignments don't match what the driver marked as Available or Backup:\n${names}\n\nFinalise anyway?`)) return;
           }
           try{
-            await rtFinalizeEvent(event.id, stints);
+            const notifyDm = !!card.querySelector('[data-rt-notify-dm]')?.checked; rtSetDmPref(notifyDm);
+            const result = await rtFinalizeEvent(event.id, stints, notifyDm);
             const idx = currentEvents.findIndex(e => e.id === event.id);
             if(idx !== -1){
               currentEvents[idx].stints = stints; currentEvents[idx].finalized = true;
-              const acks = {}; stints.forEach(s => { if(s.driverName) acks[driverNameKey(s.driverName)] = { driverName: s.driverName, status: 'pending', reason: '', respondedAtMs: 0 }; });
-              currentEvents[idx].acknowledgements = acks;
+              // the server decides who is back to "pending": only drivers whose own stints changed
+              currentEvents[idx].acknowledgements = result.acknowledgements || {};
+              rtLastNotify[event.id] = result.notify || null;
+              if(result.notify) rtApplyNotifyToEvent(currentEvents[idx], result.notify);
             }
             renderEventsBody();
             renderClaimBody();
           }catch(e){ alert('Could not populate stints: ' + e.message); }
+        });
+        card.querySelector('[data-rt-resend]')?.addEventListener('click', async (evt) => {
+          const btn = evt.currentTarget, st = card.querySelector('[data-rt-resend-status]');
+          btn.disabled = true; if(st) st.textContent = 'Sending…';
+          try{
+            const r = await rtNotifyRetry(event.id);
+            const idx = currentEvents.findIndex(e => e.id === event.id);
+            if(idx !== -1 && Array.isArray(r.dmLog)) currentEvents[idx].dmLog = r.dmLog.map(x => ({ key: x.key, name: x.name, kind: x.kind, notice: x.notice, dm: x.dm, reason: x.reason, atMs: x.atMs }));
+            rtLastNotify[event.id] = r.retried ? { dmRequested: true, dmSent: r.dmSent, dmFailed: r.dmFailed, drivers: r.drivers } : null;
+            if(!r.retried) alert('Everyone has already been reached.');
+            renderEventsBody();
+          }catch(e){ btn.disabled = false; if(st) st.textContent = ''; alert('Could not re-send: ' + e.message); }
         });
       });
     } else {
@@ -735,7 +813,9 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     created: { label: 'Created event', icon: '🟢' },
     updated: { label: 'Edited event', icon: '🟡' },
     finalized: { label: 'Finalised stints', icon: '🟣' },
-    deleted: { label: 'Deleted event', icon: '🔴' }
+    deleted: { label: 'Deleted event', icon: '🔴' },
+    notified: { label: 'Told drivers about stint changes', icon: '📣' },
+    'notify-retry': { label: 'Re-sent stint notifications', icon: '🔁' }
   };
 
   async function renderAuditLog(){
@@ -757,6 +837,9 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       if(d.car) detailBits.push(esc(d.car));
       if(d.platform) detailBits.push(d.platform === 'console' ? 'Console' : 'PC');
       if(Number.isFinite(d.assignedCount) && Number.isFinite(d.stintCount)) detailBits.push(`${d.assignedCount}/${d.stintCount} stints assigned`);
+      if(Number.isFinite(d.changedDrivers)) detailBits.push(`${d.changedDrivers} driver${d.changedDrivers === 1 ? '' : 's'} needed to reconfirm`);
+      if(e.action === 'notified' && Number.isFinite(d.drivers)) detailBits.push(`${d.drivers} told on site` + (d.dmRequested ? `, DM ${d.dmSent} sent / ${d.dmFailed} not delivered` : ', no DMs'));
+      if(e.action === 'notify-retry' && Number.isFinite(d.retried)) detailBits.push(`${d.retried} retried, ${d.dmSent} DM sent`);
       return `
         <div class="note-item" style="display:flex;align-items:flex-start;gap:10px;">
           <span style="font-size:16px;">${meta.icon}</span>
@@ -1500,6 +1583,28 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     }
   }
 
+  /* Pop-up / DM link: licence-teams.html?event=<id> opens Claim Your Stints on that event */
+  function focusEvent(eventId){
+    if(!eventId || tp.tab === undefined) return false;
+    if(tabsNow().indexOf('claim') < 0) return false;
+    showTab('claim');
+    const sel = '[data-claim-event-id="' + (window.CSS && CSS.escape ? CSS.escape(eventId) : eventId) + '"]';
+    setTimeout(function(){
+      const el = document.querySelector(sel);
+      if(!el) return;
+      try{ el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }catch(_){}
+      el.classList.add('rt-flash'); setTimeout(function(){ el.classList.remove('rt-flash'); }, 2600);
+    }, 120);
+    return true;
+  }
+  window.rtFocusEvent = focusEvent;
+  function consumeEventParam(){
+    let id = '';
+    try{ id = new URLSearchParams(location.search).get('event') || ''; }catch(_){}
+    if(!id) return;
+    if(focusEvent(id)){ try{ const u = new URL(location.href); u.searchParams.delete('event'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); }catch(_){} }
+  }
+
   async function boot(force){
     if(!mount.done){ if(!mount()) return; mount.done = true; }
     var mine;
@@ -1514,6 +1619,7 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     if(force !== 'keep') tp.tab = 'roster';
     await renderTeamPanels();
     renderTabs();
+    if(!tp.staffView) consumeEventParam();
   }
   async function openTeamAsStaff(teamId){
     try{ await loadTeam(teamId); }catch(e){ toast(errText(e), true); return; }
@@ -1865,10 +1971,20 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       var s = (event.stints || []).filter(function(x){ return Number(x.index) === i; })[0];
       var who = s && s.driverName ? s.driverName : '';
       var ack = who ? (event.acknowledgements || {})[driverNameKey(who)] : null;
-      rows.push({ stint: i + 1, time: String(times[i] || '').trim(), driver: who, status: ack ? ack.status : '' });
+      var tstr = String(times[i] || '').trim(), when = tstr ? stintTimeToUtcDate(event, tstr) : null, tz = (opts && opts.tz) || 'UTC';
+      var shown = '', zone = '';
+      if(when && tz !== 'UTC'){
+        try{
+          shown = when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
+          var part = new Intl.DateTimeFormat('en-GB', { timeZone: tz, timeZoneName: 'short' }).formatToParts(when).filter(function(x){ return x.type === 'timeZoneName'; })[0];
+          zone = part ? part.value : tz;
+        }catch(_){ shown = ''; }
+      }
+      rows.push({ stint: i + 1, time: tstr, ts: when ? Math.floor(when.getTime() / 1000) : 0, shown: shown, zone: zone, driver: who, status: ack ? ack.status : '' });
     }
     var date = event.eventDateMs ? new Date(event.eventDateMs).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
-    var meta = [date, event.raceNumber ? '#' + event.raceNumber : '', event.car || '', event.platform === 'console' ? 'Console' : 'PC'].filter(Boolean).join('  ·  ');
+    var zoneName = (rows.filter(function(r){ return r.zone; })[0] || {}).zone || '';
+    var meta = [date, event.raceNumber ? '#' + event.raceNumber : '', event.car || '', event.platform === 'console' ? 'Console' : 'PC', zoneName ? 'Times in ' + zoneName : ''].filter(Boolean).join('  ·  ');
     return { team: currentTeamName, logo: (tp.detail && tp.detail.team && tp.detail.team.logoUrl) || '', round: event.roundName || 'Race', meta: meta, link: event.simgridLink || '', rows: rows, note: (opts && opts.note) || '', showStatus: !!(opts && opts.showStatus) };
   }
   function draftText(m){
@@ -1876,7 +1992,9 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     m.rows.forEach(function(r){
       var d = r.driver ? splitName(r.driver) : null;
       var st = m.showStatus && r.driver ? (r.status === 'yes' ? '  ✅' : r.status === 'no' ? '  ❌' : '  ⏳') : '';
-      out.push('Stint ' + r.stint + (r.time ? '  ·  ' + r.time : '') + '  ·  ' + (d ? (d.num ? '#' + d.num + ' ' : '') + d.name : 'TBC') + st);
+      /* <t:..:t> is rendered by Discord in each reader's own time zone; the UTC time stays alongside for clarity */
+      var when = r.ts ? '<t:' + r.ts + ':t> (' + r.time + ')' : r.time;
+      out.push('Stint ' + r.stint + (when ? '  ·  ' + when : '') + '  ·  ' + (d ? (d.num ? '#' + d.num + ' ' : '') + d.name : 'TBC') + st);
     });
     if(m.note) out.push('', m.note);
     out.push('', '_Draft — subject to change._' + (m.link ? '\n' + m.link : ''));
@@ -1956,7 +2074,10 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       c.fillStyle = '#ffffff'; c.font = '700 24px Rajdhani, Arial Narrow, Arial, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
       c.fillText('STINT ' + r.stint, PAD + 14 + 56, y + ROW / 2 + 1); c.textAlign = 'left';
       c.textBaseline = 'middle'; c.fillStyle = '#c7d4dc'; c.font = '700 26px "JetBrains Mono", Consolas, monospace';
-      c.fillText(r.time || '--:--', PAD + 148, y + ROW / 2 + 1);
+      if(r.shown){
+        c.fillText(r.shown + ' ' + r.zone, PAD + 148, y + ROW / 2 - 9);
+        c.fillStyle = '#7c92a0'; c.font = '600 15px "JetBrains Mono", Consolas, monospace'; c.fillText(r.time, PAD + 148, y + ROW / 2 + 18);
+      } else c.fillText(r.time || '--:--', PAD + 148, y + ROW / 2 + 1);
       var d = r.driver ? splitName(r.driver) : null, nx = PAD + 340;
       if(d){
         if(d.num){ c.fillStyle = accent; c.font = '700 28px Rajdhani, Arial Narrow, Arial, sans-serif'; var nt = '#' + d.num; c.fillText(nt, nx, y + ROW / 2 + 1); nx += c.measureText(nt).width + 12; }
@@ -1990,6 +2111,8 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       '<h3>Draft stint image</h3>' +
       '<p class="field-hint">A picture of the stint plan to paste into your team\'s Discord channel. Nothing is posted for you.</p>' +
       '<div class="tp-draft-opts"><div class="field-group"><label for="tpDraftNote">Note under the plan (optional)</label><input type="text" id="tpDraftNote" maxlength="240" placeholder="e.g. Be in the lobby 30 minutes before the start"></div>' +
+      '<div class="field-group"><label for="tpDraftTz">Show stint times in</label><select id="tpDraftTz"></select>' +
+        '<div class="field-hint">A picture can only show one time zone, so pick the one your team shares. <b>Copy as text</b> works differently: Discord shows every reader their own local time.</div></div>' +
       '<label class="tp-check"><input type="checkbox" id="tpDraftStatus"> Show who has confirmed</label></div>' +
       '<div class="tp-draft-prev"><canvas id="tpDraftCanvas"></canvas></div>' +
       '<div class="tp-actions"><button class="btn teal" id="tpDraftDl" type="button">Download image</button><button class="btn purple" id="tpDraftCopy" type="button">Copy image</button><button class="btn ghost" id="tpDraftTxt" type="button">Copy as text</button></div>' +
@@ -1997,17 +2120,29 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     document.body.appendChild(ov);
     var cv = ov.querySelector('#tpDraftCanvas'), noteEl = ov.querySelector('#tpDraftNote'), stEl = ov.querySelector('#tpDraftStatus'), msg = ov.querySelector('#tpDraftMsg');
     var timer = null, model = null;
+    var tzEl = ov.querySelector('#tpDraftTz'), DRAFT_TZ_KEY = 'IFWL_RT_DRAFT_TZ';
+    (function(){
+      var mine = getMyTimezone(), saved = 'UTC';
+      try{ saved = localStorage.getItem(DRAFT_TZ_KEY) || 'UTC'; }catch(_){}
+      var zones = timezoneOptionList().filter(function(z){ return z !== 'UTC' && z !== mine; });
+      var opts = ['<option value="UTC">UTC (same for everyone)</option>'];
+      if(mine && mine !== 'UTC') opts.push('<option value="' + esc(mine) + '">Your local time (' + esc(mine) + ')</option>');
+      zones.forEach(function(z){ opts.push('<option value="' + esc(z) + '">' + esc(z) + '</option>'); });
+      tzEl.innerHTML = opts.join('');
+      tzEl.value = Array.prototype.some.call(tzEl.options, function(o){ return o.value === saved; }) ? saved : 'UTC';
+    })();
     function close(){ ov.remove(); document.removeEventListener('keydown', onKey); }
     function onKey(e){ if(e.key === 'Escape') close(); }
     document.addEventListener('keydown', onKey);
     ov.querySelector('.tp-x').addEventListener('click', close);
     ov.addEventListener('mousedown', function(e){ if(e.target === ov) close(); });
     async function redraw(){
-      model = draftModel(event, { note: noteEl.value.trim(), showStatus: stEl.checked });
+      model = draftModel(event, { note: noteEl.value.trim(), showStatus: stEl.checked, tz: tzEl.value });
       try{ await drawDraft(cv, model); msg.textContent = ''; }catch(e){ msg.textContent = 'Could not draw the image: ' + errText(e); }
     }
     noteEl.addEventListener('input', function(){ clearTimeout(timer); timer = setTimeout(redraw, 250); });
     stEl.addEventListener('change', redraw);
+    tzEl.addEventListener('change', function(){ try{ localStorage.setItem(DRAFT_TZ_KEY, tzEl.value); }catch(_){} redraw(); });
     function blob(){ return new Promise(function(res){ cv.toBlob(res, 'image/png'); }); }
     function fname(){ return (currentTeamName + '-' + (event.roundName || 'stint-plan')).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() + '-draft.png'; }
     ov.querySelector('#tpDraftDl').addEventListener('click', async function(){
