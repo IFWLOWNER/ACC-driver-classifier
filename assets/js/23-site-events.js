@@ -71,8 +71,22 @@
   /* ======================= DRIVER ======================= */
   function mountDriver(root) {
     if (root.__se) return; root.__se = true; ensureCss();
-    const S = { events: null, msg: {}, busy: false };
-    async function load() { try { S.events = (await api('siteEventsList')).events; } catch (e) { S.events = null; root.innerHTML = ''; return; } render(); }
+    const S = { events: null, free: null, msg: {}, busy: false };
+    async function load() { try { S.events = (await api('siteEventsList')).events; } catch (e) { S.events = null; } render(); }
+    async function loadFree() { try { S.free = (await api('freeEventsList')).events; } catch (e) { S.free = null; } render(); }
+    // free events (announcements such as an LMU free practice): interested -> link to the event; otherwise an "I'm interested" button
+    function freeCard(e) {
+      const mine = e.myStatus === 'interested', msg = S.msg['f' + e.id], url = /^https:\/\//i.test(e.simgridUrl || '') ? e.simgridUrl : '';
+      return '<div class="se-box" data-fev="' + esc(e.id) + '">' + (e.imageUrl ? '<img src="' + esc(e.imageUrl) + '" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:10px">' : '')
+        + '<div class="se-h"><div><span class="se-title">' + esc(e.title) + '</span><span class="se-chip">Free event</span>' + (mine ? '<span class="se-chip se-good">You are interested</span>' : '') + '</div></div>'
+        + (e.sessions && e.sessions.length ? sessionsHtml(e.sessions) : (e.eventDateMs ? '<div class="se-sm" style="margin-top:4px">' + esc(dayTime(e.eventDateMs)) + '</div>' : (e.eventDateLabel ? '<div class="se-sm" style="margin-top:4px">' + esc(e.eventDateLabel) + '</div>' : '')))
+        + (e.notes ? '<div style="margin-top:6px;font-size:13px;white-space:pre-wrap">' + esc(e.notes) + '</div>' : '')
+        + '<div class="se-row">' + (mine
+            ? (url ? '<a class="btn" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open the event on SimGrid</a>' : '<span class="se-sm">The event link will be added soon.</span>') + '<button class="btn ghost" data-a="feno"' + (S.busy ? ' disabled' : '') + '>Not interested any more</button>'
+            : '<button class="btn" data-a="feyes"' + (S.busy ? ' disabled' : '') + '>I\u2019m interested</button>')
+        + '</div>'
+        + (msg ? '<div class="' + (msg.err ? 'se-bad' : 'se-good') + '" style="margin-top:6px">' + esc(msg.t) + '</div>' : '') + '</div>';
+    }
     function card(e) {
       const m = e.mine, msg = S.msg[e.id];
       let h = '<div class="se-box" data-ev="' + esc(e.id) + '">' + (e.imageUrl ? '<img src="' + esc(e.imageUrl) + '" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:10px">' : '') + '<div class="se-h"><div><span class="se-title">' + esc(e.title) + '</span><span class="se-chip">' + (e.platform === 'pc' ? 'PC' : 'Console') + '</span><span class="se-chip">Sign up on the site</span></div>'
@@ -94,11 +108,24 @@
       return h + '</div>';
     }
     function render() {
-      if (!S.events || !S.events.length) { root.innerHTML = ''; return; }
-      root.innerHTML = '<div class="se-sm" style="font-weight:800;letter-spacing:.06em;margin:6px 0">SIGN-UP EVENTS</div>' + S.events.map(card).join('');
+      const free = (S.free || []).filter((e) => e.myStatus === 'interested').concat((S.free || []).filter((e) => e.myStatus !== 'interested'));
+      const ev = S.events || [];
+      if (!free.length && !ev.length) { root.innerHTML = ''; return; }
+      root.innerHTML = (free.length ? '<div class="se-sm" style="font-weight:800;letter-spacing:.06em;margin:6px 0">FREE EVENTS</div>' + free.map(freeCard).join('') : '')
+        + (ev.length ? '<div class="se-sm" style="font-weight:800;letter-spacing:.06em;margin:6px 0">SIGN-UP EVENTS</div>' + ev.map(card).join('') : '');
     }
     root.addEventListener('click', async (ev) => {
       const b = ev.target.closest('button[data-a]'); if (!b || S.busy) return;
+      if (b.dataset.a === 'feyes' || b.dataset.a === 'feno') {
+        const fid = b.closest('[data-fev]').dataset.fev; S.busy = true; render();
+        try {
+          const r = await api('freeEventRespond', { eventId: fid, response: b.dataset.a === 'feyes' ? 'interested' : 'declined' });
+          S.msg['f' + fid] = b.dataset.a === 'feyes'
+            ? { t: (r.licenceAdded ? 'Done \u2013 the ' + (r.tierName || 'LMU') + ' licence has been added to your account. ' : '') + (r.roleSynced === false ? 'Your Discord role did not come through just now; press the button again later or ask staff.' : 'You are down as interested.'), err: false }
+            : { t: 'Removed from your list.', err: false };
+        } catch (e) { S.msg['f' + fid] = { t: e.message, err: true }; }
+        S.busy = false; await loadFree(); return;
+      }
       const box = b.closest('[data-ev]'), id = box.dataset.ev, a = b.dataset.a;
       S.busy = true;
       try {
@@ -114,7 +141,8 @@
       } catch (e) { S.msg[id] = { t: e.message, err: true }; }
       S.busy = false; await load();
     });
-    load();
+    window.addEventListener('ifwl-free-events-changed', () => { S.msg = {}; loadFree(); });
+    load(); loadFree();
   }
 
   /* ======================= STAFF ======================= */
@@ -251,11 +279,116 @@
     load();
   }
 
+  /* ======================= STAFF: FREE EVENTS ======================= */
+  function blankFree() { return { title: '', notes: '', simgridUrl: '', lmuTierId: '', imageUrl: '', popup: true, open: true, sessions: [] }; }
+  function mountFreeStaff(root) {
+    if (root.__sef) return; root.__sef = true; ensureCss();
+    const S = { d: null, msg: '', err: false, busy: false, editingId: null, draft: blankFree(), open: {} };
+    const say = (m, e) => { S.msg = m; S.err = !!e; render(); };
+    async function load() { try { S.d = await api('staffFreeEventList'); S.msg = ''; } catch (e) { S.msg = e.message; S.err = true; } render(); }
+    const fromEvent = (e) => ({ title: e.title || '', notes: e.notes || '', simgridUrl: e.simgridUrl || '', lmuTierId: e.lmuTierId || '', imageUrl: e.imageUrl || '', popup: e.popup !== false, open: e.open !== false, sessions: (e.sessions || []).map((x) => Object.assign({}, x)) });
+    function readForm() {
+      const f = root.querySelector('#sefForm'); if (!f) return;
+      const v = (i) => { const el = f.querySelector('#' + i); return el ? el.value : ''; };
+      const D = S.draft;
+      D.title = v('sefTitle'); D.notes = v('sefNotes'); D.simgridUrl = v('sefUrl').trim(); D.lmuTierId = v('sefTier');
+      D.popup = !!(f.querySelector('#sefPopup') || {}).checked; D.open = !!(f.querySelector('#sefOpen') || {}).checked;
+      D.sessions = Array.from(f.querySelectorAll('[data-sess]')).map((row) => ({
+        kind: row.querySelector('[data-s=kind]').value, label: row.querySelector('[data-s=label]').value.trim(),
+        startMs: fromLocalInput(row.querySelector('[data-s=start]').value), durationMin: Number(row.querySelector('[data-s=dur]').value) || 0
+      }));
+    }
+    function form() {
+      const D = S.draft, d = S.d, editing = !!S.editingId;
+      const sess = D.sessions.map((x, i) => '<div class="se-row" data-sess="' + i + '" style="margin-top:6px">'
+        + '<select class="se-in" data-s="kind">' + ['practice', 'qualifying', 'race', 'other'].map((k) => '<option value="' + k + '"' + (x.kind === k ? ' selected' : '') + '>' + KIND_LABEL[k] + '</option>').join('') + '</select>'
+        + '<input class="se-in" data-s="label" placeholder="Name (optional)" value="' + esc(x.label) + '" style="width:150px">'
+        + '<input class="se-in" data-s="start" type="datetime-local" value="' + esc(toLocalInput(x.startMs)) + '">'
+        + '<input class="se-in sm" data-s="dur" type="number" min="0" max="1440" placeholder="mins" value="' + esc(x.durationMin || '') + '" title="Length in minutes (optional - the pop-up stops showing when the last session has finished; 3 hours if you leave this empty)">'
+        + '<button class="btn ghost" data-a="sessdel" data-i="' + i + '" style="font-size:11px">Remove</button></div>').join('');
+      const tiers = (d.lmuTiers || []);
+      return '<div class="se-box" id="sefForm"><b>' + (editing ? 'Edit free event' : 'New free event') + '</b><div class="se-sm">An announcement with a pop-up for every licensed driver. “I’m interested” adds the LMU licence below (if they don’t have it yet) and puts the event on their Available Races with your SimGrid link.</div>'
+        + '<div class="se-grid" style="margin-top:10px">'
+        + '<div><label>Title</label><input class="se-in wide" id="sefTitle" value="' + esc(D.title) + '" placeholder="LMU Free Practice"></div>'
+        + '<div><label>SimGrid event link (https)</label><input class="se-in wide" id="sefUrl" value="' + esc(D.simgridUrl) + '" placeholder="https://www.thesimgrid.com/..."></div>'
+        + '<div><label>LMU licence given when they press interested</label><select class="se-in wide" id="sefTier"><option value="">None (just show the event)</option>' + tiers.map((t) => '<option value="' + esc(t.id) + '"' + (D.lmuTierId === t.id ? ' selected' : '') + '>' + esc(t.name) + (t.hasRole ? '' : ' (no Discord role set)') + '</option>').join('') + '</select></div></div>'
+        + '<div style="margin-top:12px"><b style="font-size:13px">When</b><div class="se-sm">Your time; each driver sees their own time zone. The event disappears once the last session is over.</div>' + sess
+        + '<div class="se-row"><button class="btn ghost" data-a="sessadd" data-k="practice">+ Practice</button><button class="btn ghost" data-a="sessadd" data-k="qualifying">+ Qualifying</button><button class="btn ghost" data-a="sessadd" data-k="race">+ Race</button><button class="btn ghost" data-a="sessadd" data-k="other">+ Other</button></div></div>'
+        + '<div style="margin-top:12px"><b style="font-size:13px">Picture (shown at the top of the pop-up)</b><div class="se-row" style="margin-top:6px">'
+        + (D.imageUrl ? '<img src="' + esc(D.imageUrl) + '" alt="" style="width:160px;height:90px;object-fit:cover;border-radius:8px">' : '<span class="se-sm">No picture yet</span>')
+        + '<input type="file" id="sefImg" accept="image/*" class="se-sm">' + (D.imageUrl ? '<button class="btn ghost" data-a="imgdel" style="font-size:11px">Remove picture</button>' : '') + '</div><div class="se-sm" id="sefImgMsg">Up to 5 MB. A wide picture works best.</div></div>'
+        + '<div style="margin-top:10px"><label class="se-sm">Message shown to drivers</label><textarea class="se-in wide" id="sefNotes">' + esc(D.notes) + '</textarea></div>'
+        + '<div class="se-row"><label><input type="checkbox" id="sefPopup"' + (D.popup ? ' checked' : '') + '> Show the pop-up at login</label><label><input type="checkbox" id="sefOpen"' + (D.open ? ' checked' : '') + '> Event is live</label>'
+        + '<button class="btn" data-a="save"' + (S.busy ? ' disabled' : '') + '>' + (editing ? 'Save changes' : 'Create free event') + '</button><button class="btn ghost" data-a="preview">Preview pop-up</button>' + (editing ? '<button class="btn ghost" data-a="cancel">Cancel</button>' : '') + '</div></div>';
+    }
+    function evBox(e) {
+      const names = (e.interested || []);
+      const tier = ((S.d.lmuTiers || []).find((t) => t.id === e.lmuTierId) || {}).name;
+      return '<div class="se-box" data-fev="' + esc(e.id) + '"><div class="se-h"><div><span class="se-title">' + esc(e.title) + '</span><span class="se-chip">Free event</span>' + (e.ended ? '<span class="se-chip">finished</span>' : (e.open ? '' : '<span class="se-chip">not live</span>')) + (e.popup ? '' : '<span class="se-chip">no pop-up</span>') + '</div>'
+        + '<div class="se-sm">' + names.length + ' interested &middot; ' + (e.declinedCount || 0) + ' said no</div></div>'
+        + '<div class="se-sm" style="margin-top:4px">' + [e.sessions && e.sessions.length ? e.sessions.map((x) => sessionName(x, e.sessions) + ' ' + dayTime(x.startMs)).join(' · ') : '', tier && ('Licence: ' + tier), e.simgridUrl && 'SimGrid link set'].filter(Boolean).map(esc).join(' &middot; ') + '</div>'
+        + (names.length ? '<details style="margin-top:8px"' + (S.open[e.id] ? ' open' : '') + ' data-open="' + esc(e.id) + '"><summary class="se-sm" style="cursor:pointer">Who is interested (' + names.length + ')</summary><div class="se-sm" style="margin-top:4px">' + names.map((x) => esc(x.name || x.driverId) + (x.licenceAdded ? ' <span class="se-good">(licence added)</span>' : '')).join('<br>') + '</div></details>' : '')
+        + '<div class="se-row"><button class="btn ghost" data-a="edit">Edit</button><button class="btn ghost" data-a="toggle">' + (e.open ? 'Take off (not live)' : 'Make live') + '</button><button class="btn ghost" data-a="del">Delete</button></div></div>';
+    }
+    function render() {
+      if (!S.d) { root.innerHTML = S.msg ? '<div class="se-bad">' + esc(S.msg) + '</div>' : '<div class="se-sm">Loading&hellip;</div>'; return; }
+      root.innerHTML = '<div class="se-sm" style="font-weight:800;letter-spacing:.06em;margin:6px 0">FREE EVENTS (pop-up announcements)</div>'
+        + (S.msg ? '<div class="' + (S.err ? 'se-bad' : 'se-good') + '">' + esc(S.msg) + '</div>' : '') + form() + (S.d.events.length ? S.d.events.map(evBox).join('') : '<div class="se-box se-sm">No free events yet.</div>')
+        + '<div class="se-sm" style="font-weight:800;letter-spacing:.06em;margin:18px 0 6px">SIGN-UP EVENTS (races on the site)</div>';
+    }
+    root.addEventListener('toggle', (ev) => { const d = ev.target; if (d && d.dataset && d.dataset.open) S.open[d.dataset.open] = d.open; }, true);
+    root.addEventListener('click', async (ev) => {
+      const b = ev.target.closest('button[data-a]'); if (!b || S.busy) return; const a = b.dataset.a;
+      const box = b.closest('[data-fev]'), id = box && box.dataset.fev, e = id && S.d.events.find((x) => x.id === id);
+      try {
+        if (a === 'cancel') { S.editingId = null; S.draft = blankFree(); render(); return; }
+        if (a === 'edit') { S.editingId = id; S.draft = fromEvent(e); render(); root.querySelector('#sefForm').scrollIntoView({ behavior: 'smooth' }); return; }
+        if (a === 'sessadd') { readForm(); S.draft.sessions.push({ kind: b.dataset.k, label: '', startMs: 0, durationMin: 0 }); render(); return; }
+        if (a === 'sessdel') { readForm(); S.draft.sessions.splice(Number(b.dataset.i), 1); render(); return; }
+        if (a === 'imgdel') { readForm(); S.draft.imageUrl = ''; render(); return; }
+        if (a === 'preview') {
+          readForm(); const D = S.draft, t = (S.d.lmuTiers || []).find((x) => x.id === D.lmuTierId);
+          if (typeof window.ifwlShowFreeEventPopup !== 'function') { say('The pop-up is not available on this page.', true); return; }
+          window.ifwlShowFreeEventPopup({ id: 'preview', title: D.title || 'Your event title', notes: D.notes, imageUrl: D.imageUrl, simgridUrl: D.simgridUrl, sessions: D.sessions.filter((x) => x.startMs > 0), lmuTierName: t ? t.name : '', iHoldLicence: false }, { preview: true });
+          return;
+        }
+        if (a === 'save') {
+          readForm(); const D = S.draft;
+          if (!D.title.trim()) { say('Give the event a title.', true); return; }
+          if (D.simgridUrl && !/^https:\/\//i.test(D.simgridUrl)) { say('The SimGrid link must start with https://', true); return; }
+          if (D.sessions.some((x) => !(x.startMs > 0))) { say('Every session needs a date and time (or remove the empty row).', true); return; }
+          S.busy = true;
+          try { await api('staffFreeEventSave', Object.assign({ eventId: S.editingId || undefined }, D)); }
+          catch (er) { S.busy = false; say(er.message, true); return; }   // the form keeps everything you typed
+          S.editingId = null; S.draft = blankFree(); S.busy = false; await load(); say('Saved.', false); return;
+        }
+        if (a === 'toggle') { S.busy = true; await api('staffFreeEventSave', { eventId: id, title: e.title, simgridUrl: e.simgridUrl, lmuTierId: e.lmuTierId, popup: e.popup, open: !e.open }); S.busy = false; await load(); return; }
+        if (a === 'del') { if (!confirm('Delete "' + e.title + '" and everyone’s answers? (Licences already handed out stay.)')) return; S.busy = true; await api('staffSiteEventDelete', { eventId: id }); S.busy = false; await load(); return; }
+      } catch (er) { S.busy = false; say(er.message, true); }
+    });
+    root.addEventListener('change', async (ev) => {
+      if (!ev.target || ev.target.id !== 'sefImg' || !ev.target.files || !ev.target.files[0]) return;
+      const msg = root.querySelector('#sefImgMsg'), file = ev.target.files[0];
+      readForm();
+      try {
+        if (!window.IFWL_UploadAPI) throw new Error('Image upload is not available on this page.');
+        if (msg) msg.textContent = 'Uploading…';
+        const up = await window.IFWL_UploadAPI.uploadLicenceImage(file, 'simgridEvent');
+        S.draft.imageUrl = up.url; render();
+      } catch (er) { if (msg) { msg.textContent = er.message; msg.className = 'se-bad'; } }
+    });
+    load();
+  }
+
   function boot() {
     document.querySelectorAll('[data-siteevents]').forEach((el) => { if (!el.__se && token()) mountDriver(el); });
     document.querySelectorAll('[data-siteevents-staff]').forEach((el) => {
       if (el.__ses || el.__sesWatch || !token()) return; el.__sesWatch = true;
-      if ('IntersectionObserver' in window) { const io = new IntersectionObserver((en) => { if (en.some((x) => x.isIntersecting)) { io.disconnect(); mountStaff(el); } }); io.observe(el); } else mountStaff(el);
+      const mountBoth = () => {
+        const fr = document.createElement('div'); fr.setAttribute('data-freeevents-staff', ''); el.parentNode.insertBefore(fr, el);
+        mountFreeStaff(fr); mountStaff(el);
+      };
+      if ('IntersectionObserver' in window) { const io = new IntersectionObserver((en) => { if (en.some((x) => x.isIntersecting)) { io.disconnect(); mountBoth(); } }); io.observe(el); } else mountBoth();
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

@@ -4090,6 +4090,115 @@
     };
   }
 
+  // ✅ ADDED: Free-event pop-up (e.g. an LMU free practice). Staff create a "free event" in
+  // Staff > Site Events; every licensed driver gets this pop-up at login until they answer.
+  // "I'm interested" adds the event's LMU licence (and its Discord role) on the server and the
+  // event, with its SimGrid link, appears on Available Races. "Remind me later" hides it for this
+  // browser session only; "Not for me" stops it (the card on Available Races still offers it).
+  const FREE_EVENT_MODAL_BLOCKERS = ['ifwlLoginWall','rulesGateWall','ticketNoticeModal','inboxNoticeModal','licencePointsNoticeModal','ticketOutcomeModal','stintNoticeModal','ownerClauseModal','seasonChecklistModal','trophyAwardModal','rankChangeModal','racedayInfoModal','ticketGuidanceModal'];
+  function freeEventOtherModalOpen(){
+    if(document.body.classList.contains('login-wall-open')) return true;
+    for(const id of FREE_EVENT_MODAL_BLOCKERS){
+      const e = document.getElementById(id);
+      if(e && !e.classList.contains('hidden') && getComputedStyle(e).display !== 'none') return true;
+    }
+    return !!document.querySelector('.kit-modal');
+  }
+  function freeEventWhen(ms){
+    try{ return new Date(ms).toLocaleString(undefined, { weekday:'long', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' }); }catch(_){ return ''; }
+  }
+  const FE_KIND = { practice:'Practice', qualifying:'Qualifying', race:'Race', other:'Session' };
+  function freeEventSessionRows(ev){
+    const list = Array.isArray(ev.sessions) ? ev.sessions : [];
+    if(list.length) return list.map(s => [s.label || FE_KIND[s.kind] || 'Session', freeEventWhen(s.startMs) + (s.durationMin ? ' · ' + s.durationMin + ' min' : '')]);
+    if(ev.eventDateMs) return [['When', freeEventWhen(ev.eventDateMs)]];
+    return ev.eventDateLabel ? [['When', ev.eventDateLabel]] : [];
+  }
+  let freeEventShowing = null;
+  function showFreeEventPopup(ev, opts){
+    opts = opts || {};
+    const esc2 = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const safeUrl = u => /^https:\/\//i.test(String(u || '')) ? String(u) : '';
+    let modal = document.getElementById('freeEventModal');
+    if(!modal){ modal = document.createElement('div'); modal.id = 'freeEventModal'; modal.className = 'hidden'; document.body.appendChild(modal); }
+    freeEventShowing = ev.id;
+    const rows = freeEventSessionRows(ev);
+    function close(){ modal.className = 'hidden'; modal.innerHTML = ''; document.body.classList.remove('fe-open'); freeEventShowing = null; }
+    function paint(state){
+      const link = safeUrl(ev.simgridUrl);
+      let body;
+      if(state && state.done){
+        body = '<div class="fe-kicker">Free event</div><div class="fe-headline">You’re in!</div>'
+          + '<div class="fe-sub">' + esc2(ev.title) + '</div>'
+          + '<p class="fe-explain">' + (state.licenceAdded ? 'We’ve added the <b>' + esc2(state.tierName || 'LMU') + '</b> licence to your account.' : (state.tierName ? 'You already have the <b>' + esc2(state.tierName) + '</b> licence.' : 'Your interest is saved.'))
+          + (state.roleSynced === false ? ' Your Discord role didn’t come through just now – it will be fixed if you press the button again later, or ask staff.' : '')
+          + ' The event is now on your <b>Available Races</b> page' + (link ? ', with the link to the event.' : '.') + '</p>'
+          + (link ? '<a class="fe-btn" id="feLink" href="' + esc2(link) + '" target="_blank" rel="noopener noreferrer">Open the event on SimGrid</a>' : '')
+          + '<button type="button" class="fe-later" id="feDone">Close</button>';
+      } else {
+        body = '<div class="fe-kicker">Free event' + (opts.preview ? ' · preview' : '') + '</div>'
+          + '<div class="fe-headline">' + esc2(ev.title) + '</div>'
+          + (rows.length ? '<div class="fe-rows">' + rows.map(r => '<div><span>' + esc2(r[0]) + '</span><strong>' + esc2(r[1]) + '</strong></div>').join('') + '</div><div class="fe-foot" style="margin-top:6px">Times shown in your own time zone.</div>' : '')
+          + (ev.notes ? '<p class="fe-explain">' + esc2(ev.notes) + '</p>' : '')
+          + (ev.lmuTierName ? '<p class="fe-explain fe-small">Pressing <b>I’m interested</b> ' + (ev.iHoldLicence ? 'puts the event on your Available Races.' : 'adds the <b>' + esc2(ev.lmuTierName) + '</b> licence to your account and puts the event on your Available Races.') + '</p>'
+              : '<p class="fe-explain fe-small">Pressing <b>I’m interested</b> puts the event on your Available Races.</p>')
+          + (state && state.err ? '<div class="fe-err">' + esc2(state.err) + '</div>' : '')
+          + '<button type="button" class="fe-btn" id="feYes"' + (state && state.busy ? ' disabled' : '') + '>' + (state && state.busy ? 'Saving…' : 'I’m interested') + '</button>'
+          + '<div class="fe-two"><button type="button" class="fe-later" id="feLater">Remind me later</button><button type="button" class="fe-later" id="feNo">Not for me</button></div>';
+      }
+      modal.className = '';
+      modal.innerHTML = '<div class="fe-card" role="alertdialog" aria-modal="true">'
+        + (ev.imageUrl && safeUrl(ev.imageUrl) ? '<img class="fe-img" src="' + esc2(ev.imageUrl) + '" alt="">' : '<div class="fe-band"></div>')
+        + '<div class="fe-body">' + body + '</div></div>';
+      document.body.classList.add('fe-open');
+      const done = document.getElementById('feDone'); if(done) done.onclick = () => { close(); if(!opts.preview) setTimeout(checkFreeEventPopup, 150); };
+      const later = document.getElementById('feLater');
+      if(later) later.onclick = () => {
+        if(!opts.preview){ try{ const m = JSON.parse(sessionStorage.getItem('ifwlFreeLater') || '{}') || {}; m[ev.id] = 1; sessionStorage.setItem('ifwlFreeLater', JSON.stringify(m)); }catch(_){} }
+        close(); if(!opts.preview) setTimeout(checkFreeEventPopup, 150);
+      };
+      const no = document.getElementById('feNo');
+      if(no) no.onclick = async () => {
+        if(opts.preview){ close(); return; }
+        try{ await apiPost('freeEventRespond', { eventId: ev.id, response: 'declined' }); ev.myStatus = 'declined'; }catch(e){ /* worst case it shows again next visit */ }
+        close(); window.dispatchEvent(new Event('ifwl-free-events-changed')); setTimeout(checkFreeEventPopup, 150);
+      };
+      const yes = document.getElementById('feYes');
+      if(yes) yes.onclick = async () => {
+        if(opts.preview){ paint({ done:true, licenceAdded:!!ev.lmuTierName, tierName: ev.lmuTierName, roleSynced:true }); return; }
+        paint({ busy:true });
+        try{
+          const r = await apiPost('freeEventRespond', { eventId: ev.id, response: 'interested' });
+          ev.myStatus = 'interested';
+          window.dispatchEvent(new Event('ifwl-free-events-changed'));
+          paint({ done:true, licenceAdded:!!r.licenceAdded, tierName: r.tierName || ev.lmuTierName, roleSynced: r.roleSynced });
+        }catch(e){ paint({ err: (e && e.message) || 'Could not save - please try again.' }); }
+      };
+    }
+    paint(null);
+  }
+  window.ifwlShowFreeEventPopup = showFreeEventPopup;
+  let freeEventChecking = false;
+  async function checkFreeEventPopup(){
+    if(freeEventChecking || freeEventShowing) return;
+    freeEventChecking = true;
+    try{
+      let snoozed = {};
+      try{ snoozed = JSON.parse(sessionStorage.getItem('ifwlFreeLater') || '{}') || {}; }catch(_){}
+      const d = await apiGet('freeEventsList');
+      const now = Date.now();
+      const pending = (d.events || []).filter(e => e && e.popup !== false && !e.myStatus && !snoozed[e.id] && !(e.endMs && e.endMs < now))
+        .sort((a,b) => (a.eventDateMs||9e15) - (b.eventDateMs||9e15));
+      if(!pending.length) return;
+      // wait for any other pop-up (rules, tickets, race updates ...) to be dealt with first, up to ~3 minutes
+      for(let i = 0; i < 120 && freeEventOtherModalOpen(); i++) await new Promise(r => setTimeout(r, 1500));
+      if(freeEventOtherModalOpen()) return;
+      showFreeEventPopup(pending[0]);
+    }catch(e){ /* a pop-up must never get in the way of the page */ }
+    finally{ freeEventChecking = false; }
+  }
+  window.ifwlCheckFreeEventPopup = checkFreeEventPopup;
+
   // =====================================================================
   // ✅ ADDED: AC RALLY KNOCKOUT EVENTS - driver-facing (Available Races)
   // Separate self-service system from the SimGrid roster above - drivers
@@ -6227,6 +6336,7 @@
     checkLicencePointsNotice();
     checkTicketOutcomeNotice();
     checkStintNotice();
+    checkFreeEventPopup();
     // ✅ ADDED: Season 4 checklist - Home view only (see switchView for the
     // re-check when navigating back to Home later in the same visit).
     if(document.querySelector('#viewTabs > .view-tab.active')?.dataset.view === 'home'){
