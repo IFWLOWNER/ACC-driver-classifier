@@ -1280,6 +1280,55 @@
     }
   }
 
+  // ✅ ADDED: console IDs (Xbox XUID / PlayStation account id). Console drivers must have at least one on their
+  // profile - it is what goes in the entrylist for console sign-up events. One place for the "where do I find it" links.
+  const IFWL_ID_FINDERS = {
+    steam: 'https://steamid.io/',
+    xbox: 'https://cxkes.me/xbox/xuid',
+    psn: 'https://www.psntools.com/psn/checker'
+  };
+  window.IFWL_ID_FINDERS = IFWL_ID_FINDERS;
+  const needsConsoleId = (p) => !!p && (p.platform === 'console' || p.platform === 'both') && !String(p.xuid || '').trim() && !String(p.psnId || '').trim();
+  window.ifwlNeedsConsoleId = needsConsoleId;
+  function consoleIdFieldsHtml(prefix){
+    const L = (u, t) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`;
+    return `<div class="field-group" style="text-align:left" id="${prefix}ConsoleIdField" data-console-id-block>
+      <label>Console ID <span style="font-weight:600;opacity:.7">(add the one for the console you race on - or both)</span></label>
+      <div class="field-hint" style="margin:0 0 8px">Needed for console races and sign-up events - staff use it to build the entrylist. It is a long number, <b>not</b> your gamertag or online name.</div>
+      <label style="font-size:12px">Xbox ID (XUID)</label>
+      <input type="text" id="${prefix}XuidInput" placeholder="e.g. 2535400000000000" inputmode="numeric" autocomplete="off">
+      <div class="field-hint">${L(IFWL_ID_FINDERS.xbox, 'Find my Xbox ID')} - type your gamertag and copy the number labelled <b>XUID</b> (the decimal one, around 16 digits).</div>
+      <label style="font-size:12px;margin-top:10px;display:block">PlayStation ID</label>
+      <input type="text" id="${prefix}PsnIdInput" placeholder="e.g. 1234567890123456789" inputmode="text" autocomplete="off">
+      <div class="field-hint">${L(IFWL_ID_FINDERS.psn, 'Find my PlayStation ID')} - type your PSN online ID and copy the <b>Account ID</b> number. The long decimal number or the 16-character code both work.</div>
+    </div>`;
+  }
+  // injected from here (not edited into every page) so all licence pages get it at once
+  function ensureConsoleIdFields(){
+    const gateSteam = q('gateSteamIdField');
+    if(gateSteam && !q('gateConsoleIdField')){
+      gateSteam.insertAdjacentHTML('afterend', consoleIdFieldsHtml('gate'));
+      const hint = gateSteam.querySelector('.field-hint');
+      if(hint) hint.insertAdjacentHTML('beforeend', ` Easier: <a href="${IFWL_ID_FINDERS.steam}" target="_blank" rel="noopener noreferrer">steamid.io</a> - paste your Steam profile link and copy the <b>steamID64</b>.`);
+    }
+    const prof = q('steamIdInput');
+    if(prof && !q('profConsoleIdField')){
+      const cell = prof.closest('.field-group');
+      if(cell){
+        cell.insertAdjacentHTML('afterend', consoleIdFieldsHtml('prof'));
+        const hint = cell.querySelector('.field-hint');
+        if(hint) hint.insertAdjacentHTML('beforeend', ` Easier: <a href="${IFWL_ID_FINDERS.steam}" target="_blank" rel="noopener noreferrer">steamid.io</a> - paste your Steam profile link and copy the <b>steamID64</b>.`);
+      }
+    }
+  }
+  function syncConsoleIdVisibility(){
+    const gp = q('gatePlatformSelect'); const g = q('gateConsoleIdField');
+    if(gp && g) g.classList.toggle('hidden', !(gp.value === 'console' || gp.value === 'both'));
+    const pp = q('platformSelect'); const pc = q('profConsoleIdField');
+    if(pp && pc) pc.classList.toggle('hidden', !(pp.value === 'console' || pp.value === 'both'));
+  }
+  const readConsoleIds = (prefix) => ({ xuid: (q(prefix + 'XuidInput')?.value || '').trim(), psnId: (q(prefix + 'PsnIdInput')?.value || '').trim() });
+
   async function saveMyProfile(patch){
     const meta = window.IFWL_META; const id = window.IFWL_AUTH.userId(meta);
     if(USE_DEMO_FALLBACK){
@@ -1477,6 +1526,9 @@
     q('platformSelect').value = p.platform || '';
     if(q('simgridUsernameInput')) q('simgridUsernameInput').value = p.simgridUsername || '';
     if(q('steamIdInput')) q('steamIdInput').value = p.steamId || '';
+    if(q('profXuidInput')) q('profXuidInput').value = p.xuid || '';
+    if(q('profPsnIdInput')) q('profPsnIdInput').value = p.psnId || '';
+    syncConsoleIdVisibility();
     if(q('namePronunciationInput')) q('namePronunciationInput').value = p.namePronunciation || '';
     q('myLicenceSub').textContent = `Licence ${p.licenceNumber} · linked to live timing results by driver name`;
   }
@@ -3347,6 +3399,9 @@
     if(currentProfile?.simgridUsername) q('gateSimgridUsernameInput').value = currentProfile.simgridUsername;
     if(currentProfile?.platform) q('gatePlatformSelect').value = currentProfile.platform;
     if(currentProfile?.steamId) q('gateSteamIdInput').value = currentProfile.steamId;
+    if(currentProfile?.xuid && q('gateXuidInput')) q('gateXuidInput').value = currentProfile.xuid;
+    if(currentProfile?.psnId && q('gatePsnIdInput')) q('gatePsnIdInput').value = currentProfile.psnId;
+    syncConsoleIdVisibility();
     if(currentProfile?.namePronunciation) q('gateNamePronunciationInput').value = currentProfile.namePronunciation;
     q('gateSteamIdField').classList.toggle('hidden', q('gatePlatformSelect').value === 'console');
   }
@@ -5309,16 +5364,36 @@
   // Race Results already uses - no new backend endpoint, just a client-side
   // tally over the same data. One race's detail fetch failing doesn't sink
   // the whole breakdown (Promise.allSettled), it's just excluded.
+  // My Le Mans Ultimate races in a date window, as {tsMs, track, eventName, cls, pos, dnf}. LMU results are published by staff and matched
+  // to licences by Discord id, so this needs no ACC driver name. Any failure just means "no LMU races" - it never breaks the card.
+  async function loadMyLmuRaces(startMs, endMs){
+    try{
+      const meta = window.IFWL_META || {};
+      const myId = window.IFWL_AUTH && window.IFWL_AUTH.userId ? String(window.IFWL_AUTH.userId(meta)) : '';
+      const token = window.IFWL_AUTH && window.IFWL_AUTH.sessionToken ? window.IFWL_AUTH.sessionToken() : '';
+      if(!myId || myId === 'guest' || !token) return [];
+      const r = await fetch(window.IFWL_AUTH.FUNCTION + '?lmuResults=1&lmuDriver=' + encodeURIComponent(myId) + '&token=' + encodeURIComponent(token), { cache:'no-store' });
+      if(!r.ok) return [];
+      const d = await r.json();
+      const out = [];
+      (d.races || []).forEach(race => {
+        const t = Number(race.dateMs) || 0;
+        if(!t || t < startMs || t > endMs) return;
+        (race.classes || []).forEach(c => (c.rows || []).forEach(row => {
+          if(String(row.discordId || '') !== myId) return;
+          out.push({ tsMs:t, track:String(race.track || race.eventName || ''), eventName:String(race.eventName || ''), cls:String(c.name || ''), pos:Number(row.pos) || 0, dnf:row.dnf === true, lmu:true });
+        }));
+      });
+      return out;
+    }catch(e){ return []; }
+  }
+
   async function renderSeasonStatsBreakdown(){
     const body = q('seasonStatsBody');
     if(!body || !currentProfile) return;
     const accDriverNames = currentProfile.accDriverNames || [];
     const titleEl = q('seasonStatsTitle');
     const subEl = q('seasonStatsSub');
-    if(!accDriverNames.length){
-      body.innerHTML = '<div class="empty">Link your ACC driver name above to see your season stats here.</div>';
-      return;
-    }
 
     let season;
     try{ season = await window.IFWL_SeasonAPI.fetchSeasonWindow(); }
@@ -5333,9 +5408,18 @@
     const startMs = new Date(season.startDate + 'T00:00:00Z').getTime();
     const endMs = new Date(season.endDate + 'T23:59:59Z').getTime();
 
-    let races;
-    try{ races = await window.IFWLStats.listRaceResultsInRange(startMs, endMs); }
-    catch(e){ body.innerHTML = `<div class="empty">Could not load races: ${e.message}</div>`; return; }
+    // LMU races count here too (class position), so a driver who only races LMU still gets a stats card.
+    const lmuMine = await loadMyLmuRaces(startMs, endMs);
+    if(!accDriverNames.length && !lmuMine.length){
+      body.innerHTML = '<div class="empty">Link your ACC driver name above to see your season stats here.</div>';
+      return;
+    }
+
+    let races = [];
+    if(accDriverNames.length){
+      try{ races = await window.IFWLStats.listRaceResultsInRange(startMs, endMs); }
+      catch(e){ body.innerHTML = `<div class="empty">Could not load races: ${e.message}</div>`; return; }
+    }
 
     body.innerHTML = `<div class="s4-stat-grid">
       <div class="qual-stat-box"><span>Races Attended</span><strong id="s4StatAttended">-</strong></div>
@@ -5344,7 +5428,7 @@
       <div class="qual-stat-box"><span>Best Finish</span><strong id="s4StatBest">-</strong></div>
     </div><div id="homeInsights"></div>`;
 
-    if(!races.length){
+    if(!races.length && !lmuMine.length){
       q('s4StatAttended').textContent = '0';
       q('s4StatWins').textContent = '0';
       q('s4StatPodiums').textContent = '0';
@@ -5367,11 +5451,20 @@
       if(best === null || pos < best) best = pos;
     });
 
+    // LMU: position within the class, a DNF is a race attended but never a win/podium/best finish
+    lmuMine.forEach(l => {
+      attended++;
+      if(l.dnf || !(l.pos >= 1)) return;
+      if(l.pos === 1) wins++;
+      if(l.pos <= 3) podiums++;
+      if(best === null || l.pos < best) best = l.pos;
+    });
+
     q('s4StatAttended').textContent = String(attended);
     q('s4StatWins').textContent = String(wins);
     q('s4StatPodiums').textContent = String(podiums);
     q('s4StatBest').textContent = best != null ? `P${best}` : '-';
-    try{ renderHomeInsights(races, details, mine, { attended, wins, podiums }); }catch(e){ console.warn('Home insights failed', e); }
+    try{ renderHomeInsights(races, details, mine, { attended, wins, podiums }, lmuMine); }catch(e){ console.warn('Home insights failed', e); }
   }
   window.renderSeasonStatsBreakdown = renderSeasonStatsBreakdown;
 
@@ -5602,7 +5695,7 @@
     return best ? best.text : '';
   }
 
-  async function renderHomeInsights(races, details, mine, tally){
+  async function renderHomeInsights(races, details, mine, tally, lmuRaces){
     const box = q('homeInsights');
     if(!box) return;
     // ledger is optional - used only to attach the money earned to the last race
@@ -5629,18 +5722,21 @@
         if(mine.has(key)) myRaces.push({ tsMs: r.tsMs, track: r.track, serverId: r.serverId, serverName: r.serverName, pos, pts: HOME_FIN_POINTS(pos) });
       });
     });
-    if(!myRaces.length){
+    lmuRaces = Array.isArray(lmuRaces) ? lmuRaces : [];
+    if(!myRaces.length && !lmuRaces.length){
       box.innerHTML = '<div class="hs-row"><div class="hs-label">Last race</div><div class="hs-val"><small>Your first result will show up here after your next race.</small></div></div>';
       return;
     }
     myRaces.sort((a,b) => b.tsMs - a.tsMs);
-    const last = myRaces[0];
+    // "Last race" and the recent-form chips look at ACC and LMU together; championship + streak stay ACC-series only (LMU has no series table here)
+    const allRaces = myRaces.concat(lmuRaces.map(l => ({ tsMs:l.tsMs, track:l.track, pos:l.dnf ? 0 : l.pos, dnf:l.dnf, lmu:true, cls:l.cls }))).sort((a,b) => b.tsMs - a.tsMs);
+    const last = allRaces[0];
 
     // money for the last race, matched from the ledger by race time + track
     const tx = ledgerTx.find(t => t.type === 'race' && Math.abs((t.dateMs || 0) - last.tsMs) < 15 * 60000 && (!t.track || !last.track || String(t.track).toLowerCase() === String(last.track).toLowerCase()));
     const money = tx ? ` &middot; <b style="color:${tx.amount < 0 ? 'var(--ifwl-red)' : 'var(--ifwl-teal)'}">${tx.amount < 0 ? '' : '+'}${homeGbp(tx.amount)}</b>${tx.cleanBonus ? ' <small>(clean race bonus)</small>' : ''}` : '';
-    const posChip = (pos) => `<span class="hs-chip${pos === 1 ? ' win' : pos <= 3 ? ' podium' : ''}">P${pos}</span>`;
-    const form = myRaces.slice(0, 5).map(r => posChip(r.pos)).join('');
+    const posChip = (pos) => pos > 0 ? `<span class="hs-chip${pos === 1 ? ' win' : pos <= 3 ? ' podium' : ''}">P${pos}</span>` : '<span class="hs-chip">DNF</span>';
+    const form = allRaces.slice(0, 5).map(r => posChip(r.pos)).join('');
 
     // championship: the series (server) where I've raced the most
     const perServer = new Map();
@@ -5668,7 +5764,7 @@
     const streakBits = [streak >= 2 ? `<b>${streak}</b> races in a row` : '', milestone].filter(Boolean).join(' &middot; ');
 
     box.innerHTML = `
-      <div class="hs-row"><div class="hs-label">Last race</div><div class="hs-val">${posChip(last.pos)} <b>${homeEsc(last.track || 'Unknown track')}</b> &middot; ${last.pts} pts${money}<br><small>${homeEsc(new Date(last.tsMs).toLocaleDateString([], { day:'numeric', month:'short' }))}${myRaces.length > 1 ? ' &middot; form' : ''}</small>${myRaces.length > 1 ? `<span class="hs-form">${form}</span>` : ''}</div></div>
+      <div class="hs-row"><div class="hs-label">Last race</div><div class="hs-val">${posChip(last.pos)} <b>${homeEsc(last.track || 'Unknown track')}</b> &middot; ${last.lmu ? `<span class="hs-chip">LMU${last.cls ? ' ' + homeEsc(last.cls) : ''}</span>` : `${last.pts} pts`}${money}<br><small>${homeEsc(new Date(last.tsMs).toLocaleDateString([], { day:'numeric', month:'short' }))}${allRaces.length > 1 ? ' &middot; form' : ''}</small>${allRaces.length > 1 ? `<span class="hs-form">${form}</span>` : ''}</div></div>
       ${champHtml}
       ${streakBits ? `<div class="hs-row"><div class="hs-label">Streak</div><div class="hs-val">${streakBits}</div></div>` : ''}`;
   }
@@ -6081,7 +6177,7 @@
     // via the Driver Link Gate (see needsProfileBasics in init()), and
     // what actually earns the Active Racer Discord role in the first
     // place - so passing that gate once already satisfies this.
-    const hasBasics = !!(p.simgridUsername && p.platform && (p.platform === 'console' || p.steamId) && p.namePronunciation);
+    const hasBasics = !!(p.simgridUsername && p.platform && (p.platform === 'console' || p.steamId) && p.namePronunciation) && !needsConsoleId(p);
     items.push({
       title: 'Get your profile set up on IFWL.NET',
       detail: 'This is what gets you the Active Racer role on Discord and into the Licence Centre - only the website can grant it.',
@@ -6321,6 +6417,7 @@
       !currentProfile?.simgridUsername ||
       !currentProfile?.platform ||
       (currentProfile.platform !== 'console' && !currentProfile?.steamId) ||
+      needsConsoleId(currentProfile) ||
       !currentProfile?.namePronunciation
     );
     if(needsProfileBasics){
@@ -6339,8 +6436,15 @@
       return;
     }
 
-    // Commentators land on Drivers to Watch (unless they followed a deep link to another page).
-    if(window.IFWL_COMMENTATOR && !new URLSearchParams(location.search).get('view')){ window.switchView?.('commentatorWatch'); }
+    // Commentators land on Drivers to Watch when they arrive (unless they followed a deep link to another page) - but only
+    // ONCE per browser tab session. Every page of the site is its own file now, and a page opened from the menu has no
+    // ?view=, so doing this on every page load bounced a commentator who is also a racer straight back to Drivers to Watch
+    // whenever they tried to open Home, Races, My Kit etc.
+    if(window.IFWL_COMMENTATOR && !new URLSearchParams(location.search).get('view')){
+      let landed = true;
+      try{ landed = sessionStorage.getItem('ifwlCommentatorLanded') === '1'; if(!landed) sessionStorage.setItem('ifwlCommentatorLanded', '1'); }catch(_){ landed = true; }
+      if(!landed) window.switchView?.('commentatorWatch');
+    }
 
     checkTicketNotice();
     checkInboxNotice();
@@ -6489,6 +6593,7 @@
       }catch(err){ q('saveStatus').textContent = err.message; }
     });
 
+    q('platformSelect')?.addEventListener('change', syncConsoleIdVisibility);
     q('saveLicenceBtn').addEventListener('click', async ()=>{
       // Images are intentionally NOT included here - they already saved
       // themselves the moment the upload succeeded, above.
@@ -6500,6 +6605,7 @@
         platform: q('platformSelect').value,
         simgridUsername: q('simgridUsernameInput').value.trim(),
         steamId: q('steamIdInput').value.trim(),
+        ...(q('profXuidInput') ? readConsoleIds('prof') : {}),
         namePronunciation: q('namePronunciationInput').value.trim(),
         bio: window.IFWL_SILVER_PLUS ? q('bioInput').value.trim() : currentProfile.bio,
         ...(window.IFWL_SILVER_PLUS ? { socials: readSocialsEditor() } : {}),
@@ -6533,6 +6639,7 @@
     q('gatePlatformSelect').addEventListener('change', () => {
       const isConsoleOnly = q('gatePlatformSelect').value === 'console';
       q('gateSteamIdField').classList.toggle('hidden', isConsoleOnly);
+      syncConsoleIdVisibility();
     });
 
     q('gateSaveBtn').addEventListener('click', async () => {
@@ -6546,6 +6653,8 @@
       if(!simgridUsername) missing.push('SimGrid username');
       if(!platform) missing.push('Platform');
       if(platform !== 'console' && !steamId) missing.push('Steam64 ID');
+      const consoleIds = readConsoleIds('gate');
+      if((platform === 'console' || platform === 'both') && !consoleIds.xuid && !consoleIds.psnId) missing.push('Xbox ID or PlayStation ID');
       if(!namePronunciation) missing.push('Name pronunciation guide');
       if(missing.length){
         errBox.textContent = `Missing: ${missing.join(', ')}.`;
@@ -6556,7 +6665,7 @@
       q('gateSaveBtn').disabled = true; q('gateSaveBtn').textContent = 'Saving...';
       errBox.classList.add('hidden');
       try{
-        await saveMyProfile({ simgridUsername, platform, steamId, namePronunciation });
+        await saveMyProfile({ simgridUsername, platform, steamId, ...((platform === 'console' || platform === 'both') ? consoleIds : { xuid: '', psnId: '' }), namePronunciation });
         await init(); // re-checks the gate condition, which now passes
       }catch(e){
         errBox.textContent = 'Could not save: ' + e.message;
@@ -6567,6 +6676,7 @@
     });
     q('gateLogoutBtn').addEventListener('click', () => window.IFWL_AUTH.signout());
   }
+  ensureConsoleIdFields();
   bindDriverLinkGateHandlers();
 
   // ✅ ADDED: the green nudge's own "Add name" button - same underlying

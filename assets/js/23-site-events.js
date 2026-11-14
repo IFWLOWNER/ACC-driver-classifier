@@ -95,7 +95,20 @@
         + (e.notes ? '<div style="margin-top:6px;font-size:13px">' + esc(e.notes) + '</div>' : '')
         + sessionsHtml(e.sessions);
       if (m) h += '<div class="se-row"><span class="se-good">You are entered: #' + m.raceNumber + ' &middot; ' + esc(m.carName) + '</span></div>';
-      if (e.canJoin || m) {
+      if (e.canJoin && !m && e.myIdProblem) {
+        // the driver has no game ID on their profile yet - let them add it right here (and tell them where to find it)
+        const F = window.IFWL_ID_FINDERS || { steam: 'https://steamid.io/', xbox: 'https://cxkes.me/xbox/xuid', psn: 'https://www.psntools.com/psn/checker' };
+        const lk = (u, t) => '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + t + '</a>';
+        h += '<div class="se-box" style="margin:10px 0 0;background:rgba(255,178,56,.10)" data-idbox="' + esc(e.id) + '"><b>One more thing before you can sign up</b>'
+          + (e.platform === 'pc'
+            ? '<div class="se-sm" style="margin-top:4px">We need your Steam64 ID to put you on the entrylist. ' + lk(F.steam, 'Find my Steam64 ID') + ' (paste your Steam profile link and copy the steamID64).</div>'
+              + '<div class="se-row"><input class="se-in" data-f="steam" placeholder="e.g. 76561198000000000" inputmode="numeric" style="min-width:230px"><button class="btn" data-a="saveid">Save my ID</button></div>'
+            : '<div class="se-sm" style="margin-top:4px">We need your console ID (not your gamertag or PSN name) to put you on the entrylist. Add the one for the console you race on.</div>'
+              + '<div class="se-row"><input class="se-in" data-f="xuid" placeholder="Xbox ID (XUID)" inputmode="numeric" style="min-width:210px"><span class="se-sm">' + lk(F.xbox, 'Find my Xbox ID') + '</span></div>'
+              + '<div class="se-row"><input class="se-in" data-f="psn" placeholder="PlayStation ID" style="min-width:210px"><span class="se-sm">' + lk(F.psn, 'Find my PlayStation ID') + '</span></div>'
+              + '<div class="se-row"><button class="btn" data-a="saveid">Save my ID</button></div>')
+          + '</div>';
+      } else if (e.canJoin || m) {
         h += '<div class="se-row"><select class="se-in" data-f="car">' + carOptions(e.cars || [], m && m.carId) + '</select>'
           + '<input class="se-in sm" data-f="num" type="number" min="1" max="999" placeholder="Race #" value="' + esc(m ? m.raceNumber : (e.suggestedNumber || '')) + '" title="Your race number">'
           + (e.needConsoleChoice ? '<select class="se-in" data-f="console"><option value="">Xbox or PlayStation?</option><option value="xbox">Xbox</option><option value="ps">PlayStation</option></select>' : '')
@@ -129,7 +142,14 @@
       const box = b.closest('[data-ev]'), id = box.dataset.ev, a = b.dataset.a;
       S.busy = true;
       try {
-        if (a === 'join') {
+        if (a === 'saveid') {
+          const ib = b.closest('[data-idbox]'), g = (f) => { const el = ib.querySelector('[data-f=' + f + ']'); return el ? el.value.trim() : ''; };
+          const patch = {}; if (ib.querySelector('[data-f=steam]')) patch.steamId = g('steam'); else { if (g('xuid')) patch.xuid = g('xuid'); if (g('psn')) patch.psnId = g('psn'); }
+          if (!Object.keys(patch).length || !Object.values(patch)[0]) throw new Error('Type your ID in first.');
+          if (patch.steamId !== undefined && !/^\d{10,20}$/.test(patch.steamId)) throw new Error('A Steam64 ID is a 17-digit number, like 76561198000000000 - not your Steam name.');
+          await api('updateLicenceProfile', patch);
+          S.msg[id] = { t: 'Saved - you can sign up now.', err: false };
+        } else if (a === 'join') {
           const body = { eventId: id, carId: box.querySelector('[data-f=car]').value, raceNumber: Number(box.querySelector('[data-f=num]').value) || 0 };
           const cs = box.querySelector('[data-f=console]'); if (cs) body.consoleType = cs.value;
           const r = await api('siteEventSignup', body);

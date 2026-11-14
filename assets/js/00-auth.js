@@ -42,8 +42,8 @@
   // for Owner server-side - see canModerateDiscord in index.js).
   function isHeadModMeta(m){return !!(m && m.isHeadModerator === true)}
   function anyLogin(m){return !!(m&&(m.sessionToken||m.userId||m.discordId||m.username||m.activeRacer||m.patreonGranted||m.staffBypass))}
-  function hideWall(){wall.classList.add('hidden');document.body.classList.remove('login-wall-open');document.documentElement.classList.remove('login-wall-open');document.body.classList.add('access-authorised')}
-  function showWall(message,error){wall.classList.remove('is-suspended');document.body.classList.remove('access-authorised');document.body.classList.add('login-wall-open');document.documentElement.classList.add('login-wall-open');wall.classList.remove('hidden');wallMsg.textContent=message||'Login with Discord to view or manage your IFWL racing licence.';wallErr.textContent=error||'';wallErr.style.display=error?'block':'none';wallLogout.classList.toggle('hidden',!meta)}
+  function hideWall(){document.documentElement.classList.remove('ifwl-preauth');wall.classList.add('hidden');document.body.classList.remove('login-wall-open');document.documentElement.classList.remove('login-wall-open');document.body.classList.add('access-authorised')}
+  function showWall(message,error){document.documentElement.classList.remove('ifwl-preauth');wall.classList.remove('is-suspended');document.body.classList.remove('access-authorised');document.body.classList.add('login-wall-open');document.documentElement.classList.add('login-wall-open');wall.classList.remove('hidden');wallMsg.textContent=message||'Login with Discord to view or manage your IFWL racing licence.';wallErr.textContent=error||'';wallErr.style.display=error?'block':'none';wallLogout.classList.toggle('hidden',!meta)}
 
   function apply(m){
     meta=m||null; window.IFWL_META=meta;
