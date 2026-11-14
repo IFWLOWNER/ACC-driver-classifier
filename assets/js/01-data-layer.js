@@ -5438,7 +5438,13 @@
     return 0;
   }
   function homeEventForMe(e){
-    if(!e || e.pinned || e.eligible === false || e.notRacing) return false;
+    if(!e || e.eligible === false || e.notRacing) return false;
+    // Pinned events are normally always-on servers (e.g. Licence Obtainment) and stay off the countdown - but a pinned
+    // event with a real date in the next 14 days is a scheduled race that someone pinned to the top, so it counts.
+    if(e.pinned){
+      const t = Number(e.eventDateMs) || 0, n = Date.now();
+      if(!(t > n - 2 * 3600000 && t < n + 14 * 86400000)) return false;
+    }
     const plat = String(currentProfile?.platform || '').toLowerCase();
     const ep = String(e.platform || 'both').toLowerCase();
     if(plat && plat !== 'both' && ep !== 'both' && ep !== plat) return false;
@@ -5505,9 +5511,9 @@
     const body = q('nextRaceBody');
     if(!body || !currentProfile) return;
     const settings = await homeSettings();
-    let events = [];
+    let events = [], fetchFailed = false;
     try{ events = await window.IFWL_SimgridAPI.fetchAvailableRaces(false); }
-    catch(e){ events = []; }
+    catch(e){ events = []; fetchFailed = true; }
 
     // one entry per series (key falls back to the owner-event / SimGrid link / title)
     const bySeries = new Map();
@@ -5520,6 +5526,12 @@
     });
     const list = [...bySeries.values()].sort((a,b) => a.start - b.start);
 
+    if(!list.length && fetchFailed){
+      // a failed request must not look like "no races"
+      body.innerHTML = '<div class="empty">Could not load your races just now. <button class="btn ghost" type="button" id="hnRetry" style="margin-left:6px">Try again</button></div>';
+      q('hnRetry')?.addEventListener('click', () => renderHomeNextRace());
+      return;
+    }
     if(!list.length){
       const seasonStart = homeUkLocalToMs(settings.seasonStartDate, '00:00');
       if(seasonStart > Date.now()){
