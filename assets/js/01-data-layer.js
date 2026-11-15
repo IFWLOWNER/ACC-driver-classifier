@@ -2612,7 +2612,13 @@
     if(prompt) prompt.classList.toggle('hidden', !!activeRacesTab);
     if(typeof renderRacesCalendar === 'function') renderRacesCalendar();
   }
-  document.querySelectorAll('.races-tab').forEach(btn => btn.addEventListener('click', () => switchRacesTab(btn.dataset.racesTab, true)));
+  document.querySelectorAll('.races-tab').forEach(btn => btn.addEventListener('click', () => {
+    switchRacesTab(btn.dataset.racesTab, true);
+    if(activeRacesTab){
+      const panel = document.querySelector(`.races-tab-panel[data-races-panel="${activeRacesTab}"]`);
+      if(panel && panel.scrollIntoView) setTimeout(() => panel.scrollIntoView({ behavior:'smooth', block:'start' }), 30);
+    }
+  }));
 
   // ✅ ADDED: converts a "HH:MM" staff entered as UK LOCAL time into this
   // viewer's own local time, purely for display - mirrors the server's
@@ -2648,14 +2654,25 @@
   // ---- Unified calendar: ALL events on ALL games (SimGrid events of every
   // game + the AC Rally / Rocket League knockout boards), Monday to Sunday.
   const RACES_GAME_META = {
-    acc:          { label:'ACC',           tab:'acc',      body:'availableRacesBody' },
-    lmu:          { label:'LMU',           tab:'lmu',      body:'lmuRacesBody' },
-    acrally:      { label:'AC Rally',      tab:'acrally',  body:'acRallyRacesBody' },
-    rocketleague: { label:'Rocket League', tab:'rl3v3',    body:'rlRacesBody' },
-    raceroom:     { label:'RaceRoom',      tab:'raceroom', body:'raceroomRacesBody' }
+    acc:          { label:'ACC',           tab:'acc',      body:'availableRacesBody',  color:'#0e9c8a' },
+    lmu:          { label:'LMU',           tab:'lmu',      body:'lmuRacesBody',        color:'#9b3fd1' },
+    acrally:      { label:'AC Rally',      tab:'acrally',  body:'acRallyRacesBody',    color:'#e5533f' },
+    rocketleague: { label:'Rocket League', tab:'rl3v3',    body:'rlRacesBody',         color:'#2b7de9' },
+    raceroom:     { label:'RaceRoom',      tab:'raceroom', body:'raceroomRacesBody',   color:'#d98a0b' }
+  };
+  // Game tiles at the top of Available Races. Each tile shows a simple built-in icon. To use an official logo instead,
+  // upload the image to assets/img/ and put its path here, e.g.  acc:'assets/img/game-acc.png'  (empty = built-in icon).
+  const RACES_GAME_LOGOS = { acc:'', lmu:'', acrally:'', rocketleague:'', raceroom:'' };
+  const RACES_GAME_ICONS = {
+    acc: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M4 41c0-3 2-5 5-6l8-2 9-9c1-1 3-2 5-2h10c2 0 4 1 5 2l7 8 7 1c3 1 5 3 5 6v3c0 1-1 2-2 2H6c-1 0-2-1-2-2z" fill="currentColor"/><path d="M52 24h9v3h-9z" fill="currentColor"/><path d="M55 24v9h-3v-9z" fill="currentColor"/><circle cx="19" cy="47" r="7" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="4"/><circle cx="47" cy="47" r="7" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="4"/></svg>',
+    lmu: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M3 44c0-2 1-4 4-4l12-3 11-8c2-1 4-2 6-2h6c1 0 2 1 3 2l3 6 12 2c3 1 4 3 4 5v3c0 1-1 2-2 2H5c-1 0-2-1-2-2z" fill="currentColor"/><path d="M50 22l5 0 -3 14h-5z" fill="currentColor"/><circle cx="18" cy="48" r="7" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="4"/><circle cx="48" cy="48" r="7" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="4"/></svg>',
+    acrally: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M2 34l11-13 7 8 9-14 11 19z" fill="currentColor" opacity=".28"/><path d="M8 43c0-3 2-5 5-5l7-1 8-8c1-1 3-2 5-2h8c2 0 3 1 4 2l5 6 6 1c3 1 5 3 5 6v2c0 1-1 2-2 2H10c-1 0-2-1-2-2z" fill="currentColor"/><circle cx="21" cy="49" r="8" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="5"/><circle cx="48" cy="49" r="8" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="5"/><path d="M2 56h10M56 56h6" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".4"/></svg>',
+    rocketleague: '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="38" cy="26" r="17" fill="none" stroke="currentColor" stroke-width="4"/><path d="M38 14l8 6-3 10h-10l-3-10z" fill="currentColor"/><path d="M38 14v-0M46 20l9-2M43 30l7 7M33 30l-7 7M30 20l-9-2" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M3 50c0-3 2-5 5-5h9l5-5c1-1 2-2 4-2h8c2 0 3 1 4 2l3 5h2c2 0 4 2 4 5v1H3z" fill="currentColor"/><circle cx="14" cy="55" r="5" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="3"/><circle cx="37" cy="55" r="5" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="3"/></svg>',
+    raceroom: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M5 42c0-3 2-5 5-5l5-1 7-10c1-2 3-3 5-3h14c2 0 4 1 5 3l6 10 4 1c3 1 5 3 5 6v2c0 1-1 2-2 2H7c-1 0-2-1-2-2z" fill="currentColor"/><path d="M24 27h8v9h-14zM36 27h7l5 9H36z" fill="var(--panel-bg,#fff)" opacity=".92"/><circle cx="19" cy="47" r="7" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="4"/><circle cx="47" cy="47" r="7" fill="var(--panel-bg,#fff)" stroke="currentColor" stroke-width="4"/></svg>'
   };
   const racesGameOf = (e) => RACES_GAME_META[e && e.game] ? e.game : 'acc';
   let racesCalSg = [], racesCalAcr = [], racesCalRl = [];
+  const racesCalOpenDays = new Set();
 
   function racesBoardCalItems(events, game){
     return (events || []).map(ev => {
@@ -2684,18 +2701,28 @@
       const t = timeOf(e);
       return `<button type="button" class="arw-chip${e.eligible===false ? ' arw-chip-locked' : ''}${dim ? ' arw-chip-dim' : ''}" data-arw-jump="${e.id}" data-arw-game="${g}"><span class="arw-chip-game g-${g}">${RACES_GAME_META[g].label}</span>${e.eligible===false ? '🔒 ' : ''}${e.title}${t ? `<span class="arw-chip-time">${t}</span>` : ''}</button>`;
     };
-    const dayCol = (d) => `
-      <div class="arw-day-col">
-        <div class="arw-day-head">${d.label}<span class="arw-day-sub">${d.key}</span></div>
-        <div class="arw-day-body">${byDay[d.key].length ? byDay[d.key].map(chip).join('') : '<span class="arw-day-empty">&ndash;</span>'}</div>
+    // Days start collapsed: just the day and "N races". Tap a day to open its races; tap again to close. (state survives re-renders)
+    const racesCount = (n) => n ? `${n} race${n === 1 ? '' : 's'}` : 'No races';
+    const dayCol = (key, name, list, extra) => {
+      const n = list.length, open = n > 0 && racesCalOpenDays.has(key);
+      return `
+      <div class="arw-day-col${open ? ' open' : ''}${n ? '' : ' empty'}${extra || ''}">
+        <button type="button" class="arw-day-head arw-day-toggle" data-arw-day="${key}" aria-expanded="${open}"${n ? '' : ' disabled'}>
+          <span class="arw-day-name">${name}</span>
+          <span class="arw-day-count">${racesCount(n)}</span>
+          ${n ? `<span class="arw-day-caret" aria-hidden="true">${open ? '&#9650;' : '&#9660;'}</span>` : ''}
+        </button>
+        ${open ? `<div class="arw-day-body">${list.map(chip).join('')}</div>` : ''}
       </div>`;
+    };
     const wrap = document.createElement('div');
     wrap.className = 'arw-strip';
-    wrap.innerHTML = AVAILABLE_RACES_WEEK_DAYS.map(dayCol).join('') + (byDay.other.length ? `
-      <div class="arw-day-col arw-day-col-other">
-        <div class="arw-day-head">&hellip;<span class="arw-day-sub">Unscheduled</span></div>
-        <div class="arw-day-body">${byDay.other.map(chip).join('')}</div>
-      </div>` : '');
+    wrap.innerHTML = AVAILABLE_RACES_WEEK_DAYS.map(d => dayCol(d.key, d.key, byDay[d.key])).join('') + (byDay.other.length ? dayCol('other', 'Unscheduled', byDay.other, ' arw-day-col-other') : '');
+    wrap.querySelectorAll('[data-arw-day]').forEach(btn => btn.addEventListener('click', () => {
+      const k = btn.dataset.arwDay;
+      if(racesCalOpenDays.has(k)) racesCalOpenDays.delete(k); else racesCalOpenDays.add(k);
+      renderRacesCalendar();
+    }));
     wrap.querySelectorAll('[data-arw-jump]').forEach(btn => btn.addEventListener('click', () => {
       const game = btn.dataset.arwGame || 'acc';
       const id = btn.dataset.arwJump;
@@ -2721,9 +2748,14 @@
     Object.keys(RACES_GAME_META).forEach(g => {
       const btn = document.querySelector(`.races-tab[data-races-tab="${RACES_GAME_META[g].tab}"]`);
       if(!btn) return;
-      btn.innerHTML = `${RACES_GAME_META[g].label}<span class="races-tab-count">${counts[g]}</span>`;
+      const meta = RACES_GAME_META[g], n = counts[g];
+      btn.style.setProperty('--rt', meta.color);
+      btn.classList.toggle('races-tab-empty', !n);
+      const logo = RACES_GAME_LOGOS[g];
+      btn.innerHTML = `<span class="rt-ico">${logo ? `<img src="${logo}" alt="">` : RACES_GAME_ICONS[g]}</span><span class="rt-name">${meta.label}</span><span class="rt-count">${n ? `${n} race${n === 1 ? '' : 's'}` : 'No races'}</span>`;
     });
   }
+  updateRacesTabCounts();
 
   // ✅ ADDED: "Entrylist last updated" line on each Available Races card.
   // data/entrylist-status.json is written by the GitHub Actions results sync
