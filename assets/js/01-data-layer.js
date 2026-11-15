@@ -2926,6 +2926,7 @@
               : `<button class="btn ghost" data-not-racing="${e.id}" data-flag="1" style="font-size:11px">I'm not racing</button>`) : ''}
             ${(e.hasBriefing && !notYetLicensed) ? `<button class="btn teal" data-view-briefing="${e.id}" style="font-size:11px">📋 Raceday briefing</button>` : ''}
             ${(e.simgridLink && !notYetLicensed) ? `<a class="btn purple" href="${e.simgridLink}" target="_blank" rel="noopener">View invite</a>` : ''}
+            ${e.endurance ? `<a class="btn teal" href="endurance-event.html?event=${encodeURIComponent(e.id)}" target="_blank" rel="noopener" style="font-size:11px">🏁 Endurance page</a>` : ''}
           </div>
         </div>
       </div>`;

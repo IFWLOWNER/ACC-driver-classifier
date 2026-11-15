@@ -2561,6 +2561,7 @@
       q('sgRaceTimeUK').value = ev.raceTimeUK || '';
       q('sgHostedBy').value = ev.hostedBy || ''; q('sgServerName').value = ev.serverName || '';
       q('sgPinned').checked = !!ev.pinned;
+      sgEnduranceFill(ev);
       q('sgDiscordRoleId').value = ev.discordRoleId || '';
       q('sgDiscordRoleLabel').value = ev.discordRoleLabel || '';
       q('sgEventDate').value = ev.eventDateMs ? new Date(ev.eventDateMs).toISOString().slice(0,16) : '';
@@ -2754,6 +2755,51 @@
   // worth not losing silently - either mid-edit of an existing event, or a
   // new-event draft with a title/link already typed in. Used to guard
   // against a stray click (Edit on the wrong round, etc.) wiping it out.
+  // ---- Endurance option on a SimGrid event: a tick-box plus a few optional details (see enduranceInfo in rtgate.js) ----
+  function sgEnLocalInput(ms){
+    if(!ms) return '';
+    const d = new Date(ms), p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function sgEnduranceToggle(){ q('sgEnduranceGroup')?.classList.toggle('hidden', !q('sgEndurance')?.checked); }
+  q('sgEndurance')?.addEventListener('change', sgEnduranceToggle);
+  function sgEnduranceFill(ev){
+    if(!q('sgEndurance')) return;
+    const on = !!(ev && ev.endurance), i = (on && ev.enduranceInfo) || {}, w = i.weather || {};
+    q('sgEndurance').checked = on;
+    q('sgEnTrack').value = i.trackKey || '';
+    q('sgEnHours').value = i.raceMinutes ? Math.floor(i.raceMinutes / 60) : '';
+    q('sgEnMins').value = i.raceMinutes ? (i.raceMinutes % 60) : '';
+    q('sgEnStops').value = i.mandatoryStops != null ? i.mandatoryStops : '';
+    q('sgEnPw0').value = i.pitWindowStart != null ? i.pitWindowStart : '';
+    q('sgEnPw1').value = i.pitWindowEnd != null ? i.pitWindowEnd : '';
+    q('sgEnPracticeAt').value = sgEnLocalInput(i.practiceStartMs);
+    q('sgEnPracticeMin').value = i.practiceMin != null ? i.practiceMin : '';
+    q('sgEnQualiAt').value = sgEnLocalInput(i.qualiStartMs);
+    q('sgEnQualiMin').value = i.qualiMin != null ? i.qualiMin : '';
+    q('sgEnRain').value = w.rain != null ? w.rain : ''; q('sgEnCloud').value = w.cloud != null ? w.cloud : '';
+    q('sgEnAmb').value = w.ambientTemp != null ? w.ambientTemp : ''; q('sgEnTrk').value = w.trackTemp != null ? w.trackTemp : '';
+    q('sgEnRnd').value = w.randomness != null ? w.randomness : '';
+    q('sgEnCars').value = i.carsNote || ''; q('sgEnRules').value = i.rules || '';
+    sgEnduranceToggle();
+    if(q('sgEnLinkHint')) q('sgEnLinkHint').innerHTML = (ev && ev.id)
+      ? 'Share link: <b>' + (location.origin + location.pathname.replace(/[^\/]*$/, '')) + 'endurance-event.html?event=' + encodeURIComponent(ev.id) + '</b>.'
+      : 'Save the event, then press Edit on it to see its share link.';
+  }
+  function sgEnduranceRead(){
+    if(!q('sgEndurance')) return {};
+    if(!q('sgEndurance').checked) return { endurance: false };
+    const n = id => { const v = q(id).value; return v === '' ? undefined : Number(v); };
+    const t = id => q(id).value ? new Date(q(id).value).getTime() : undefined;
+    const mins = (n('sgEnHours') || 0) * 60 + (n('sgEnMins') || 0);
+    const weather = { rain:n('sgEnRain'), cloud:n('sgEnCloud'), ambientTemp:n('sgEnAmb'), trackTemp:n('sgEnTrk'), randomness:n('sgEnRnd') };
+    return { endurance: true, enduranceInfo: {
+      trackKey: q('sgEnTrack').value || undefined, raceMinutes: mins || undefined, mandatoryStops: n('sgEnStops'),
+      pitWindowStart: n('sgEnPw0'), pitWindowEnd: n('sgEnPw1'),
+      practiceStartMs: t('sgEnPracticeAt'), practiceMin: n('sgEnPracticeMin'), qualiStartMs: t('sgEnQualiAt'), qualiMin: n('sgEnQualiMin'),
+      weather, carsNote: q('sgEnCars').value.trim(), rules: q('sgEnRules').value.trim()
+    } };
+  }
   function sgFormHasUnsavedWork(){
     if(sgEditingEventId) return true;
     return !!(q('sgTitle')?.value.trim() || q('sgLink')?.value.trim());
@@ -2765,6 +2811,7 @@
     q('sgEventDate').value = ''; q('sgEventDateLabel').value = ''; q('sgPassword').value = '';
     q('sgDayOfWeek').value = ''; q('sgRaceTimeUK').value = ''; q('sgHostedBy').value = ''; q('sgServerName').value = '';
     q('sgPinned').checked = false;
+    sgEnduranceFill(null);
     q('sgDiscordRoleId').value = ''; q('sgDiscordRoleLabel').value = '';
     q('sgSeries').value = '';
     q('sgGame').value = 'acc';
@@ -2793,6 +2840,7 @@
     const raceTimeUK = q('sgRaceTimeUK').value.trim();
     const hostedBy = q('sgHostedBy').value.trim(); const serverName = q('sgServerName').value.trim();
     const pinned = q('sgPinned').checked;
+    const enduranceSave = sgEnduranceRead();
     const discordRoleId = q('sgDiscordRoleId').value.trim();
     const discordRoleLabel = q('sgDiscordRoleLabel').value.trim();
     // ✅ ADDED: Game + its LMU sub-licence requirement - see the field group
@@ -2829,7 +2877,7 @@
 
     q('sgSaveStatus').textContent = sgEditingEventId ? 'Updating...' : 'Saving...';
     try{
-      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, serverName, pinned, imageUrl, discordRoleId, discordRoleLabel, game, lmuRequiredTierIds });
+      await window.IFWL_SimgridAPI.saveSimgridEvent({ eventId: sgEditingEventId || undefined, title, simgridLink, platform, series, tiers, notes, eventDateMs, eventDateLabel, password, dayOfWeek, raceTimeUK, hostedBy, serverName, pinned, imageUrl, discordRoleId, discordRoleLabel, game, lmuRequiredTierIds, ...enduranceSave });
       const wasEditing = !!sgEditingEventId;
       sgResetForm();
       q('sgSaveStatus').textContent = wasEditing ? 'This event updated - no other events were touched.' : 'Saved.';
