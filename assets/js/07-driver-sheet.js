@@ -243,7 +243,7 @@
   }
   async function sendDiscord(m) {
     const c = await toCanvas(svg(m), 1.6);
-    const text = '🎲 **Driver highlight: ' + m.name + '**\n' + m.track + (m.server ? ' · ' + m.server : '') + (m.date ? ' · ' + m.date : '') + '\nFinished ' + ord(m.pos) + ' of ' + m.N + ' · best lap ' + lapFmt(m.best) + (m.bestRank ? ' (#' + m.bestRank + ')' : '') + '\nFull results and your own driver sheet: https://ifwlowner.github.io/ACC-driver-classifier/licence.html?view=raceResults';
+    const text = '🎲 **Driver highlight: ' + m.name + '**\n' + m.track + (m.server ? ' · ' + m.server : '') + (m.date ? ' · ' + m.date : '') + '\nFinished ' + ord(m.pos) + ' of ' + m.N + ' · best lap ' + lapFmt(m.best) + (m.bestRank ? ' (#' + m.bestRank + ')' : '') + '\nFull results and your own driver sheet: ' + new URL('licence.html?view=raceResults', location.href).href;
     const r = await fetch(FN + '?ownerOverviewPostActivity=1&token=' + encodeURIComponent(token()), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, imageBase64: c.toDataURL('image/png'), filename: 'ifwl-driver-highlight.png' }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || ('Discord post failed (' + r.status + ')'));

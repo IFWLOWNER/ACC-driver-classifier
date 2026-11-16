@@ -366,7 +366,7 @@
       const k = b.dataset.sc, msg = box.querySelector('[data-sc-msg]'), old = b.textContent; b.disabled = true; b.textContent = k === 'discord' ? 'Sending...' : 'Working...'; if (msg) { msg.textContent = ''; msg.style.color = ''; }
       try { if (k === 'png') await exportPng(svgStr, name); else if (k === 'pdf') await exportPdf(svgStr, name); else { await postDiscord(svgStr, text, fname); if (msg) { msg.textContent = 'Posted to Discord.'; msg.style.color = '#2e9e5b'; } } } catch (e) { if (msg) { msg.textContent = e.message || 'Something went wrong'; msg.style.color = '#d62828'; } }
       b.disabled = false; b.textContent = old; }; });
-    const link = 'https://ifwlowner.github.io/ACC-driver-classifier/licence.html?view=scoutField';
+    const link = new URL('licence.html?view=scoutField', location.href).href;
     async function renderReport() {
       const mine = ++S.req; const F = analyse(rows, S.serverId, S.track); S.F = F; const box = $('scReport');
       if (!F) { box.innerHTML = '<div class="empty">No practice sessions for that selection.</div>'; $('scGrid').innerHTML = ''; $('scDriver').innerHTML = ''; return; }

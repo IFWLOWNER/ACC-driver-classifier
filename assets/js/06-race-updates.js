@@ -4,7 +4,7 @@
    ============================================================ */
 (() => {
   const FN = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
-  const LOGO = 'https://ifwlowner.github.io/ACC-driver-classifier/ifwllogo1.png';
+  const LOGO = new URL('ifwllogo1.png', location.href).href;
   const $ = (id) => document.getElementById(id);
   const token = () => (window.IFWL_AUTH && window.IFWL_AUTH.sessionToken && window.IFWL_AUTH.sessionToken()) || '';
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
