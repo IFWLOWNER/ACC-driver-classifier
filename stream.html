@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>IFWL Live Overlay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* OBS: Browser Source, 1920 x 1080, transparent background. Add ?bg=1 to preview on a dark backdrop. */
+    :root{ --orb:Orbitron,Rajdhani,"Segoe UI",Arial,sans-serif; --teal:#14c8b0; --red:#ff4d55; --amber:#ffb454; --blue:#5aa9ff; --violet:#b69cff; --ink:#f2f6fc; --mute:#a9b6cc; --glass:linear-gradient(135deg,rgba(6,12,28,.94),rgba(12,22,46,.9)); }
+    *{ box-sizing:border-box; }
+    html,body{ margin:0; width:100%; height:100%; overflow:hidden; background:transparent; }
+    body.bg{ background:#0b1020 url("./ifwl_bg.webp") center/cover; }
+    body.bg::before{ content:""; position:fixed; inset:0; background:repeating-linear-gradient(45deg,rgba(255,255,255,.03) 0 24px,transparent 24px 48px); }
+    #stage{ position:absolute; left:0; top:0; width:1920px; height:1080px; transform-origin:0 0; font-family:Rajdhani,"Segoe UI",Arial,sans-serif; color:var(--ink); overflow:hidden; }
+    .orb{ font-family:var(--orb); }
+
+    /* ---------- permanent HUD ---------- */
+    .hud{ position:absolute; left:48px; top:36px; display:flex; align-items:center; gap:18px; filter:drop-shadow(0 4px 12px rgba(0,0,0,.55)); }
+    .hud img{ height:74px; width:auto; }
+    .live{ display:flex; align-items:center; gap:10px; background:rgba(6,12,28,.88); border:2px solid var(--red); border-radius:10px; padding:8px 16px; font-family:var(--orb); font-weight:800; font-size:20px; letter-spacing:.16em; }
+    .live i{ width:14px; height:14px; border-radius:50%; background:var(--red); box-shadow:0 0 12px var(--red); animation:pulse 1.4s infinite; }
+    @keyframes pulse{ 50%{ opacity:.35; transform:scale(.8);} }
+    .nextChip{ position:absolute; right:48px; top:40px; display:none; align-items:center; gap:14px; background:rgba(6,12,28,.88); border:2px solid var(--teal); border-radius:12px; padding:10px 18px; font-size:26px; font-weight:700; filter:drop-shadow(0 4px 12px rgba(0,0,0,.55)); }
+    .nextChip .tg{ font-family:var(--orb); font-size:15px; letter-spacing:.14em; color:#04141a; background:var(--teal); padding:5px 10px; border-radius:5px; }
+    .nextChip b{ font-variant-numeric:tabular-nums; color:var(--teal); }
+
+    /* ---------- ticker ---------- */
+    .ticker{ position:absolute; left:0; right:0; bottom:0; height:68px; display:flex; background:linear-gradient(90deg,rgba(4,9,22,.97),rgba(8,16,36,.94)); border-top:2px solid var(--teal); }
+    .tkLabel{ flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:0 30px 0 26px; background:var(--teal); color:#03141a; font-family:var(--orb); font-weight:900; font-size:19px; letter-spacing:.16em; clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%); position:relative; z-index:2; }
+    .tkView{ flex:1; overflow:hidden; position:relative; }
+    .tkTrack{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:center; white-space:nowrap; will-change:transform; }
+    .tk{ display:inline-flex; align-items:center; gap:12px; height:68px; padding:0 30px; font-size:30px; font-weight:600; border-right:1px solid rgba(255,255,255,.12); }
+    .tk .tag{ font-family:var(--orb); font-size:15px; font-weight:800; letter-spacing:.12em; padding:5px 11px; border-radius:5px; color:#04141a; background:var(--teal); }
+    .tk .tag.amber{ background:var(--amber); } .tk .tag.blue{ background:var(--blue); } .tk .tag.violet{ background:var(--violet); } .tk .tag.red{ background:var(--red); color:#fff; }
+    .tk.ann{ background:rgba(255,180,84,.14); }
+    .tk em{ font-style:normal; color:var(--teal); font-weight:700; }
+    .tk .dim{ color:var(--mute); }
+
+    /* ---------- scenes ---------- */
+    #scenes{ position:absolute; inset:0; pointer-events:none; }
+    .scene{ position:absolute; }
+    .panel{ background:var(--glass); border:2px solid var(--accent,var(--teal)); border-radius:22px; box-shadow:0 20px 60px rgba(0,0,0,.6), 0 0 36px rgba(20,200,176,.22); backdrop-filter:blur(10px); position:relative; overflow:hidden; }
+    .panel::before{ content:""; position:absolute; inset:0; background:repeating-linear-gradient(115deg,rgba(255,255,255,.035) 0 3px,transparent 3px 46px); pointer-events:none; }
+    .tab{ display:inline-block; font-family:var(--orb); font-weight:900; font-size:17px; letter-spacing:.18em; color:#04141a; background:var(--accent,var(--teal)); padding:7px 16px; border-radius:7px; }
+    .pill{ display:inline-block; font-size:22px; font-weight:700; padding:3px 16px; border-radius:99px; border:2px solid var(--accent,var(--teal)); color:var(--accent,var(--teal)); }
+
+    /* person card (new licence / level change) */
+    .scene.person{ left:60px; bottom:104px; width:760px; height:470px; }
+    .person .figureBox{ position:absolute; left:6px; bottom:0; width:240px; height:470px; display:flex; align-items:flex-end; justify-content:center; z-index:2; }
+    .person .figure{ max-height:100%; max-width:100%; object-fit:contain; filter:drop-shadow(0 18px 18px rgba(0,0,0,.65)); }
+    .person .face{ width:170px; height:170px; border-radius:50%; object-fit:cover; border:4px solid var(--accent); margin-bottom:38px; box-shadow:0 10px 26px rgba(0,0,0,.6); }
+    .person .sil{ height:300px; opacity:.55; margin-bottom:14px; }
+    .person .panel{ position:absolute; left:120px; right:0; bottom:0; height:214px; padding:22px 28px 20px 150px; }
+    .person .nm{ font-family:var(--orb); font-weight:800; font-size:40px; line-height:1.1; margin-top:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .person .nm .num{ color:var(--accent); margin-right:10px; }
+    .person .sub{ margin-top:10px; font-size:26px; color:var(--mute); font-weight:600; display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+    .person .msg{ margin-top:8px; font-size:28px; font-weight:700; }
+    .person .arrow{ color:var(--accent); font-weight:800; }
+
+    /* boards */
+    .scene.board{ left:60px; bottom:104px; width:720px; }
+    .board .panel{ padding:22px 26px 18px; }
+    .board h2{ margin:12px 0 8px; font-family:var(--orb); font-size:30px; font-weight:800; letter-spacing:.04em; }
+    .board .row{ display:grid; grid-template-columns:54px 56px 1fr auto auto; gap:14px; align-items:center; padding:9px 0; border-bottom:1px solid rgba(255,255,255,.12); font-size:32px; font-weight:700; opacity:0; animation:rowIn .55s cubic-bezier(.2,.8,.2,1) forwards; animation-delay:calc(var(--i)*.14s + .55s); }
+    .board .row:last-child{ border-bottom:0; }
+    .board .rk{ font-family:var(--orb); font-weight:900; font-size:34px; color:var(--accent); text-align:center; }
+    .board .av{ width:54px; height:54px; border-radius:50%; object-fit:cover; background:rgba(255,255,255,.08); border:2px solid rgba(255,255,255,.2); }
+    .board .nmx{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .board .nmx small{ color:var(--accent); margin-right:8px; font-size:24px; }
+    .board .lv{ font-size:22px; color:var(--mute); font-weight:600; }
+    .board .sc{ font-family:var(--orb); font-weight:800; font-size:30px; min-width:90px; text-align:right; }
+    .board .empty{ padding:18px 0; font-size:28px; color:var(--mute); }
+    @keyframes rowIn{ from{ opacity:0; transform:translateX(-50px);} to{ opacity:1; transform:none; } }
+
+    /* upcoming */
+    .scene.events{ left:60px; bottom:104px; width:820px; }
+    .events .panel{ padding:22px 28px 22px; }
+    .events .big{ margin-top:14px; font-family:var(--orb); font-weight:800; font-size:42px; line-height:1.12; }
+    .events .when{ margin-top:6px; font-size:30px; color:var(--mute); font-weight:600; }
+    .events .count{ margin-top:10px; font-family:var(--orb); font-weight:900; font-size:64px; color:var(--accent); font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+    .events .chips{ margin-top:8px; display:flex; gap:10px; flex-wrap:wrap; }
+    .events .more{ margin-top:16px; border-top:1px solid rgba(255,255,255,.14); padding-top:10px; }
+    .events .ln{ display:flex; justify-content:space-between; gap:18px; font-size:28px; font-weight:600; padding:5px 0; }
+    .events .ln span:last-child{ color:var(--mute); white-space:nowrap; }
+    .events .cta{ margin-top:14px; font-size:26px; font-weight:700; color:var(--teal); }
+
+    /* announcement banner */
+    .scene.annc{ left:60px; right:60px; bottom:104px; }
+    .annc .panel{ --accent:var(--amber); display:flex; align-items:center; gap:28px; padding:22px 34px; }
+    .annc .tab{ font-size:22px; padding:12px 20px; flex:0 0 auto; }
+    .annc .tx{ font-size:46px; font-weight:700; line-height:1.15; }
+
+    /* full-screen scenes */
+    .scene.full{ inset:0; display:flex; align-items:center; justify-content:center; background:radial-gradient(ellipse at center,rgba(3,8,20,.74),rgba(3,8,20,.9)); }
+    .full .panel{ padding:40px 54px; }
+    .full .bigAnn{ width:1480px; text-align:center; --accent:var(--amber); }
+    .full .bigAnn .tab{ font-size:26px; padding:10px 24px; }
+    .full .bigAnn .tx{ margin-top:26px; font-size:84px; font-weight:700; line-height:1.1; }
+    .full .logoTop{ height:110px; margin-bottom:6px; }
+    .full .spot{ width:1500px; display:grid; grid-template-columns:1fr 1fr; gap:48px; }
+    .full .spot h2{ font-size:38px; }
+    .full .spot .board .row,.full .spot .row{ font-size:34px; }
+    .scene.promo{ left:60px; bottom:104px; width:760px; }
+    .promo .panel{ padding:24px 30px; display:flex; gap:24px; align-items:center; }
+    .promo img{ height:120px; width:auto; }
+    .promo h3{ margin:0; font-family:var(--orb); font-size:38px; font-weight:900; }
+    .promo p{ margin:6px 0 0; font-size:28px; color:var(--mute); font-weight:600; }
+    .promo .url{ margin-top:8px; font-family:var(--orb); font-size:28px; font-weight:800; color:var(--teal); }
+    .full .promoBig{ width:1180px; text-align:center; }
+    .full .promoBig h3{ font-size:76px; } .full .promoBig p{ font-size:40px; } .full .promoBig .url{ font-size:50px; margin-top:16px; }
+  </style>
+</head>
+<body>
+<div id="stage">
+  <div class="hud"><img id="hudLogo" src="./ifwllogo1.png" alt=""><div class="live"><i></i>LIVE</div></div>
+  <div class="nextChip" id="nextChip"><span class="tg">NEXT RACE</span><span id="nextName"></span><b id="nextCd"></b></div>
+  <div id="scenes"></div>
+  <div class="ticker"><div class="tkLabel">IFWL FEED</div><div class="tkView"><div class="tkTrack" id="tkTrack"></div></div></div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const FN = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
+  const SITE = 'ifwllicencehub.co.uk';
+  const Q = new URLSearchParams(location.search);
+  const DEMO = Q.has('demo');
+  const num = (k, d) => { const v = Number(Q.get(k)); return Number.isFinite(v) && Q.has(k) ? v : d; };
+  const GAP = num('gap', 22) * 1000;             // quiet time between panels
+  const POLL = Math.max(10, num('poll', 30)) * 1000;
+  const SPEED = num('speed', 95);                // ticker px per second
+  const FULL_EVERY = num('full', 10) * 60000;    // full-screen spotlight every N minutes
+  const ANN_EVERY = num('ann', 150) * 1000;      // repeat a live announcement this often
+  const RELOAD_H = num('reload', 12);            // reload the page every N hours (between scenes) to stay fresh
+  const TRANS = (Q.get('trans') || 'wipe,slide,rise,zoom').split(',').map((s) => s.trim()).filter(Boolean);
+  if (Q.has('bg')) document.body.classList.add('bg');
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const imgUrl = (u) => { u = String(u || ''); return /^https:\/\//i.test(u) || (DEMO && /^[\w./-]+\.(png|jpg|webp)$/i.test(u)) ? u : ''; };
+
+  /* ---- fit the 1920x1080 stage to whatever size the browser source is ---- */
+  function fit(){ const s = Math.min(innerWidth / 1920, innerHeight / 1080); $('stage').style.transform = 'scale(' + s + ')'; }
+  addEventListener('resize', fit); fit();
+
+  /* ---- small helpers ---- */
+  function person(n){ const m = String(n || '').match(/^\s*\[\s*(\d+)\s*\]\s*-?\s*(.*)$/); return m ? { num: m[1], name: m[2] || String(n) } : { num: '', name: String(n || 'Driver') }; }
+  const tierLabel = (t) => String(t || '').replace(/^IFWL-/i, '').replace(/-/g, ' ');
+  const gbp = (n) => '£' + Math.round(Number(n) || 0).toLocaleString('en-GB');
+  function whenLabel(ms){ try{ return new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/London', weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }).format(new Date(ms)) + ' UK'; }catch(e){ return ''; } }
+  function cd(ms){
+    let s = Math.max(0, Math.floor(ms / 1000)); const d = Math.floor(s / 86400); s -= d * 86400; const h = Math.floor(s / 3600); s -= h * 3600; const m = Math.floor(s / 60); s -= m * 60;
+    const p = (n) => String(n).padStart(2, '0');
+    return d ? d + 'd ' + p(h) + 'h ' + p(m) + 'm' : h ? h + 'h ' + p(m) + 'm ' + p(s) + 's' : p(m) + 'm ' + p(s) + 's';
+  }
+  const SIL = '<svg class="sil" viewBox="0 0 100 160" aria-hidden="true"><circle cx="50" cy="30" r="20" fill="rgba(255,255,255,.4)"/><path d="M12 150c0-38 14-62 38-62s38 24 38 62z" fill="rgba(255,255,255,.3)"/></svg>';
+
+  /* ---- data ---- */
+  let feed = null, lastFeedOk = 0;
+  const DEMO_FEED = () => { const n = Date.now(), k = 'assets/kit/stock-white.png';
+    return { ok:true, totalLicences:412, announcements:[{ id:'a1', text:'Monday Funday Round 7 is tonight at 8pm UK. Sign up on the Licence Hub!', big:false, createdAtMs:n-5000, untilMs:n+36e5 }],
+      newLicences:[{ id:'new|1', name:'[ 35 ] - badespielt', licenceNumber:'IFWL-2026-00035', tier:'No Licence', avatarUrl:k, photoUrl:'', atMs:n-36e5 }],
+      tierChanges:[{ id:'tier|2|1', name:'[ 7 ] - GeordieP', licenceNumber:'IFWL-2026-00007', tier:'IFWL-GT-Pro', from:'IFWL-GT-Amateur', avatarUrl:k, photoUrl:'', atMs:n-72e5 }],
+      boards:{ name:'IFWL Rating', top:[['[ 7 ] - GeordieP',812,'Gold'],['[ 8 ] - Niels Segers',790,'Gold'],['[ 9 ] - WendyW',744,'Silver'],['[ 12 ] - Ondrej B',701,'Silver'],['[ 82 ] - Olly knapton',655,'Silver']].map((r,i)=>({ name:r[0], s:r[1], l:r[2], rank:i+1, avatarUrl:'' })),
+        improved:[['[ 9 ] - WendyW',52,692,744],['[ 12 ] - Ondrej B',31,670,701],['[ 5 ] - Stevo',24,500,524]].map((r)=>({ name:r[0], delta:r[1], from:r[2], to:r[3], avatarUrl:'' })),
+        earners:[['[ 8 ] - Niels Segers',14250,6],['[ 7 ] - GeordieP',11800,5],['[ 82 ] - Olly knapton',9100,5]].map((r)=>({ name:r[0], net:r[1], races:r[2], avatarUrl:'' })) },
+      events:[{ id:'e1', title:'Monday Funday Round 7', platform:'pc', track:'Spa-Francorchamps', eventDateMs:n+2*36e5+12*6e4, open:true },{ id:'e2', title:'LMU Free Practice', free:true, platform:'pc', track:'Le Mans', eventDateMs:n+30*36e5, open:true },{ id:'e3', title:'Endurance Series Round 2', platform:'console', track:'Monza', eventDateMs:n+5*864e5, open:true }] };
+  };
+  async function pull(){
+    try{
+      if (DEMO){ feed = DEMO_FEED(); lastFeedOk = Date.now(); return; }
+      const r = await fetch(FN + '?streamFeed=1', { cache:'no-store' });
+      const d = await r.json(); if (!r.ok || !d.ok) throw new Error('bad feed');
+      feed = d; lastFeedOk = Date.now();
+    }catch(e){ console.warn('stream feed failed', e); }
+  }
+
+  /* ---- ticker (right to left, items are added as there is room, so new data flows in without a jump) ---- */
+  const track = $('tkTrack'); let tx = 0, tIdx = 0, tList = [];
+  function buildTicker(){
+    const f = feed || {}, out = [];
+    (f.announcements || []).forEach((a) => out.push(() => '<span class="tk ann"><span class="tag amber">ANNOUNCEMENT</span>' + esc(a.text) + '</span>'));
+    (f.events || []).slice(0, 3).forEach((e, i) => out.push(() => '<span class="tk"><span class="tag ' + (e.free ? 'violet' : '') + '">' + (i === 0 ? 'NEXT RACE' : (e.free ? 'FREE EVENT' : 'COMING UP')) + '</span>' + esc(e.title) + ' <span class="dim">' + esc(whenLabel(e.eventDateMs)) + '</span> <em>' + esc(e.eventDateMs > Date.now() ? 'in ' + cd(e.eventDateMs - Date.now()) : 'live now') + '</em></span>'));
+    (f.newLicences || []).slice(0, 4).forEach((n) => out.push(() => { const p = person(n.name); return '<span class="tk"><span class="tag blue">NEW DRIVER</span>' + (p.num ? '<em>#' + esc(p.num) + '</em>' : '') + esc(p.name) + '</span>'; }));
+    (f.tierChanges || []).slice(0, 4).forEach((n) => out.push(() => { const p = person(n.name); return '<span class="tk"><span class="tag">LICENCE UPDATE</span>' + (p.num ? '<em>#' + esc(p.num) + '</em>' : '') + esc(p.name) + ' <span class="dim">now</span> <em>' + esc(tierLabel(n.tier)) + '</em></span>'; }));
+    if (f.boards && f.boards.top.length) out.push(() => '<span class="tk"><span class="tag amber">TOP 5</span>' + f.boards.top.map((r, i) => (i + 1) + '. ' + esc(person(r.name).name) + ' <em>' + r.s + '</em>').join(' &nbsp;&nbsp; ') + '</span>');
+    if (f.boards && f.boards.improved.length) out.push(() => '<span class="tk"><span class="tag violet">MOST IMPROVED</span>' + f.boards.improved.map((r) => esc(person(r.name).name) + ' <em>+' + r.delta + '</em>').join(' &nbsp;&nbsp; ') + '</span>');
+    if (f.totalLicences) out.push(() => '<span class="tk"><span class="tag">JOIN FREE</span>' + f.totalLicences + ' licensed drivers and counting <em>' + SITE + '</em></span>');
+    if (!out.length) out.push(() => '<span class="tk"><span class="tag">IFWL</span>Ratings, careers, kits and live racing <em>' + SITE + '</em></span>');
+    tList = out;
+  }
+  function nextTk(){ if (!tList.length) buildTicker(); const html = tList[tIdx % tList.length](); tIdx++; const d = document.createElement('div'); d.innerHTML = html; const el = d.firstChild; track.appendChild(el); el.dataset.w = el.offsetWidth; return el; }
+  function tkFill(){ let total = 0; track.childNodes.forEach((c) => { total += Number(c.dataset.w) || c.offsetWidth; }); let guard = 0; while (total + tx < 2300 && guard++ < 40) total += Number(nextTk().dataset.w); }
+  let lastT = performance.now();
+  function frame(t){
+    const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+    tx -= SPEED * dt;
+    const first = track.firstChild;
+    if (first && Number(first.dataset.w) + tx <= 0){ tx += Number(first.dataset.w); track.removeChild(first); }
+    tkFill();
+    track.style.transform = 'translate3d(' + tx.toFixed(1) + 'px,0,0)';
+    requestAnimationFrame(frame);
+  }
+
+  /* ---- top-right "next race" chip + live countdowns ---- */
+  function tickClock(){
+    const e = feed && (feed.events || []).find((x) => x.eventDateMs > Date.now() - 30 * 60000);
+    const chip = $('nextChip');
+    if (!e){ chip.style.display = 'none'; }
+    else { chip.style.display = 'flex'; $('nextName').textContent = e.title; $('nextCd').textContent = e.eventDateMs > Date.now() ? cd(e.eventDateMs - Date.now()) : 'LIVE NOW'; }
+    document.querySelectorAll('[data-cd]').forEach((el) => { const ms = Number(el.dataset.cd); el.textContent = ms > Date.now() ? cd(ms - Date.now()) : 'LIVE NOW'; });
+  }
+
+  /* ---- scenes ---- */
+  const scenes = $('scenes');
+  const wipeIn = { in:[{ clipPath:'inset(0 100% 0 0)' }, { clipPath:'inset(0 0 0 0)' }], out:[{ clipPath:'inset(0 0 0 0)' }, { clipPath:'inset(0 0 0 100%)' }] };
+  const TR = {
+    wipe: wipeIn,
+    slide:{ in:[{ transform:'translateX(-115%)' }, { transform:'none' }], out:[{ transform:'none' }, { transform:'translateX(-115%)' }] },
+    rise: { in:[{ transform:'translateY(70px)', opacity:0 }, { transform:'none', opacity:1 }], out:[{ transform:'none', opacity:1 }, { transform:'translateY(70px)', opacity:0 }] },
+    zoom: { in:[{ transform:'scale(.9)', opacity:0 }, { transform:'none', opacity:1 }], out:[{ transform:'none', opacity:1 }, { transform:'scale(1.06)', opacity:0 }] }
+  };
+  let trCount = 0;
+  const pickTr = (full) => { const name = full ? (TRANS.includes('zoom') ? 'zoom' : TRANS[0]) : TRANS[trCount++ % TRANS.length]; return TR[name] || TR.wipe; };
+  async function runScene(def){
+    const el = document.createElement('div'); el.className = 'scene ' + def.cls; el.style.setProperty('--accent', def.accent || 'var(--teal)'); el.innerHTML = def.html;
+    el.style.visibility = 'hidden'; scenes.appendChild(el);
+    const tr = pickTr(def.full);
+    el.style.visibility = ''; await el.animate(tr.in, { duration: def.full ? 600 : 750, easing:'cubic-bezier(.7,0,.2,1)', fill:'both' }).finished;
+    await wait(def.dur || 12000);
+    await el.animate(tr.out, { duration: def.full ? 500 : 650, easing:'cubic-bezier(.7,0,.2,1)', fill:'both' }).finished;
+    el.remove();
+  }
+
+  function figureHtml(p){
+    const kit = imgUrl(p.avatarUrl), photo = imgUrl(p.photoUrl);
+    const inner = kit ? '<img class="figure" src="' + esc(kit) + '" alt="">' : photo ? '<img class="face" src="' + esc(photo) + '" alt="">' : SIL;
+    return '<div class="figureBox">' + inner + '</div>';
+  }
+  function personScene(ev, kind){
+    const p = person(ev.name), isNew = kind === 'new';
+    const sub = isNew ? esc(ev.licenceNumber || '') : esc(tierLabel(ev.from)) + ' <span class="arrow">→</span>';
+    return { cls:'person', accent: isNew ? 'var(--blue)' : 'var(--teal)', dur: 12000,
+      html: figureHtml(ev) + '<div class="panel"><span class="tab">' + (isNew ? 'NEW DRIVER' : 'LICENCE UPDATE') + '</span>'
+        + '<div class="nm">' + (p.num ? '<span class="num">#' + esc(p.num) + '</span>' : '') + esc(p.name) + '</div>'
+        + '<div class="sub">' + sub + ' <span class="pill">' + esc(tierLabel(ev.tier)) + '</span></div>'
+        + '<div class="msg">' + (isNew ? 'Welcome to IFWL!' : 'Congratulations on the new licence level!') + '</div></div>' };
+  }
+  function rowsHtml(rows, kind){
+    if (!rows.length) return '<div class="empty">Nothing to show yet. Race this week to get on the board!</div>';
+    return rows.map((r, i) => { const p = person(r.name), av = imgUrl(r.avatarUrl);
+      const right = kind === 'top' ? '<span class="lv">' + esc(r.l || '') + '</span><span class="sc">' + r.s + '</span>'
+        : kind === 'imp' ? '<span class="lv">' + r.from + ' → ' + r.to + '</span><span class="sc" style="color:var(--violet)">+' + r.delta + '</span>'
+        : '<span class="lv">' + r.races + ' race' + (r.races === 1 ? '' : 's') + '</span><span class="sc" style="color:var(--amber)">' + gbp(r.net) + '</span>';
+      return '<div class="row" style="--i:' + i + '"><span class="rk">' + (kind === 'top' ? (r.rank || i + 1) : i + 1) + '</span>' + (av ? '<img class="av" src="' + esc(av) + '" alt="">' : '<span class="av"></span>')
+        + '<span class="nmx">' + (p.num ? '<small>#' + esc(p.num) + '</small>' : '') + esc(p.name) + '</span>' + right + '</div>'; }).join('');
+  }
+  const BOARDS = { top:{ title:'TOP 5 · HIGHEST RATED', tab:'THIS WEEK', accent:'var(--amber)', key:'top' }, imp:{ title:'MOST IMPROVED', tab:'THIS WEEK', accent:'var(--violet)', key:'improved' }, earn:{ title:'HIGHEST EARNERS', tab:'THIS WEEK', accent:'var(--green,#34d399)', key:'earners' } };
+  function boardScene(kind){
+    const b = feed && feed.boards; if (!b) return null; const m = BOARDS[kind]; const rows = b[m.key] || [];
+    if (!rows.length && kind !== 'top') return null;
+    return { cls:'board', accent:m.accent, dur: 4500 + rows.length * 1700 + 3500, html:'<div class="panel"><span class="tab">' + m.tab + '</span><h2>' + m.title + '</h2>' + rowsHtml(rows, kind) + '</div>' };
+  }
+  function eventsScene(){
+    const ev = ((feed && feed.events) || []).filter((e) => e.eventDateMs > Date.now() - 30 * 60000); if (!ev.length) return null;
+    const e = ev[0], more = ev.slice(1, 4);
+    return { cls:'events', accent:'var(--teal)', dur:15000,
+      html:'<div class="panel"><span class="tab">' + (e.free ? 'FREE EVENT' : 'NEXT RACE') + '</span><div class="big">' + esc(e.title) + '</div>'
+        + '<div class="when">' + esc(whenLabel(e.eventDateMs)) + (e.track ? ' · ' + esc(e.track) : '') + '</div>'
+        + '<div class="count" data-cd="' + e.eventDateMs + '">' + esc(cd(Math.max(0, e.eventDateMs - Date.now()))) + '</div>'
+        + '<div class="chips">' + (e.platform ? '<span class="pill">' + (e.platform === 'console' ? 'CONSOLE' : 'PC') + '</span>' : '') + (e.open ? '<span class="pill" style="--accent:var(--teal)">SIGN-UPS OPEN</span>' : '<span class="pill" style="--accent:var(--red)">SIGN-UPS CLOSED</span>') + '</div>'
+        + (more.length ? '<div class="more">' + more.map((m) => '<div class="ln"><span>' + esc(m.title) + '</span><span>' + esc(whenLabel(m.eventDateMs)) + '</span></div>').join('') + '</div>' : '')
+        + '<div class="cta">Sign up at ' + SITE + '</div></div>' };
+  }
+  function annScene(a, full){
+    const len = String(a.text).length, dur = Math.min(22000, 7000 + len * 110);
+    if (full) return { cls:'full', full:true, dur, html:'<div class="panel bigAnn"><span class="tab">ANNOUNCEMENT</span><div class="tx">' + esc(a.text) + '</div></div>' };
+    return { cls:'annc', dur, html:'<div class="panel"><span class="tab">ANNOUNCEMENT</span><div class="tx">' + esc(a.text) + '</div></div>' };
+  }
+  function promoScene(full){
+    const n = feed && feed.totalLicences ? feed.totalLicences + ' licensed drivers and counting. ' : '';
+    const body = '<h3>JOIN IFWL</h3><p>' + esc(n) + 'Free licence · driver ratings · careers · Kit Studio</p><div class="url">' + SITE + '</div>';
+    if (full) return { cls:'full', full:true, dur:12000, html:'<div class="panel promoBig"><img class="logoTop" src="./ifwllogo1.png" alt="">' + body + '</div>' };
+    return { cls:'promo', dur:11000, html:'<div class="panel"><img src="./ifwl_logo.png" alt=""><div>' + body + '</div></div>' };
+  }
+  function spotlightScene(){
+    const b = feed && feed.boards; if (!b || !b.top.length) return promoScene(true);
+    return { cls:'full', full:true, dur: 7000 + b.top.length * 1700 + 4500, accent:'var(--amber)',
+      html:'<div class="panel spot"><div class="board"><span class="tab" style="background:var(--amber)">THIS WEEK</span><h2>TOP 5 · HIGHEST RATED</h2>' + rowsHtml(b.top, 'top') + '</div>'
+        + '<div class="board" style="--accent:var(--violet)"><span class="tab" style="background:var(--violet)">THIS WEEK</span><h2>MOST IMPROVED</h2>' + rowsHtml((b.improved || []).slice(0, 3), 'imp') + '<h2 style="margin-top:26px">HIGHEST EARNERS</h2>' + rowsHtml((b.earners || []).slice(0, 3), 'earn') + '</div></div>' };
+  }
+
+  /* ---- scheduler ---- */
+  const SEEN_KEY = 'ifwl_stream_seen_v1';
+  let seen = new Set(), seenFresh = true;
+  try{ const raw = localStorage.getItem(SEEN_KEY); if (raw){ seen = new Set(JSON.parse(raw)); seenFresh = false; } }catch(e){}
+  const saveSeen = () => { try{ localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-300))); }catch(e){} };
+  const annShown = {};
+  const startedAt = Date.now();
+  let evergreenIdx = 0, lastFull = Date.now() - FULL_EVERY + 90000, lastEnd = 0;
+  const EVERGREEN = ['top', 'events', 'imp', 'promo', 'earn'];
+
+  function nextScene(){
+    const f = feed; if (!f) return null;
+    const now = Date.now();
+    // 1) a brand-new announcement, or one due for a repeat
+    for (const a of (f.announcements || [])){
+      if (!annShown[a.id] || now - annShown[a.id] >= ANN_EVERY){ annShown[a.id] = now; return annScene(a, a.big); }
+    }
+    // 2) new licences and level changes nobody has seen on stream yet
+    // on a brand-new browser (nothing remembered) only replay the last 3 hours, so the stream never opens with a flood of old news
+    const fresh = (list) => (list || []).find((e) => { if (seen.has(e.id)) return false; if (seenFresh && now - e.atMs > 3 * 3600000){ seen.add(e.id); return false; } return true; });
+    const nl = fresh(f.newLicences), tc = nl ? null : fresh(f.tierChanges);
+    if (nl) seen.add(nl.id); if (tc) seen.add(tc.id);
+    saveSeen();
+    if (nl) return personScene(nl, 'new');
+    if (tc) return personScene(tc, 'tier');
+    // 3) full-screen spotlight now and then
+    if (now - lastFull >= FULL_EVERY){ lastFull = now; return spotlightScene(); }
+    // 4) otherwise rotate the evergreen cards
+    for (let i = 0; i < EVERGREEN.length; i++){
+      const k = EVERGREEN[evergreenIdx++ % EVERGREEN.length];
+      const sc = k === 'events' ? eventsScene() : k === 'promo' ? promoScene(false) : boardScene(k);
+      if (sc) return sc;
+    }
+    return null;
+  }
+  async function loop(){
+    await pull(); buildTicker(); await wait(1500);
+    for(;;){
+      if (RELOAD_H > 0 && Date.now() - startedAt > RELOAD_H * 3600000){ location.reload(); return; }
+      const isIdleGap = Date.now() - lastEnd >= GAP;
+      const sc = isIdleGap ? nextScene() : null;
+      if (sc){ try{ await runScene(sc); }catch(e){ console.warn('scene failed', e); } lastEnd = Date.now(); }
+      else await wait(1000);
+    }
+  }
+  setInterval(async () => { await pull(); buildTicker(); }, POLL);
+  setInterval(tickClock, 1000);
+
+  window.IFWL_STREAM = { feed: () => feed, run: (def) => runScene(def), scenes: { personScene, boardScene, eventsScene, annScene, promoScene, spotlightScene }, pull, buildTicker };
+  if (!Q.has('manual')) loop(); else pull().then(buildTicker);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
