@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>IFWL - Message Wall</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root{ --bg:#050a14; --panel:rgba(9,15,30,.88); --line:rgba(255,255,255,.12); --ink:#eaf0fa; --mute:#9aa8c0; --faint:#6f7f9a; --teal:#14c8b0; --red:#ff5a5f; --amber:#ffb454; --blue:#5aa9ff; --violet:#b69cff; }
+    *{ box-sizing:border-box; }
+    body{ font-family:Inter,"Segoe UI",Arial,sans-serif; margin:0; color:var(--ink); min-height:100vh;
+      background:linear-gradient(rgba(2,6,23,.78),rgba(2,6,23,.86)),url("./ifwl_bg.webp"); background-size:cover; background-position:center; background-attachment:fixed; }
+    header{ padding:14px 18px; background:#0a0f1c; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .brand{ display:flex; gap:12px; align-items:center; min-width:0; }
+    .brand img{ width:42px; height:42px; object-fit:contain; flex:0 0 auto; }
+    .brand h1{ margin:0; font-size:18px; letter-spacing:.04em; }
+    .brand .sub{ font-size:12px; color:var(--mute); margin-top:3px; }
+    .wrap{ max-width:980px; margin:0 auto; padding:16px; }
+    button,.btn{ font:inherit; font-weight:700; cursor:pointer; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.06); color:var(--ink); padding:9px 16px; text-decoration:none; display:inline-block; }
+    button:hover:not(:disabled),.btn:hover{ background:rgba(255,255,255,.12); }
+    button:disabled{ cursor:not-allowed; opacity:.55; }
+    .primary{ background:var(--teal); color:#03141a; border-color:var(--teal); }
+    .primary:hover:not(:disabled){ background:#1fe0c6; }
+    .discord{ background:#5865f2; border-color:#5865f2; color:#fff; }
+    .discord:hover:not(:disabled){ background:#6b77f5; }
+    .box{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+    .box h2{ margin:0 0 4px; font-size:17px; }
+    .box p{ margin:4px 0 0; font-size:13px; color:var(--mute); line-height:1.45; }
+    .compose{ display:grid; grid-template-columns:72px 1fr; gap:14px; align-items:start; margin-top:12px; }
+    .me{ width:72px; height:72px; border-radius:50%; object-fit:cover; object-position:top; background:rgba(255,255,255,.08); border:3px solid var(--teal); }
+    textarea{ font:inherit; font-size:16px; width:100%; min-height:84px; resize:vertical; padding:11px 13px; border-radius:12px; border:1px solid var(--line); background:rgba(0,0,0,.35); color:var(--ink); }
+    textarea:focus{ outline:2px solid var(--teal); outline-offset:1px; }
+    .bar{ display:flex; gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+    .cnt{ font-size:12px; color:var(--faint); margin-right:auto; }
+    .cnt.warn{ color:var(--amber); }
+    .msg{ font-size:14px; margin-top:8px; }
+    .msg.bad{ color:#ff8a8e; font-weight:700; }
+    .msg.good{ color:#5eead4; font-weight:700; }
+    .note{ margin-top:10px; border:1px solid rgba(255,180,84,.45); background:rgba(255,180,84,.08); color:#ffd9a3; border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.45; }
+
+    .wall{ display:flex; flex-direction:column; gap:22px; margin-top:8px; }
+    .post{ display:grid; grid-template-columns:76px 1fr; gap:14px; align-items:end; animation:pop .45s cubic-bezier(.2,.8,.2,1); }
+    .post.mine{ grid-template-columns:1fr 76px; }
+    .post.mine .who{ order:2; }
+    .who{ text-align:center; min-width:0; }
+    .av{ width:76px; height:76px; border-radius:50%; object-fit:cover; object-position:top; background:rgba(255,255,255,.08); border:3px solid rgba(255,255,255,.28); display:block; }
+    .post.mine .av{ border-color:var(--teal); }
+    .nm{ margin-top:4px; font-size:11px; color:var(--mute); font-weight:700; max-width:92px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:50%; transform:translateX(-50%); }
+    .bubble{ position:relative; background:rgba(255,255,255,.95); color:#0c1424; border-radius:20px; padding:12px 16px 10px; font-size:17px; line-height:1.4; word-wrap:break-word; overflow-wrap:anywhere; box-shadow:0 8px 24px rgba(0,0,0,.35); max-width:100%; justify-self:start; }
+    .post.mine .bubble{ justify-self:end; background:#bff5ec; }
+    .bubble::before{ content:""; position:absolute; bottom:18px; left:-11px; border:11px solid transparent; border-right-color:rgba(255,255,255,.95); border-left:0; }
+    .post.mine .bubble::before{ left:auto; right:-11px; border-right:0; border-left:11px solid #bff5ec; border-left-color:#bff5ec; }
+    .bubble .who2{ display:block; font-size:12px; font-weight:800; color:#51607a; margin-bottom:2px; }
+    .bubble .t{ display:block; font-size:11px; color:#7a879d; margin-top:6px; }
+    .rm{ font-size:11px; padding:2px 8px; margin-left:8px; border-color:#c9d1dd; color:#a02030; background:transparent; }
+    .empty{ text-align:center; color:var(--mute); padding:30px 0; font-size:15px; }
+    @keyframes pop{ from{ opacity:0; transform:translateY(16px) scale(.97);} to{ opacity:1; transform:none; } }
+    @media (max-width:520px){ .compose{ grid-template-columns:1fr; } .me{ display:none; } .bubble{ font-size:16px; } }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand"><img src="./ifwl_logo.png" alt="IFWL logo"><div><h1>IFWL MESSAGE WALL</h1><div class="sub">Say something to the league. Licence holders only.</div></div></div>
+  <div class="row"><a class="btn" href="licence.html">Licence Hub</a> <button id="logoutBtn" type="button" style="display:none">Log out</button></div>
+</header>
+<div class="wrap">
+  <div class="box" id="composeBox">
+    <h2>Post a message</h2>
+    <p>Log in with Discord. If you hold an IFWL licence your avatar and message appear on the wall in a speech bubble, and may also show on the live stream. One message every 2 minutes, 140 characters, keep it clean. No links.</p>
+    <div id="composeBody"><div class="empty">Loading...</div></div>
+  </div>
+  <div class="wall" id="wall"></div>
+</div>
+<script>
+(() => {
+  'use strict';
+  const FN = 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
+  const KEY = 'IFWL_PATREON_SESSION', META = 'IFWL_PATREON_META';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const getTok = () => { try { return localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || ''; } catch (e) { return ''; } };
+  const clearTok = () => { try { localStorage.removeItem(KEY); localStorage.removeItem(META); sessionStorage.removeItem(KEY); } catch (e) {} };
+  const nameOf = (n) => { const m = String(n || '').match(/^\s*\[\s*(\d+)\s*\]\s*-?\s*(.*)$/); return m ? '#' + m[1] + ' ' + (m[2] || '') : String(n || 'Driver'); };
+  const when = (ms) => { const s = Math.max(1, Math.round((Date.now() - ms) / 1000)); if (s < 60) return 'just now'; const m = Math.round(s / 60); if (m < 60) return m + ' min ago'; const h = Math.round(m / 60); if (h < 24) return h + 'h ago'; return Math.round(h / 24) + 'd ago'; };
+  const S = { me: null, posts: [], gapMs: 120000, max: 140, text: '', busy: false, msg: '', bad: false, wait: 0, tick: null };
+  const say = (m, bad) => { S.msg = m; S.bad = !!bad; };
+
+  async function api(q, body) {
+    const t = getTok();
+    const r = await fetch(FN + '?' + q + '=1' + (t ? '&token=' + encodeURIComponent(t) : ''), body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { method: 'GET', cache: 'no-store' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(d.error || ('Request failed (' + r.status + ')')); e.status = r.status; e.data = d; throw e; }
+    return d;
+  }
+  async function login() {
+    try {
+      try { sessionStorage.setItem('IFWL_LOGIN_RETURN', 'licence-wall.html'); } catch (e) {}
+      const redirect = location.origin + location.pathname.replace(/[^\/]*$/, '') + 'licence.html';       // the one Discord return page; it sends people straight back here
+      const r = await fetch(FN + '?start=1&redirect=' + encodeURIComponent(redirect)); const d = await r.json();
+      if (!d.url) throw new Error(d.error || 'Could not start the Discord login.');
+      location.href = d.url;
+    } catch (e) { say(e.message, true); renderCompose(); }
+  }
+  function renderCompose() {
+    const me = S.me, box = $('composeBody'); const hadFocus = document.activeElement && document.activeElement.id === 'txt';
+    $('logoutBtn').style.display = me && me.loggedIn ? '' : 'none';
+    if (!me || !me.loggedIn) { box.innerHTML = '<div class="bar"><button class="discord" id="loginBtn" type="button">Log in with Discord</button></div>' + (S.msg ? '<div class="msg ' + (S.bad ? 'bad' : 'good') + '">' + esc(S.msg) + '</div>' : ''); return; }
+    if (!me.canPost) { box.innerHTML = '<div class="note">' + esc(me.reason || 'You cannot post right now.') + '</div>' + (me.hasLicence ? '' : '<div class="bar"><a class="btn primary" href="licence.html">Get your free licence</a></div>'); return; }
+    const left = Math.max(0, Math.ceil(S.wait / 1000));
+    box.innerHTML = '<div class="compose"><img class="me" src="' + esc(me.avatarUrl || '') + '" alt="" onerror="this.style.visibility=\'hidden\'"><div>'
+      + '<textarea id="txt" maxlength="' + S.max + '" placeholder="What do you want to say to the league?">' + esc(S.text) + '</textarea>'
+      + '<div class="bar"><span class="cnt' + (S.text.length > S.max - 15 ? ' warn' : '') + '" id="cnt">' + S.text.length + ' / ' + S.max + '</span>'
+      + '<button class="primary" id="sendBtn" type="button"' + (S.busy || left > 0 || S.text.trim().length < 2 ? ' disabled' : '') + '>' + (left > 0 ? 'Post again in ' + left + 's' : S.busy ? 'Posting...' : 'Post to the wall') + '</button></div>'
+      + (S.msg ? '<div class="msg ' + (S.bad ? 'bad' : 'good') + '">' + esc(S.msg) + '</div>' : '') + '</div></div>';
+    if (hadFocus) { const t = $('txt'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }
+  }
+  function renderWall() {
+    const w = $('wall');
+    if (!S.posts.length) { w.innerHTML = '<div class="empty">Nothing here yet. Be the first to say something.</div>'; return; }
+    w.innerHTML = S.posts.map((p) => '<div class="post' + (p.mine ? ' mine' : '') + '" data-id="' + esc(p.id) + '">'
+      + '<div class="who">' + (p.avatarUrl ? '<img class="av" src="' + esc(p.avatarUrl) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">' : '<div class="av"></div>') + '</div>'
+      + '<div class="bubble"><span class="who2">' + esc(nameOf(p.name)) + '</span>' + esc(p.text) + '<span class="t">' + esc(when(p.atMs)) + (S.me && S.me.staff ? '<button class="rm" type="button" data-rm="' + esc(p.id) + '">Remove</button>' : '') + '</span></div></div>').join('');
+  }
+  function startTick() {
+    clearInterval(S.tick);
+    S.tick = setInterval(() => {
+      if (S.wait > 0) { S.wait = Math.max(0, S.wait - 1000); const b = $('sendBtn'); if (b) { const left = Math.ceil(S.wait / 1000); b.textContent = left > 0 ? 'Post again in ' + left + 's' : 'Post to the wall'; b.disabled = S.busy || left > 0 || S.text.trim().length < 2; } }
+    }, 1000);
+  }
+  async function load(first) {
+    try {
+      const d = await api('wallList');
+      S.posts = d.posts || []; S.gapMs = d.gapMs || S.gapMs; S.max = d.max || S.max;
+      if (d.me && d.me.loggedIn === false && getTok()) { clearTok(); }
+      S.me = d.me; S.wait = Math.max(S.wait, d.me ? d.me.waitMs || 0 : 0); if (d.me && !(d.me.waitMs > 0)) S.wait = 0;
+    } catch (e) { if (e.status === 401) { clearTok(); S.me = { loggedIn: false }; } else if (first) say(e.message, true); }
+    if (!(document.activeElement && document.activeElement.id === 'txt') || first) renderCompose();
+    renderWall();
+  }
+  document.addEventListener('input', (ev) => { if (ev.target.id === 'txt') { S.text = ev.target.value; const c = $('cnt'); if (c) { c.textContent = S.text.length + ' / ' + S.max; c.className = 'cnt' + (S.text.length > S.max - 15 ? ' warn' : ''); } const b = $('sendBtn'); if (b) b.disabled = S.busy || S.wait > 0 || S.text.trim().length < 2; } });
+  document.addEventListener('keydown', (ev) => { if (ev.target.id === 'txt' && ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { const b = $('sendBtn'); if (b && !b.disabled) b.click(); } });
+  document.addEventListener('click', async (ev) => {
+    const t = ev.target;
+    if (t.id === 'loginBtn') return login();
+    if (t.id === 'logoutBtn') { clearTok(); S.me = { loggedIn: false }; S.msg = ''; renderCompose(); renderWall(); return; }
+    if (t.dataset && t.dataset.rm) {
+      if (!confirm('Remove this message from the wall and the stream?')) return;
+      try { await api('staffWallRemove', { id: t.dataset.rm }); S.posts = S.posts.filter((p) => p.id !== t.dataset.rm); renderWall(); } catch (e) { alert(e.message); }
+      return;
+    }
+    if (t.id === 'sendBtn' && !S.busy) {
+      S.busy = true; say(''); renderCompose();
+      try {
+        const d = await api('wallPost', { text: S.text.trim() });
+        S.posts = [d.post].concat(S.posts.filter((p) => p.id !== d.post.id)); S.text = ''; S.wait = d.waitMs || S.gapMs; say('Posted. You can post again in 2 minutes.');
+      } catch (e) {
+        if (e.status === 429) { S.wait = (e.data && e.data.waitMs) || S.gapMs; }
+        if (e.status === 401) { clearTok(); S.me = { loggedIn: false }; }
+        say(e.message, true);
+      }
+      S.busy = false; renderCompose(); renderWall();
+    }
+  });
+  startTick(); load(true); setInterval(() => { if (!document.hidden) load(false); }, 30000);
+})();
+</script>
+</body>
+</html>
