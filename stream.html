@@ -18,11 +18,37 @@
     .orb{ font-family:var(--orb); }
 
     /* ---------- permanent HUD ---------- */
-    .hud{ position:absolute; left:48px; top:36px; display:flex; align-items:center; gap:18px; filter:drop-shadow(0 4px 12px rgba(0,0,0,.55)); }
+    .hud{ position:absolute; z-index:30; left:48px; top:36px; display:flex; align-items:center; gap:18px; filter:drop-shadow(0 4px 12px rgba(0,0,0,.55)); }
     .hud img{ height:74px; width:auto; }
     .live{ display:flex; align-items:center; gap:10px; background:rgba(6,12,28,.88); border:2px solid var(--red); border-radius:10px; padding:8px 16px; font-family:var(--orb); font-weight:800; font-size:20px; letter-spacing:.16em; }
     .live i{ width:14px; height:14px; border-radius:50%; background:var(--red); box-shadow:0 0 12px var(--red); animation:pulse 1.4s infinite; }
     @keyframes pulse{ 50%{ opacity:.35; transform:scale(.8);} }
+    .live.rerun{ border-color:#7d8aa3; color:#c9d3e6; letter-spacing:.12em; }
+    .live.rerun i{ background:#7d8aa3; box-shadow:none; animation:none; }
+    .live .who{ font-family:Rajdhani,"Segoe UI",Arial,sans-serif; font-weight:700; letter-spacing:.04em; font-size:24px; color:#fff; margin-left:2px; }
+    /* driver compare (full screen, commentator controlled) */
+    .scene.cmpScene{ inset:0; display:flex; align-items:flex-start; justify-content:center; padding-top:22px; background:radial-gradient(ellipse at center,rgba(3,8,20,.8),rgba(3,8,20,.94)); }
+    .cmp{ width:1800px; padding:22px 40px 26px; --accent:var(--teal); }
+    .cmpHead{ display:flex; align-items:center; justify-content:center; gap:20px; }
+    .cmpHead .season{ font-family:var(--orb); font-weight:800; font-size:30px; letter-spacing:.14em; }
+    .cmpGrid{ display:grid; grid-template-columns:520px 1fr 520px; gap:24px; align-items:end; margin-top:6px; }
+    .cmpGrid.one{ grid-template-columns:600px 1fr; }
+    .cmpSide{ text-align:center; min-width:0; }
+    .cmpSide .fig{ height:560px; display:flex; align-items:flex-end; justify-content:center; }
+    .cmpSide .fig img.figure{ max-height:100%; max-width:100%; object-fit:contain; filter:drop-shadow(0 18px 18px rgba(0,0,0,.65)); }
+    .cmpSide .fig img.face{ width:300px; height:300px; border-radius:50%; object-fit:cover; border:6px solid var(--sc); margin-bottom:120px; }
+    .cmpSide .fig .sil{ height:420px; opacity:.5; }
+    .cmpSide .nm{ font-family:var(--orb); font-weight:900; font-size:42px; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-top:4px solid var(--sc); padding-top:12px; }
+    .cmpSide .nm .num{ color:var(--sc); margin-right:10px; }
+    .cmpSide .chips{ margin-top:8px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; min-height:40px; }
+    .cmpSide .chips .pill{ --accent:var(--sc); font-size:24px; }
+    .cmpMid{ align-self:center; }
+    .crow{ display:grid; grid-template-columns:1fr 290px 1fr; align-items:center; height:56px; border-bottom:1px solid rgba(255,255,255,.12); font-family:var(--orb); font-weight:800; font-size:36px; opacity:0; animation:rowIn .5s cubic-bezier(.2,.8,.2,1) forwards; animation-delay:calc(var(--i)*.07s + .4s); }
+    .crow .v{ font-variant-numeric:tabular-nums; }
+    .crow .v.l{ text-align:right; padding-right:34px; } .crow .v.r{ text-align:left; padding-left:34px; }
+    .crow .lb{ text-align:center; font-size:19px; letter-spacing:.16em; color:var(--mute); }
+    .crow .v.win.l{ color:var(--teal); text-shadow:0 0 18px rgba(20,200,176,.5); } .crow .v.win.r{ color:var(--red); text-shadow:0 0 18px rgba(255,77,85,.5); }
+    .cmpGrid.one .crow{ grid-template-columns:330px 1fr; } .cmpGrid.one .crow .lb{ text-align:left; padding-left:6px; } .cmpGrid.one .crow .v{ text-align:left; padding-left:20px; color:var(--teal); }
     .nextChip{ position:absolute; right:48px; top:40px; display:none; align-items:center; gap:14px; background:rgba(6,12,28,.88); border:2px solid var(--teal); border-radius:12px; padding:10px 18px; font-size:26px; font-weight:700; filter:drop-shadow(0 4px 12px rgba(0,0,0,.55)); }
     .nextChip .tg{ font-family:var(--orb); font-size:15px; letter-spacing:.14em; color:#04141a; background:var(--teal); padding:5px 10px; border-radius:5px; }
     .nextChip b{ font-variant-numeric:tabular-nums; color:var(--teal); }
@@ -188,7 +214,7 @@
 </head>
 <body>
 <div id="stage">
-  <div class="hud"><img id="hudLogo" src="./ifwllogo1.png" alt=""><div class="live"><i></i>LIVE</div></div>
+  <div class="hud"><img id="hudLogo" src="./ifwllogo1.png" alt=""><div class="live rerun" id="liveTag"><i></i><span id="liveTxt">RERUN OF PAST EVENTS</span></div></div>
   <div class="nextChip" id="nextChip"><span class="tg">NEXT RACE</span><span id="nextName"></span><b id="nextCd"></b></div>
   <div id="scenes"></div>
   <div class="ticker"><div class="tkLabel">IFWL FEED</div><div class="tkView"><div class="tkTrack" id="tkTrack"></div></div></div>
@@ -234,6 +260,7 @@
 
   /* ---- data ---- */
   let feed = null, lastFeedOk = 0;
+  let liveState = { live:null, compare:null };
   const ph = (t, c, wide) => 'data:image/svg+xml;utf8,' + encodeURIComponent(wide
     ? '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="200"><rect width="900" height="200" fill="#f3f4f8"/><text x="450" y="118" font-family="Arial" font-weight="900" font-size="64" fill="#0b1020" text-anchor="middle">' + t + '</text></svg>'
     : '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect x="12" y="12" width="136" height="136" rx="26" fill="' + c + '" fill-opacity=".25" stroke="' + c + '" stroke-width="6"/><text x="80" y="102" font-family="Arial" font-weight="900" font-size="48" fill="' + c + '" text-anchor="middle">' + t + '</text></svg>');
@@ -265,6 +292,68 @@
       const d = await r.json(); if (!r.ok || !d.ok) throw new Error('bad feed');
       feed = d; lastFeedOk = Date.now();
     }catch(e){ console.warn('stream feed failed', e); }
+  }
+
+  /* ---- commentator on air + driver compare (small public call, polled every few seconds) ---- */
+  const DEMO_LIVE = Q.get('live') ? { id:'1', name:Q.get('live'), avatarUrl:'', sinceMs:Date.now() } : null;
+  const DEMO_CMP = () => { const k = 'assets/kit/stock-white.png', n = Q.get('cmp') === '1' ? 1 : 2;
+    const st = (o) => Object.assign({ rating:812, level:'Gold', levelKey:'gold', rank:3, ranked:466, races:14, wins:5, podiums:9, top10:13, best:1, avg:3.4, clean:91, penalties:1, points:2 }, o);
+    const cards = [{ id:'a', name:'[ 7 ] - GeordieP', avatarUrl:k, photoUrl:'', tier:'IFWL-GT-Pro', team:'Red Line Racing', stats:st({}) },
+      { id:'b', name:'[ 9 ] - WendyW', avatarUrl:k, photoUrl:'', tier:'IFWL-GT-Amateur', team:'Blue Apex', stats:st({ rating:744, level:'Silver', rank:19, races:16, wins:6, podiums:8, top10:15, best:1, avg:4.1, clean:94, penalties:0, points:0 }) }];
+    return { seq:1, season:'SEASON 4', cards:cards.slice(0, n) }; };
+  async function pollLive(){
+    try{
+      if (DEMO){ liveState = { live:DEMO_LIVE, compare:Q.has('cmp') ? DEMO_CMP() : null }; }
+      else { const r = await fetch(FN + '?streamLive=1', { cache:'no-store' }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error('bad'); liveState = { live:d.live || null, compare:d.compare || null }; }
+    }catch(e){ console.warn('live state failed', e); }
+    applyLive(); syncCompare();
+  }
+  function applyLive(){
+    const L = liveState.live, tag = $('liveTag'), tx = $('liveTxt');
+    if (L){ tag.classList.remove('rerun'); tx.innerHTML = 'LIVE <span class="who">' + esc('· ' + person(L.name).name) + '</span>'; }
+    else { tag.classList.add('rerun'); tx.textContent = 'RERUN OF PAST EVENTS'; }
+  }
+  const CMP_ROWS = [['rating','IFWL RATING',1,(v) => v], ['rank','RATING RANK',-1,(v) => '#' + v], ['races','RACES',1,(v) => v], ['wins','WINS',1,(v) => v], ['podiums','PODIUMS',1,(v) => v], ['top10','TOP 10s',1,(v) => v],
+    ['best','BEST FINISH',-1,(v) => 'P' + v], ['avg','AVG FINISH',-1,(v) => v], ['clean','CLEAN RACING',1,(v) => v + '%'], ['penalties','PENALTIES',-1,(v) => v], ['points','LICENCE POINTS',-1,(v) => v]];
+  function cmpFig(c, sc){
+    const kit = imgUrl(c.avatarUrl), photo = imgUrl(c.photoUrl);
+    return '<div class="fig" style="--sc:' + sc + '">' + (kit ? '<img class="figure" src="' + esc(kit) + '" alt="">' : photo ? '<img class="face" src="' + esc(photo) + '" alt="">' : SIL) + '</div>';
+  }
+  function cmpSide(c, sc){
+    const p = person(c.name), s = c.stats || {};
+    return '<div class="cmpSide" style="--sc:' + sc + '">' + cmpFig(c, sc) + '<div class="nm">' + (p.num ? '<span class="num">#' + esc(p.num) + '</span>' : '') + esc(p.name) + '</div>'
+      + '<div class="chips">' + (s.level ? '<span class="pill">' + esc(s.level) + '</span>' : '') + (c.tier ? '<span class="pill">' + esc(tierLabel(c.tier)) + '</span>' : '') + (c.team ? '<span class="pill">' + esc(c.team) + '</span>' : '') + '</div></div>';
+  }
+  function cmpHtml(c){
+    const cards = c.cards, two = cards.length > 1, a = cards[0], b = cards[1];
+    const rows = CMP_ROWS.filter((r) => cards.some((x) => x.stats && x.stats[r[0]] != null));
+    const val = (x, r) => (x.stats && x.stats[r[0]] != null) ? esc(r[3](x.stats[r[0]])) : '-';
+    let mid;
+    if (two){
+      mid = rows.map((r, i) => { const va = a.stats[r[0]], vb = b.stats[r[0]]; let wa = false, wb = false;
+        if (va != null && vb != null && va !== vb){ const better = r[2] > 0 ? va > vb : va < vb; wa = better; wb = !better; }
+        return '<div class="crow" style="--i:' + i + '"><span class="v l' + (wa ? ' win' : '') + '">' + val(a, r) + '</span><span class="lb">' + r[1] + '</span><span class="v r' + (wb ? ' win' : '') + '">' + val(b, r) + '</span></div>'; }).join('');
+      return '<div class="panel cmp"><div class="cmpHead"><span class="tab">DRIVER COMPARISON</span><span class="season">' + esc(c.season || '') + '</span></div><div class="cmpGrid">' + cmpSide(a, 'var(--teal)') + '<div class="cmpMid">' + mid + '</div>' + cmpSide(b, 'var(--red)') + '</div></div>';
+    }
+    mid = rows.map((r, i) => '<div class="crow" style="--i:' + i + '"><span class="lb">' + r[1] + '</span><span class="v">' + val(a, r) + '</span></div>').join('');
+    return '<div class="panel cmp"><div class="cmpHead"><span class="tab">DRIVER PROFILE</span><span class="season">' + esc(c.season || '') + '</span></div><div class="cmpGrid one">' + cmpSide(a, 'var(--teal)') + '<div class="cmpMid">' + mid + '</div></div></div>';
+  }
+  let cmpSeq = 0, cmpEl = null, cmpBusy = false;
+  async function syncCompare(){
+    if (cmpBusy) return; const c = liveState.compare;
+    if (c && c.seq !== cmpSeq){
+      cmpBusy = true; cmpSeq = c.seq;
+      try{
+        if (cmpEl){ const old = cmpEl; cmpEl = null; await old.animate(TR.zoom.out, { duration:350, fill:'both' }).finished; old.remove(); }
+        const el = document.createElement('div'); el.className = 'scene full cmpScene'; el.style.setProperty('--accent', 'var(--teal)'); el.innerHTML = cmpHtml(c); scenes.appendChild(el); cmpEl = el;
+        await el.animate(TR.zoom.in, { duration:600, easing:'cubic-bezier(.7,0,.2,1)', fill:'both' }).finished;
+      }catch(e){ console.warn('compare failed', e); }
+      cmpBusy = false; syncCompare();
+    } else if (!c && cmpEl){
+      cmpBusy = true; const old = cmpEl; cmpEl = null; cmpSeq = 0;
+      try{ await old.animate(TR.zoom.out, { duration:500, fill:'both' }).finished; }catch(e){}
+      old.remove(); cmpBusy = false;
+    }
   }
 
   /* ---- ticker (right to left, items are added as there is room, so new data flows in without a jump) ---- */
@@ -409,7 +498,7 @@
       html: figureHtml(h) + '<div class="panel"><span class="tab">DRIVER SPOTLIGHT</span>'
         + '<div class="nm">' + (p.num ? '<span class="num">#' + esc(p.num) + '</span>' : '') + esc(p.name) + '</div>'
         + '<div class="sub"><span class="pill">' + esc(h.lv) + '</span>' + (h.team ? '<span>' + esc(h.team) + '</span>' : '') + '</div>'
-        + '<div class="msg">Ranked <b>#' + h.rank + '</b> of ' + h.ranked + ' on the IFWL Rating' + wk + '</div>'
+        + '<div class="msg">' + (h.rank && h.ranked && h.rank <= h.ranked / 2 ? 'Ranked <b>#' + h.rank + '</b> of ' + h.ranked + ' on the IFWL Rating' : '<b>' + h.raced + '</b> race' + (h.raced === 1 ? '' : 's') + ' on the IFWL Rating') + wk + '</div>'
         + '<div class="score"><b>' + h.s + '</b><small>IFWL RATING</small></div></div>' };
   }
   function partsScene(){
@@ -515,20 +604,22 @@
     return null;
   }
   async function loop(){
-    await pull(); buildTicker(); await wait(1500);
+    await pull(); buildTicker(); pollLive(); await wait(1500);
     for(;;){
       if (RELOAD_H > 0 && Date.now() - startedAt > RELOAD_H * 3600000){ location.reload(); return; }
       const isIdleGap = Date.now() - lastEnd >= GAP;
-      const sc = isIdleGap ? nextScene() : null;
+      const quiet = !!liveState.live || !!cmpEl || cmpBusy;     // race first: no pop-ups while a commentator is on air, and never over a driver compare
+      const sc = isIdleGap && !quiet ? nextScene() : null;
       if (sc){ try{ await runScene(sc); }catch(e){ console.warn('scene failed', e); } lastEnd = Date.now(); }
       else await wait(1000);
     }
   }
   setInterval(async () => { await pull(); buildTicker(); }, POLL);
+  setInterval(pollLive, 8000);
   setInterval(tickClock, 1000);
 
-  window.IFWL_STREAM = { feed: () => feed, run: (def) => runScene(def), scenes: { personScene, boardScene, eventsScene, annScene, promoScene, spotlightScene, highlightScene, wallScene, partsScene, shopScene, soldScene, kitScene, teamScene, sponsScene, numsScene }, pull, buildTicker };
-  if (!Q.has('manual')) loop(); else pull().then(buildTicker);
+  window.IFWL_STREAM = { feed: () => feed, run: (def) => runScene(def), scenes: { personScene, boardScene, eventsScene, annScene, promoScene, spotlightScene, highlightScene, wallScene, cmpHtml, partsScene, shopScene, soldScene, kitScene, teamScene, sponsScene, numsScene }, pull, buildTicker, pollLive, state: () => liveState };
+  if (!Q.has('manual')) loop(); else { pull().then(buildTicker); pollLive(); }
   requestAnimationFrame(frame);
 })();
 </script>
