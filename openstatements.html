@@ -1,716 +1,369 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>IFWL — Open Tickets (Statements)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
+    :root{
+      --bg:#050a14; --panel:rgba(9,15,30,.88); --panel2:rgba(16,24,44,.92); --line:rgba(255,255,255,.12);
+      --ink:#eaf0fa; --mute:#9aa8c0; --faint:#6f7f9a;
+      --teal:#14c8b0; --red:#ff5a5f; --amber:#ffb454; --green:#34d399; --blue:#5aa9ff; --violet:#b69cff;
+    }
+    *{ box-sizing:border-box; }
     body{
-      font-family: Arial, sans-serif;
-      margin:0;
-      background:
-        linear-gradient(rgba(2,6,23,0.72), rgba(2,6,23,0.72)),
-        url("./ifwl_bg.webp");
-      background-size:cover;
-      background-position:center;
-      background-attachment:fixed;
-      color:#0f172a;
+      font-family:Inter,"Segoe UI",Arial,sans-serif; margin:0; color:var(--ink);
+      background:linear-gradient(rgba(2,6,23,.78),rgba(2,6,23,.86)),url("./ifwl_bg.webp");
+      background-size:cover; background-position:center; background-attachment:fixed; min-height:100vh;
     }
-
-    header{
-      padding:14px 18px;
-      background:#111827;
-      color:#fff;
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:12px;
-    }
-
-    .brand{
-      display:flex;
-      gap:12px;
-      align-items:flex-start;
-      min-width:0;
-    }
-    .brand img{
-      width:38px; height:38px;
-      object-fit:contain;
-      margin-top:2px;
-      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
-      flex:0 0 auto;
-    }
-    .brandText{ min-width:0; }
-    .small{ font-size:12px; opacity:0.85; margin-top:4px; line-height:1.2; word-break:break-word; }
-    .welcomeLine{ font-size:12px; opacity:0.95; margin-top:6px; line-height:1.25; }
-
-    .wrap{ max-width:1200px; margin:0 auto; padding:14px; }
-
-    .card{
-      background:rgba(255,255,255,0.92);
-      border:1px solid rgba(229,231,235,0.95);
-      border-radius:12px;
-      padding:12px;
-      box-shadow:0 10px 28px rgba(0,0,0,0.18);
-      margin-bottom:14px;
-    }
-
+    header{ padding:14px 18px; background:#0a0f1c; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .brand{ display:flex; gap:12px; align-items:center; min-width:0; }
+    .brand img{ width:42px; height:42px; object-fit:contain; flex:0 0 auto; }
+    .brand h1{ margin:0; font-size:18px; letter-spacing:.04em; }
+    .brand .sub{ font-size:12px; color:var(--mute); margin-top:3px; }
+    .wrap{ max-width:1280px; margin:0 auto; padding:16px; }
+    button{ font:inherit; font-weight:700; cursor:pointer; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.06); color:var(--ink); padding:9px 14px; }
+    button:hover:not(:disabled){ background:rgba(255,255,255,.12); }
+    button:disabled{ cursor:not-allowed; }
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .title{ font-weight:800; font-size:18px; margin:0; }
-    .muted{ color:#6b7280; font-size:12px; line-height:1.25; }
 
-    input, select{
-      padding:10px;
-      border:1px solid #d1d5db;
-      border-radius:12px;
-      font-size:16px;
-      background:#fff;
-      width:100%;
-      box-sizing:border-box;
-    }
+    .intro{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:16px; }
+    .intro h2{ margin:0 0 4px; font-size:17px; }
+    .intro p{ margin:4px 0 0; font-size:13px; color:var(--mute); line-height:1.45; }
+    .rule{ margin-top:12px; border:1px solid rgba(255,180,84,.45); background:rgba(255,180,84,.08); color:#ffd9a3; border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.45; }
+    .rule b{ color:#ffe7c2; }
+    .count{ margin-left:auto; font-size:12px; padding:5px 12px; border-radius:99px; border:1px solid var(--line); color:var(--mute); }
+    .count b{ color:var(--ink); }
+    .filters{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+    .filters label{ display:block; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); margin-bottom:4px; }
+    .filters input,.filters select{ font:inherit; font-size:15px; padding:9px 11px; border-radius:10px; border:1px solid var(--line); background:rgba(0,0,0,.35); color:var(--ink); width:100%; }
+    .legend{ display:flex; gap:14px; flex-wrap:wrap; margin-top:12px; font-size:12px; color:var(--mute); }
+    .legend i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
 
-    button{
-      padding:10px 12px;
-      border:1px solid #d1d5db;
-      border-radius:12px;
-      background:#fff;
-      cursor:pointer;
-      font-weight:700;
-    }
-    button.primary{
-      background:#111827;
-      color:#fff;
-      border-color:#111827;
-    }
-    button:disabled{
-      opacity:0.55;
-      cursor:not-allowed;
-    }
+    /* ---------- one ticket = one stewards' room ---------- */
+    .room{ background:var(--panel); border:1px solid var(--line); border-radius:18px; margin-bottom:22px; overflow:hidden; box-shadow:0 18px 50px rgba(0,0,0,.45); }
+    .ribbon{ padding:9px 16px; font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .ribbon.open{ background:rgba(52,211,153,.14); color:var(--green); border-bottom:1px solid rgba(52,211,153,.4); }
+    .ribbon.closed{ background:rgba(255,90,95,.14); color:var(--red); border-bottom:1px solid rgba(255,90,95,.45); }
+    .ribbon.mixed{ background:rgba(255,180,84,.12); color:var(--amber); border-bottom:1px solid rgba(255,180,84,.4); }
+    .roomHead{ padding:12px 16px 0; display:flex; gap:10px; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; }
+    .tid{ font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--mute); word-break:break-all; }
+    .status{ display:inline-block; font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; padding:3px 10px; border-radius:99px; border:1px solid var(--line); color:var(--ink); margin-left:8px; }
+    .headTitle{ font-size:20px; font-weight:800; margin-top:6px; }
+    .ago{ font-size:12px; color:var(--mute); }
 
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding:4px 10px;
-      border-radius:999px;
-      border:1px solid #e5e7eb;
-      background:#fff;
-      font-size:12px;
-      color:#111827;
-      white-space:nowrap;
-    }
-    .pill strong{ font-weight:900; }
+    .roomGrid{ display:grid; grid-template-columns:270px minmax(0,1fr) 270px; gap:16px; padding:14px 16px 6px; align-items:start; }
+    .side{ display:flex; flex-direction:column; gap:14px; }
+    .mid{ min-width:0; }
 
-    .tickets{
-      display:flex;
-      flex-direction:column;
-      gap:12px;
+    /* stands */
+    .stand{ position:relative; border-radius:16px; padding:10px 10px 14px; text-align:center; overflow:hidden; border:2px solid var(--c,#fff); background:var(--bgc); box-shadow:0 0 0 1px rgba(0,0,0,.5) inset, 0 0 24px var(--glow,transparent); }
+    .stand::before{ /* spotlight from the ceiling */
+      content:""; position:absolute; inset:0 0 40% 0; background:radial-gradient(ellipse at 50% -8%, rgba(255,255,255,.22), rgba(255,255,255,0) 62%); pointer-events:none;
     }
-
-    .ticketCard{
-      background:#fff;
-      border:1px solid #e5e7eb;
-      border-radius:14px;
-      padding:12px;
+    .stand::after{ /* panelling on the wall */
+      content:""; position:absolute; inset:0; background:repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 2px, transparent 2px 38px); pointer-events:none;
     }
+    .stand > *{ position:relative; z-index:1; }
+    .plate{ display:inline-block; font-size:11px; font-weight:900; letter-spacing:.14em; text-transform:uppercase; padding:6px 12px; border-radius:6px; background:var(--c); color:#04101a; margin-bottom:8px; }
+    .stand.accused .plate{ color:#fff; }
+    .avatarBox{ height:290px; display:flex; align-items:flex-end; justify-content:center; }
+    .avatarBox img.kit{ max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 14px 12px rgba(0,0,0,.55)); }
+    .avatarBox .face{ width:132px; height:132px; border-radius:50%; object-fit:cover; border:3px solid var(--c); margin-bottom:62px; box-shadow:0 8px 20px rgba(0,0,0,.5); }
+    .avatarBox svg{ height:210px; width:auto; margin-bottom:30px; opacity:.85; }
+    .desk{ height:16px; margin:0 -10px; background:linear-gradient(#2a3447,#151c2b); border-top:2px solid var(--c); border-bottom:1px solid #000; }
+    .who{ margin-top:10px; }
+    .who b{ display:block; font-size:18px; line-height:1.2; word-break:break-word; }
+    .who span{ display:block; font-size:12px; color:var(--mute); margin-top:3px; }
+    .who span.tier{ display:inline-block; font-size:11px; color:var(--c); margin-top:6px; }
+    .tier{ display:inline-block; margin-top:6px; font-size:11px; font-weight:800; padding:3px 10px; border-radius:99px; border:1px solid var(--c); color:var(--c); }
+    .sign{ margin-top:10px; font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; padding:6px 8px; border-radius:8px; border:1px solid var(--line); color:var(--mute); }
+    .sign.done{ border-color:var(--blue); color:var(--blue); background:rgba(90,169,255,.1); }
+    .sign.wait{ border-color:rgba(255,180,84,.5); color:var(--amber); background:rgba(255,180,84,.07); }
+    .sign.shut{ border-color:rgba(255,90,95,.5); color:var(--red); background:rgba(255,90,95,.07); }
 
-    .ticketTop{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:10px;
-      flex-wrap:wrap;
-    }
+    .stand.reporter{ --c:var(--teal); --glow:rgba(20,200,176,.22); --bgc:linear-gradient(180deg,#0b2a33,#08141f 70%); }
+    .stand.accused{ --c:var(--red); --glow:rgba(255,90,95,.25); --bgc:linear-gradient(180deg,#3a0f18,#14070c 70%); }
+    .stand.witness{ --c:var(--violet); --glow:rgba(182,156,255,.2); --bgc:linear-gradient(180deg,#241a3d,#0f0b1c 70%); }
+    .stand.witness .avatarBox{ height:170px; }
+    .stand.witness .avatarBox .face{ width:92px; height:92px; margin-bottom:32px; }
+    .stand.witness .avatarBox svg{ height:120px; margin-bottom:16px; }
+    .stand.witness .who b{ font-size:15px; }
+    .room-sign{ margin-top:8px; text-align:center; font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:#d98b90; opacity:.9; }
 
-    .id{
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size:12px;
-      color:#111827;
-      word-break:break-all;
-      opacity:0.9;
-    }
+    /* middle */
+    .videoWrap{ position:relative; width:100%; padding-top:56.25%; background:#000; border-radius:14px; overflow:hidden; border:1px solid var(--line); }
+    .videoWrap iframe,.videoWrap video{ position:absolute; inset:0; width:100%; height:100%; border:0; }
+    .noVideo{ border:1px dashed var(--line); border-radius:14px; padding:26px; text-align:center; color:var(--mute); font-size:13px; }
+    .noVideo a{ color:var(--blue); }
+    .brk{ margin-top:12px; border:1px solid var(--line); border-radius:14px; background:var(--panel2); overflow:hidden; }
+    .brk h3{ margin:0; padding:9px 14px; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); border-bottom:1px solid var(--line); }
+    .brk dl{ margin:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); }
+    .brk div.c{ padding:10px 14px; border-bottom:1px solid var(--line); border-right:1px solid var(--line); }
+    .brk dt{ font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.06em; }
+    .brk dd{ margin:3px 0 0; font-weight:700; font-size:15px; word-break:break-word; }
 
-    .kv{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-      margin-top:10px;
-    }
+    /* statement buttons */
+    .actions{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; padding:12px 16px 18px; }
+    .role{ border:2px solid var(--rc); border-radius:14px; padding:12px 14px; background:rgba(255,255,255,.03); display:flex; flex-direction:column; gap:8px; }
+    .role .rn{ font-size:12px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--ink); }
+    .role .rs{ font-size:12px; font-weight:800; letter-spacing:.04em; color:var(--rc); }
+    .role .go{ font-size:15px; padding:12px 14px; border-radius:10px; border:2px solid var(--rc); background:var(--rc); color:#04101a; width:100%; }
+    .role .go:disabled{ background:transparent; color:var(--rc); opacity:.75; }
+    .role .why{ font-size:12px; color:var(--mute); line-height:1.4; min-height:34px; }
+    .role.open{ --rc:var(--green); }
+    .role.submitted{ --rc:var(--blue); }
+    .role.expired{ --rc:var(--red); }
+    .role.off{ --rc:var(--amber); }
+    .role.none{ --rc:#55627a; border-style:dashed; }
 
-    .label{ font-size:12px; color:#6b7280; }
-    .value{ font-weight:800; color:#111827; }
+    .empty{ text-align:center; padding:40px; color:var(--mute); background:var(--panel); border:1px solid var(--line); border-radius:14px; }
+    .toast{ position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:10px 14px; border-radius:10px; border:1px solid var(--line); opacity:0; transform:translateY(8px); transition:all .18s; z-index:9999; }
+    .toast.show{ opacity:1; transform:none; }
+    .skel{ height:220px; border-radius:18px; margin-bottom:22px; background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04)); background-size:200% 100%; animation:sk 1.4s infinite; }
+    @keyframes sk{ 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-    .videoWrap{
-      position:relative;
-      width:100%;
-      padding-top:56.25%;
-      background:#000;
-      border-radius:12px;
-      overflow:hidden;
-      border:1px solid #e5e7eb;
-      margin-top:10px;
-    }
-    .videoWrap iframe, .videoWrap video{
-      position:absolute;
-      top:0; left:0;
-      width:100%;
-      height:100%;
-      border:0;
-    }
-
-    .actions{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-top:12px;
-    }
-
-    .noteBox{
-      border:1px solid #fde68a;
-      background:#fffbeb;
-      color:#92400e;
-      border-radius:12px;
-      padding:10px 12px;
-      font-size:13px;
-      line-height:1.25;
-      font-weight:800;
-      margin-top:10px;
-    }
-    .noteBox small{
-      display:block;
-      margin-top:6px;
-      font-weight:700;
-      opacity:0.9;
-    }
-
-    .reasons{ margin-top:10px; display:flex; flex-direction:column; gap:4px; font-size:12.5px; line-height:1.3; }
-    .reasons .r{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
-    .reasons .r b{ min-width:74px; color:#111827; }
-    .reasons .open{ color:#027a48; }
-    .reasons .shut{ color:#b42318; }
-    .reasons .info{ color:#6b7280; }
-
-    .toast{
-      position:fixed;
-      right:16px;
-      bottom:16px;
-      background:#111827;
-      color:#fff;
-      padding:10px 12px;
-      border-radius:12px;
-      opacity:0;
-      transform: translateY(8px);
-      transition: all .18s ease;
-      z-index:9999;
-      max-width: min(520px, calc(100vw - 32px));
-      white-space: pre-wrap;
-    }
-    .toast.show{ opacity:1; transform: translateY(0); }
-
-    @media (max-width: 980px){
+    @media (max-width:980px){
       body{ background-attachment:scroll; }
-      header{ flex-direction:column; align-items:stretch; }
-      .row button{ width:100%; }
-      .kv{ grid-template-columns: 1fr; }
+      .roomGrid{ grid-template-columns:1fr 1fr; grid-template-areas:"left right" "mid mid"; }
+      .roomGrid .left{ grid-area:left; } .roomGrid .right{ grid-area:right; } .roomGrid .mid{ grid-area:mid; }
+      .avatarBox{ height:210px; } .avatarBox .face{ width:100px; height:100px; margin-bottom:44px; } .avatarBox svg{ height:150px; margin-bottom:22px; }
+      .actions{ grid-template-columns:1fr; }
+    }
+    @media (max-width:520px){
+      .wrap{ padding:10px; } .roomGrid{ padding:12px 10px 4px; gap:10px; }
+      .avatarBox{ height:160px; } .who b{ font-size:15px; } .plate{ font-size:10px; letter-spacing:.08em; padding:5px 8px; }
+      .headTitle{ font-size:17px; }
     }
   </style>
 </head>
-
 <body>
   <header>
     <div class="brand">
       <img src="./ifwl_logo.png" alt="IFWL logo">
-      <div class="brandText">
-        <div style="font-weight:800; font-size:18px;">IFWL Open Tickets — Statements</div>
-        <div class="welcomeLine">View open incidents and submit your statement using your ticket’s invite link.</div>
-        <div class="small" id="statusLine">Loading…</div>
+      <div>
+        <h1>IFWL OPEN TICKETS — STATEMENTS</h1>
+        <div class="sub" id="statusLine">Loading…</div>
       </div>
     </div>
-
     <div class="row">
-      <button id="refreshBtn">Refresh</button>
-      <button id="goClassifierBtn">Back to Classifier</button>
+      <button id="refreshBtn" type="button">Refresh</button>
+      <button id="homeBtn" type="button">Licence Hub</button>
     </div>
   </header>
 
   <div class="wrap">
-    <div class="card">
-      <div class="row" style="justify-content:space-between;">
-        <div>
-          <div class="title">Open tickets</div>
-          <div class="muted" style="margin-top:6px;">
-            Click the correct role button to continue to the statement form.
-          </div>
-        </div>
-        <div class="pill" id="countPill">Loading…</div>
-      </div>
-
-      <div class="noteBox" aria-label="How this works">
-        How it works:
-        <small>
-          This page lists open tickets. Your statement is submitted via your ticket’s invite link (generated by IFWL staff).
-          <br><br>
-          <b>24-hour rule:</b> per league rules, drivers have 24 hours from the moment a ticket is submitted to add their statement. After that the role buttons switch off.
-          A button is also off once a statement has already been submitted for that role. The reason is shown under each ticket.
-        </small>
-      </div>
-
-      <div class="row" style="margin-top:12px;">
-        <div style="flex:1; min-width:240px;">
-          <label class="muted">Search (ticket id / accused / event)</label>
-          <input id="searchBox" placeholder="Search…" />
-        </div>
-
-        <div style="width:260px; min-width:220px;">
-          <label class="muted">Filter</label>
+    <div class="intro">
+      <div class="row"><h2>Open tickets</h2><span class="count" id="countPill">Loading…</span></div>
+      <p>Each ticket below is a live stewards' room: the reporting driver on the left, the accused on the right, the evidence in the middle. Find your ticket, then use the outlined button for your role to add your statement.</p>
+      <div class="rule"><b>24-hour rule:</b> per league rules, drivers have 24 hours from the moment a ticket is submitted to add their statement. After that the buttons switch off. A button is also off once a statement has already been submitted for that role, and the reason is always shown on the button.</div>
+      <div class="filters">
+        <div style="flex:1;min-width:230px"><label for="searchBox">Search (ticket id, driver, event)</label><input id="searchBox" placeholder="Search…"></div>
+        <div style="width:250px;min-width:200px"><label for="filter">Filter</label>
           <select id="filter">
             <option value="nonfinal">All (non-finalised)</option>
             <option value="under_review">Under Review</option>
             <option value="in_review">In Review</option>
             <option value="awaiting_review">Awaiting Review</option>
             <option value="ready_to_publish">Ready to Publish</option>
-          </select>
-        </div>
+          </select></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--green)"></i>Open: you can submit</span>
+        <span><i style="background:var(--blue)"></i>Statement submitted</span>
+        <span><i style="background:var(--red)"></i>Closed: 24-hour window ended</span>
+        <span><i style="background:var(--amber)"></i>Switched off by staff</span>
       </div>
     </div>
-
-    <div class="card">
-      <div id="tickets" class="tickets"></div>
-      <div class="muted" id="hint" style="margin-top:10px;"></div>
-    </div>
+    <div id="tickets"></div>
   </div>
-
-  <div class="toast" id="toast">Saved</div>
-
-  <!-- Firebase compat -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  <script src="./firebase-init.js"></script>
+  <div class="toast" id="toast"></div>
 
   <script>
-    // ---- CONFIG: statement page base ----
-    // This is the page you already use in PC app
-    const STATEMENT_PAGE = "https://ifwlowner.github.io/ACC-driver-classifier/playstatements.html";
-
-    // ---- helpers ----
+    const FN = "https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate";
+    const STATEMENT_PAGE = "playstatements.html";
     const $ = (id) => document.getElementById(id);
-    const toastEl = $("toast");
-    function toast(msg){
-      toastEl.textContent = msg;
-      toastEl.classList.add("show");
-      setTimeout(() => toastEl.classList.remove("show"), 1800);
-    }
+    const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+    const lower = (s) => String(s || "").trim().toLowerCase();
+    const safeUrl = (u) => (/^https:\/\//i.test(String(u || "")) ? String(u) : "");
+    let toastT; function toast(m){ const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200); }
 
-    function escapeHtml(s){
-      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
-    }
-    function norm(s){ return String(s || "").trim(); }
-    function lower(s){ return norm(s).toLowerCase(); }
+    const SILHOUETTE = '<svg viewBox="0 0 100 160" aria-hidden="true"><circle cx="50" cy="30" r="20" fill="rgba(255,255,255,.22)"/><path d="M12 150c0-38 14-62 38-62s38 24 38 62z" fill="rgba(255,255,255,.18)"/></svg>';
 
-    function normalizeUrl(u){
-      const s = (u || "").trim();
-      if (!s) return "";
-      if (!/^https?:\/\//i.test(s) && !s.startsWith("mailto:")) return "https://" + s;
-      return s;
-    }
-
-    function youtubeIdFromUrl(url){
+    function youtubeId(url){
       try{
-        const u = new URL(url);
-        const host = u.hostname.toLowerCase();
-        if (host === "youtu.be") return (u.pathname || "").replace("/", "").trim();
-        if (host.includes("youtube.com")){
+        const u = new URL(url), h = u.hostname.toLowerCase();
+        if (h === "youtu.be") return u.pathname.replace("/", "").trim();
+        if (h.includes("youtube.com")){
           if (u.pathname.startsWith("/watch")) return (u.searchParams.get("v") || "").trim();
-          if (u.pathname.startsWith("/shorts/")) return (u.pathname.split("/shorts/")[1] || "").split(/[/?#]/)[0].trim();
-          if (u.pathname.startsWith("/embed/")) return (u.pathname.split("/embed/")[1] || "").split(/[/?#]/)[0].trim();
+          if (u.pathname.startsWith("/shorts/")) return (u.pathname.split("/shorts/")[1] || "").split(/[/?#]/)[0];
+          if (u.pathname.startsWith("/embed/")) return (u.pathname.split("/embed/")[1] || "").split(/[/?#]/)[0];
         }
-      }catch{}
+      }catch(e){}
       return "";
     }
-
-    function renderProofEmbed(container, proofUrl){
-      container.innerHTML = "";
-      const url = normalizeUrl(proofUrl);
-      if (!url){
-        return;
-      }
-
-      const yt = youtubeIdFromUrl(url);
-      if (yt){
-        container.innerHTML = `
-          <div class="videoWrap" aria-label="Proof video">
-            <iframe
-              src="https://www.youtube.com/embed/${encodeURIComponent(yt)}"
-              title="Proof video"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowfullscreen></iframe>
-          </div>
-        `;
-        return;
-      }
-
-      if (/\.(mp4|webm|ogg)(\?|#|$)/i.test(url)){
-        container.innerHTML = `
-          <div class="videoWrap" aria-label="Proof video">
-            <video controls src="${escapeHtml(url)}"></video>
-          </div>
-        `;
-        return;
-      }
-
-      // If it's some other link, show a simple button
-      container.innerHTML = `<div class="muted" style="margin-top:10px;">
-        Proof link: <a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open</a>
-      </div>`;
+    function proofHtml(raw){
+      let url = String(raw || "").trim();
+      if (!url) return '<div class="noVideo">No video was attached to this ticket.</div>';
+      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+      const yt = youtubeId(url);
+      if (yt) return '<div class="videoWrap"><iframe src="https://www.youtube.com/embed/' + encodeURIComponent(yt) + '" title="Proof video" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>';
+      if (/\.(mp4|webm|ogg)(\?|#|$)/i.test(url)) return '<div class="videoWrap"><video controls preload="metadata" src="' + esc(url) + '"></video></div>';
+      return '<div class="noVideo">Proof link: <a href="' + esc(url) + '" target="_blank" rel="noopener">open the video</a></div>';
     }
 
-    function buildStatementLink(ticketId, inviteId){
-      const sep = STATEMENT_PAGE.includes("?") ? "&" : "?";
-      return `${STATEMENT_PAGE}${sep}ticketId=${encodeURIComponent(ticketId)}&inviteId=${encodeURIComponent(inviteId)}`;
+    function fmtLeft(ms){ const m = Math.max(0, Math.floor(ms / 60000)), h = Math.floor(m / 60); return h >= 1 ? h + "h " + (m % 60) + "m" : m + "m"; }
+    function fmtWhen(ms){ try{ return new Date(ms).toLocaleString([], { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }); }catch(e){ return ""; } }
+    function fmtAgo(ms){ if (!(ms > 0)) return ""; const m = Math.floor((Date.now() - ms) / 60000); if (m < 2) return "just now"; if (m < 90) return m + " min ago"; const h = Math.floor(m / 60); if (h < 48) return h + " hours ago"; return Math.floor(h / 24) + " days ago"; }
+    function tierLabel(t){ return String(t || "").replace(/^IFWL-/i, "").replace(/-/g, " "); }
+
+    /* ---------- a driver on a stand ---------- */
+    function standHtml(kind, plate, p, sign){
+      const kit = safeUrl(p && p.avatarUrl), photo = safeUrl(p && p.photoUrl);
+      let av;
+      if (kit) av = '<img class="kit" src="' + esc(kit) + '" alt="" loading="lazy" onerror="this.outerHTML=window.__sil">';
+      else if (photo) av = '<img class="face" src="' + esc(photo) + '" alt="" loading="lazy" onerror="this.outerHTML=window.__sil">';
+      else av = SILHOUETTE;
+      const sub = p && p.matched ? [p.licenceNumber, p.team].filter(Boolean).map(esc).join(" · ") : "";
+      return '<div class="stand ' + kind + '"><div class="plate">' + esc(plate) + '</div>'
+        + '<div class="avatarBox">' + av + '</div><div class="desk"></div>'
+        + '<div class="who"><b>' + esc((p && p.name) || "Unknown") + '</b>' + (p && p.tier ? '<span class="tier">' + esc(tierLabel(p.tier)) + '</span>' : '') + (sub ? '<span>' + sub + '</span>' : '') + '</div>'
+        + (sign ? '<div class="sign ' + sign.cls + '">' + esc(sign.text) + '</div>' : '') + '</div>';
+    }
+    window.__sil = SILHOUETTE;
+
+    function signFor(r, what){
+      if (!r) return null;
+      if (r.state === "submitted") return { cls:"done", text:what + " statement submitted" };
+      if (r.state === "open") return { cls:"wait", text:"Waiting for " + what.toLowerCase() + " statement" };
+      if (r.state === "expired") return { cls:"shut", text:"No statement. Window closed" };
+      return null;
     }
 
-    function isFinalised(status){
-      return lower(status) === "finalised";
+    /* ---------- the three outlined buttons ---------- */
+    function roleCard(t, key, title, goLabel){
+      const r = (t.roles && t.roles[key]) || { state:"none" };
+      let label, why, btn = goLabel, dis = true;
+      if (r.state === "open"){
+        label = "OPEN" + (r.expMs ? " · closes in " + fmtLeft(r.expMs - Date.now()) : "");
+        why = key === "witness" && r.count ? r.count + " witness statement" + (r.count === 1 ? " is" : "s are") + " already in. You can add another." : "You can submit now. This takes you to the statement form.";
+        dis = false;
+      } else if (r.state === "submitted"){
+        label = "STATEMENT SUBMITTED"; btn = "Submitted ✓";
+        why = key === "witness" ? "A witness statement has been submitted." : "A statement has already been submitted for this role.";
+      } else if (r.state === "expired"){
+        label = "CLOSED · 24-HOUR WINDOW ENDED"; btn = "Window closed";
+        why = "Per league rules statements must be added within 24 hours of the ticket being submitted" + (r.expMs ? " (ended " + fmtWhen(r.expMs) + ")" : "") + ".";
+      } else if (r.state === "off"){
+        label = "SWITCHED OFF"; btn = "Not available"; why = "Staff have switched this statement link off. Contact the Head Steward if this is wrong.";
+      } else {
+        label = "NO LINK YET"; btn = "Not available"; why = "No statement link has been created for this role.";
+      }
+      return '<div class="role ' + r.state + '"><div class="rn">' + esc(title) + '</div><div class="rs" data-exp="' + (r.state === "open" ? (r.expMs || 0) : 0) + '">' + esc(label) + '</div>'
+        + '<button class="go" type="button" data-t="' + esc(t.id) + '" data-r="' + key + '"' + (dis ? " disabled" : "") + '>' + esc(btn) + '</button><div class="why">' + esc(why) + '</div></div>';
     }
 
-    function matchesFilter(ticket){
-      const f = $("filter").value;
-      const s = lower(ticket.status);
+    function ticketHtml(t){
+      const roles = t.roles || {};
+      const open = ["reporter","accused","witness"].filter((k) => roles[k] && roles[k].state === "open");
+      const anyOpen = open.length > 0;
+      const mainOpen = ["reporter","accused"].some((k) => roles[k] && roles[k].state === "open");
+      const exps = open.map((k) => roles[k].expMs).filter((x) => x > 0);
+      const soon = exps.length ? Math.min.apply(null, exps) : 0;
+      let ribbon;
+      const anyExpired = ["reporter","accused","witness"].some((k) => roles[k] && roles[k].state === "expired");
+      if (!anyOpen) ribbon = '<div class="ribbon closed"><span>Statements closed</span><span>' + (anyExpired ? "24-hour window ended" : "Nothing left to submit") + '</span></div>';
+      else if (!mainOpen) ribbon = '<div class="ribbon mixed"><span>Only witness statements open</span>' + (soon ? '<span data-exp="' + soon + '" data-pre="Closes in ">Closes in ' + fmtLeft(soon - Date.now()) + '</span>' : '') + '</div>';
+      else ribbon = '<div class="ribbon open"><span>Statements open</span>' + (soon ? '<span data-exp="' + soon + '" data-pre="Closes in ">Closes in ' + fmtLeft(soon - Date.now()) + '</span>' : '') + '</div>';
 
-      if (f === "nonfinal") return !isFinalised(s);
-      if (f === "under_review") return (s === "under review" || s === "under_review" || s === "underreview");
-      if (f === "in_review") return (s === "in review" || s === "in_review" || s === "inreview");
-      if (f === "awaiting_review") return (s === "awaiting review" || s === "awaiting_review" || s === "awaitingreview" || s === "" || s === "under review");
-      if (f === "ready_to_publish") return (s === "ready to publish" || s === "ready_to_publish" || s === "readytopublish");
+      const left = standHtml("reporter", "Driver reporting", t.reporter, signFor(roles.reporter, "Reporter"))
+        + (t.witnesses || []).map((w) => standHtml("witness", "Witness", w, { cls:"done", text:"Witness statement submitted" })).join("");
+      const right = standHtml("accused", "Stewards' investigation", t.accused, signFor(roles.accused, "Accused"))
+        + '<div class="room-sign">Stewards’ room</div>';
+
+      const cells = [["Event", t.event], ["Competition", t.competition], ["Season", t.season], ["Track", t.track], ["Rule alleged", t.rule], ["Status", t.status], ["Ticket raised", t.tsMs ? fmtWhen(t.tsMs) + " (" + fmtAgo(t.tsMs) + ")" : ""]]
+        .filter((c) => c[1]).map((c) => '<div class="c"><dt>' + esc(c[0]) + '</dt><dd>' + esc(c[1]) + '</dd></div>').join("");
+
+      return '<article class="room" data-id="' + esc(t.id) + '">' + ribbon
+        + '<div class="roomHead"><div><div class="tid">' + esc(t.id) + '<span class="status">' + esc(t.status) + '</span></div>'
+        + '<div class="headTitle">' + esc(t.event || "Incident") + (t.competition ? ' <span style="color:var(--mute);font-weight:600">· ' + esc(t.competition) + '</span>' : '') + '</div></div>'
+        + '<div class="ago">' + esc(fmtAgo(t.tsMs)) + '</div></div>'
+        + '<div class="roomGrid"><div class="side left">' + left + '</div>'
+        + '<div class="mid">' + proofHtml(t.proofUrl) + '<div class="brk"><h3>Ticket breakdown</h3><dl>' + cells + '</dl></div></div>'
+        + '<div class="side right">' + right + '</div></div>'
+        + '<div class="actions">' + roleCard(t, "reporter", "Reporter statement", "Submit reporter statement")
+        + roleCard(t, "witness", "Witness statement", "Add a witness statement") + roleCard(t, "accused", "Accused statement", "Submit accused statement") + '</div></article>';
+    }
+
+    /* ---------- data + filters ---------- */
+    let all = [];
+    function matchesFilter(t){
+      const f = $("filter").value, s = lower(t.status);
+      if (f === "nonfinal") return s !== "finalised";
+      if (f === "under_review") return s === "under review" || s === "under_review" || s === "underreview";
+      if (f === "in_review") return s === "in review" || s === "in_review" || s === "inreview";
+      if (f === "awaiting_review") return s === "awaiting review" || s === "awaiting_review" || s === "awaitingreview" || s === "" || s === "under review";
+      if (f === "ready_to_publish") return s === "ready to publish" || s === "ready_to_publish" || s === "readytopublish";
       return true;
     }
-
-    function matchesSearch(ticket){
-      const q = lower($("searchBox").value);
-      if (!q) return true;
-
-      const hay = [
-        ticket.id,
-        ticket.accused,
-        ticket.event,
-        ticket.competition
-      ].map(lower).join(" | ");
-
-      return hay.includes(q);
+    function matchesSearch(t){
+      const q = lower($("searchBox").value); if (!q) return true;
+      return [t.id, t.accused && t.accused.name, t.reporter && t.reporter.name, t.event, t.competition, t.track].map(lower).join(" | ").includes(q);
     }
-
-    // Why an invite is (not) usable. Returns { usable, reason, expMs }.
-    // reason: ok | expired | used | inactive
-    function inviteState(inv){
-      let expMs = 0;
-      if (inv.expiresAt && inv.expiresAt.toDate){
-        const exp = inv.expiresAt.toDate();
-        if (exp && exp.getTime) expMs = exp.getTime();
-      } else if (Number(inv.expiresAtMs) > 0){
-        expMs = Number(inv.expiresAtMs);
-      }
-      if (inv.active === false) return { usable:false, reason:"inactive", expMs };
-      if (expMs && expMs < Date.now()) return { usable:false, reason:"expired", expMs };
-      const uses = Number(inv.uses || 0);
-      const maxUses = Math.max(1, Number(inv.maxUses || 1));
-      if (inv.used === true || uses >= maxUses) return { usable:false, reason:"used", expMs };
-      return { usable:true, reason:"ok", expMs };
+    function render(){
+      const list = all.filter(matchesFilter).filter(matchesSearch);
+      $("countPill").innerHTML = "Open: <b>" + all.length + "</b> · Showing: <b>" + list.length + "</b>";
+      $("tickets").innerHTML = list.length ? list.map(ticketHtml).join("") : '<div class="empty">No tickets match your filter or search.</div>';
     }
-
-    function fmtLeft(ms){
-      const m = Math.max(0, Math.floor(ms / 60000));
-      const h = Math.floor(m / 60);
-      return h >= 1 ? `${h}h ${m % 60}m` : `${m}m`;
-    }
-
-    function fmtWhen(ms){
-      try{ return new Date(ms).toLocaleString([], { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }); }
-      catch{ return ""; }
-    }
-
-    // Plain-English line for one role
-    function roleReason(label, b){
-      if (!b || !b.inviteId) return { cls:"info", text:"No statement link has been created for this role." };
-      if (b.usable){
-        return { cls:"open", text: b.expMs ? `Open. Closes in ${fmtLeft(b.expMs - Date.now())} (24 hours after the ticket was submitted).` : "Open." };
-      }
-      if (b.reason === "expired"){
-        return { cls:"shut", text:`Closed. The 24-hour window ended${b.expMs ? " " + fmtWhen(b.expMs) : ""}. Per league rules statements must be added within 24 hours of the ticket being submitted.` };
-      }
-      if (b.reason === "used"){
-        return { cls:"shut", text:"Closed. A statement has already been submitted for this role." };
-      }
-      return { cls:"shut", text:"Closed. This statement link has been switched off by staff." };
-    }
-
-    // Invite validity (based on your invite docs)
-    function inviteIsUsable(inv){
-      const active = inv.active !== false; // default true
-      if (!active) return false;
-
-      // expiresAt
-      if (inv.expiresAt && inv.expiresAt.toDate){
-        const exp = inv.expiresAt.toDate();
-        if (exp && exp.getTime && exp.getTime() < Date.now()) return false;
-      }
-
-      // used flag
-      if (inv.used === true) return false;
-
-      // uses/maxUses
-      const uses = Number(inv.uses || 0);
-      const maxUses = Math.max(1, Number(inv.maxUses || 1));
-      if (uses >= maxUses) return false;
-
-      return true;
-    }
-
-    // ---- state ----
-    let allTickets = []; // {id, accused, reporter, event, competition, status, proofUrl}
-    let inviteCache = new Map(); // ticketId -> { accusedInviteId, reporterInviteId, witnessInviteId, usable flags }
-
-    // ---- core load ----
-    async function loadTickets(){
-      $("tickets").innerHTML = "";
-      $("hint").textContent = "Loading tickets…";
+    async function load(){
       $("statusLine").textContent = "Loading open tickets…";
       $("countPill").textContent = "Loading…";
-      inviteCache.clear();
-
-      // Wait for firebase-init.js to expose db
-      if (typeof db === "undefined" || !db){
-        $("statusLine").textContent = "Firestore not ready. Check firebase-init.js path.";
-        $("hint").textContent = "Firestore not ready.";
-        return;
-      }
-
+      $("tickets").innerHTML = '<div class="skel"></div><div class="skel"></div>';
       try{
-        const snap = await db.collection("tickets").limit(900).get();
-        const rows = snap.docs.map(doc => {
-          const d = doc.data() || {};
-          return {
-            id: doc.id,
-            accused: norm(d.accused),
-            reporter: norm(d.reporter),
-            event: norm(d.event),
-            competition: norm(d.competition),
-            status: norm(d.status || "Under Review"),
-            proofUrl: norm(d.proofUrl),
-          };
-        });
-
-        // Keep only non-finalised by default, but allow filter dropdown to change view
-        allTickets = rows;
-
-        $("statusLine").textContent = "Loaded.";
-        renderTickets();
+        const r = await fetch(FN + "?openStatements=1");
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.tickets) throw new Error(d.error || "Request failed (" + r.status + ")");
+        all = d.tickets;
+        $("statusLine").textContent = "Updated " + new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) + (d.truncated ? " · showing the newest " + all.length + " of " + d.totalOpen : "");
+        render();
       }catch(e){
         console.error(e);
-        $("statusLine").textContent = "Load failed (see console).";
-        $("hint").textContent = "Failed to load tickets.";
+        $("statusLine").textContent = "Could not load tickets.";
+        $("countPill").textContent = "-";
+        $("tickets").innerHTML = '<div class="empty">Could not load the open tickets. <button type="button" id="retryBtn" style="margin-left:8px">Try again</button></div>';
+        $("retryBtn").onclick = load;
       }
     }
 
-    function renderTickets(){
-      const filtered = allTickets
-        .filter(t => matchesFilter(t))
-        .filter(t => matchesSearch(t));
+    /* ---------- actions ---------- */
+    $("tickets").addEventListener("click", (ev) => {
+      const b = ev.target.closest("button.go"); if (!b || b.disabled) return;
+      const t = all.find((x) => x.id === b.dataset.t), r = t && t.roles[b.dataset.r];
+      if (!r || r.state !== "open" || !r.inviteId){ toast("That statement link is not available."); return; }
+      window.location.href = STATEMENT_PAGE + "?ticketId=" + encodeURIComponent(t.id) + "&inviteId=" + encodeURIComponent(r.inviteId);
+    });
+    $("refreshBtn").onclick = load;
+    $("homeBtn").onclick = () => { window.location.href = "licence.html"; };
+    $("searchBox").addEventListener("input", render);
+    $("filter").addEventListener("change", render);
 
-      const nonFinalTotal = allTickets.filter(t => !isFinalised(t.status)).length;
-      $("countPill").innerHTML = `Open: <strong>${nonFinalTotal}</strong> • Showing: <strong>${filtered.length}</strong>`;
+    // keep the countdowns honest without redrawing (a redraw would restart the videos)
+    setInterval(() => {
+      document.querySelectorAll("[data-exp]").forEach((el) => {
+        const exp = Number(el.dataset.exp); if (!(exp > 0)) return;
+        const left = exp - Date.now();
+        if (left <= 0){
+          if (el.classList.contains("rs")){
+            el.textContent = "CLOSED · 24-HOUR WINDOW ENDED";
+            const card = el.closest(".role"); if (card){ card.className = "role expired"; const g = card.querySelector(".go"); if (g){ g.disabled = true; g.textContent = "Window closed"; } }
+          } else el.textContent = "Window ended";
+          el.dataset.exp = "0";
+        } else if (el.classList.contains("rs")) el.textContent = "OPEN · closes in " + fmtLeft(left);
+        else el.textContent = (el.dataset.pre || "") + fmtLeft(left);
+      });
+    }, 30000);
 
-      if (!filtered.length){
-        $("tickets").innerHTML = `<div class="muted">No tickets match your filter/search.</div>`;
-        $("hint").textContent = "";
-        return;
-      }
-
-      $("tickets").innerHTML = "";
-      $("hint").textContent = `Showing up to 900 tickets .`;
-
-      // Sort: try newest-ish by id desc
-      filtered.sort((a,b) => String(b.id).localeCompare(String(a.id)));
-
-      for (const t of filtered){
-        const card = document.createElement("div");
-        card.className = "ticketCard";
-
-        const top = document.createElement("div");
-        top.className = "ticketTop";
-
-        const left = document.createElement("div");
-        left.style.minWidth = "260px";
-        left.innerHTML = `
-          <div class="id">${escapeHtml(t.id)}</div>
-          <div style="margin-top:6px; font-size:14px;">
-            <span class="label">Status</span>
-            <span class="value" style="margin-left:8px;">${escapeHtml(t.status || "Under Review")}</span>
-          </div>
-        `;
-
-        const right = document.createElement("div");
-        right.innerHTML = `
-          <div class="muted" style="text-align:right;">
-            Click the correct role to submit.
-          </div>
-        `;
-
-        top.appendChild(left);
-        top.appendChild(right);
-
-        const kv = document.createElement("div");
-        kv.className = "kv";
-        kv.innerHTML = `
-          <div>
-            <div class="label">Accused</div>
-            <div class="value">${escapeHtml(t.accused || "—")}</div>
-          </div>
-          <div>
-            <div class="label">Event</div>
-            <div class="value">${escapeHtml(t.event || "—")}</div>
-          </div>
-        `;
-
-        const embed = document.createElement("div");
-        renderProofEmbed(embed, t.proofUrl);
-
-        const actions = document.createElement("div");
-        actions.className = "actions";
-
-        const accusedBtn = document.createElement("button");
-        accusedBtn.className = "primary";
-        accusedBtn.textContent = "Accused statement";
-        accusedBtn.onclick = async () => goToInvite(t.id, "accused");
-
-        const witnessBtn = document.createElement("button");
-        witnessBtn.textContent = "Witness statement";
-        witnessBtn.onclick = async () => goToInvite(t.id, "witness");
-
-        const reporterBtn = document.createElement("button");
-        reporterBtn.textContent = "Reporter statement";
-        reporterBtn.onclick = async () => goToInvite(t.id, "reporter");
-
-        // Default disabled until we check invites
-        accusedBtn.disabled = true;
-        witnessBtn.disabled = true;
-        reporterBtn.disabled = true;
-
-        actions.appendChild(accusedBtn);
-        actions.appendChild(witnessBtn);
-        actions.appendChild(reporterBtn);
-
-        const inviteHint = document.createElement("div");
-        inviteHint.className = "reasons muted";
-        inviteHint.textContent = "Checking statement links…";
-
-        card.appendChild(top);
-        card.appendChild(kv);
-        card.appendChild(embed);
-        card.appendChild(actions);
-        card.appendChild(inviteHint);
-
-        $("tickets").appendChild(card);
-
-        // async load invites for this ticket and enable buttons
-        (async () => {
-          const inv = await getInvitesForTicket(t.id);
-          // enable buttons if usable
-          accusedBtn.disabled = !inv.accused.usable;
-          reporterBtn.disabled = !inv.reporter.usable;
-          witnessBtn.disabled = !inv.witness.usable;
-
-          // Say WHY each button is on or off (24-hour window, already used, etc.)
-          inviteHint.className = "reasons";
-          inviteHint.innerHTML = "";
-          [["Accused", inv.accused, accusedBtn], ["Reporter", inv.reporter, reporterBtn], ["Witness", inv.witness, witnessBtn]].forEach(([label, b, btn]) => {
-            const r = roleReason(label, b);
-            const line = document.createElement("div");
-            line.className = "r";
-            line.innerHTML = `<b>${label}</b><span class="${r.cls}">${escapeHtml(r.text)}</span>`;
-            inviteHint.appendChild(line);
-            if (!b.usable) btn.title = r.text;
-          });
-        })().catch((e) => {
-          console.warn("Invite check failed:", t.id, e);
-          inviteHint.textContent = "Statement links: check failed (refresh)";
-        });
-      }
-    }
-
-    async function getInvitesForTicket(ticketId){
-      if (inviteCache.has(ticketId)) return inviteCache.get(ticketId);
-
-      const res = {
-        accused: { inviteId:"", usable:false, reason:"", expMs:0 },
-        reporter:{ inviteId:"", usable:false, reason:"", expMs:0 },
-        witness: { inviteId:"", usable:false, reason:"", expMs:0 },
-      };
-
-      try{
-        const col = db.collection("tickets").doc(ticketId).collection("invites");
-        const snap = await col.get();
-
-        // pick first usable invite per role
-        snap.forEach(doc => {
-          const d = doc.data() || {};
-          const role = lower(d.role);
-          const st = inviteState(d);
-          const usable = st.usable;
-          const bucket = res[role];
-          if (!bucket) return;
-
-          // first invite seen for the role, then prefer a usable one over an unusable one
-          if (!bucket.inviteId || (usable && !bucket.usable)){
-            bucket.inviteId = doc.id;
-            bucket.usable = usable;
-            bucket.reason = st.reason;
-            bucket.expMs = st.expMs;
-          }
-        });
-
-        inviteCache.set(ticketId, res);
-        return res;
-      }catch(e){
-        console.warn("getInvitesForTicket failed:", ticketId, e);
-        inviteCache.set(ticketId, res);
-        return res;
-      }
-    }
-
-    async function goToInvite(ticketId, role){
-      try{
-        const inv = await getInvitesForTicket(ticketId);
-        const bucket = inv[role];
-
-        if (!bucket || !bucket.inviteId || !bucket.usable){
-          toast("That statement link is not available.");
-          return;
-        }
-
-        const url = buildStatementLink(ticketId, bucket.inviteId);
-        window.location.href = url;
-      }catch(e){
-        toast("Could not open statement link.");
-      }
-    }
-
-    // ---- UI hooks ----
-    $("refreshBtn").onclick = () => loadTickets();
-    $("goClassifierBtn").onclick = () => window.location.href = "index.html";
-    $("searchBox").addEventListener("input", () => renderTickets());
-    $("filter").addEventListener("change", () => renderTickets());
-
-    // ---- start ----
-    (async () => {
-      // small wait for firebase-init.js to load
-      const start = Date.now();
-      while (Date.now() - start < 8000){
-        if (typeof db !== "undefined" && db) break;
-        await new Promise(r => setTimeout(r, 80));
-      }
-      await loadTickets();
-    })();
+    load();
   </script>
 </body>
 </html>
