@@ -88,7 +88,7 @@
   };
   function pillarNow(k, d, dg) {
     const x = d[k];
-    if (k === 'I') return (x.start != null ? x.start + ' to start + ' + (x.base - x.start) + ' for ' + x.races + (x.races === 1 ? ' race' : ' races') + ' completed (+' + x.perRace + ' each' + (x.capped ? ', maxed out' : '') + ') = ' + x.base : 'Base ' + x.base) + (x.lost ? ' minus ' + x.lost + ' from licence points (fading)' : ' - nothing deducted') + (dg ? '. Licence points on your record: ' + dg.licencePointsNow + ' (' + dg.countedPoints + ' counted since the start date' + (dg.beforeStart ? ', ' + dg.beforeStart + ' earlier entr' + (dg.beforeStart === 1 ? 'y' : 'ies') + ' not counted' : '') + ')' : '');
+    if (k === 'I') return (x.start != null ? x.start + ' to start + ' + (x.base - x.start) + ' for ' + x.races + (x.races === 1 ? ' race' : ' races') + ' completed (+' + x.perRace + ' each' + (x.capped ? ', maxed out' : '') + ') = ' + x.base : 'Base ' + x.base) + (x.lost ? (Math.round((x.lost - (x.noShowLost || 0)) * 10) / 10 > 0 ? ' minus ' + (Math.round((x.lost - (x.noShowLost || 0)) * 10) / 10) + ' from licence points (fading)' : '') + (x.noShowLost ? ' minus ' + x.noShowLost + ' from ' + x.noShows + ' no-show' + (x.noShows === 1 ? '' : 's') + ' (fading)' : '') : ' - nothing deducted') + (dg ? '. Licence points on your record: ' + dg.licencePointsNow + ' (' + dg.countedPoints + ' counted since the start date' + (dg.beforeStart ? ', ' + dg.beforeStart + ' earlier entr' + (dg.beforeStart === 1 ? 'y' : 'ies') + ' not counted' : '') + ')' : '');
     if (k === 'F') return x.up || x.downWeighted ? 'Overall effect of feedback so far: ' + (x.net >= 0 ? 'positive' : 'negative') : 'No feedback yet - sitting in the middle';
     if (k === 'W') return x.races ? 'Last ' + x.races + ' race' + (x.races === 1 ? '' : 's') + ': ' + x.avgClean + '% clean' : 'No races yet';
     return x.finishes + ' race finish' + (x.finishes === 1 ? '' : 'es') + ', ' + x.streak + ' night streak, ' + x.attendance + '% of ' + (x.seasonName || 'the season') + ' attended, ' + x.seasons + ' season' + (x.seasons === 1 ? '' : 's') + ' raced';
@@ -118,7 +118,7 @@
     const T = d.tune || {}; const I = T.I || {}, F = T.F || {}, W = T.W || {}, L = T.L || {};
     return '<div class="rt-how">'
       + '<details open><summary>The score in one minute</summary><p>Your ' + esc(d.name) + ' is out of 1000 and is built from four pillars: <b>I</b>ntegrity (' + (I.max || 250) + '), <b>F</b>air play (' + (F.max || 200) + '), <b>W</b>heelcraft (' + (W.max || 300) + ') and <b>L</b>aps (' + (L.max || 250) + '). It is a picture of how you race with others. It never measures how fast you are – that is what Overall Score is for. It counts from the start of ' + esc(d.startLabel || 'the season') + ' only.</p></details>'
-      + '<details><summary>I – Integrity: your stewarding record</summary><p>You start at ' + (I.start || 150) + ' and earn ' + (I.growPerRace || 4) + ' for every race you complete, up to ' + (I.max || 250) + '. An upheld steward decision takes points off:</p><table class="rt-tbl"><tr><th>Decision</th><th>Points off</th></tr><tr><td>Mild</td><td>−' + (I.mild || 20) + '</td></tr><tr><td>Standard</td><td>−' + (I.standard || 35) + '</td></tr><tr><td>Severe</td><td>−' + (I.severe || 60) + '</td></tr><tr><td>Dismissed / no action</td><td>0</td></tr></table></details>'
+      + '<details><summary>I – Integrity: your stewarding record</summary><p>You start at ' + (I.start || 150) + ' and earn ' + (I.growPerRace || 4) + ' for every race you complete, up to ' + (I.max || 250) + '. An upheld steward decision takes points off:</p><table class="rt-tbl"><tr><th>Decision</th><th>Points off</th></tr><tr><td>Mild</td><td>−' + (I.mild || 20) + '</td></tr><tr><td>Standard</td><td>−' + (I.standard || 35) + '</td></tr><tr><td>Severe</td><td>−' + (I.severe || 60) + '</td></tr><tr><td>Dismissed / no action</td><td>0</td></tr><tr><td>No-show (signed up, did not turn up)</td><td>−' + ((d.tune && d.tune.N && d.tune.N.pts) || 40) + '</td></tr></table><p>Steward decisions and no-shows fade with time: they count half after ' + ((d.tune && d.tune.seasonDays) || 105) + ' days (no-shows: ' + ((d.tune && d.tune.N && d.tune.N.fadeDays) || 150) + ') and are gone at double that.</p></details>'
       + '<details><summary>F – Fair play: peer feedback</summary><ul><li>Drivers can give a thumbs up or down from the Driver Directory, once per driver.</li><li>Nobody sees who said what – you only see the combined effect.</li><li>You start in the middle (' + (F.neutral || 80) + ' of ' + (F.max || 200) + '). Positive feedback lifts you, negative feedback lowers you.</li><li>Thumbs down count a little more than thumbs up, but feedback from someone who only ever gives thumbs down counts for less.</li></ul></details>'
       + '<details><summary>W – Wheelcraft: clean driving</summary><p>Each race gets a clean-driving percentage from the race result: race penalties, track-limit laps (the share of your racing laps that were invalid), retiring early and missing a mandatory stop all lower it. Pit in-laps and pit-stop laps are ignored. Your last ' + (W.window || 10) + ' races count, newest the most, and the score builds up fully over your first ' + (W.rampRaces || 20) + ' races.</p></details>'
       + '<details><summary>L – Laps: progression</summary><table class="rt-tbl"><tr><th>What</th><th>Points</th></tr><tr><td>Each race finished</td><td>+' + (L.finishPts || 2.5) + ' (up to ' + (L.finishCap || 75) + ')</td></tr><tr><td>Each race night in a row (one miss is forgiven)</td><td>+' + (L.streakPts || 3) + ' (up to ' + (L.streakCap || 30) + ')</td></tr><tr><td>Share of the season you race</td><td>up to +' + (L.attendMax || 40) + '</td></tr><tr><td>Each season you race in</td><td>+' + (L.seasonPts || 12) + ' (up to ' + (L.seasonCap || 60) + ')</td></tr><tr><td>' + (L.milestoneRaces || 100) + ' races raced</td><td>+' + (L.milestonePts || 30) + '</td></tr></table></details>'
@@ -263,9 +263,11 @@
       + '</div></div><div class="rt-card"><h3>What moved your score</h3>' + eventsHtml(d.events) + '</div></div>'
       + '<div class="rt-grid2"><div class="rt-card"><h3>How to climb</h3>' + tipBlock + '<h3 style="margin-top:16px">Try a what-if</h3><div class="rt-wi"><select id="rtWi"><option value="">Pick something…</option>' + wiOpts + '</select><span class="rt-wiout" id="rtWiOut"></span></div></div>'
       + '<div class="rt-card"><h3>Your season so far</h3>' + sparkHtml(d.chart) + '</div></div>'
+      + '<div id="rtAttend"></div>'
       + '<div class="rt-card"><h3>How it works</h3>' + howHtml(d) + '</div>'
       + '<div id="rtStaffAdj"></div></div>';
     mountWeekly($('rtWeekly'), 0, { title: 'How you compare' });
+    if (d.self) renderAttendance();
     const fb = $('rtFeedBtn');
     if (fb) fb.addEventListener('click', () => { const m = $('rtFeedMore'); const open = m.style.display === 'none'; m.style.display = open ? 'grid' : 'none'; fb.textContent = open ? 'Show fewer' : 'Show more'; });
     const sel = $('rtWi');
@@ -276,6 +278,20 @@
       out.innerHTML = '<span style="color:' + (w.delta >= 0 ? 'var(--ifwl-green)' : 'var(--ifwl-red)') + '">' + sign(w.delta) + '</span> → ' + ns;
     });
     if (!d.self) renderStaffAdj(d);
+  }
+
+  /* driver: own no-show records (only drawn when there is something to show) */
+  async function renderAttendance() {
+    const host = $('rtAttend'); if (!host) return;
+    let r; try { r = await call('myNoShows'); } catch (e) { return; }
+    const recs = (r && r.records) || []; if (!recs.length) return;
+    const GAME = { acc: 'ACC', lmu: 'Le Mans Ultimate', raceroom: 'RaceRoom', acrally: 'AC Rally', rocketleague: 'Rocket League', other: 'Other' };
+    host.innerHTML = '<div class="rt-card"><h3>Attendance record</h3>'
+      + '<p style="margin:0 0 10px;color:var(--text-muted);font-size:13px">' + (r.active ? 'You were signed up for ' + (r.active === 1 ? 'an event' : r.active + ' events') + ' and did not turn up. Each no-show takes points off your Integrity; the cost fades over about ten months. Turning up to races earns Integrity back as you go.' : 'These records have been removed and no longer affect your rating.')
+      + ' If one is wrong, open a ticket and staff will look at it.</p>'
+      + '<table class="rt-tbl"><tr><th>Event</th><th>Date</th><th>Note</th><th>Rating cost now</th></tr>'
+      + recs.map((x) => '<tr' + (x.voided ? ' style="opacity:.5;text-decoration:line-through"' : '') + '><td>' + esc(x.eventLabel) + (x.game ? '<div style="font-size:12px;color:var(--text-muted)">' + esc(GAME[x.game] || x.game) + '</div>' : '') + '</td><td>' + fmtDate(x.dateMs) + '</td><td>' + esc(x.reason) + '</td><td>' + (x.voided ? 'Removed' : '-' + esc(x.pointsNow) + ' Integrity') + '</td></tr>').join('')
+      + '</table></div>';
   }
 
   /* staff: manual adjustments with a logged reason (Owner / Ops) */
@@ -322,7 +338,8 @@
     'F.neutral': 'Fair play: starting point', 'F.scale': 'Fair play: how many votes to move far', 'F.downWeight': 'Thumbs down weight', 'F.spamRatio': 'Down-only rater threshold', 'F.spamMinRatings': 'Min ratings to judge a rater', 'F.spamFactor': 'Weight of a down-only rater',
     'W.window': 'Wheelcraft: races counted', 'W.recency': 'Wheelcraft: weight drop per older race', 'W.rampRaces': 'Races to full strength', 'W.rampFloor': 'Strength at first race', 'W.floorClean': 'Clean % worth zero',
     'W.penaltyHit': 'Hit per race penalty', 'W.invalidHit': 'Hit for track-limit laps', 'W.dnfHit': 'Hit for not finishing', 'W.pitHit': 'Hit for missed pit stop', 'W.finishFraction': 'Share of laps to count as finished',
-    'L.finishPts': 'Laps: points per finish', 'L.finishCap': 'Finish points cap', 'L.streakPts': 'Points per night in a streak', 'L.streakCap': 'Streak points cap', 'L.attendMax': 'Season attendance points', 'L.attendFull': 'Attendance for full points', 'L.seasonPts': 'Points per season raced', 'L.seasonCap': 'Seasons points cap', 'L.milestoneRaces': 'Milestone: races', 'L.milestonePts': 'Milestone: points'
+    'L.finishPts': 'Laps: points per finish', 'L.finishCap': 'Finish points cap', 'L.streakPts': 'Points per night in a streak', 'L.streakCap': 'Streak points cap', 'L.attendMax': 'Season attendance points', 'L.attendFull': 'Attendance for full points', 'L.seasonPts': 'Points per season raced', 'L.seasonCap': 'Seasons points cap', 'L.milestoneRaces': 'Milestone: races', 'L.milestonePts': 'Milestone: points',
+    'N.pts': 'No-show: Integrity points off each', 'N.fadeDays': 'No-show: days to halve (gone at 2x)'
   };
   function flatTune(t) { const o = {}; Object.keys(t).forEach((k) => { if (typeof t[k] === 'object') Object.keys(t[k]).forEach((kk) => { if (kk !== 'max') o[k + '.' + kk] = t[k][kk]; }); else o[k] = t[k]; }); return o; }
   async function renderAdmin() {

@@ -1373,6 +1373,7 @@
   }
   window.fetchPerformanceStats = fetchPerformanceStats;
 
+  const RELIABILITY_PILL = '<span class="tier-pill" title="This driver has missed more than one event they signed up for" style="background:rgba(184,110,0,.14);color:#e0a040;border:1px solid rgba(184,110,0,.45);margin-left:4px">Reliability</span>';
   async function fetchDirectory(){
     if(USE_DEMO_FALLBACK){
       const all = demoGet('profiles', {});
@@ -1754,7 +1755,7 @@
         <div class="dm-id">
           <div class="dm-name">${socEsc(r.name || 'Unnamed driver')}</div>
           <div class="dm-sub"><span class="mono" style="color:var(--text-muted)">${socEsc(r.licenceNumber || '-')}</span>
-            <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${socEsc(r.tier || 'No Licence')}</span></div>
+            <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${socEsc(r.tier || 'No Licence')}</span>${r.reliabilityFlag ? RELIABILITY_PILL : ''}</div>
         </div>
       </div>
       <div class="dm-grid">
@@ -1900,7 +1901,7 @@
             <strong>${r.name||'Unnamed'}</strong>
             ${accNameRow}
             <span class="mono">${r.licenceNumber||'-'}</span>
-            <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${r.tier||'No Licence'}</span>
+            <span class="tier-pill" style="background:${hexToRgba(tier.color,0.18)};color:${tier.color};border:1px solid ${hexToRgba(tier.color,0.4)}">${r.tier||'No Licence'}</span>${r.reliabilityFlag ? RELIABILITY_PILL : ''}
             ${trophyRow}
             ${socButtonsHtml(r.socials)}
           </div>

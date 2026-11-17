@@ -145,6 +145,9 @@
     if (mi.recent30 >= 2 || mi.genuineDowns >= 3) recs.push({ sev: mi.genuineDowns >= 3 ? 'high' : 'mid', head: 'Peer reports', text: mi.downs.length + ' bad-racer report' + (mi.downs.length === 1 ? '' : 's') + ' (' + mi.recent30 + ' in the last 30 days, ' + mi.genuineDowns + ' from raters who also give positive votes). Look through recent stewards\' tickets and race incidents for this driver.' });
     else if (mi.downs.length) recs.push({ sev: 'low', head: 'Peer reports', text: mi.downs.length + ' bad-racer report' + (mi.downs.length === 1 ? '' : 's') + (mi.downOnly ? ', ' + mi.downOnly + ' from down-only raters' : '') + '. Not enough on its own to act; keep an eye on it.' });
     if (p.ban && (p.ban.permanent || p.ban.endsAtMs > nowMs)) recs.push({ sev: 'high', head: 'Ban', text: 'Currently banned' + (p.ban.permanent ? ' (permanent)' : ' until ' + dfmt(p.ban.endsAtMs)) + (p.ban.reason ? ': ' + p.ban.reason : '') });
+    const nsLive = (p.noShows || []).filter((x) => x && !x.voided);
+    if (nsLive.length >= 2) recs.push({ sev: 'mid', head: 'No-shows', text: nsLive.length + ' live no-show records (latest: ' + nsLive[nsLive.length - 1].eventLabel + '). Repeated no-shows cost rating and show a Reliability marker on their public profile.' });
+    else if (nsLive.length === 1) recs.push({ sev: 'low', head: 'No-shows', text: '1 no-show on record (' + nsLive[0].eventLabel + ').' });
     if (p.licencePoints >= 6) recs.push({ sev: 'high', head: 'Licence points', text: p.licencePoints + ' licence points on record. Check whether a steward decision is due.' });
     else if (p.licencePoints >= 3) recs.push({ sev: 'mid', head: 'Licence points', text: p.licencePoints + ' licence points on record.' });
     if (m.related.length) recs.push({ sev: 'low', head: 'Linked accounts', text: m.related.length + ' other licence' + (m.related.length === 1 ? ' shares' : 's share') + ' a name or ID with this driver (' + m.related.slice(0, 3).map((x) => cleanName(x.name)).join(', ') + '). Check for a duplicate or alt account before moving tiers.' });
@@ -212,6 +215,8 @@
       line('LAST SEEN', p.lastLoginMs ? ago(p.lastLoginMs, now) + ' (' + dfmt(p.lastLoginMs) + ')' : 'never signed in');
       const pts = p.licencePoints || 0; const ptsCol = pts >= 6 ? BAD : pts >= 3 ? WARN : pts > 0 ? '#ffd27a' : GOOD;
       line('LICENCE POINTS', String(pts) + (pts === 0 ? '  (clean)' : ''), ptsCol);
+      const nsN = (p.noShows || []).filter((x) => x && !x.voided).length;
+      line('NO-SHOWS', nsN ? nsN + ' on record' : 'None', nsN >= 2 ? BAD : nsN ? WARN : GOOD);
       const banned = p.ban && (p.ban.permanent || p.ban.endsAtMs > now);
       line('STATUS', banned ? 'BANNED ' + (p.ban.permanent ? '(permanent)' : 'until ' + dfmt(p.ban.endsAtMs)) : 'Good standing', banned ? BAD : GOOD);
       const h = Math.max(ly - y + 8, 300);
