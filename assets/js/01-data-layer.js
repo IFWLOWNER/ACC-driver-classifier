@@ -4118,7 +4118,13 @@
     const now = Date.now();
     let snoozed = {};
     try{ snoozed = JSON.parse(sessionStorage.getItem('ifwlStintLater') || '{}') || {}; }catch(_){}
+    // On the Race Team page itself, a driver who followed the DM / pop-up link (?event=<id>) is already being taken to Claim
+    // Your Stints for that event - a pop-up on top of it only blocks the page they came to use, so it is not shown for that event.
+    const onTeamPage = /licence-teams\.html/.test(location.pathname);
+    let urlEvent = '';
+    if(onTeamPage){ try{ urlEvent = new URLSearchParams(location.search).get('event') || ''; }catch(_){} }
     const live = notices.filter(n => n && !n.seen && !snoozed[n.id]
+      && !(onTeamPage && urlEvent && n.eventId === urlEvent)
       && !(n.eventDateMs && n.eventDateMs + 36 * 3600 * 1000 < now))      // race is long over - don't nag
       .sort((a,b) => (a.dateMs||0) - (b.dateMs||0));
     if(!live.length) return;
@@ -4166,9 +4172,27 @@
     };
     const goBtn = document.getElementById('snGoBtn');
     if(goBtn) goBtn.onclick = () => {
+      // FIXED (stint pop-up loop): this button used to reload the Race Team page without clearing or snoozing the notice, so the
+      // page loaded and threw the same pop-up straight back over the top - on a slow phone the pop-up always beat the team page,
+      // and "Review & confirm" reloaded the page again and again. Now the notice is snoozed for this browser session BEFORE going
+      // anywhere (it is still cleared for good when the driver answers on the Race Team page), and on the Race Team page the
+      // button waits for the page to finish loading instead of reloading it.
+      snoozed[n.id] = 1;
+      try{ sessionStorage.setItem('ifwlStintLater', JSON.stringify(snoozed)); }catch(_){}
       close();
-      if(/licence-teams\.html/.test(location.pathname) && typeof window.rtFocusEvent === 'function' && window.rtFocusEvent(n.eventId)) return;
-      location.href = 'licence-teams.html?event=' + encodeURIComponent(n.eventId || '');
+      if(!/licence-teams\.html/.test(location.pathname)){ location.href = 'licence-teams.html?event=' + encodeURIComponent(n.eventId || ''); return; }
+      let tries = 0;
+      (function focus(){
+        if(typeof window.rtFocusEvent === 'function' && window.rtFocusEvent(n.eventId)) return;
+        if(++tries < 60) return setTimeout(focus, 500);      // up to 30 s on a slow connection
+        // Could not open it (for example this driver is not on the team's roster yet): say so instead of doing nothing or looping.
+        modal.className = 'sn-' + kind;
+        modal.innerHTML = '<div class="sn-card" role="alertdialog" aria-modal="true"><div class="sn-headline">Open Claim Your Stints</div>'
+          + '<p class="sn-explain">We could not open your stints automatically. Scroll to <strong>Claim Your Stints</strong> on this page and answer there. If you cannot see it, tell your team lead.</p>'
+          + '<button type="button" class="sn-btn" id="snFailOk">OK</button></div>';
+        document.body.classList.add('sn-open');
+        document.getElementById('snFailOk').onclick = close;
+      })();
     };
     const laterBtn = document.getElementById('snLaterBtn');
     if(laterBtn) laterBtn.onclick = () => {
@@ -7258,6 +7282,18 @@
     q('ticketVideoGoldField').classList.toggle('hidden', !isGoldOrStaff);
     q('ticketVideoLockedField').classList.toggle('hidden', isGoldOrStaff);
 
+    // Extra competitions for the "Submit a ticket" Competition drop-down. Added here (not in each page's HTML) so every
+    // Licence Centre page gets them from this one file. Safe to run more than once: an option is only added when missing.
+    (function addExtraTicketCompetitions(){
+      const sel = q('ticketCompetitionSelect'); if(!sel) return;
+      const EXTRA = [{ group: 'LMU', value: 'SEASON 4 - LMU PC - GT3 NO DLC' }];
+      EXTRA.forEach(x => {
+        if(Array.prototype.some.call(sel.options, o => o.value === x.value)) return;
+        let grp = Array.prototype.find.call(sel.querySelectorAll('optgroup'), g => g.label === x.group);
+        if(!grp){ grp = document.createElement('optgroup'); grp.label = x.group; sel.appendChild(grp); }
+        const o = document.createElement('option'); o.value = x.value; o.textContent = x.value; grp.appendChild(o);
+      });
+    })();
     const videoInput = q('ticketVideoInput');
     const videoStatus = q('ticketVideoStatus');
     ticketSelectedVideoFile = null;
