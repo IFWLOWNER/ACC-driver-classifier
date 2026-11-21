@@ -215,7 +215,7 @@
 </head>
 <body>
 <div id="stage">
-  <div class="hud"><img id="hudLogo" src="./ifwllogo1.png" alt=""><div class="live rerun" id="liveTag"><i></i><span id="liveTxt">RERUN OF PAST EVENTS</span></div></div>
+  <div class="hud"><div class="live rerun" id="liveTag"><i></i><span id="liveTxt">RERUN OF PAST EVENTS</span></div></div>
   <div class="nextChip" id="nextChip"><span class="tg">NEXT RACE</span><span id="nextName"></span><b id="nextCd"></b></div>
   <div id="scenes"><div id="pop"></div></div>
   <div class="ticker"><div class="tkLabel">IFWL FEED</div><div class="tkView"><div class="tkTrack" id="tkTrack"></div></div></div>
@@ -577,6 +577,14 @@
   const EVERGREEN = ['top', 'hl', 'events', 'parts', 'imp', 'shop', 'promo', 'hl', 'sold', 'earn', 'kit', 'wall', 'team', 'spons', 'nums'];
   let fullN = 0;
 
+  // a new message from the wall (only the latest few unseen; anything older than 20 minutes is skipped so a busy wall never takes over the stream)
+  function newWallScene(now){
+    const f = feed; if (!f) return null;
+    const wl = (f.wall || []).filter((w) => !seen.has(w.id));
+    wl.forEach((w) => { if (now - w.atMs > 20 * 60000) seen.add(w.id); });
+    const wm = wl.find((w) => !seen.has(w.id)); if (wm){ seen.add(wm.id); saveSeen(); return wallScene(wm); }
+    return null;
+  }
   function nextScene(){
     const f = feed; if (!f) return null;
     const now = Date.now();
@@ -592,10 +600,8 @@
     saveSeen();
     if (nl) return personScene(nl, 'new');
     if (tc) return personScene(tc, 'tier');
-    // a new message from the wall (only the latest few unseen; anything older than 20 minutes is skipped so a busy wall never takes over the stream)
-    const wl = (f.wall || []).filter((w) => !seen.has(w.id));
-    wl.forEach((w) => { if (now - w.atMs > 20 * 60000) seen.add(w.id); });
-    const wm = wl.find((w) => !seen.has(w.id)); if (wm){ seen.add(wm.id); saveSeen(); return wallScene(wm); }
+    // a new message from the wall
+    const wmScene = newWallScene(now); if (wmScene) return wmScene;
     // 3) full-screen spotlight now and then
     if (now - lastFull >= FULL_EVERY){ lastFull = now; const useSpons = (fullN++ % 3) === 2 && sponsList().length; return (useSpons && sponsScene(true)) || spotlightScene(); }
     // 4) otherwise rotate the evergreen cards
@@ -611,8 +617,8 @@
     for(;;){
       if (RELOAD_H > 0 && Date.now() - startedAt > RELOAD_H * 3600000){ location.reload(); return; }
       const isIdleGap = Date.now() - lastEnd >= GAP;
-      const quiet = !!liveState.live;     // race first: no pop-ups while a commentator is on air (the compare has its own spot)
-      const sc = isIdleGap && !quiet ? nextScene() : null;
+      const quiet = !!liveState.live;     // race first: while a commentator is on air only new driver messages from the wall pop up (the compare has its own spot)
+      const sc = !isIdleGap ? null : quiet ? newWallScene(Date.now()) : nextScene();
       if (sc){ try{ await runScene(sc); }catch(e){ console.warn('scene failed', e); } lastEnd = Date.now(); }
       else await wait(1000);
     }
