@@ -2,7 +2,8 @@
    IFWL STREAM CONTROL (commentators, Owner, Ops)
    Mounts into every [data-commslive] element (licence-home.html, and the #commsLivePanel on licence.html).
    - Go live / off air (which commentator is on air; badge on the stream)
-   - Shared prepared deck: Grid line-up, Battle for, Driver compare, Leaders. Build cards ahead, push with one click.
+   - Stream badge: Rerun or RACE TEAM LIVE FEED (one button).
+   - Shared prepared deck: Grid line-up, Battle for, Driver compare, Leaders, Team (name, car number, drivers; highlight one driver). Build cards ahead, push with one click.
    - Post race interview mode: pick up to three drivers, click who is on air now (right 40% of the stream).
    Everything is enforced by the server; this page only shows or hides things to match. Anyone without the
    Commentator / Owner / Ops role gets a 403 and the panel stays hidden.
@@ -18,6 +19,7 @@ var TYPES = {
   grid:    { label: 'Grid line-up', min: 2, max: 20, note: 'Drivers in grid order, two per row. The rows drop in one after another down the screen with a clear background, so keep it to about 10 drivers per card (make a second card for the rest).' },
   battle:  { label: 'Battle for', min: 2, max: 2, note: 'Exactly two drivers. The title becomes "BATTLE FOR ..." (for example 3RD PLACE or THE LEAD).' },
   compare: { label: 'Driver compare', min: 1, max: 2, note: 'One or two drivers, shown with their average finish and IFWL ranking.' },
+  team:    { label: 'Team', min: 1, max: 8, note: 'Team name and car number, then the team\'s drivers in the order you want them shown. Push the whole team, or press a driver\'s name on the saved card to highlight just them (the others dim).' },
   leaders: { label: 'Leaders', min: 1, max: 8, note: 'One driver per class. Type a class name next to each driver if you want one (Pro, Am, Beginner, GT3, GT4, anything). Leave it blank for no label.' }
 };
 
@@ -91,8 +93,8 @@ function mount(root){
   }
   setVisible(false);
 
-  var S = { me: null, comms: [], live: null, compare: null, show: null, interview: null, deck: [] };
-  var B = { type: 'grid', title: '', entries: [], editId: '' };      // deck builder state
+  var S = { me: null, comms: [], live: null, compare: null, show: null, interview: null, mode: '', deck: [] };
+  var B = { type: 'grid', title: '', number: '', entries: [], editId: '' };      // deck builder state
   var IV = { entries: [] };                                          // interview picker state
   var busy = false, timer = null, delTimer = null, delId = '';
 
@@ -100,6 +102,7 @@ function mount(root){
   root.innerHTML = '' +
     '<h3>Stream control</h3>' +
     '<div class="cm-help">Everything here is shared by the whole commentary team. What you push shows on the live stream within a few seconds.</div>' +
+    '<div class="cm-sec" data-s="mode"></div>' +
     '<div class="cm-sec" data-s="live"></div>' +
     '<div class="cm-sec" data-s="screen"></div>' +
     '<div class="cm-sec" data-s="deck"></div>' +
@@ -171,16 +174,23 @@ function mount(root){
           (can ? '<button data-live="' + esc(c.id) + '" data-on="' + (c.live ? '0' : '1') + '" class="' + (c.live ? 'stop' : 'go') + '">' + (c.live ? 'Go off air' : 'Go live') + '</button>' : '') + '</div>';
       }).join('') : '<div class="cm-help">No commentators yet. A commentator appears here the first time they open this page.</div>');
   }
+  function renderMode(){
+    var on = S.mode === 'raceteam';
+    $s('mode').innerHTML = '<h4>Stream badge</h4>' +
+      '<div class="cm-row"><span class="cm-tag ' + (on ? 'red' : '') + '">' + (on ? 'RACE TEAM LIVE FEED' : 'RERUN OF PAST EVENTS') + '</span>' +
+      '<button data-mode="' + (on ? '' : 'raceteam') + '" class="' + (on ? 'stop' : 'amber') + '">' + (on ? 'Back to rerun' : 'Switch to Race Team Live Feed') + '</button></div>' +
+      '<div class="cm-help">Race Team Live Feed changes the badge in the top-left of the stream so the race team can share it. The same pop-ups run as on the rerun. It switches itself back to rerun after 12 hours. A commentator going live or an interview still show their own badge.</div>';
+  }
   function onScreenId(){ return (S.show && S.show.deckId) || (S.compare && S.compare.deckId) || ''; }
   function renderScreen(){
     var el = $s('screen'), parts = [];
-    if (S.show) parts.push('<span class="cm-tag red">ON SCREEN</span> ' + esc(TYPES[S.show.type] ? TYPES[S.show.type].label : S.show.type) + (S.show.title ? ': ' + esc(S.show.title) : ''));
+    if (S.show) parts.push('<span class="cm-tag red">ON SCREEN</span> ' + esc(TYPES[S.show.type] ? TYPES[S.show.type].label : S.show.type) + (S.show.title ? ': ' + esc((S.show.number ? '#' + S.show.number + ' ' : '') + S.show.title) : ''));
     if (S.compare) parts.push('<span class="cm-tag red">ON SCREEN</span> Driver compare: ' + S.compare.cards.map(function(c){ return esc(c.name); }).join(' vs '));
     if (S.interview) parts.push('<span class="cm-tag amber">INTERVIEW MODE</span> ' + (S.interview.onAirId ? 'on air: ' + esc((S.interview.cards.filter(function(c){ return c.id === S.interview.onAirId; })[0] || {}).name || '') : 'nobody on air yet'));
     el.innerHTML = '<h4>On the stream right now</h4>' + (parts.length ? parts.map(function(p){ return '<div style="margin:4px 0">' + p + '</div>'; }).join('') : '<div class="cm-help">No card on screen. The stream is running its normal pop-ups.</div>') +
       '<div class="cm-row" style="margin-top:8px"><button data-act="hide"' + ((S.show || S.compare) ? '' : ' disabled') + ' class="' + ((S.show || S.compare) ? 'stop' : '') + '">Hide card from stream</button></div>';
   }
-  function cardSummary(c){ return (c.entries || []).map(function(e, i){ return (c.type === 'grid' ? (i + 1) + '. ' : '') + e.name + (e.label ? ' (' + e.label + ')' : ''); }).join(c.type === 'battle' || c.type === 'compare' ? '  vs  ' : ', '); }
+  function cardSummary(c){ return (c.type === 'team' && c.number ? '#' + c.number + ' - ' : '') + (c.entries || []).map(function(e, i){ return (c.type === 'grid' ? (i + 1) + '. ' : '') + e.name + (e.label ? ' (' + e.label + ')' : ''); }).join(c.type === 'battle' || c.type === 'compare' ? '  vs  ' : ', '); }
   function renderDeck(){
     var el = $s('deck'), on = onScreenId();
     el.innerHTML = '<h4>Prepared cards (shared deck)</h4>' +
@@ -192,7 +202,8 @@ function mount(root){
           (isOn ? '<span class="cm-tag red">ON SCREEN</span>' : '') +
           '<button class="go" data-push="' + esc(c.id) + '"' + (S.interview ? ' disabled title="Stop interview mode first"' : '') + '>' + (isOn ? 'Push again' : 'Push to stream') + '</button>' +
           '<button class="sm" data-edit="' + esc(c.id) + '">Edit</button>' +
-          '<button class="sm" data-del="' + esc(c.id) + '">' + (delId === c.id ? 'Sure?' : 'Delete') + '</button></div>';
+          '<button class="sm" data-del="' + esc(c.id) + '">' + (delId === c.id ? 'Sure?' : 'Delete') + '</button>' +
+          (c.type === 'team' ? '<div style="flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="cm-help" style="margin:0">Highlight one driver:</span>' + (c.entries || []).map(function(e){ var f = S.show && S.show.deckId === c.id && S.show.focusId === e.id; return '<button class="sm' + (f ? ' amber' : '') + '" data-focus-card="' + esc(c.id) + '" data-focus-id="' + esc(e.id) + '"' + (S.interview ? ' disabled' : '') + '>' + esc(e.name) + '</button>'; }).join('') + '</div>' : '') + '</div>';
       }).join('') : '<div class="cm-help">Nothing prepared yet. Use "Build a card" below.</div>');
   }
   var gridPicker = null;
@@ -201,13 +212,14 @@ function mount(root){
     el.innerHTML = '<h4>' + (B.editId ? 'Edit card' : 'Build a card') + '</h4>' +
       '<div class="cm-tabs">' + Object.keys(TYPES).map(function(k){ return '<button data-type="' + k + '" class="' + (B.type === k ? 'on' : '') + '">' + TYPES[k].label + '</button>'; }).join('') + '</div>' +
       '<div class="cm-help">' + esc(T.note) + '</div>' +
-      (B.type === 'compare' ? '' : '<div class="cm-row" style="margin-bottom:8px">' + (B.type === 'battle' ? '<b>BATTLE FOR</b>' : '<b>Title</b>') +
-        '<input type="text" class="cm-grow" data-title maxlength="60" placeholder="' + (B.type === 'battle' ? 'for example 3RD PLACE or THE LEAD' : B.type === 'leaders' ? 'LEADERS' : 'STARTING GRID') + '" value="' + esc(B.title) + '"></div>') +
+      (B.type === 'compare' ? '' : '<div class="cm-row" style="margin-bottom:8px">' + (B.type === 'battle' ? '<b>BATTLE FOR</b>' : B.type === 'team' ? '<b>Team name</b>' : '<b>Title</b>') +
+        '<input type="text" class="cm-grow" data-title maxlength="60" placeholder="' + (B.type === 'battle' ? 'for example 3RD PLACE or THE LEAD' : B.type === 'leaders' ? 'LEADERS' : B.type === 'team' ? 'for example Red Line Racing' : 'STARTING GRID') + '" value="' + esc(B.title) + '">' +
+        (B.type === 'team' ? '<b>Car number</b><input type="text" data-number maxlength="8" style="width:90px" placeholder="12" value="' + esc(B.number) + '">' : '') + '</div>') +
       '<div data-picker></div>' +
       '<div class="cm-row" style="margin-top:10px"><button class="go" data-save="0" disabled>' + (B.editId ? 'Save changes' : 'Save to deck') + '</button>' +
       '<button class="amber" data-save="1" disabled>' + (B.editId ? 'Save and push now' : 'Save and push now') + '</button>' + (B.editId ? '<button data-cancel>Cancel edit</button>' : '') +
       '<span class="cm-help" data-need></span></div>';
-    gridPicker = Picker(el.querySelector('[data-picker]'), { list: function(){ return B.entries; }, max: function(){ return TYPES[B.type].max; }, ordered: B.type === 'grid' || B.type === 'leaders' || B.type === 'battle', labels: B.type === 'leaders', onChange: syncBuildButtons });
+    gridPicker = Picker(el.querySelector('[data-picker]'), { list: function(){ return B.entries; }, max: function(){ return TYPES[B.type].max; }, ordered: B.type === 'grid' || B.type === 'leaders' || B.type === 'battle' || B.type === 'team', labels: B.type === 'leaders', onChange: syncBuildButtons });
   }
   function syncBuildButtons(){
     var el = $s('build'), T = TYPES[B.type], n = B.entries.length, ok = n >= T.min && n <= T.max;
@@ -232,12 +244,12 @@ function mount(root){
       var nd = el.querySelector('[data-ivneed]'); if (nd) nd.textContent = n ? '' : 'Add at least one driver.'; } });
   }
 
-  function renderAll(){ renderLive(); renderScreen(); renderDeck(); }
-  function applyState(d){ ['live','compare','show','interview'].forEach(function(k){ if (k in d) S[k] = d[k] || null; }); if (Array.isArray(d.deck)) S.deck = d.deck; if (Array.isArray(d.comms)) S.comms = d.comms; if (d.me) S.me = d.me; }
+  function renderAll(){ renderMode(); renderLive(); renderScreen(); renderDeck(); }
+  function applyState(d){ ['live','compare','show','interview','mode'].forEach(function(k){ if (k in d) S[k] = d[k] || null; }); if (Array.isArray(d.deck)) S.deck = d.deck; if (Array.isArray(d.comms)) S.comms = d.comms; if (d.me) S.me = d.me; }
   var interviewWas = null;
   function afterState(){
     var had = !!interviewWas, has = !!S.interview; interviewWas = S.interview;
-    renderLive(); renderScreen(); renderDeck();
+    renderMode(); renderLive(); renderScreen(); renderDeck();
     if (had !== has || (!root.__ivRendered)){ renderIv(); root.__ivRendered = true; }
     else if (has) renderIv();       // on-air buttons follow the server
   }
@@ -259,6 +271,8 @@ function mount(root){
     var b = ev.target.closest('button'); if (!b || !root.contains(b)) return;
     if (b.hasAttribute('data-live')){ act('commsSetLive', { id: b.getAttribute('data-live'), live: b.getAttribute('data-on') === '1' }, b.getAttribute('data-on') === '1' ? 'You are live.' : 'Off air.'); return; }
     if (b.getAttribute('data-act') === 'hide'){ act('commsDeckHide', {}, 'Card hidden from the stream.'); return; }
+    if (b.hasAttribute('data-mode')){ var m = b.getAttribute('data-mode'); act('commsMode', { mode: m }, m ? 'Badge switched to Race Team Live Feed.' : 'Badge back to rerun.'); return; }
+    if (b.hasAttribute('data-focus-card')){ act('commsDeckPush', { id: b.getAttribute('data-focus-card'), focusId: b.getAttribute('data-focus-id') }, 'Driver highlighted on the stream.'); return; }
     if (b.hasAttribute('data-push')){ act('commsDeckPush', { id: b.getAttribute('data-push') }, 'Pushed to the stream.'); return; }
     if (b.hasAttribute('data-del')){
       var id = b.getAttribute('data-del');
@@ -268,14 +282,14 @@ function mount(root){
     }
     if (b.hasAttribute('data-edit')){
       var c = S.deck.filter(function(x){ return x.id === b.getAttribute('data-edit'); })[0]; if (!c) return;
-      B = { type: c.type, title: c.title || '', entries: (c.entries || []).map(function(e){ return { id: e.id, name: e.name, num: e.num, label: e.label || '' }; }), editId: c.id };
+      B = { type: c.type, title: c.title || '', number: c.number || '', entries: (c.entries || []).map(function(e){ return { id: e.id, name: e.name, num: e.num, label: e.label || '' }; }), editId: c.id };
       renderBuild(); syncBuildButtons(); $s('build').scrollIntoView({ behavior: 'smooth', block: 'start' }); say('Editing "' + (c.title || TYPES[c.type].label) + '".'); return;
     }
-    if (b.hasAttribute('data-type')){ var t = b.getAttribute('data-type'); if (t !== B.type){ var keep = B.entries.slice(0, TYPES[t].max); B = { type: t, title: '', entries: keep, editId: B.editId }; renderBuild(); syncBuildButtons(); } return; }
+    if (b.hasAttribute('data-type')){ var t = b.getAttribute('data-type'); if (t !== B.type){ var keep = B.entries.slice(0, TYPES[t].max); B = { type: t, title: '', number: '', entries: keep, editId: B.editId }; renderBuild(); syncBuildButtons(); } return; }
     if (b.hasAttribute('data-cancel')){ resetBuild(); say(''); return; }
     if (b.hasAttribute('data-save')){
       var push = b.getAttribute('data-save') === '1', tEl = $s('build').querySelector('[data-title]');
-      var card = { id: B.editId || undefined, type: B.type, title: tEl ? tEl.value : B.title, entries: B.entries.map(function(e){ return { id: e.id, label: e.label || '' }; }) };
+      var nEl = $s('build').querySelector('[data-number]'), card = { id: B.editId || undefined, type: B.type, title: tEl ? tEl.value : B.title, number: nEl ? nEl.value : '', entries: B.entries.map(function(e){ return { id: e.id, label: e.label || '' }; }) };
       busy = true; syncBuildButtons(); say('Saving...');
       api('commsDeckSave', { body: { card: card } }).then(function(d){
         applyState(d); var savedId = d.card && d.card.id; resetBuild(); afterState();
@@ -289,9 +303,9 @@ function mount(root){
     if (b.hasAttribute('data-ivstop')){ act('commsInterview', { mode: 'stop' }, 'Interview mode off.').then(function(){ IV.entries = []; renderIv(); }); return; }
   });
   root.addEventListener('input', function(ev){ if (ev.target.hasAttribute && ev.target.hasAttribute('data-title')) B.title = ev.target.value; });
-  function resetBuild(){ B = { type: B.type, title: '', entries: [], editId: '' }; renderBuild(); syncBuildButtons(); }
+  function resetBuild(){ B = { type: B.type, title: '', number: '', entries: [], editId: '' }; renderBuild(); syncBuildButtons(); }
 
-  renderBuild(); syncBuildButtons(); renderIv();
+  renderMode(); renderBuild(); syncBuildButtons(); renderIv();
   refresh();
   timer = setInterval(function(){ if (!document.hidden && !busy) refresh(); }, 20000);
   document.addEventListener('visibilitychange', function(){ if (!document.hidden && timer) refresh(); });

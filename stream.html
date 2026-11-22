@@ -281,6 +281,22 @@
     .ivp .ivg b{ display:block; font-family:var(--orb); font-weight:900; font-size:42px; line-height:1.05; color:var(--ink); font-variant-numeric:tabular-nums; }
     .ivp .ivg span{ display:block; margin-top:4px; font-size:19px; font-weight:700; color:var(--mute); letter-spacing:.05em; text-transform:uppercase; }
     .ivp .ivlic{ margin-top:10px; font-size:20px; color:var(--mute); font-weight:600; text-align:right; }
+
+    /* v24: team spotlight (full screen, clear background) */
+    .teamShow .thead{ position:absolute; left:0; right:0; top:112px; display:flex; justify-content:center; align-items:stretch; filter:drop-shadow(0 10px 26px rgba(0,0,0,.55)); opacity:0; animation:rowDrop .75s cubic-bezier(.2,.9,.25,1) .2s forwards; }
+    .teamShow .tnum{ background:var(--amber); color:#1a1000; font-family:var(--orb); font-weight:900; font-size:64px; line-height:1; padding:14px 26px; border-radius:14px 0 0 14px; display:flex; align-items:center; }
+    .teamShow .tname{ background:linear-gradient(90deg,rgba(6,12,28,.9),rgba(12,22,46,.84)); border:2px solid var(--amber); border-left:0; font-family:var(--orb); font-weight:900; font-size:52px; letter-spacing:.04em; padding:14px 40px; border-radius:0 14px 14px 0; white-space:nowrap; max-width:1300px; overflow:hidden; text-overflow:ellipsis; }
+    .teamShow .tname.only{ border-left:2px solid var(--amber); border-radius:14px; }
+    .teamShow .tcols{ position:absolute; left:40px; right:40px; top:260px; bottom:100px; display:flex; justify-content:center; align-items:center; gap:22px; }
+    .teamShow .tcol{ display:flex; flex-direction:column; align-items:center; width:var(--cw); opacity:0; animation:rowDrop .8s cubic-bezier(.2,.9,.25,1) forwards; animation-delay:calc(var(--i) * .35s + .5s); transition:transform .5s, filter .5s, opacity .5s; transform-origin:50% 100%; }
+    .teamShow .tcol .bust{ margin-bottom:-2px; }
+    .teamShow .tplate{ width:100%; padding:10px 14px 12px; text-align:center; background:linear-gradient(180deg,rgba(6,12,28,.7),rgba(6,12,28,.86)); border-bottom:5px solid var(--amber); border-radius:12px 12px 0 0; text-shadow:0 2px 6px rgba(0,0,0,.9); }
+    .teamShow .tn{ font-weight:700; font-size:var(--tf); line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .teamShow .tn .gnum{ color:var(--amber); font-family:var(--orb); font-weight:900; margin-right:8px; }
+    .teamShow .tt{ margin-top:3px; font-size:calc(var(--tf) * .62); color:#d9e3f4; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .teamShow.focus .tcol:not(.hl){ opacity:.35 !important; filter:saturate(.4); transform:scale(.92); }
+    .teamShow.focus .tcol.hl{ transform:scale(1.14); }
+    .teamShow.focus .tcol.hl .tplate{ border-bottom-color:var(--teal); box-shadow:0 0 34px rgba(20,200,176,.4); }
   </style>
 </head>
 <body>
@@ -331,7 +347,7 @@
 
   /* ---- data ---- */
   let feed = null, lastFeedOk = 0;
-  let liveState = { live:null, compare:null, show:null, interview:null };
+  let liveState = { live:null, compare:null, show:null, interview:null, mode:'' };
   const ph = (t, c, wide) => 'data:image/svg+xml;utf8,' + encodeURIComponent(wide
     ? '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="200"><rect width="900" height="200" fill="#f3f4f8"/><text x="450" y="118" font-family="Arial" font-weight="900" font-size="64" fill="#0b1020" text-anchor="middle">' + t + '</text></svg>'
     : '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect x="12" y="12" width="136" height="136" rx="26" fill="' + c + '" fill-opacity=".25" stroke="' + c + '" stroke-width="6"/><text x="80" y="102" font-family="Arial" font-weight="900" font-size="48" fill="' + c + '" text-anchor="middle">' + t + '</text></svg>');
@@ -377,6 +393,7 @@
     const mk = (n, lab) => DEMO_PEOPLE.slice(0, n).map((nm, i) => ({ id:'d' + i, label:lab ? lab[i] || '' : '', name:nm, avatarUrl:i % 5 === 4 ? '' : k, photoUrl:'', tier:'IFWL-GT-Pro', team:['Red Line Racing','Blue Apex','Team Orbit','Night Stage Motorsport'][i % 4] }));
     if (t === 'grid') return { seq:1, type:'grid', title:'STARTING GRID', total:Number(Q.get('n')) || 14, cards:mk(Number(Q.get('n')) || 14) };
     if (t === 'battle') return { seq:1, type:'battle', title:Q.get('title') || '3RD PLACE', total:2, cards:mk(2) };
+    if (t === 'team') return { seq:1, type:'team', title:Q.get('title') || 'Red Line Racing', number:Q.get('num') || '12', focusId:Q.get('focus') ? 'd' + (Number(Q.get('focus')) - 1) : '', total:Number(Q.get('n')) || 4, cards:mk(Number(Q.get('n')) || 4) };
     return { seq:1, type:'leaders', title:'LEADERS', total:3, cards:mk(3, ['PRO','AM','BEGINNER']) }; };
   const DEMO_IV = () => { if (!Q.has('iv')) return null; const k = 'assets/kit/stock-white.png', at = Number(Q.get('iv')) || 0;
     const st = (o) => Object.assign({ rating:812, level:'Gold', levelKey:'gold', rank:3, ranked:466, races:14, wins:5, podiums:9, top10:13, best:1, avg:3.4, clean:91, penalties:1, points:2 }, o);
@@ -384,8 +401,8 @@
     return { seq:1, season:'SEASON 4', ratingLive:true, onAirId:at ? 'd' + (at - 1) : '', cards }; };
   async function pollLive(){
     try{
-      if (DEMO){ liveState = { live:DEMO_LIVE, compare:Q.has('cmp') ? DEMO_CMP() : null, show:DEMO_SHOW(), interview:DEMO_IV() }; }
-      else { const r = await fetch(FN + '?streamLive=1', { cache:'no-store' }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error('bad'); liveState = { live:d.live || null, compare:d.compare || null, show:d.show || null, interview:d.interview || null }; }
+      if (DEMO){ liveState = { live:DEMO_LIVE, compare:Q.has('cmp') ? DEMO_CMP() : null, show:DEMO_SHOW(), interview:DEMO_IV(), mode:Q.get('mode') === 'raceteam' ? 'raceteam' : '' }; }
+      else { const r = await fetch(FN + '?streamLive=1', { cache:'no-store' }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error('bad'); liveState = { live:d.live || null, compare:d.compare || null, show:d.show || null, interview:d.interview || null, mode:d.mode === 'raceteam' ? 'raceteam' : '' }; }
     }catch(e){ console.warn('live state failed', e); }
     applyLive(); syncCompare(); syncShow(); syncInterview();
   }
@@ -393,6 +410,7 @@
     const L = liveState.live, tag = $('liveTag'), tx = $('liveTxt');
     document.body.classList.toggle('iv', !!liveState.interview);
     if (liveState.interview){ tag.classList.remove('rerun'); tx.innerHTML = 'POST RACE INTERVIEW' + (L ? ' <span class="who">' + esc('· ' + person(L.name).name) + '</span>' : ''); }
+    else if (liveState.mode === 'raceteam'){ tag.classList.remove('rerun'); tx.innerHTML = 'RACE TEAM LIVE FEED' + (L ? ' <span class="who">' + esc('· ' + person(L.name).name) + '</span>' : ''); }
     else if (L){ tag.classList.remove('rerun'); tx.innerHTML = 'LIVE <span class="who">' + esc('· ' + person(L.name).name) + '</span>'; }
     else { tag.classList.add('rerun'); tx.textContent = 'RERUN OF PAST EVENTS'; }
   }
@@ -476,7 +494,13 @@
       return '<div class="lcard" style="--i:' + i + ';--sc:' + sc + '">' + bust(c, ch - 8, sc) + '<div class="lt">' + (c.label ? '<div class="lcls">' + esc(String(c.label).toUpperCase()) + '</div>' : '') + '<div class="ln1">' + numTag(p) + esc(p.name) + '</div>' + (c.team ? '<div class="ln2">' + esc(c.team) + '</div>' : '') + '</div></div>';
     }).join('') + '</div></div>';
   }
-  function showHtml(sh){ return sh.type === 'grid' ? gridHtml(sh) : sh.type === 'battle' && sh.cards.length > 1 ? battleHtml(sh) : sh.type === 'leaders' ? leadersHtml(sh) : ''; }
+  function teamHtml(sh){
+    const L = sh.cards, n = L.length, cw = Math.max(170, Math.min(300, Math.floor((1800 - (n - 1) * 22) / n))), bh = Math.min(440, Math.round(cw * 1.2)), tf = Math.round(Math.min(34, cw * .13 + 6));
+    const num = String(sh.number || '').replace(/^#/, '');
+    return '<div class="show teamShow' + (sh.focusId ? ' focus' : '') + '" style="--cw:' + cw + 'px;--tf:' + tf + 'px"><div class="thead">' + (num ? '<div class="tnum">#' + esc(num) + '</div>' : '') + '<div class="tname' + (num ? '' : ' only') + '">' + esc(sh.title || '') + '</div></div><div class="tcols">'
+      + L.map((c, i) => { const p = person(c.name); return '<div class="tcol' + (sh.focusId && sh.focusId === c.id ? ' hl' : '') + '" style="--i:' + i + '">' + bust(c, bh, 'var(--amber)') + '<div class="tplate"><div class="tn">' + numTag(p) + esc(p.name) + '</div>' + (c.tier ? '<div class="tt">' + esc(tierLabel(c.tier)) + '</div>' : '') + '</div></div>'; }).join('') + '</div></div>';
+  }
+  function showHtml(sh){ return sh.type === 'team' ? teamHtml(sh) : sh.type === 'grid' ? gridHtml(sh) : sh.type === 'battle' && sh.cards.length > 1 ? battleHtml(sh) : sh.type === 'leaders' ? leadersHtml(sh) : ''; }
   function over(n){   // does the text inside n run wider than n's own box? (an overflow:hidden box reports scrollWidth == clientWidth when the overrun is under a pixel, so measure the text itself)
     const cs = getComputedStyle(n), k = n.getBoundingClientRect().width / (n.offsetWidth || 1) || 1;
     const box = (n.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0)) * k;
@@ -484,7 +508,8 @@
   }
   function shrink(n, min){ n.style.fontSize = ''; let f = parseFloat(getComputedStyle(n).fontSize) || 24, g = 0; while (over(n) && f > min && g++ < 40){ f -= 1; n.style.fontSize = f + 'px'; } }
   function fitShow(root){
-    root.querySelectorAll('.gn,.lcard .ln1,.gt,.lcard .ln2').forEach((n) => shrink(n, 12));
+    root.querySelectorAll('.gn,.lcard .ln1,.gt,.lcard .ln2,.teamShow .tn').forEach((n) => shrink(n, 12));
+    root.querySelectorAll('.teamShow .tname').forEach((n) => shrink(n, 24));
     root.querySelectorAll('.vtag').forEach((t) => { const sp = t.firstChild; sp.style.fontSize = ''; let f = 26, g = 0; const lim = t.getBoundingClientRect().height - 14; while (sp.getBoundingClientRect().height > lim && f > 12 && g++ < 30){ f -= 1; sp.style.fontSize = f + 'px'; } });
     root.querySelectorAll('.bteam,.hdr').forEach((n) => shrink(n, 11));
   }
@@ -802,7 +827,7 @@
   setInterval(pollLive, 4000);
   setInterval(tickClock, 1000);
 
-  window.IFWL_STREAM = { feed: () => feed, run: (def) => runScene(def), scenes: { personScene, boardScene, eventsScene, annScene, promoScene, spotlightScene, highlightScene, wallScene, cmpHtml, fitNames, gridHtml, battleHtml, leadersHtml, ivHtml, partsScene, shopScene, soldScene, kitScene, teamScene, sponsScene, numsScene }, pull, buildTicker, pollLive, state: () => liveState };
+  window.IFWL_STREAM = { feed: () => feed, run: (def) => runScene(def), scenes: { personScene, boardScene, eventsScene, annScene, promoScene, spotlightScene, highlightScene, wallScene, cmpHtml, fitNames, teamHtml, gridHtml, battleHtml, leadersHtml, ivHtml, partsScene, shopScene, soldScene, kitScene, teamScene, sponsScene, numsScene }, pull, buildTicker, pollLive, state: () => liveState };
   if (!Q.has('manual')) loop(); else { pull().then(buildTicker); pollLive(); }
   requestAnimationFrame(frame);
 })();
