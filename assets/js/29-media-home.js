@@ -12,11 +12,12 @@
   function token(){ try{ return localStorage.getItem('IFWL_PATREON_SESSION') || sessionStorage.getItem('IFWL_PATREON_SESSION') || ''; }catch(_){ return ''; } }
   function provName(p){ return p.provider === 'twitch' ? 'Twitch' : 'YouTube'; }
   function thumbUrl(p){ return p.provider === 'youtube' && /^[A-Za-z0-9_-]{11}$/.test(p.vid) ? 'https://i.ytimg.com/vi/' + p.vid + '/hqdefault.jpg' : ''; }
-  function embedSrc(p){
+  function embedSrc(p, auto){
+    var ap = auto === false ? 'false' : 'true';
     var host = encodeURIComponent(location.hostname || 'localhost');
-    if(p.provider === 'youtube') return 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(p.vid) + '?autoplay=1&rel=0' + (p.start ? '&start=' + Number(p.start) : '');
-    if(p.tkind === 'clip') return 'https://clips.twitch.tv/embed?clip=' + encodeURIComponent(p.vid) + '&parent=' + host + '&autoplay=true';
-    return 'https://player.twitch.tv/?video=v' + encodeURIComponent(p.vid) + '&parent=' + host + '&autoplay=true' + (p.start ? '&time=' + Number(p.start) + 's' : '');
+    if(p.provider === 'youtube') return 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(p.vid) + '?autoplay=' + (auto === false ? '0' : '1') + '&rel=0' + (p.start ? '&start=' + Number(p.start) : '');
+    if(p.tkind === 'clip') return 'https://clips.twitch.tv/embed?clip=' + encodeURIComponent(p.vid) + '&parent=' + host + '&autoplay=' + ap;
+    return 'https://player.twitch.tv/?video=v' + encodeURIComponent(p.vid) + '&parent=' + host + '&autoplay=' + ap + (p.start ? '&time=' + Number(p.start) + 's' : '');
   }
   function dateText(ms){ try{ return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); }catch(_){ return ''; } }
 
@@ -35,6 +36,7 @@
       '.ifwl-vid-ph small{font:600 12px Inter,Arial,sans-serif;letter-spacing:.06em;color:#8b93a2}' +
       '.ifwl-vid-play{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:rgba(14,156,138,.92);box-shadow:0 2px 10px rgba(0,0,0,.35)}' +
       '.ifwl-vid-play:after{content:"";position:absolute;left:21px;top:16px;border-left:18px solid #fff;border-top:11px solid transparent;border-bottom:11px solid transparent}' +
+      '.ifwl-vid-media.live{cursor:default}.ifwl-vid-media.live .ifwl-vid-kind{pointer-events:none;top:auto;bottom:10px}' +
       '.ifwl-vid-media:hover .ifwl-vid-play{background:#0e9c8a}' +
       '.ifwl-vid-kind{position:absolute;left:10px;top:10px;padding:3px 9px;border-radius:6px;font:700 12px Rajdhani,Arial Narrow,Arial,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#fff;background:#0e9c8a}' +
       '.ifwl-vid-kind.replay{background:#9b3fd1}.ifwl-vid-kind.stream{background:#b5750a}.ifwl-vid-kind.pov{background:#1a2230}' +
@@ -43,18 +45,30 @@
       '.ifwl-vid-meta{font-size:12.5px;color:var(--text-muted,#5b6576);line-height:1.45}' +
       '.ifwl-vid-actions{display:flex;gap:12px;align-items:center;margin-top:4px;font-size:12.5px}' +
       '.ifwl-vid-actions a{color:var(--ifwl-teal-deep,#086b5f);font-weight:600}' +
+      '#mediaPageRoot .med-sub{margin:0 0 12px;font-size:13px;color:var(--text-muted,#5b6576);line-height:1.5}' +
+      '#mediaPageRoot .med-form{display:grid;grid-template-columns:2fr 2fr 1.4fr 1.3fr auto;gap:12px;align-items:end}' +
+      '#mediaPageRoot .med-form .field-group{margin:0;min-width:0}#mediaPageRoot .med-form .med-url{grid-column:1 / -1}' +
+      '#mediaPageRoot .med-form input,#mediaPageRoot .med-form select{width:100%;box-sizing:border-box}' +
+      '@media(max-width:900px){#mediaPageRoot .med-form{grid-template-columns:1fr 1fr}#mediaPageRoot .med-form button{grid-column:1 / -1}}' +
+      '@media(max-width:560px){#mediaPageRoot .med-form{grid-template-columns:1fr}}' +
+      '#mediaPageRoot .med-status{font-size:13px;margin-top:10px;min-height:18px}#mediaPageRoot .med-status.err{color:var(--ifwl-red,#c2352a)}#mediaPageRoot .med-status.good{color:var(--ifwl-green,#12875a)}' +
+      '#mediaPageRoot .med-note{font-size:13px;color:var(--text-muted,#5b6576);line-height:1.55}' +
+      '#mediaPageRoot .med-chips{display:flex;gap:8px;flex-wrap:wrap;padding:6px 18px 14px}' +
+      '#mediaPageRoot .med-chip{border:1px solid var(--ifwl-line,#e3e7ed);background:var(--panel-bg,#fff);color:var(--text-primary,#1a2230);border-radius:999px;padding:7px 14px;font:600 13px Inter,Arial,sans-serif;cursor:pointer}' +
+      '#mediaPageRoot .med-chip.active{background:var(--text-primary,#1a2230);border-color:var(--text-primary,#1a2230);color:#fff}' +
+      '#mediaPageRoot .ifwl-vid-grid.wide{padding:0 18px 18px}#mediaPageRoot .med-empty{padding:34px 16px;text-align:center;color:var(--text-muted,#5b6576);grid-column:1 / -1}' +
       '.ifwl-vid-actions button{background:none;border:0;padding:0;color:var(--ifwl-red,#c2352a);font:600 12.5px Inter,Arial,sans-serif;cursor:pointer}';
     document.head.appendChild(st);
   }
 
   function cardHtml(p, opts){
     opts = opts || {};
-    var th = thumbUrl(p);
-    var media = (th ? '<img src="' + esc(th) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '<div class="ifwl-vid-ph">' + esc(provName(p)) + '<small>' + (p.tkind === 'clip' ? 'Clip' : 'Video') + '</small></div>') +
+    var th = thumbUrl(p), live = p.provider === 'twitch';   // Twitch has no free thumbnail, so its card shows the player itself, paused
+    var media = live ? '<iframe src="' + esc(embedSrc(p, false)) + '" title="' + esc(p.title) + '" loading="lazy" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe><span class="ifwl-vid-kind ' + esc(p.kind) + '">' + esc(KINDS[p.kind] || 'Highlight') + '</span>' : (th ? '<img src="' + esc(th) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '<div class="ifwl-vid-ph">' + esc(provName(p)) + '<small>' + (p.tkind === 'clip' ? 'Clip' : 'Video') + '</small></div>') +
       '<span class="ifwl-vid-play"></span><span class="ifwl-vid-kind ' + esc(p.kind) + '">' + esc(KINDS[p.kind] || 'Highlight') + '</span>';
     var meta = [p.round ? esc(p.round) : '', 'Posted by ' + esc(p.name), esc(dateText(p.atMs))].filter(Boolean).join(' &middot; ');
     return '<article class="ifwl-vid" data-vid-id="' + esc(p.id) + '">' +
-      '<button type="button" class="ifwl-vid-media" aria-label="Play ' + esc(p.title) + '">' + media + '</button>' +
+      '<' + (live ? 'div' : 'button type="button"') + ' class="ifwl-vid-media' + (live ? ' live' : '') + '" aria-label="Play ' + esc(p.title) + '">' + media + '</' + (live ? 'div' : 'button') + '>' +
       '<div class="ifwl-vid-body"><h4>' + esc(p.title) + '</h4><div class="ifwl-vid-meta">' + meta + '</div>' +
       '<div class="ifwl-vid-actions"><a href="' + esc(p.watchUrl) + '" target="_blank" rel="noopener noreferrer">Watch on ' + esc(provName(p)) + '</a>' +
       (opts.canRemove && (p.mine || opts.canRemoveAny) ? '<button type="button" data-vid-remove="' + esc(p.id) + '">Remove</button>' : '') + '</div></div></article>';
@@ -84,7 +98,7 @@
   /* ------------------------------------------------ Home pages only */
   function mountHome(){
     var dir = document.getElementById('directoryPanel');
-    if(!dir || document.getElementById('mediaHomePanel')) return;
+    if(!dir || document.getElementById('mediaHomePanel') || document.getElementById('mediaPageRoot')) return;   // not on the Media page itself
     css();
     // menu entry: its own page, so it is a plain link rather than an in-page view
     var tabs = document.getElementById('viewTabs');

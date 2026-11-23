@@ -167,7 +167,7 @@
     var g = bar.querySelector(':scope > .view-tab-dropdown .dropdown-toggle.active');
     if(g){ var n = tidy(g).toLowerCase().replace(/[^a-z]/g, ''); for(var k in TOGGLE_SEC){ if(n.indexOf(k) === 0) return TOGGLE_SEC[k]; } }
     var f = (window.IFWL_PAGE && window.IFWL_PAGE.file) || '';
-    if(/licence-teams/.test(f)) return 'race';
+    if(/licence-teams|licence-media/.test(f)) return 'race';
     if(/licence-kit/.test(f)) return 'kit';
     if(/licence-staff/.test(f)) return 'staff';
     if(/licence-home|licence\.html/.test(f) || !f) return 'home';
