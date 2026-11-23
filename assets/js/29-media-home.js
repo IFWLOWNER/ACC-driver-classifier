@@ -7,6 +7,12 @@
   var API = (window.IFWL_AUTH && window.IFWL_AUTH.FUNCTION) || 'https://europe-west2-ifwl-591d8.cloudfunctions.net/rtGate';
   var MEDIA_PAGE = 'licence-media.html';
   var KINDS = { highlight: 'Highlight', replay: 'Replay', stream: 'Official stream', pov: 'Driver POV' };
+  // Reactions. Bits match the server (1 fire, 2 banana, 4 thumbs up). Icons are written as escapes so the file stays plain text.
+  var REACTS = [
+    { key: 'fire',   bit: 1, label: 'Fire',      icon: '\uD83D\uDD25' },
+    { key: 'banana', bit: 2, label: 'Banana',    icon: '\uD83C\uDF4C' },
+    { key: 'up',     bit: 4, label: 'Thumbs up', icon: '\uD83D\uDC4D' }
+  ];
 
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
   function token(){ try{ return localStorage.getItem('IFWL_PATREON_SESSION') || sessionStorage.getItem('IFWL_PATREON_SESSION') || ''; }catch(_){ return ''; } }
@@ -57,8 +63,25 @@
       '#mediaPageRoot .med-chip{border:1px solid var(--ifwl-line,#e3e7ed);background:var(--panel-bg,#fff);color:var(--text-primary,#1a2230);border-radius:999px;padding:7px 14px;font:600 13px Inter,Arial,sans-serif;cursor:pointer}' +
       '#mediaPageRoot .med-chip.active{background:var(--text-primary,#1a2230);border-color:var(--text-primary,#1a2230);color:#fff}' +
       '#mediaPageRoot .ifwl-vid-grid.wide{padding:0 18px 18px}#mediaPageRoot .med-empty{padding:34px 16px;text-align:center;color:var(--text-muted,#5b6576);grid-column:1 / -1}' +
+      '.ifwl-vid-react{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}' +
+      '.ifwl-react{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--ifwl-line,#e3e7ed);background:var(--panel-bg,#fff);color:var(--text-primary,#1a2230);border-radius:999px;padding:6px 12px;font:700 13px Inter,Arial,sans-serif;line-height:1;cursor:pointer}' +
+      '.ifwl-react:hover{border-color:var(--ifwl-teal,#0e9c8a)}' +
+      '.ifwl-react.on{background:rgba(14,156,138,.16);border-color:var(--ifwl-teal,#0e9c8a);color:var(--ifwl-teal-deep,#086b5f)}' +
+      '.ifwl-react-i{font-size:15px;line-height:1}.ifwl-react-n{min-width:8px;text-align:left;font-variant-numeric:tabular-nums}' +
+      '.ifwl-react-msg{font-size:12px;color:var(--text-muted,#5b6576)}' +
+      '.ifwl-react-msg:empty{display:none}.ifwl-react-msg{flex-basis:100%}' +
+      '@media(max-width:720px){.ifwl-vid-react{flex-wrap:nowrap;gap:6px;flex-flow:row wrap}.ifwl-react{flex:1 1 0;min-width:0;justify-content:center;padding:9px 6px;gap:5px}}' +
       '.ifwl-vid-actions button{background:none;border:0;padding:0;color:var(--ifwl-red,#c2352a);font:600 12.5px Inter,Arial,sans-serif;cursor:pointer}';
     document.head.appendChild(st);
+  }
+
+  function reactBar(p, note){
+    var my = Number(p.my) || 0, r = p.r || {};
+    return '<div class="ifwl-vid-react" role="group" aria-label="Reactions">' + REACTS.map(function(x){
+      var on = (my & x.bit) === x.bit, n = Math.max(0, Number(r[x.key]) || 0);
+      return '<button type="button" class="ifwl-react' + (on ? ' on' : '') + '" data-react="' + x.key + '" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + x.label + ', ' + n + '" title="' + x.label + '">' +
+        '<span class="ifwl-react-i" aria-hidden="true">' + x.icon + '</span><span class="ifwl-react-n">' + n + '</span></button>';
+    }).join('') + '<span class="ifwl-react-msg" aria-live="polite">' + esc(note || '') + '</span></div>';
   }
 
   function cardHtml(p, opts){
@@ -69,12 +92,51 @@
     var meta = [p.round ? esc(p.round) : '', 'Posted by ' + esc(p.name), esc(dateText(p.atMs))].filter(Boolean).join(' &middot; ');
     return '<article class="ifwl-vid" data-vid-id="' + esc(p.id) + '">' +
       '<' + (live ? 'div' : 'button type="button"') + ' class="ifwl-vid-media' + (live ? ' live' : '') + '" aria-label="Play ' + esc(p.title) + '">' + media + '</' + (live ? 'div' : 'button') + '>' +
-      '<div class="ifwl-vid-body"><h4>' + esc(p.title) + '</h4><div class="ifwl-vid-meta">' + meta + '</div>' +
+      '<div class="ifwl-vid-body"><h4>' + esc(p.title) + '</h4><div class="ifwl-vid-meta">' + meta + '</div>' + reactBar(p) +
       '<div class="ifwl-vid-actions"><a href="' + esc(p.watchUrl) + '" target="_blank" rel="noopener noreferrer">Watch on ' + esc(provName(p)) + '</a>' +
       (opts.canRemove && (p.mine || opts.canRemoveAny) ? '<button type="button" data-vid-remove="' + esc(p.id) + '">Remove</button>' : '') + '</div></div></article>';
   }
   // Click a thumbnail to load that video's player in place.
+  function redrawReact(card, p, note){
+    var bar = card.querySelector('.ifwl-vid-react'); if(!bar) return;
+    var tmp = document.createElement('div'); tmp.innerHTML = reactBar(p, note);
+    bar.parentNode.replaceChild(tmp.firstChild, bar);
+    if(note){ setTimeout(function(){ var m = card.querySelector('.ifwl-react-msg'); if(m && m.textContent === note) m.textContent = ''; }, 4500); }
+  }
+  // Fire / banana / thumbs up. Shows the change at once, then confirms with the server and puts the real counts back.
+  // Taps on one video are sent one after another (so the server always ends on the last thing you chose); a repeat tap on the
+  // same button within a third of a second is ignored so a double-tap does not undo itself.
+  function wireReact(root, posts){
+    root.addEventListener('click', function(e){
+      var b = e.target.closest && e.target.closest('.ifwl-react');
+      if(!b || !root.contains(b)) return;
+      var card = b.closest('.ifwl-vid'); var id = card && card.getAttribute('data-vid-id');
+      var p = (posts() || []).filter(function(x){ return x.id === id; })[0]; if(!p) return;
+      var def = REACTS.filter(function(x){ return x.key === b.getAttribute('data-react'); })[0]; if(!def) return;
+      if(!token()){ redrawReact(card, p, 'Log in with Discord to react.'); return; }
+      var t = Date.now(); p._tap = p._tap || {};
+      if(p._tap[def.key] && t - p._tap[def.key] < 350) return;
+      p._tap[def.key] = t;
+      var on = ((Number(p.my) || 0) & def.bit) !== def.bit;
+      function apply(turnOn){
+        p.my = turnOn ? ((Number(p.my) || 0) | def.bit) : ((Number(p.my) || 0) & ~def.bit);
+        p.r = Object.assign({ fire: 0, banana: 0, up: 0 }, p.r);
+        p.r[def.key] = Math.max(0, (Number(p.r[def.key]) || 0) + (turnOn ? 1 : -1));
+      }
+      apply(on); p._pending = (p._pending || 0) + 1; redrawReact(card, p);
+      p._chain = (p._chain || Promise.resolve()).then(function(){
+        return fetch(API + '?mediaReact=1&token=' + encodeURIComponent(token()), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, key: def.key, on: on }) })
+          .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, d: d }; }); });
+      }).then(function(x){
+        p._pending--;
+        if(!x.ok){ apply(!on); redrawReact(card, p, x.status === 401 ? 'Log in again to react.' : ((x.d && x.d.error) || 'Could not save that. Try again.')); return; }
+        if(!p._pending){ p.r = x.d.counts; p.my = x.d.my; }       // only trust the server's numbers once nothing else is waiting
+        redrawReact(card, p);
+      }).catch(function(){ p._pending--; apply(!on); redrawReact(card, p, 'Could not save that. Try again.'); });
+    });
+  }
   function wirePlay(root, posts){
+    wireReact(root, posts);
     root.addEventListener('click', function(e){
       var btn = e.target.closest && e.target.closest('.ifwl-vid-media');
       if(!btn || !root.contains(btn) || btn.querySelector('iframe')) return;
@@ -93,7 +155,7 @@
     var d = await r.json(); if(!r.ok) throw new Error(d && d.error || 'Could not load videos');
     return d;
   }
-  window.IFWL_MEDIA = { API: API, KINDS: KINDS, esc: esc, token: token, cardHtml: cardHtml, wirePlay: wirePlay, list: list, css: css, PAGE: MEDIA_PAGE };
+  window.IFWL_MEDIA = { API: API, KINDS: KINDS, REACTS: REACTS, esc: esc, token: token, cardHtml: cardHtml, wirePlay: wirePlay, list: list, css: css, PAGE: MEDIA_PAGE };
 
   /* ------------------------------------------------ Home pages only */
   function mountHome(){
