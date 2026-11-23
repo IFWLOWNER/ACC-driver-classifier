@@ -239,23 +239,44 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
   // with local getters (matching how eventTitleLine already displays that
   // same date to this viewer) and combine with the stint's UTC time-of-day
   // to get the real UTC instant for that stint.
-  function stintTimeToUtcDate(event, timeStr){
+  // Stints are numbered in time order and times are stored as a UTC time of day
+  // only. A time earlier than the one before it is on the NEXT day (a 24 hour
+  // race crosses midnight), so each stint gets a day offset from the event day.
+  // Same rule as the server (rtStintDayOffsets).
+  function stintDayOffsets(times){
+    const out = [];
+    let day = 0, prev = null;
+    (Array.isArray(times) ? times : []).forEach((t, i) => {
+      const p = parseStintTimeParts(t);
+      if(!p){ out[i] = day; return; }
+      const m = p.hh * 60 + p.mm;
+      if(prev !== null && m < prev) day += 1;
+      prev = m; out[i] = day;
+    });
+    return out;
+  }
+  function stintTimeToUtcDate(event, timeStr, idx){
     const parts = parseStintTimeParts(timeStr);
     if(!parts || !event || !event.eventDateMs) return null;
+    const off = (idx != null && idx >= 0) ? (stintDayOffsets(event.stintTimes)[idx] || 0) : 0;
     // +12h then read the UTC date: gives the intended calendar day whatever timezone the event was created in
     const base = new Date(event.eventDateMs + 12 * 3600 * 1000);
-    return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), parts.hh, parts.mm, 0));
+    return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() + off, parts.hh, parts.mm, 0));
   }
-  function formatStintTimeLocal(event, timeStr){
+  function formatStintTimeLocal(event, timeStr, idx){
     const raw = String(timeStr || '').trim();
     if(!raw) return '';
-    const utcDate = stintTimeToUtcDate(event, raw);
+    const utcDate = stintTimeToUtcDate(event, raw, idx);
     if(!utcDate) return raw;
     const tz = getMyTimezone();
-    if(tz === 'UTC') return raw;
+    // On a race that runs past midnight, say which day each stint is on.
+    const spans = stintDayOffsets(event.stintTimes).some(o => o > 0);
+    let wk = '';
+    if(spans){ try{ wk = utcDate.toLocaleDateString('en-GB', { weekday: 'short', timeZone: tz }) + ' '; }catch(_){ wk = ''; } }
+    if(tz === 'UTC') return wk + raw;
     try{
       const localPart = utcDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: tz });
-      return `${localPart} (${raw})`;
+      return `${wk}${localPart} (${raw})`;
     }catch(_){ return raw; }
   }
   function rtTimezoneBarHtml(){
@@ -277,21 +298,54 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
   // free-typing so times parse reliably (needed for the local-timezone
   // conversion above) and captains no longer have to remember the
   // "20:00 UTC" format by hand.
-  const STINT_TIME_OPTIONS = (() => {
-    const list = [];
-    for(let h = 0; h < 24; h++){
-      for(let m = 0; m < 60; m += 30){
-        list.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} UTC`);
-      }
+  // Time-slot size for the stint time dropdowns. The captain picks it when the
+  // event is created (and can change it later); it is stored on the event as
+  // stintSlotMin. Anything already saved that is not on the chosen grid (for
+  // example a 14:55 from the auto-fill) is kept and shown as it is.
+  const SLOT_CHOICES = [[60, 'Hourly'], [30, 'Every 30 minutes'], [10, 'Every 10 minutes'], [5, 'Every 5 minutes']];
+  const SLOT_CACHE = {};
+  function slotOptions(step){
+    step = Number(step) || 30;
+    if(!SLOT_CACHE[step]){
+      const list = [];
+      for(let h = 0; h < 24; h++) for(let m = 0; m < 60; m += step) list.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} UTC`);
+      SLOT_CACHE[step] = list;
     }
-    return list;
-  })();
-  function stintTimeSelectHtml(i, currentValue){
+    return SLOT_CACHE[step];
+  }
+  function eventSlot(event){ const n = Number(event && event.stintSlotMin); return [60, 30, 10, 5].includes(n) ? n : 30; }
+  function slotSelectOptionsHtml(selected, withBlank){
+    return (withBlank ? '<option value="">Choose...</option>' : '') + SLOT_CHOICES.map(c => `<option value="${c[0]}" ${Number(selected) === c[0] ? 'selected' : ''}>${c[1]}</option>`).join('');
+  }
+  function timeSelectOptionsHtml(step, currentValue, blankLabel){
     const cur = String(currentValue || '').trim();
-    const known = STINT_TIME_OPTIONS.includes(cur);
-    const extra = cur && !known ? `<option value="${esc(cur)}" selected>${esc(cur)} (existing)</option>` : '';
-    const opts = STINT_TIME_OPTIONS.map(t => `<option value="${esc(t)}" ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('');
-    return `<select data-rt-stint-time="${i}" style="margin-top:4px"><option value="">— Not set —</option>${extra}${opts}</select>`;
+    const list = slotOptions(step);
+    const extra = cur && !list.includes(cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : '';
+    const opts = list.map(t => `<option value="${esc(t)}" ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    return `<option value="">${blankLabel || '— Not set —'}</option>${extra}${opts}`;
+  }
+  function stintTimeSelectHtml(i, currentValue, step){
+    return `<select data-rt-stint-time="${i}" style="margin-top:4px">${timeSelectOptionsHtml(step, currentValue)}</select><span data-rt-day-tag="${i}" class="field-hint" style="margin-left:8px;font-weight:700"></span>`;
+  }
+  function setSelectValue(sel, value){
+    if(!sel) return;
+    if(![...sel.options].some(o => o.value === value)){
+      const o = document.createElement('option'); o.value = value; o.textContent = value; sel.appendChild(o);
+    }
+    sel.value = value;
+  }
+  // Marks stints that fall on a later day ("+1 day") as the captain sets the times.
+  function refreshDayTags(card){
+    const sels = [...card.querySelectorAll('[data-rt-stint-time]')].sort((a,b) => Number(a.dataset.rtStintTime) - Number(b.dataset.rtStintTime));
+    const offs = stintDayOffsets(sels.map(x => x.value));
+    sels.forEach((sel, i) => {
+      const tag = card.querySelector(`[data-rt-day-tag="${sel.dataset.rtStintTime}"]`);
+      if(tag) tag.textContent = sel.value && offs[i] > 0 ? `+${offs[i]} day${offs[i] > 1 ? 's' : ''}` : '';
+    });
+  }
+  function fmtUtcTime(totalMin){
+    const m = ((totalMin % 1440) + 1440) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2,'0')}:${String(m % 60).padStart(2,'0')} UTC`;
   }
 
   // ============================================================
@@ -317,15 +371,17 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     if(event.roundName) bits.push(esc(event.roundName));
     if(event.eventDateMs) bits.push(new Date(event.eventDateMs).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }));
     bits.push(`Car #${esc(event.raceNumber||'-')} — ${esc(event.car||'Car TBC')}`);
+    if(Number(event.stintLenMin) > 0) bits.push(`${Number(event.stintLenMin)} min stints`);
     return bits.join(' &middot; ');
   }
 
   function ownerEventCardHtml(event){
     const drivers = currentRosterNames;
+    const slotStep = eventSlot(event);
     const stintCount = Number(event.stintCount || 0);
     const availability = event.availability || {};
     const stintTimes = Array.isArray(event.stintTimes) ? event.stintTimes : [];
-    const availHeader = Array.from({length: stintCount}, (_,i) => `<th>Stint ${i+1}${stintTimes[i] ? `<br><span style="font-weight:600;text-transform:none">${esc(formatStintTimeLocal(event, stintTimes[i]))}</span>` : ''}</th>`).join('');
+    const availHeader = Array.from({length: stintCount}, (_,i) => `<th>Stint ${i+1}${stintTimes[i] ? `<br><span style="font-weight:600;text-transform:none">${esc(formatStintTimeLocal(event, stintTimes[i], i))}</span>` : ''}</th>`).join('');
     // ✅ ADDED: response-progress hint - "X of Y responded" - so a captain
     // can see at a glance whether it's worth chasing anyone before
     // allocating stints, without having to eyeball the whole table.
@@ -359,7 +415,7 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       }).join('');
       return `<div class="rt-alloc-row"><span class="rt-alloc-label">Stint ${i+1}</span>
         <select data-rt-alloc-stint="${i}"><option value="">— Unassigned —</option>${options}</select>
-        ${stintTimeSelectHtml(i, stintTimes[i])}</div>`;
+        ${stintTimeSelectHtml(i, stintTimes[i], slotStep)}</div>`;
     }).join('');
     const dmRows = Array.isArray(event.dmLog) ? event.dmLog : [];
     const ackRows = Object.values(event.acknowledgements||{}).map(a => {
@@ -384,6 +440,16 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
         <tbody>${availRows || `<tr><td colspan="${stintCount+1}" class="empty">No drivers on this roster yet.</td></tr>`}</tbody></table></div>
       </div>
       <div class="rt-event-section"><h5>Stint allocation &amp; times</h5>
+        <div class="rt-slot-bar" style="display:flex;flex-wrap:wrap;gap:10px 18px;align-items:flex-end;margin:6px 0 10px">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700">Time slots
+            <select data-rt-slot="1">${slotSelectOptionsHtml(slotStep, false)}</select></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700">First stint starts (UTC)
+            <select data-rt-af-start="1">${timeSelectOptionsHtml(slotStep, stintTimes[0], 'Choose...')}</select></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700">Stint length (min)
+            <input type="number" min="5" max="600" step="1" data-rt-af-len="1" value="${Number(event.stintLenMin) > 0 ? Number(event.stintLenMin) : ''}" placeholder="e.g. 55" style="width:110px"></label>
+          <button type="button" class="btn ghost" data-rt-af-go="1">Auto-fill times</button>
+        </div>
+        <div class="field-hint" style="margin-bottom:8px">Times are UTC and run in order from stint 1. A time earlier than the one before it counts as the next day, so a race that crosses midnight works. Auto-fill sets every stint start from the first start and the stint length; you can still change any single time afterwards.</div>
         <div class="rt-alloc-grid">${allocationRows}</div>
         <label class="rt-dm-switch"><input type="checkbox" data-rt-notify-dm="1" ${rtDmPref() ? 'checked' : ''}> Also send changed drivers a Discord DM <span class="field-hint">(they always get a pop-up on the site; only drivers whose own stints or times changed are told, everyone else keeps their confirmation)</span></label>
         <button type="button" class="btn ghost" data-rt-save-times="1">Save stint times</button>
@@ -403,7 +469,7 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     const myAvailableOnly = Array.isArray(myEntry.availableStints) ? myEntry.availableStints : [];
     const myAck = event.acknowledgements?.[key];
     const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
-    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${formatStintTimeLocal(event, stintTimes[n-1])})` : `Stint ${n}`).join(', ');
+    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${formatStintTimeLocal(event, stintTimes[n-1], n-1)})` : `Stint ${n}`).join(', ');
     const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
       <strong>${eventTitleLine(event)}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
@@ -419,7 +485,7 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       // Data model (myScheduled/myAvailableOnly, stints/availableStints)
       // is unchanged - display text only.
       const groups = Array.from({length: stintCount}, (_,i) => {
-        const timeLabel = stintTimes[i] ? `<span>${esc(formatStintTimeLocal(event, stintTimes[i]))}</span>` : '';
+        const timeLabel = stintTimes[i] ? `<span>${esc(formatStintTimeLocal(event, stintTimes[i], i))}</span>` : '';
         return `<div class="rt-mystint-group">
           <div class="rt-mystint-stintlabel">Stint ${i+1}${timeLabel}</div>
           <div class="rt-mystint-pair">
@@ -459,15 +525,37 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
           try{ await rtDeleteEvent(event.id); currentEvents = currentEvents.filter(e => e.id !== event.id); renderEventsBody(); renderClaimBody(); }
           catch(e){ alert('Could not delete event: ' + e.message); }
         });
+        refreshDayTags(card);
+        card.addEventListener('change', (e) => { if(e.target && e.target.matches && e.target.matches('[data-rt-stint-time]')) refreshDayTags(card); });
+        // Change the time-slot size: rebuild every time dropdown on the new grid, keeping what is already set.
+        card.querySelector('[data-rt-slot]')?.addEventListener('change', (e) => {
+          const step = Number(e.target.value) || 30;
+          card.querySelectorAll('[data-rt-stint-time]').forEach(sel => { const v = sel.value; sel.innerHTML = timeSelectOptionsHtml(step, v); });
+          const af = card.querySelector('[data-rt-af-start]'); if(af){ const v = af.value; af.innerHTML = timeSelectOptionsHtml(step, v, 'Choose...'); }
+          refreshDayTags(card);
+        });
+        // Auto-fill: first start + stint length fills every stint start. Past midnight it simply wraps.
+        card.querySelector('[data-rt-af-go]')?.addEventListener('click', () => {
+          const start = parseStintTimeParts(card.querySelector('[data-rt-af-start]')?.value);
+          const len = Math.round(Number(card.querySelector('[data-rt-af-len]')?.value));
+          if(!start){ alert('Choose the time the first stint starts.'); return; }
+          if(!Number.isFinite(len) || len < 5 || len > 600){ alert('Enter the stint length in minutes (5 to 600).'); return; }
+          const first = start.hh * 60 + start.mm;
+          card.querySelectorAll('[data-rt-stint-time]').forEach(sel => setSelectValue(sel, fmtUtcTime(first + Number(sel.dataset.rtStintTime) * len)));
+          refreshDayTags(card);
+        });
         card.querySelector('[data-rt-save-times]')?.addEventListener('click', async () => {
           const timeInputs = [...card.querySelectorAll('[data-rt-stint-time]')].sort((a,b) => Number(a.dataset.rtStintTime) - Number(b.dataset.rtStintTime));
           const stintTimes = timeInputs.map(inp => inp.value.trim());
+          const slotMin = Number(card.querySelector('[data-rt-slot]')?.value) || eventSlot(event);
+          const lenRaw = Math.round(Number(card.querySelector('[data-rt-af-len]')?.value));
+          const lenMin = Number.isFinite(lenRaw) && lenRaw >= 5 && lenRaw <= 600 ? lenRaw : 0;
           try{
             const notifyDm = !!card.querySelector('[data-rt-notify-dm]')?.checked; rtSetDmPref(notifyDm);
-            const result = await rtSaveEvent({ eventId: event.id, teamId: currentTeamId, teamName: currentTeamName, platform: event.platform, simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car, stintCount: event.stintCount, stintTimes, roundName: event.roundName, eventDateMs: event.eventDateMs, notifyDm });
+            const result = await rtSaveEvent({ eventId: event.id, teamId: currentTeamId, teamName: currentTeamName, platform: event.platform, simgridLink: event.simgridLink, raceNumber: event.raceNumber, car: event.car, stintCount: event.stintCount, stintTimes, stintSlotMin: slotMin, stintLenMin: lenMin, roundName: event.roundName, eventDateMs: event.eventDateMs, notifyDm });
             const idx = currentEvents.findIndex(e => e.id === event.id);
             if(idx !== -1){
-              currentEvents[idx].stintTimes = stintTimes; if(result.simgridImageUrl) currentEvents[idx].simgridImageUrl = result.simgridImageUrl;
+              currentEvents[idx].stintTimes = stintTimes; currentEvents[idx].stintSlotMin = slotMin; currentEvents[idx].stintLenMin = lenMin; if(result.simgridImageUrl) currentEvents[idx].simgridImageUrl = result.simgridImageUrl;
               if(result.acknowledgements) currentEvents[idx].acknowledgements = result.acknowledgements;
               if(result.notify){ rtLastNotify[event.id] = result.notify; rtApplyNotifyToEvent(currentEvents[idx], result.notify); }
             }
@@ -617,7 +705,15 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
             </div>
             <div class="rt-field" style="max-width:110px;">
               <label for="newEvStintCount">Stints (driver changes)</label>
-              <input type="number" min="1" max="24" value="5" id="newEvStintCount">
+              <input type="number" min="1" max="40" value="5" id="newEvStintCount">
+            </div>
+            <div class="rt-field" style="max-width:190px;">
+              <label for="newEvSlot">Time slots (required)</label>
+              <select id="newEvSlot">${slotSelectOptionsHtml(0, true)}</select>
+            </div>
+            <div class="rt-field" style="max-width:120px;">
+              <label for="newEvStintLen">Stint length (min)</label>
+              <input type="number" min="5" max="600" step="1" id="newEvStintLen" placeholder="optional">
             </div>
             <div class="rt-field rt-field-createbtn">
               <button type="button" class="btn teal" id="newEvBtn">Create event</button>
@@ -637,13 +733,17 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       const car = q('newEvCar').value.trim();
       const simgridLink = q('newEvSimgrid').value.trim();
       const platform = q('newEvPlatform').value;
-      const stintCount = Math.max(1, Math.min(24, Number(q('newEvStintCount').value || 5)));
+      const stintCount = Math.max(1, Math.min(40, Number(q('newEvStintCount').value || 5)));
+      const stintSlotMin = Number(q('newEvSlot').value);
+      const lenRaw = Math.round(Number(q('newEvStintLen').value));
+      const stintLenMin = Number.isFinite(lenRaw) && lenRaw >= 5 && lenRaw <= 600 ? lenRaw : 0;
       const roundName = q('newEvRoundName').value.trim();
       const eventDateMs = q('newEvDate').value ? new Date(q('newEvDate').value + 'T00:00:00').getTime() : 0;
       if(!simgridLink){ alert('A SimGrid event link is required to create an event.'); return; }
+      if(![60, 30, 10, 5].includes(stintSlotMin)){ alert('Choose the time slots for the stint times (hourly, 30, 10 or 5 minutes).'); return; }
       try{
-        const result = await rtSaveEvent({ teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, raceNumber, car, stintCount, roundName, eventDateMs });
-        currentEvents.unshift({ id: result.id, teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, simgridImageUrl: result.simgridImageUrl || '', raceNumber, car, stintCount, roundName, eventDateMs, stintTimes: [], stints: [], availability: {}, finalized: false, acknowledgements: {} });
+        const result = await rtSaveEvent({ teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, raceNumber, car, stintCount, stintSlotMin, stintLenMin, roundName, eventDateMs });
+        currentEvents.unshift({ id: result.id, teamId: currentTeamId, teamName: currentTeamName, platform, simgridLink, simgridImageUrl: result.simgridImageUrl || '', raceNumber, car, stintCount, stintSlotMin, stintLenMin, roundName, eventDateMs, stintTimes: [], stints: [], availability: {}, finalized: false, acknowledgements: {} });
         currentEvents.sort(sortEventsSoonestFirst);
         renderEventsBody();
         renderClaimBody();
@@ -688,7 +788,7 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     const myAvailableOnly = Array.isArray(myEntry.availableStints) ? myEntry.availableStints : [];
     const myAck = event.acknowledgements?.[key];
     const myAssignedStints = (event.stints||[]).filter(s => driverNameKey(s.driverName) === key).map(s => Number(s.index)+1);
-    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${formatStintTimeLocal(event, stintTimes[n-1])})` : `Stint ${n}`).join(', ');
+    const myAssignedStintsText = myAssignedStints.map(n => stintTimes[n-1] ? `Stint ${n} (${formatStintTimeLocal(event, stintTimes[n-1], n-1)})` : `Stint ${n}`).join(', ');
     const header = `<div class="rt-event-head" style="${esc('border-radius:14px 14px 0 0;' + rtEventBannerStyle(event))}">
       <strong>${eventTitleLine(event)}</strong>
       ${event.simgridLink ? `<a href="${esc(event.simgridLink)}" target="_blank" rel="noopener">SimGrid ↗</a>` : ''}
@@ -697,7 +797,7 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
     let bodyHtml;
     if(!event.finalized){
       const groups = Array.from({length: stintCount}, (_,i) => {
-        const timeLabel = stintTimes[i] ? `<span>${esc(formatStintTimeLocal(event, stintTimes[i]))}</span>` : '';
+        const timeLabel = stintTimes[i] ? `<span>${esc(formatStintTimeLocal(event, stintTimes[i], i))}</span>` : '';
         return `<div class="rt-mystint-group">
           <div class="rt-mystint-stintlabel">Stint ${i+1}${timeLabel}</div>
           <div class="rt-mystint-pair">
@@ -1967,11 +2067,12 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
   function draftModel(event, opts){
     var count = Number(event.stintCount || 0), times = Array.isArray(event.stintTimes) ? event.stintTimes : [];
     var rows = [];
+    var spansDays = stintDayOffsets(times).some(function(o){ return o > 0; });
     for(var i = 0; i < count; i++){
       var s = (event.stints || []).filter(function(x){ return Number(x.index) === i; })[0];
       var who = s && s.driverName ? s.driverName : '';
       var ack = who ? (event.acknowledgements || {})[driverNameKey(who)] : null;
-      var tstr = String(times[i] || '').trim(), when = tstr ? stintTimeToUtcDate(event, tstr) : null, tz = (opts && opts.tz) || 'UTC';
+      var tstr = String(times[i] || '').trim(), when = tstr ? stintTimeToUtcDate(event, tstr, i) : null, tz = (opts && opts.tz) || 'UTC';
       var shown = '', zone = '';
       if(when && tz !== 'UTC'){
         try{
@@ -1980,7 +2081,9 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
           zone = part ? part.value : tz;
         }catch(_){ shown = ''; }
       }
-      rows.push({ stint: i + 1, time: tstr, ts: when ? Math.floor(when.getTime() / 1000) : 0, shown: shown, zone: zone, driver: who, status: ack ? ack.status : '' });
+      var wkU = '', wkL = '';
+      if(spansDays && when){ try{ wkU = when.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' }) + ' '; wkL = when.toLocaleDateString('en-GB', { weekday: 'short', timeZone: tz }) + ' '; }catch(_){} }
+      rows.push({ stint: i + 1, time: wkU + tstr, ts: when ? Math.floor(when.getTime() / 1000) : 0, shown: shown, zone: zone, wkL: wkL, driver: who, status: ack ? ack.status : '' });
     }
     var date = event.eventDateMs ? new Date(event.eventDateMs).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
     var zoneName = (rows.filter(function(r){ return r.zone; })[0] || {}).zone || '';
@@ -2075,7 +2178,7 @@ if(window.IFWL_TEAM_PAGE) return; window.IFWL_TEAM_PAGE = true;
       c.fillText('STINT ' + r.stint, PAD + 14 + 56, y + ROW / 2 + 1); c.textAlign = 'left';
       c.textBaseline = 'middle'; c.fillStyle = '#c7d4dc'; c.font = '700 26px "JetBrains Mono", Consolas, monospace';
       if(r.shown){
-        c.fillText(r.shown + ' ' + r.zone, PAD + 148, y + ROW / 2 - 9);
+        c.fillText((r.wkL || '') + r.shown + ' ' + r.zone, PAD + 148, y + ROW / 2 - 9);
         c.fillStyle = '#7c92a0'; c.font = '600 15px "JetBrains Mono", Consolas, monospace'; c.fillText(r.time, PAD + 148, y + ROW / 2 + 18);
       } else c.fillText(r.time || '--:--', PAD + 148, y + ROW / 2 + 1);
       var d = r.driver ? splitName(r.driver) : null, nx = PAD + 340;
