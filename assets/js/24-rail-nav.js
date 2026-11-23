@@ -107,12 +107,17 @@
     ]);
     if(lic.length) out.push({ id: 'lic', label: 'Licence', icon: 'lic', items: lic, badge: support ? badgeOf(support.querySelector('[data-view="inbox"]') || support) : '' });
 
-    var race = compact([
+    var raceItems = compact([
       direct(':scope > .view-tab[data-view="availableRaces"]') && item(direct(':scope > .view-tab[data-view="availableRaces"]')),
       direct('#navLiveTimingsBtn') && item(direct('#navLiveTimingsBtn')),
       direct(':scope > .view-tab[data-view="seasons"]') && item(direct(':scope > .view-tab[data-view="seasons"]')),
       direct(':scope > .view-tab[data-view="commentatorWatch"]') && item(direct(':scope > .view-tab[data-view="commentatorWatch"]'))
-    ]).concat(buttonsIn(racing && racing.querySelector('.view-tab-menu')));
+    ]);
+    /* Media is its own page (licence-media.html), listed straight after Seasons */
+    var seasonsAt = -1;
+    raceItems.forEach(function(i, n){ if(i.el && i.el.getAttribute('data-view') === 'seasons') seasonsAt = n; });
+    raceItems.splice(seasonsAt + 1, 0, { href: 'licence-media.html', label: 'Media', tag: '', badge: '' });
+    var race = raceItems.concat(buttonsIn(racing && racing.querySelector('.view-tab-menu')));
     if(race.length) out.push({ id: 'race', label: 'Racing', icon: 'race', items: race });
 
     var kit = direct('#navKitBtn');
@@ -252,6 +257,7 @@
     if(!t) return;
     var keepOpen = !!t.keep;
     if(!keepOpen) closeFly();
+    if(t.href){ location.href = t.href; return; }                                                      /* a page of its own (Media) */
     if(t.el && t.el.id === 'navMyRaceTeamBtn'){ location.href = 'licence-teams.html'; return; }   /* the team page now lives in the Licence Centre */
     if(t.el) t.el.click();
     else if(t.view && typeof window.switchView === 'function') window.switchView(t.view);
