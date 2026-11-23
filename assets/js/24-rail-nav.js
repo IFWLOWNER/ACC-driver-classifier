@@ -27,6 +27,7 @@
     tools: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3 17.7 6.3 21l6.3-6.3a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
     help:  '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><path d="m4.9 4.9 4.3 4.3M14.8 14.8l4.3 4.3M19.1 4.9l-4.3 4.3M9.2 14.8l-4.3 4.3"/>',
     team:  '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5a5 5 0 0 1 4.5 5"/>',
+    media: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/>',
     staff: '<path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>'
   };
   var svg = function(k){ return '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICON[k] + '</svg>'; };
@@ -107,16 +108,15 @@
     ]);
     if(lic.length) out.push({ id: 'lic', label: 'Licence', icon: 'lic', items: lic, badge: support ? badgeOf(support.querySelector('[data-view="inbox"]') || support) : '' });
 
+    /* Media is a page of its own (licence-media.html): its own rail button, between Licence and Racing */
+    out.push({ id: 'media', label: 'Media', icon: 'media', direct: { href: 'licence-media.html', label: 'Media', tag: '', badge: '' } });
+
     var raceItems = compact([
       direct(':scope > .view-tab[data-view="availableRaces"]') && item(direct(':scope > .view-tab[data-view="availableRaces"]')),
       direct('#navLiveTimingsBtn') && item(direct('#navLiveTimingsBtn')),
       direct(':scope > .view-tab[data-view="seasons"]') && item(direct(':scope > .view-tab[data-view="seasons"]')),
       direct(':scope > .view-tab[data-view="commentatorWatch"]') && item(direct(':scope > .view-tab[data-view="commentatorWatch"]'))
     ]);
-    /* Media is its own page (licence-media.html), listed straight after Seasons */
-    var seasonsAt = -1;
-    raceItems.forEach(function(i, n){ if(i.el && i.el.getAttribute('data-view') === 'seasons') seasonsAt = n; });
-    raceItems.splice(seasonsAt + 1, 0, { href: 'licence-media.html', label: 'Media', tag: '', badge: '' });
     var race = raceItems.concat(buttonsIn(racing && racing.querySelector('.view-tab-menu')));
     if(race.length) out.push({ id: 'race', label: 'Racing', icon: 'race', items: race });
 
@@ -167,7 +167,8 @@
     var g = bar.querySelector(':scope > .view-tab-dropdown .dropdown-toggle.active');
     if(g){ var n = tidy(g).toLowerCase().replace(/[^a-z]/g, ''); for(var k in TOGGLE_SEC){ if(n.indexOf(k) === 0) return TOGGLE_SEC[k]; } }
     var f = (window.IFWL_PAGE && window.IFWL_PAGE.file) || '';
-    if(/licence-teams|licence-media/.test(f)) return 'race';
+    if(/licence-media/.test(f)) return 'media';
+    if(/licence-teams/.test(f)) return 'race';
     if(/licence-kit/.test(f)) return 'kit';
     if(/licence-staff/.test(f)) return 'staff';
     if(/licence-home|licence\.html/.test(f) || !f) return 'home';
@@ -247,7 +248,7 @@
 
   function openSec(id){
     var s = secs.filter(function(x){ return x.id === id; })[0];
-    if(s && s.direct){ closeFly(); s.direct.el.click(); return; }
+    if(s && s.direct){ closeFly(); if(s.direct.href){ location.href = s.direct.href; return; } s.direct.el.click(); return; }
     openId = id; drawRail(); drawFly(id);
     fly.classList.add('on'); scrim.classList.add('on');
   }
