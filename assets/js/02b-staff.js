@@ -7800,7 +7800,8 @@ Flashing Headlights:
       $('olcTabs').querySelectorAll('[data-olc-mode]').forEach(b => { b.className = 'btn ' + (b.dataset.olcMode === m ? 'teal' : 'ghost'); });
       $('olcSearchRow').style.display = m === 'search' ? '' : 'none';
       $('olcList').innerHTML = '';
-      if(m !== 'search') runList();
+      if(m === 'left') leftIntro();
+      else if(m !== 'search') runList();
     }
     $('olcTabs').addEventListener('click', e => { const b = e.target.closest('[data-olc-mode]'); if(b) setMode(b.dataset.olcMode); });
     $('olcSearchBtn').onclick = () => runList();
@@ -7834,8 +7835,54 @@ Flashing Headlights:
         L.innerHTML = (r.archive || []).length ? `<div class="field-hint">Full copies of deleted / merged-away licences, kept in Firestore collection <code>licence_deleted_archive</code> (latest 100). Open them in the Firebase console to restore data by hand.</div>` + r.archive.map(a => `<div class="olc-row"><div><b>${E(a.name || '(no name)')}</b> <span style="color:var(--text-muted)">${E(a.licenceNumber)}</span> ${badge(a.tier || '')}<div class="meta">Discord ID ${E(a.discordId)} · deleted ${fmtMs(a.deletedAtMs)} by ${E(a.deletedBy || '?')} · ${E(a.reason || '')}</div><div class="meta">Archive doc: <code>${E(a.archiveId)}</code></div></div></div>`).join('') : '<div class="empty">The archive is empty.</div>';
       }
     }
+    // ---------- Left Discord check (scan is read-only; suspend only after you tick + confirm)
+    let leftRows = [];
+    function leftIntro(){
+      $('olcList').innerHTML = '<div class="notice-card" style="margin-top:0">Compares every licence with the Discord server member list and shows the ones whose owner is <b>no longer in the server</b>. Nothing changes until you tick people and press <b>Suspend ticked</b>. A suspended licence can\'t log in and is hidden from the Driver Directory. If someone comes back, open them under Search and press Reinstate licence. The check reads every licence once, so run it when you need it.</div><button class="btn teal" type="button" data-olc-left-scan>Check Discord now</button>';
+    }
+    function leftRowHtml(d){
+      const last = d.lastLoginMs ? fmtMs(d.lastLoginMs) : 'never logged in';
+      return `<label class="olc-row" style="cursor:pointer"><input type="checkbox" data-olc-left-pick="${E(d.id)}" style="margin-right:10px;flex:0 0 auto"><div style="min-width:0;flex:1"><b>${E(d.name || '(no name)')}</b> <span style="color:var(--text-muted)">${E(d.licenceNumber || '')}</span> ${badge(d.tier || 'No Licence')}${d.patreonTier ? badge('Patreon ' + d.patreonTier, 'amber') : ''}${d.banActive ? badge('Banned', 'red') : ''}<div class="meta">ID ${E(d.id)}${d.platform ? ' · ' + E(d.platform) : ''} · last login ${last}</div></div><button class="btn ghost" type="button" data-olc-open="${E(d.id)}">Inspect</button></label>`;
+    }
+    function leftDraw(note){
+      const L = $('olcList');
+      const head = (note ? `<div class="field-hint" style="font-weight:700">${note}</div>` : '');
+      if(!leftRows.length){ L.innerHTML = head + '<div class="empty">Nobody to suspend: every licence belongs to someone still in the server (or is already suspended).</div><button class="btn ghost" type="button" data-olc-left-scan style="margin-top:10px">Check again</button>'; return; }
+      L.innerHTML = head + `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0"><button class="btn ghost" type="button" data-olc-left-all="1">Tick all</button><button class="btn ghost" type="button" data-olc-left-all="0">Untick all</button><button class="btn teal" type="button" data-olc-left-apply>Suspend ticked</button><button class="btn ghost" type="button" data-olc-left-scan>Check again</button></div><div id="olcLeftStatus" class="field-hint"></div>` + leftRows.map(leftRowHtml).join('');
+    }
+    async function leftScan(){
+      const L = $('olcList');
+      L.innerHTML = '<div class="empty">Reading the Discord member list and your licences&hellip; (can take a few seconds)</div>';
+      const r = await call(() => api().apiGet('staffLeftDiscordScan', ''));
+      if(r.__error){ L.innerHTML = `<div class="empty">${E(r.__error)}</div><button class="btn ghost" type="button" data-olc-left-scan style="margin-top:10px">Try again</button>`; return; }
+      leftRows = r.left || [];
+      leftDraw(`${r.licencesChecked} licences checked against ${r.guildMembers} Discord members. ${leftRows.length} no longer in the server${r.alreadySuspended ? ', ' + r.alreadySuspended + ' already suspended (not listed)' : ''}${r.truncated ? '. List cut at 1000, run again after suspending' : ''}.`);
+    }
+    async function leftApply(){
+      const picks = [...$('olcList').querySelectorAll('[data-olc-left-pick]:checked')].map(x => x.dataset.olcLeftPick);
+      const st = $('olcLeftStatus');
+      if(!picks.length){ if(st) st.textContent = 'Tick at least one licence first.'; return; }
+      if(!confirm('Suspend ' + picks.length + ' licence' + (picks.length === 1 ? '' : 's') + ' (left the Discord server)?\n\nThey will be blocked from the licence system and hidden from the Driver Directory. You can reinstate any of them later. Each person is checked against Discord again just before it is applied.')) return;
+      const done = new Set(), skipped = [];
+      let failed = 0;
+      for(let i = 0; i < picks.length; i += 40){
+        if(st) st.textContent = 'Working... ' + Math.min(i, picks.length) + ' of ' + picks.length;
+        const r = await call(() => api().apiPost('staffLeftDiscordApply', { ids: picks.slice(i, i + 40) }));
+        if(r.__error){ failed += picks.slice(i, i + 40).length; if(st) st.textContent = r.__error; continue; }
+        (r.results || []).forEach(x => { if(x.status === 'suspended') done.add(x.id); else { skipped.push(x); if(x.status === 'failed') failed++; } });
+      }
+      const names = {}; leftRows.forEach(d => { names[d.id] = d.name || d.id; });
+      leftRows = leftRows.filter(d => !done.has(d.id) && !skipped.some(x => x.id === d.id && /already suspended|not found|in the Discord/.test(x.why || '')));
+      const why = skipped.length ? ' Not suspended: ' + skipped.map(x => E(names[x.id] || x.id) + ' (' + E(x.why || x.status) + ')').join(', ') + '.' : '';
+      leftDraw(done.size + ' suspended.' + why);
+    }
+
     $('ownerLicenceCheckPanel').addEventListener('click', async e => {
       const o = e.target.closest('[data-olc-open]'); if(o){ openCheck(o.dataset.olcOpen); return; }
+      if(e.target.closest('[data-olc-left-scan]')){ leftScan(); return; }
+      if(e.target.closest('[data-olc-left-apply]')){ leftApply(); return; }
+      const la = e.target.closest('[data-olc-left-all]');
+      if(la){ $('olcList').querySelectorAll('[data-olc-left-pick]').forEach(c => { c.checked = la.dataset.olcLeftAll === '1'; }); return; }
       const u = e.target.closest('[data-olc-unblock]');
       if(u){
         if(!confirm('Unblock Discord ID ' + u.dataset.olcUnblock + '? They will be able to get a new licence on next login.')) return;
