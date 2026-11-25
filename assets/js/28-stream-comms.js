@@ -9,6 +9,7 @@
    - Stream badge: Rerun or RACE TEAM LIVE FEED (one button).
    - Shared prepared deck: Grid line-up, Battle for, Driver compare, Leaders, Team (name, car number, drivers; highlight one driver). Build cards ahead, push with one click.
    - Post race interview mode: pick up to three drivers, click who is on air now (right 40% of the stream).
+   - Info cards (saved to the same deck): Driver spotlight, Storyline, Top by rating, BoP board, Track card, Coming up, Supporters. Pit window: a countdown bug with the driver in the car, in its own slot.
    Everything is enforced by the server; this page only shows or hides things to match. Anyone without the
    Commentator / Owner / Ops role gets a 403 and the panel stays hidden.
    ============================================================ */
@@ -24,8 +25,23 @@ var TYPES = {
   battle:  { label: 'Battle for', min: 2, max: 2, note: 'Exactly two drivers. The title becomes "BATTLE FOR ..." (for example 3RD PLACE or THE LEAD).' },
   compare: { label: 'Driver compare', min: 1, max: 2, note: 'One or two drivers, shown with their average finish and IFWL ranking.' },
   team:    { label: 'Team', min: 1, max: 8, note: 'Team name and car number, then the team\'s drivers in the order you want them shown. Push the whole team, or press a driver\'s name on the saved card to highlight just them (the others dim).' },
-  leaders: { label: 'Leaders', min: 1, max: 8, note: 'One driver per class. Type a class name next to each driver if you want one (Pro, Am, Beginner, GT3, GT4, anything). Leave it blank for no label.' }
+  leaders: { label: 'Leaders', min: 1, max: 8, note: 'One driver per class. Type a class name next to each driver if you want one (Pro, Am, Beginner, GT3, GT4, anything). Leave it blank for no label.' },
+  spotlight: { info: 1, label: 'Driver spotlight', min: 1, max: 1, note: 'One driver: photo, tier, rating and rank, race record, last five finishes, name pronunciation and any recent tier change, all taken from the licence data when you push it. The headline is optional.' },
+  story:     { info: 1, label: 'Storyline', min: 1, max: 1, note: 'One driver and a one-line story. Pick one of the lines that is true for them right now, or type your own.' },
+  toprating: { info: 1, label: 'Top by rating', min: 0, max: 0, note: 'The top 5, 8 or 10 drivers by IFWL Rating, optionally limited to one tier. This is the IFWL Rating, not championship points.' },
+  bop:       { info: 1, label: 'BoP board', min: 0, max: 0, note: 'Ballast and restrictor for each car at a track, from the dynamic BoP. Arrows show the change since the last BoP update.' },
+  track:     { info: 1, label: 'Track card', min: 0, max: 0, note: 'Track name with session, weather and temperatures. The IFWL lap record (best valid race lap on record) is added automatically when there is one.' },
+  soon:      { info: 1, label: 'Coming up', min: 0, max: 0, note: 'The next events from the Licence Hub event list (UK time), with an optional line and web address underneath.' },
+  thanks:    { info: 1, label: 'Supporters', min: 0, max: 0, note: 'A thank-you strip with the names of Patreon supporters by tier. Names go on the live stream, so only push this if that is fine with the supporters.' }
 };
+var STORY_KEY = { won: 'Race winner', winstreak: 'On a roll', podiums: 'On the podium', firstwin: 'First win', climb: 'On the up', 'return': 'Welcome back', milestone: 'Milestone', newface: 'New face', moved: 'Tier change', form: 'Form guide' };
+var TITLE_PH = { spotlight: 'DRIVER SPOTLIGHT', toprating: 'TOP 5 BY IFWL RATING', bop: 'BALANCE OF PERFORMANCE', track: 'TRACK', soon: 'COMING UP', thanks: 'THANK YOU TO OUR SUPPORTERS' };
+var WX = [['dry', 'Dry'], ['cloudy', 'Cloudy'], ['rain', 'Rain'], ['mixed', 'Mixed'], ['night', 'Night']];
+function defOpts(t){
+  return { spotlight: { headline: '' }, story: { kind: '', text: '' }, toprating: { count: 5, tier: '' }, bop: { seriesId: '', track: '', max: 16 },
+    track: { track: '', length: '', session: '', weather: '', air: '', trackTemp: '', note: '' }, soon: { count: 3, line: '', cta: '' }, thanks: { tiers: ['gold', 'silver'] } }[t] || {};
+}
+function mergeOpts(t, o){ var d = defOpts(t), r = {}; Object.keys(d).forEach(function(k){ r[k] = (o && o[k] != null) ? o[k] : d[k]; }); if (r.tiers) r.tiers = r.tiers.slice(); return r; }
 
 function api(name, opts){
   opts = opts || {};
@@ -106,7 +122,21 @@ var CSS = '' +
 '.cm .cm-open{ margin-top:4px; }' +
 '.cm .cm-ivb{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }' +
 '.cm .cm-ivb button{ padding:10px 14px; }' +
-'.cm .cm-ivb button.air{ background:var(--cm-red); color:#fff; border-color:var(--cm-red); font-weight:800; }';
+'.cm .cm-ivb button.air{ background:var(--cm-red); color:#fff; border-color:var(--cm-red); font-weight:800; }' +
+'.cm .cm-tabs .lab{ flex:0 0 100%; font-size:11px; letter-spacing:.12em; text-transform:uppercase; opacity:.65; }' +
+'.cm select{ font:inherit; color:inherit; background:rgba(0,0,0,.28); border:1px solid var(--cm-line); border-radius:8px; padding:7px 10px; max-width:100%; }' +
+'.cm select option{ color:#111; }' +
+'.cm input[type=number]{ font:inherit; color:inherit; background:rgba(0,0,0,.28); border:1px solid var(--cm-line); border-radius:8px; padding:7px 8px; width:100%; }' +
+'.cm .cm-fldrow{ display:flex; gap:10px; flex-wrap:wrap; margin:8px 0; }' +
+'.cm .cm-fld{ display:flex; flex-direction:column; gap:3px; flex:1 1 130px; min-width:0; font-size:12px; }' +
+'.cm .cm-fld > span{ opacity:.75; }' +
+'.cm .cm-fld input,.cm .cm-fld select{ width:100%; }' +
+'.cm .cm-chips button.on{ background:var(--cm-teal); color:#04141a; border-color:var(--cm-teal); }' +
+'.cm .cm-story{ display:flex; flex-direction:column; gap:6px; margin:6px 0; }' +
+'.cm .cm-story button{ text-align:left; }' +
+'.cm .cm-story button.on{ background:var(--cm-teal); color:#04141a; border-color:var(--cm-teal); font-weight:700; }' +
+'.cm .cm-chk{ display:inline-flex; gap:6px; align-items:center; padding:6px 10px; border:1px solid var(--cm-line); border-radius:8px; cursor:pointer; }' +
+'.cm .cm-pitstat{ margin:6px 0 8px; }';
 
 function mount(root){
   if (root.__cm) return; root.__cm = true;
@@ -121,10 +151,12 @@ function mount(root){
   }
   setVisible(false);
 
-  var S = { me: null, comms: [], live: null, compare: null, show: null, interview: null, mode: '', deck: [], penalties: [], cleared: null };
+  var S = { me: null, comms: [], live: null, compare: null, show: null, interview: null, mode: '', deck: [], penalties: [], cleared: null, pit: null };
   var P = { picked: [], laps: 3 };                                   // penalty form state
   var openKey = ''; try { openKey = sessionStorage.getItem('ifwlCommsOpen') || ''; } catch (e) { openKey = ''; }
-  var B = { type: 'grid', title: '', number: '', entries: [], editId: '' };      // deck builder state
+  var B = { type: 'grid', title: '', number: '', entries: [], editId: '', opts: {} };      // deck builder state
+  var M = null, Mbusy = false;                                       // lazy cache of commsInfoMeta (tracks, BoP series, tiers)
+  var PT = { label: '', raceMin: 60, openMin: 15, closeMin: 45, stops: 1, elapsedMin: 0 }, PD = { picked: [] };   // pit window form state
   var IV = { entries: [] };                                          // interview picker state
   var busy = false, timer = null, quickTimer = null, lastSig = '', delTimer = null, delId = '';
 
@@ -137,12 +169,13 @@ function mount(root){
     '<div class="cm-grid" data-s="grid"></div>' +
     '<div class="cm-msg" data-s="msg"></div>' +
     '<div class="cm-open">' +
-    '<div class="cm-sec" data-s="pen" data-sec="pen" hidden></div>' +
-    '<div class="cm-sec" data-s="deck" data-sec="deck" hidden></div>' +
-    '<div class="cm-sec" data-s="build" data-sec="build" hidden></div>' +
-    '<div class="cm-sec" data-s="iv" data-sec="iv" hidden></div>' +
-    '<div class="cm-sec" data-s="live" data-sec="live" hidden></div>' +
-    '<div class="cm-sec" data-s="mode" data-sec="mode" hidden></div>' +
+    '<div class="cm-sec" data-s="pen" hidden></div>' +
+    '<div class="cm-sec" data-s="deck" hidden></div>' +
+    '<div class="cm-sec" data-s="build" hidden></div>' +
+    '<div class="cm-sec" data-s="iv" hidden></div>' +
+    '<div class="cm-sec" data-s="pit" hidden></div>' +
+    '<div class="cm-sec" data-s="live" hidden></div>' +
+    '<div class="cm-sec" data-s="mode" hidden></div>' +
     '</div>';
   var $s = function(k){ return root.querySelector('[data-s="' + k + '"]'); };
   var msgEl = $s('msg');
@@ -225,7 +258,18 @@ function mount(root){
     el.innerHTML = '<h4>On the stream right now</h4>' + (parts.length ? parts.map(function(p){ return '<div style="margin:4px 0">' + p + '</div>'; }).join('') : '<div class="cm-help">No card on screen. The stream is running its normal pop-ups.</div>') +
       '<div class="cm-row" style="margin-top:8px"><button data-act="hide"' + ((S.show || S.compare) ? '' : ' disabled') + ' class="' + ((S.show || S.compare) ? 'stop' : '') + '">Hide card from stream</button></div>';
   }
-  function cardSummary(c){ return (c.type === 'team' && c.number ? '#' + c.number + ' - ' : '') + (c.entries || []).map(function(e, i){ return (c.type === 'grid' ? (i + 1) + '. ' : '') + e.name + (e.label ? ' (' + e.label + ')' : ''); }).join(c.type === 'battle' || c.type === 'compare' ? '  vs  ' : ', '); }
+  function infoSummary(c){
+    var o = c.opts || {}, n = (c.entries || [])[0], nm = n ? n.name : '', tierTxt = function(t){ return String(t || '').replace(/^IFWL-/i, '').replace(/-/g, ' '); };
+    if (c.type === 'spotlight') return nm + (o.headline ? ' - ' + o.headline : '');
+    if (c.type === 'story') return nm + ' - ' + (o.text || STORY_KEY[o.kind] || 'storyline');
+    if (c.type === 'toprating') return 'Top ' + (o.count || 5) + (o.tier ? ' in ' + tierTxt(o.tier) : ' overall');
+    if (c.type === 'bop') return (o.track || 'no track') + ', up to ' + (o.max || 16) + ' cars';
+    if (c.type === 'track') return (o.track || 'no track') + (o.weather ? ', ' + o.weather : '') + (o.session ? ', ' + o.session : '');
+    if (c.type === 'soon') return 'Next ' + (o.count || 3) + ' events' + (o.line ? ' - ' + o.line : '');
+    if (c.type === 'thanks') return (o.tiers || []).join(', ') + ' supporters';
+    return '';
+  }
+  function cardSummary(c){ if (TYPES[c.type] && TYPES[c.type].info) return infoSummary(c); return (c.type === 'team' && c.number ? '#' + c.number + ' - ' : '') + (c.entries || []).map(function(e, i){ return (c.type === 'grid' ? (i + 1) + '. ' : '') + e.name + (e.label ? ' (' + e.label + ')' : ''); }).join(c.type === 'battle' || c.type === 'compare' ? '  vs  ' : ', '); }
   function renderDeck(){
     var el = $s('deck'), on = onScreenId();
     el.innerHTML = '<h4>Prepared cards (shared deck)</h4>' +
@@ -242,24 +286,97 @@ function mount(root){
       }).join('') : '<div class="cm-help">Nothing prepared yet. Use "Build a card" below.</div>');
   }
   var gridPicker = null;
+  function needMeta(){
+    if (M || Mbusy) return; Mbusy = true;
+    api('commsInfoMeta').then(function(d){ M = d || {}; }).catch(function(){ M = { bopSeries: [], bopTracks: [], tracks: [], tiers: [] }; }).then(function(){ Mbusy = false; if (TYPES[B.type] && TYPES[B.type].info) renderOpts(); });
+  }
+  function sel(key, list, cur, blank){
+    return '<select data-o="' + key + '">' + (blank != null ? '<option value="">' + esc(blank) + '</option>' : '') + list.map(function(x){ return '<option value="' + esc(x[0]) + '"' + (String(x[0]) === String(cur) ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join('') + '</select>';
+  }
+  function chips(key, list, cur){ return '<span class="cm-chips">' + list.map(function(x){ return '<button data-optset="' + key + ':' + esc(x[0]) + '" class="' + (String(cur) === String(x[0]) ? 'on' : '') + '">' + esc(x[1]) + '</button>'; }).join('') + '</span>'; }
+  function renderOpts(){
+    var host = $s('build') && $s('build').querySelector('[data-opts]'); if (!host) return;
+    var t = B.type, o = B.opts || {}, h = '', loading = '<div class="cm-help">Loading the lists...</div>';
+    if (t === 'spotlight') h = '<div class="cm-fld"><span>Headline (optional, shown above the card)</span><input type="text" data-o="headline" maxlength="90" placeholder="for example Two wins on the bounce" value="' + esc(o.headline) + '"></div>';
+    else if (t === 'toprating'){
+      needMeta();
+      h = '<div class="cm-row"><b>Show</b>' + chips('count', [[5, 'Top 5'], [8, 'Top 8'], [10, 'Top 10']], o.count) + '</div>' +
+        '<div class="cm-fld" style="margin-top:8px"><span>Limit to one tier (optional)</span>' + (M ? sel('tier', (M.tiers || []).map(function(x){ return [x.key, x.label]; }), o.tier, 'All tiers') : loading) + '</div>';
+    }
+    else if (t === 'story'){
+      if (!B.entries.length) h = '<div class="cm-help">Pick the driver first, then the lines that are true for them show here.</div>';
+      else {
+        h = (B.stories == null ? '<div class="cm-help">Looking up their story...</div>' : (B.stories.length ? '<div class="cm-help" style="margin:0">True for this driver right now:</div><div class="cm-story">' + B.stories.map(function(x){ return '<button data-optset="kind:' + esc(x.key) + '" class="' + (o.kind === x.key && !o.text ? 'on' : '') + '"><b>' + esc(x.head) + '</b> - ' + esc(x.line) + '</button>'; }).join('') + '</div>' : '<div class="cm-help">Nothing automatic is true for this driver right now. Type your own line below.</div>')) +
+          '<div class="cm-fld"><span>Or type your own line (replaces the choice above)</span><input type="text" data-o="text" maxlength="140" placeholder="for example Back in the car after a month away" value="' + esc(o.text) + '"></div>';
+      }
+    }
+    else if (t === 'bop'){
+      needMeta();
+      if (!M) h = loading;
+      else {
+        if (!o.seriesId && (M.bopSeries || [])[0]) o.seriesId = M.bopSeries[0].id;
+        h = (M.bopSeries || []).length ? '<div class="cm-fldrow"><div class="cm-fld"><span>Series</span>' + sel('seriesId', M.bopSeries.map(function(x){ return [x.id, x.label]; }), o.seriesId) + '</div>' +
+          '<div class="cm-fld"><span>Track</span>' + sel('track', (M.bopTracks || []).map(function(x){ return [x.key, x.label]; }), o.track, 'Pick a track') + '</div>' +
+          '<div class="cm-fld"><span>Most cars shown</span>' + sel('max', [[10, '10'], [16, '16'], [20, '20']], o.max) + '</div></div>' : '<div class="cm-help">No dynamic BoP series is switched on yet.</div>';
+      }
+    }
+    else if (t === 'track'){
+      needMeta();
+      h = '<div class="cm-fldrow"><div class="cm-fld"><span>Track (type, or pick from races on record)</span><input type="text" list="cm-trk" data-o="track" maxlength="60" placeholder="for example Monza" value="' + esc(o.track) + '"><datalist id="cm-trk">' + ((M && M.tracks) || []).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
+        '<div class="cm-fld"><span>Track length</span><input type="text" data-o="length" maxlength="30" placeholder="5.79 km" value="' + esc(o.length) + '"></div>' +
+        '<div class="cm-fld"><span>Session</span><input type="text" data-o="session" maxlength="40" placeholder="45 min race" value="' + esc(o.session) + '"></div></div>' +
+        '<div class="cm-row"><b>Weather</b>' + chips('weather', WX, o.weather) + '</div>' +
+        '<div class="cm-fldrow"><div class="cm-fld"><span>Air temp (C)</span><input type="number" inputmode="decimal" data-o="air" min="-30" max="60" value="' + esc(o.air) + '"></div>' +
+        '<div class="cm-fld"><span>Track temp (C)</span><input type="number" inputmode="decimal" data-o="trackTemp" min="-30" max="90" value="' + esc(o.trackTemp) + '"></div></div>' +
+        '<div class="cm-fld"><span>Note (optional)</span><input type="text" data-o="note" maxlength="90" placeholder="for example Slipstream battles into the first chicane" value="' + esc(o.note) + '"></div>';
+    }
+    else if (t === 'soon'){
+      h = '<div class="cm-row"><b>Show the next</b>' + chips('count', [[1, '1'], [2, '2'], [3, '3'], [4, '4']], o.count) + '<span>events</span></div>' +
+        '<div class="cm-fldrow"><div class="cm-fld"><span>Line underneath (optional)</span><input type="text" data-o="line" maxlength="90" placeholder="Sign up on the Licence Hub" value="' + esc(o.line) + '"></div>' +
+        '<div class="cm-fld"><span>Web address (optional)</span><input type="text" data-o="cta" maxlength="60" placeholder="ifwllicencehub.co.uk" value="' + esc(o.cta) + '"></div></div>';
+    }
+    else if (t === 'thanks'){
+      h = '<div class="cm-row"><b>Tiers to show</b>' + [['gold', 'Gold'], ['silver', 'Silver'], ['bronze', 'Bronze']].map(function(x){ return '<label class="cm-chk"><input type="checkbox" data-otier="' + x[0] + '"' + ((o.tiers || []).indexOf(x[0]) >= 0 ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('') + '</div>';
+    }
+    host.innerHTML = h; syncBuildButtons();
+  }
+  function loadStories(){
+    var mine = B, d = B.entries[0];
+    if (B.type !== 'story') return;
+    if (!d){ B.storiesFor = ''; B.stories = null; renderOpts(); return; }
+    if (B.storiesFor === d.id) return;
+    B.storiesFor = d.id; B.stories = null; renderOpts();
+    api('commsStories', { q: 'driverId=' + encodeURIComponent(d.id) }).then(function(r){ if (B !== mine) return; B.stories = r.stories || []; renderOpts(); })
+      .catch(function(e){ if (B !== mine) return; B.stories = []; say(e.message, true); renderOpts(); });
+  }
+  function tabRow(label, isInfo){
+    return '<div class="cm-tabs"><span class="lab">' + label + '</span>' + Object.keys(TYPES).filter(function(k){ return !!TYPES[k].info === isInfo; }).map(function(k){ return '<button data-type="' + k + '" class="' + (B.type === k ? 'on' : '') + '">' + TYPES[k].label + '</button>'; }).join('') + '</div>';
+  }
   function renderBuild(){
-    var el = $s('build'), T = TYPES[B.type];
+    var el = $s('build'), T = TYPES[B.type], isInfo = !!T.info;
     el.innerHTML = '<h4>' + (B.editId ? 'Edit card' : 'Build a card') + '</h4>' +
-      '<div class="cm-tabs">' + Object.keys(TYPES).map(function(k){ return '<button data-type="' + k + '" class="' + (B.type === k ? 'on' : '') + '">' + TYPES[k].label + '</button>'; }).join('') + '</div>' +
+      tabRow('Driver cards', false) + tabRow('Info cards', true) +
       '<div class="cm-help">' + esc(T.note) + '</div>' +
-      (B.type === 'compare' ? '' : '<div class="cm-row" style="margin-bottom:8px">' + (B.type === 'battle' ? '<b>BATTLE FOR</b>' : B.type === 'team' ? '<b>Team name</b>' : '<b>Title</b>') +
-        '<input type="text" class="cm-grow" data-title maxlength="60" placeholder="' + (B.type === 'battle' ? 'for example 3RD PLACE or THE LEAD' : B.type === 'leaders' ? 'LEADERS' : B.type === 'team' ? 'for example Red Line Racing' : 'STARTING GRID') + '" value="' + esc(B.title) + '">' +
+      (B.type === 'compare' || B.type === 'story' ? '' : '<div class="cm-row" style="margin-bottom:8px">' + (B.type === 'battle' ? '<b>BATTLE FOR</b>' : B.type === 'team' ? '<b>Team name</b>' : isInfo ? '<b>Title (optional)</b>' : '<b>Title</b>') +
+        '<input type="text" class="cm-grow" data-title maxlength="60" placeholder="' + (isInfo ? (TITLE_PH[B.type] || '') : B.type === 'battle' ? 'for example 3RD PLACE or THE LEAD' : B.type === 'leaders' ? 'LEADERS' : B.type === 'team' ? 'for example Red Line Racing' : 'STARTING GRID') + '" value="' + esc(B.title) + '">' +
         (B.type === 'team' ? '<b>Car number</b><input type="text" data-number maxlength="8" style="width:90px" placeholder="12" value="' + esc(B.number) + '">' : '') + '</div>') +
-      '<div data-picker></div>' +
+      (T.max > 0 ? '<div data-picker></div>' : '') +
+      (isInfo ? '<div data-opts style="margin-top:8px"></div>' : '') +
       '<div class="cm-row" style="margin-top:10px"><button class="go" data-save="0" disabled>' + (B.editId ? 'Save changes' : 'Save to deck') + '</button>' +
       '<button class="amber" data-save="1" disabled>' + (B.editId ? 'Save and push now' : 'Save and push now') + '</button>' + (B.editId ? '<button data-cancel>Cancel edit</button>' : '') +
       '<span class="cm-help" data-need></span></div>';
-    gridPicker = Picker(el.querySelector('[data-picker]'), { list: function(){ return B.entries; }, max: function(){ return TYPES[B.type].max; }, ordered: B.type === 'grid' || B.type === 'leaders' || B.type === 'battle' || B.type === 'team', labels: B.type === 'leaders', onChange: syncBuildButtons });
+    gridPicker = null;
+    if (T.max > 0) gridPicker = Picker(el.querySelector('[data-picker]'), { list: function(){ return B.entries; }, max: function(){ return TYPES[B.type].max; }, replace: T.max === 1, ordered: B.type === 'grid' || B.type === 'leaders' || B.type === 'battle' || B.type === 'team', labels: B.type === 'leaders', placeholder: T.max === 1 ? 'Search the driver by name or number (2+ letters)' : '', onChange: function(){ syncBuildButtons(); if (B.type === 'story') loadStories(); } });
+    if (isInfo) renderOpts();
   }
   function syncBuildButtons(){
-    var el = $s('build'), T = TYPES[B.type], n = B.entries.length, ok = n >= T.min && n <= T.max;
+    var el = $s('build'), T = TYPES[B.type], n = B.entries.length, o = B.opts || {}, ok = n >= T.min && n <= T.max, need = '';
+    if (!ok) need = B.type === 'battle' ? 'Add exactly two drivers.' : B.type === 'grid' ? 'Add at least two drivers.' : 'Add at least one driver.';
+    else if (B.type === 'story' && !o.kind && !String(o.text || '').trim()){ ok = false; need = 'Pick a storyline or type your own.'; }
+    else if (B.type === 'bop' && !o.track){ ok = false; need = 'Pick the track.'; }
+    else if (B.type === 'track' && !String(o.track || '').trim()){ ok = false; need = 'Type or pick the track.'; }
     el.querySelectorAll('[data-save]').forEach(function(b){ b.disabled = !ok || busy; });
-    var need = el.querySelector('[data-need]'); if (need) need.textContent = ok ? '' : (B.type === 'battle' ? 'Add exactly two drivers.' : B.type === 'grid' ? 'Add at least two drivers.' : 'Add at least one driver.');
+    var nd = el.querySelector('[data-need]'); if (nd) nd.textContent = need;
   }
   var ivPicker = null;
   function renderIv(){
@@ -316,6 +433,39 @@ function mount(root){
     var nd = el.querySelector('[data-penneed]'); if (nd) nd.textContent = P.picked.length ? '' : 'Pick a driver first.';
   }
 
+  /* ---------- pit window (own slot on the stream) ---------- */
+  var pitPicker = null;
+  function pitField(k, lab, min, max){ return '<div class="cm-fld"><span>' + lab + '</span><input type="number" inputmode="numeric" data-pt="' + k + '" min="' + min + '" max="' + max + '" value="' + esc(PT[k]) + '"></div>'; }
+  function renderPit(){
+    var el = $s('pit');
+    el.innerHTML = '<h4>Pit window countdown</h4>' +
+      '<div class="cm-help">A small box in the bottom-left of the stream: counts down to the pit window opening, then to it closing, with the race time left, the mandatory stops and (if you set one) who is in the car. It runs on its own clock, so you only press Start once. It stays up after the race for ten minutes, or until you take it off.</div>' +
+      '<div data-pitstat></div>' +
+      '<div class="cm-fldrow"><div class="cm-fld"><span>Name (optional)</span><input type="text" data-pt="label" maxlength="40" placeholder="for example ENDURANCE" value="' + esc(PT.label) + '"></div></div>' +
+      '<div class="cm-fldrow">' + pitField('raceMin', 'Race length (min)', 5, 1440) + pitField('openMin', 'Window opens at (min)', 0, 1440) + pitField('closeMin', 'Window closes at (min)', 0, 1440) + pitField('stops', 'Mandatory stops', 0, 9) + pitField('elapsedMin', 'Minutes already run', 0, 1439) + '</div>' +
+      '<div class="cm-row"><button class="go" data-pitstart>Start pit window on the stream</button></div>' +
+      '<h4 style="margin-top:16px">Driver in the car</h4>' +
+      '<div class="cm-help">Pick the driver now in the car. Their stint timer starts when you press the button. Press it again for the next driver at the stop.</div>' +
+      '<div data-pitpick></div>' +
+      '<div class="cm-row" style="margin-top:8px"><button class="go" data-pitdrv disabled>Show driver in the car</button><button data-pitclr disabled>Clear driver</button></div>';
+    pitPicker = Picker(el.querySelector('[data-pitpick]'), { list: function(){ return PD.picked; }, max: function(){ return 1; }, replace: true, ordered: false, placeholder: 'Search the driver by name or number (2+ letters)', onChange: syncPit });
+    renderPitStat(); syncPit();
+  }
+  function renderPitStat(){
+    var el = $s('pit'), h = el && el.querySelector('[data-pitstat]'); if (!h) return;
+    var p = S.pit;
+    if (!p){ h.innerHTML = '<div class="cm-help">No pit window on the stream.</div>'; return; }
+    h.innerHTML = '<div class="cm-pitstat"><span class="cm-tag amber">ON SCREEN</span> ' + (p.label ? esc(p.label) + ': ' : '') + 'window ' + esc(p.openMin) + ' to ' + esc(p.closeMin) + ' min of a ' + esc(p.raceMin) + ' min race' + (p.stops ? ', ' + esc(p.stops) + (p.stops === 1 ? ' stop' : ' stops') : '') + '</div>' +
+      (p.driver ? '<div>In the car: <b>' + esc(plain(p.driver.name)) + '</b></div>' : '<div class="cm-help">No driver in the car set.</div>') +
+      '<div class="cm-row" style="margin-top:6px"><button class="stop" data-pithide>Take the pit window off the stream</button></div>';
+  }
+  function syncPit(){
+    var el = $s('pit'); if (!el) return;
+    var d = el.querySelector('[data-pitdrv]'), c = el.querySelector('[data-pitclr]');
+    if (d) d.disabled = !(S.pit && PD.picked.length) || busy;
+    if (c) c.disabled = !(S.pit && S.pit.driver) || busy;
+  }
+
   /* ---------- the button grid ---------- */
   var EXT = {
     info:   { id: 'driverOverviewPanel',   label: 'Driver Info',      sub: 'Search any driver' },
@@ -323,7 +473,7 @@ function mount(root){
     lookup: { id: 'driverLookupPanel',     label: 'Driver Lookup',    sub: 'Browse by tier' },
     field:  { id: 'fieldReportPanel',      label: 'Field Report',     sub: 'From an entry list' }
   };
-  var INTERNAL = ['pen', 'deck', 'build', 'iv', 'live', 'mode'];
+  var INTERNAL = ['pen', 'deck', 'build', 'iv', 'pit', 'live', 'mode'];
   var shown = false;
   function extEl(k){ return EXT[k] ? document.getElementById(EXT[k].id) : null; }
   function tile(key, label, sub, state){
@@ -335,8 +485,9 @@ function mount(root){
     var h = '';
     h += tile('pen', 'Penalty', nPen ? nPen + ' on screen' : 'Red banner', nPen ? 'red' : '');
     h += tile('deck', 'Prepared cards', (S.deck || []).length + ' saved', '');
-    h += tile('build', 'Build a card', B.editId ? 'Editing a card' : 'Grid, battle, team', '');
+    h += tile('build', 'Build a card', B.editId ? 'Editing a card' : 'Drivers and info', '');
     h += tile('iv', 'Interview', S.interview ? 'ON AIR' : 'Post race', S.interview ? 'amber' : '');
+    h += tile('pit', 'Pit window', S.pit ? 'On screen' : 'Countdown', S.pit ? 'amber' : '');
     h += tile('live', 'Go live', onAir ? 'On air: ' + onAir : 'Nobody on air', onAir ? 'red' : '');
     h += tile('mode', 'Stream badge', S.mode === 'raceteam' ? 'Team live feed' : 'Rerun', S.mode === 'raceteam' ? 'amber' : '');
     Object.keys(EXT).forEach(function(k){ if (extEl(k)) h += tile(k, EXT[k].label, EXT[k].sub, ''); });
@@ -359,11 +510,11 @@ function mount(root){
   }
 
   function renderAll(){ renderMode(); renderLive(); renderScreen(); renderDeck(); renderPenLive(); renderGrid(); }
-  function applyState(d){ ['live','compare','show','interview','mode'].forEach(function(k){ if (k in d) S[k] = d[k] || null; }); if (Array.isArray(d.deck)) S.deck = d.deck; if (Array.isArray(d.comms)) S.comms = d.comms; if (d.me) S.me = d.me; if (Array.isArray(d.penalties)) S.penalties = d.penalties; if ('cleared' in d) S.cleared = d.cleared || null; }
+  function applyState(d){ ['live','compare','show','interview','mode'].forEach(function(k){ if (k in d) S[k] = d[k] || null; }); if (Array.isArray(d.deck)) S.deck = d.deck; if (Array.isArray(d.comms)) S.comms = d.comms; if (d.me) S.me = d.me; if (Array.isArray(d.penalties)) S.penalties = d.penalties; if ('cleared' in d) S.cleared = d.cleared || null; if ('pit' in d) S.pit = d.pit || null; }
   var interviewWas = null;
   function afterState(){
     var had = !!interviewWas, has = !!S.interview; interviewWas = S.interview;
-    renderMode(); renderLive(); renderScreen(); renderDeck(); renderPenLive(); renderGrid();
+    renderMode(); renderLive(); renderScreen(); renderDeck(); renderPenLive(); renderPitStat(); syncPit(); renderGrid();
     if (had !== has || (!root.__ivRendered)){ renderIv(); root.__ivRendered = true; }
     else if (has) renderIv();       // on-air buttons follow the server
   }
@@ -377,7 +528,7 @@ function mount(root){
     if (busy) return Promise.resolve(); busy = true; say('Working...');
     return api(name, { body: body || {} }).then(function(d){ applyState(d); afterState(); say(okMsg || 'Done.'); return d; })
       .catch(function(e){ say(e.message, true); })
-      .then(function(d){ busy = false; syncBuildButtons(); syncPen(); return d; });
+      .then(function(d){ busy = false; syncBuildButtons(); syncPen(); syncPit(); return d; });
   }
 
   /* ---------- events ---------- */
@@ -410,14 +561,26 @@ function mount(root){
     }
     if (b.hasAttribute('data-edit')){
       var c = S.deck.filter(function(x){ return x.id === b.getAttribute('data-edit'); })[0]; if (!c) return;
-      B = { type: c.type, title: c.title || '', number: c.number || '', entries: (c.entries || []).map(function(e){ return { id: e.id, name: e.name, num: e.num, label: e.label || '' }; }), editId: c.id };
+      B = { type: c.type, title: c.title || '', number: c.number || '', entries: (c.entries || []).map(function(e){ return { id: e.id, name: e.name, num: e.num, label: e.label || '' }; }), editId: c.id, opts: TYPES[c.type].info ? mergeOpts(c.type, c.opts) : {} };
       renderBuild(); syncBuildButtons(); $s('build').scrollIntoView({ behavior: 'smooth', block: 'start' }); say('Editing "' + (c.title || TYPES[c.type].label) + '".'); return;
     }
-    if (b.hasAttribute('data-type')){ var t = b.getAttribute('data-type'); if (t !== B.type){ var keep = B.entries.slice(0, TYPES[t].max); B = { type: t, title: '', number: '', entries: keep, editId: B.editId }; renderBuild(); syncBuildButtons(); } return; }
+    if (b.hasAttribute('data-optset')){
+      var kv = b.getAttribute('data-optset'), ix = kv.indexOf(':'), ok2 = kv.slice(0, ix), ov = kv.slice(ix + 1);
+      if (ok2 === 'count') B.opts.count = Number(ov);
+      else if (ok2 === 'weather') B.opts.weather = (B.opts.weather === ov ? '' : ov);
+      else if (ok2 === 'kind'){ B.opts.kind = ov; B.opts.text = ''; }
+      renderOpts(); return;
+    }
+    if (b.hasAttribute('data-pitstart')){ act('commsPit', { action: 'start', label: PT.label, raceMin: PT.raceMin, openMin: PT.openMin, closeMin: PT.closeMin, stops: PT.stops, elapsedMin: PT.elapsedMin }, 'Pit window is on the stream.'); return; }
+    if (b.hasAttribute('data-pitdrv')){ if (!PD.picked.length) return; act('commsPit', { action: 'driver', driverId: PD.picked[0].id }, 'Driver in the car is on the stream.').then(function(d){ if (d && d.ok){ PD.picked = []; if (pitPicker) pitPicker.render(); syncPit(); } }); return; }
+    if (b.hasAttribute('data-pitclr')){ act('commsPit', { action: 'driver', clear: true }, 'Driver cleared.'); return; }
+    if (b.hasAttribute('data-pithide')){ act('commsPit', { action: 'hide' }, 'Pit window is off the stream.'); return; }
+    if (b.hasAttribute('data-type')){ var t = b.getAttribute('data-type'); if (t !== B.type){ var keep = B.entries.slice(0, TYPES[t].max); B = { type: t, title: '', number: '', entries: keep, editId: B.editId, opts: TYPES[t].info ? mergeOpts(t) : {} }; renderBuild(); syncBuildButtons(); } return; }
     if (b.hasAttribute('data-cancel')){ resetBuild(); say(''); return; }
     if (b.hasAttribute('data-save')){
       var push = b.getAttribute('data-save') === '1', tEl = $s('build').querySelector('[data-title]');
       var nEl = $s('build').querySelector('[data-number]'), card = { id: B.editId || undefined, type: B.type, title: tEl ? tEl.value : B.title, number: nEl ? nEl.value : '', entries: B.entries.map(function(e){ return { id: e.id, label: e.label || '' }; }) };
+      if (TYPES[B.type].info) card.opts = B.opts;
       busy = true; syncBuildButtons(); say('Saving...');
       api('commsDeckSave', { body: { card: card } }).then(function(d){
         applyState(d); var savedId = d.card && d.card.id; resetBuild(); afterState();
@@ -433,21 +596,38 @@ function mount(root){
   root.addEventListener('input', function(ev){
     var t = ev.target; if (!t.hasAttribute) return;
     if (t.hasAttribute('data-title')) B.title = t.value;
+    if (t.hasAttribute('data-o')){ optIn(t); }
+    if (t.hasAttribute('data-pt')){ var pk = t.getAttribute('data-pt'); if (pk === 'label') PT.label = t.value; else { var pn = parseInt(t.value, 10); PT[pk] = isFinite(pn) ? pn : ''; } }
     if (t.hasAttribute('data-penlapsin')){ var n = parseInt(t.value, 10); if (isFinite(n)) P.laps = Math.max(0, Math.min(99, n)); syncPen(); }
   });
-  function resetBuild(){ B = { type: B.type, title: '', number: '', entries: [], editId: '' }; renderBuild(); syncBuildButtons(); }
+  function optIn(t){
+    var k = t.getAttribute('data-o'); B.opts[k] = t.value;
+    if (k === 'text' && t.value) B.opts.kind = '';
+    if (k === 'max' || k === 'count') B.opts[k] = Number(t.value);
+    syncBuildButtons();
+  }
+  root.addEventListener('change', function(ev){
+    var t = ev.target; if (!t.hasAttribute) return;
+    if (t.hasAttribute('data-o') && t.tagName === 'SELECT') optIn(t);
+    if (t.hasAttribute('data-otier')){
+      var tk = t.getAttribute('data-otier'), L = B.opts.tiers || (B.opts.tiers = []), ix = L.indexOf(tk);
+      if (t.checked && ix < 0) L.push(tk); if (!t.checked && ix >= 0) L.splice(ix, 1);
+      if (!L.length){ L.push(tk); t.checked = true; say('At least one tier has to stay ticked.', true); }
+    }
+  });
+  function resetBuild(){ B = { type: B.type, title: '', number: '', entries: [], editId: '', opts: TYPES[B.type].info ? mergeOpts(B.type) : {} }; renderBuild(); syncBuildButtons(); }
 
   function quick(){      // cheap public call (3 s server cache): keeps the on-screen state and penalties fresh for the whole team
     if (document.hidden || busy || !shown) return;
     fetch(FN() + '?streamLive=1', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
       if (!d || !d.ok || busy) return;
-      var sig = JSON.stringify([d.live, d.compare, d.show, d.interview, d.mode, d.penalties]);
+      var sig = JSON.stringify([d.live, d.compare, d.show, d.interview, d.mode, d.penalties, d.pit]);
       if (sig === lastSig) return; lastSig = sig;
       S.comms.forEach(function(c){ c.live = !!(d.live && d.live.id === c.id); });
       applyState(d); afterState();
     }).catch(function(){});
   }
-  renderMode(); renderBuild(); renderPen(); syncBuildButtons(); renderIv(); renderPenLive(); renderGrid(); applyOpen(false);
+  renderMode(); renderBuild(); renderPen(); renderPit(); syncBuildButtons(); renderIv(); renderPenLive(); renderGrid(); applyOpen(false);
   refresh();
   timer = setInterval(function(){ if (!document.hidden && !busy) refresh(); }, 60000);
   quickTimer = setInterval(quick, 5000);
