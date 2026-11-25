@@ -1,6 +1,10 @@
 /* ============================================================
    IFWL STREAM CONTROL (commentators, Owner, Ops)
    Mounts into every [data-commslive] element (licence-home.html, and the #commsLivePanel on licence.html).
+   - ALWAYS visible: what is on the stream now (with Hide) and the penalty banners on screen (Served, -1 lap, remove).
+   - A grid of square buttons: Penalty, Prepared cards, Build a card, Interview, Go live, Stream badge, and (when the page has them) Driver Info, Drivers to Watch, Driver Lookup, Field Report.
+     Press a button to open that section, press it again (or another button) to close it. Nothing is open until you ask, and the last one you used comes back after a refresh.
+   - Live penalty banners: pick the driver, laps left, then Drive-through or Stop-go. Up to three red banners at the top of the stream; Served shows the green Penalty cleared pop-up.
    - Go live / off air (which commentator is on air; badge on the stream)
    - Stream badge: Rerun or RACE TEAM LIVE FEED (one button).
    - Shared prepared deck: Grid line-up, Battle for, Driver compare, Leaders, Team (name, car number, drivers; highlight one driver). Build cards ahead, push with one click.
@@ -76,6 +80,30 @@ var CSS = '' +
 '.cm .cm-comm:last-child{ border-bottom:0; }' +
 '.cm .cm-comm img{ width:34px; height:34px; border-radius:50%; object-fit:cover; background:rgba(255,255,255,.1); }' +
 '.cm .cm-comm .n{ flex:1 1 auto; font-weight:600; }' +
+'.cm .cm-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(124px,1fr)); gap:10px; margin-top:14px; }' +
+'.cm .cm-tile{ aspect-ratio:1/1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; text-align:center; padding:8px; border-radius:14px; border:1px solid var(--cm-line); background:rgba(255,255,255,.07); }' +
+'.cm .cm-tile .tl{ font-weight:800; font-size:15px; line-height:1.15; }' +
+'.cm .cm-tile .ts{ font-size:12px; opacity:.72; line-height:1.2; }' +
+'.cm .cm-tile.on{ background:var(--cm-teal); border-color:var(--cm-teal); color:#04141a; }' +
+'.cm .cm-tile.on .ts{ opacity:.85; }' +
+'.cm .cm-tile.red{ border-color:var(--cm-red); box-shadow:0 0 0 1px var(--cm-red) inset; }' +
+'.cm .cm-tile.red .ts{ color:var(--cm-red); opacity:1; font-weight:700; }' +
+'.cm .cm-tile.on.red .ts{ color:#04141a; }' +
+'.cm .cm-tile.amber{ border-color:var(--cm-amber); box-shadow:0 0 0 1px var(--cm-amber) inset; }' +
+'.cm .cm-tile.amber .ts{ color:var(--cm-amber); opacity:1; font-weight:700; }' +
+'.cm .cm-tile.on.red .ts,.cm .cm-tile.on.amber .ts{ color:#04141a; }' +
+'.cm .cm-pen{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; border:1px solid var(--cm-red); border-radius:10px; padding:8px 10px; margin-top:8px; background:rgba(255,77,85,.10); }' +
+'.cm .cm-pen .pn{ flex:1 1 240px; min-width:0; }' +
+'.cm .cm-pen .pl{ opacity:.85; margin-left:6px; font-variant-numeric:tabular-nums; }' +
+'.cm .cm-pen .pb{ display:flex; gap:6px; flex-wrap:wrap; }' +
+'.cm .cm-pen .pb button{ padding:8px 12px; }' +
+'.cm .cm-chips{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }' +
+'.cm .cm-chips button{ min-width:44px; padding:8px 10px; font-weight:700; }' +
+'.cm .cm-chips button.on{ background:var(--cm-teal); color:#04141a; border-color:var(--cm-teal); }' +
+'.cm .cm-chips input[type=number]{ width:70px; font:inherit; color:inherit; background:rgba(0,0,0,.28); border:1px solid var(--cm-line); border-radius:8px; padding:7px 8px; }' +
+'.cm button.big{ padding:14px 22px; font-size:16px; font-weight:800; }' +
+'.cm .cm-sec[hidden]{ display:none; }' +
+'.cm .cm-open{ margin-top:4px; }' +
 '.cm .cm-ivb{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }' +
 '.cm .cm-ivb button{ padding:10px 14px; }' +
 '.cm .cm-ivb button.air{ background:var(--cm-red); color:#fff; border-color:var(--cm-red); font-weight:800; }';
@@ -93,22 +121,29 @@ function mount(root){
   }
   setVisible(false);
 
-  var S = { me: null, comms: [], live: null, compare: null, show: null, interview: null, mode: '', deck: [] };
+  var S = { me: null, comms: [], live: null, compare: null, show: null, interview: null, mode: '', deck: [], penalties: [], cleared: null };
+  var P = { picked: [], laps: 3 };                                   // penalty form state
+  var openKey = ''; try { openKey = sessionStorage.getItem('ifwlCommsOpen') || ''; } catch (e) { openKey = ''; }
   var B = { type: 'grid', title: '', number: '', entries: [], editId: '' };      // deck builder state
   var IV = { entries: [] };                                          // interview picker state
-  var busy = false, timer = null, delTimer = null, delId = '';
+  var busy = false, timer = null, quickTimer = null, lastSig = '', delTimer = null, delId = '';
 
   root.classList.add('cm');
   root.innerHTML = '' +
     '<h3>Stream control</h3>' +
-    '<div class="cm-help">Everything here is shared by the whole commentary team. What you push shows on the live stream within a few seconds.</div>' +
-    '<div class="cm-sec" data-s="mode"></div>' +
-    '<div class="cm-sec" data-s="live"></div>' +
+    '<div class="cm-help">Everything here is shared by the whole commentary team. What you push shows on the live stream within a few seconds. Press a button to open that section.</div>' +
     '<div class="cm-sec" data-s="screen"></div>' +
-    '<div class="cm-sec" data-s="deck"></div>' +
-    '<div class="cm-sec" data-s="build"></div>' +
-    '<div class="cm-sec" data-s="iv"></div>' +
-    '<div class="cm-msg" data-s="msg"></div>';
+    '<div class="cm-sec" data-s="penlive" hidden></div>' +
+    '<div class="cm-grid" data-s="grid"></div>' +
+    '<div class="cm-msg" data-s="msg"></div>' +
+    '<div class="cm-open">' +
+    '<div class="cm-sec" data-s="pen" data-sec="pen" hidden></div>' +
+    '<div class="cm-sec" data-s="deck" data-sec="deck" hidden></div>' +
+    '<div class="cm-sec" data-s="build" data-sec="build" hidden></div>' +
+    '<div class="cm-sec" data-s="iv" data-sec="iv" hidden></div>' +
+    '<div class="cm-sec" data-s="live" data-sec="live" hidden></div>' +
+    '<div class="cm-sec" data-s="mode" data-sec="mode" hidden></div>' +
+    '</div>';
   var $s = function(k){ return root.querySelector('[data-s="' + k + '"]'); };
   var msgEl = $s('msg');
   function say(t, err){ msgEl.textContent = t || ''; msgEl.className = 'cm-msg' + (err ? ' err' : ''); }
@@ -146,7 +181,7 @@ function mount(root){
         if (my !== st.seq) return;
         var have = {}; st.list().forEach(function(e){ have[e.id] = 1; });
         st.results = (d.drivers || []).filter(function(x){ return !have[x.id]; });
-        res.innerHTML = st.results.map(function(x, i){ return '<button data-add="' + i + '">' + esc(x.name) + '<small>' + esc(x.num) + (x.team ? ' - ' + esc(x.team) : '') + '</small></button>'; }).join('') || '<div class="cm-help" style="padding:8px">No match.</div>';
+        res.innerHTML = st.results.map(function(x, i){ return '<button data-add="' + i + '">' + esc(x.name) + '<small>' + esc([x.car ? '#' + x.car : '', x.num, x.team].filter(Boolean).join(' \u00b7 ')) + '</small></button>'; }).join('') || '<div class="cm-help" style="padding:8px">No match.</div>';
         res.hidden = false;
       }).catch(function(e){ say(e.message, true); });
     }
@@ -154,7 +189,7 @@ function mount(root){
     res.addEventListener('click', function(ev){
       var b = ev.target.closest('button[data-add]'); if (!b) return; var x = st.results[Number(b.getAttribute('data-add'))]; if (!x) return;
       var L = st.list();
-      if (L.length >= max()){ say('Maximum of ' + max() + ' drivers for this card. Remove one first.', true); return; }
+      if (L.length >= max()){ if (cfg.replace) L.length = 0; else { say('Maximum of ' + max() + ' drivers for this card. Remove one first.', true); return; } }
       say(''); L.push({ id: x.id, name: x.name, num: x.num, label: '' });
       inp.value = ''; res.hidden = true; res.innerHTML = ''; renderPick(); inp.focus();
     });
@@ -244,18 +279,97 @@ function mount(root){
       var nd = el.querySelector('[data-ivneed]'); if (nd) nd.textContent = n ? '' : 'Add at least one driver.'; } });
   }
 
-  function renderAll(){ renderMode(); renderLive(); renderScreen(); renderDeck(); }
-  function applyState(d){ ['live','compare','show','interview','mode'].forEach(function(k){ if (k in d) S[k] = d[k] || null; }); if (Array.isArray(d.deck)) S.deck = d.deck; if (Array.isArray(d.comms)) S.comms = d.comms; if (d.me) S.me = d.me; }
+  /* ---------- penalty banners (race control) ---------- */
+  var KIND = { drive_through: 'DRIVE-THROUGH', stop_go: 'STOP-GO' };
+  var plain = function(n){ var m = String(n || '').match(/^\s*\[\s*(\d+)\s*\]\s*-?\s*(.*)$/); return m ? '#' + m[1] + ' ' + (m[2] || '') : String(n || 'Driver'); };
+  var lapsTxt = function(l){ return l <= 0 ? 'SERVE NOW' : l + (l === 1 ? ' lap left' : ' laps left'); };
+  function renderPenLive(){
+    var el = $s('penlive'), L = S.penalties || [];
+    el.hidden = !L.length;
+    if (!L.length){ el.innerHTML = ''; return; }
+    el.innerHTML = '<h4>Penalty banners on the stream (' + L.length + ' of 3)</h4>' + L.map(function(p){
+      var id = esc(p.id);
+      return '<div class="cm-pen"><div class="pn"><span class="cm-tag red">' + esc(KIND[p.kind] || 'PENALTY') + '</span> <b>' + esc(plain(p.name)) + '</b><span class="pl">' + esc(lapsTxt(p.laps)) + '</span></div>' +
+        '<div class="pb"><button data-pen="laps" data-id="' + id + '" data-d="-1" title="One lap fewer to serve">-1 lap</button>' +
+        '<button data-pen="laps" data-id="' + id + '" data-d="1" title="One more lap to serve">+1 lap</button>' +
+        '<button class="go" data-pen="served" data-id="' + id + '">Penalty served</button>' +
+        '<button data-pen="remove" data-id="' + id + '" title="Take the banner down without the green pop-up">Remove</button></div></div>';
+    }).join('');
+  }
+  var penPicker = null;
+  function renderPen(){
+    var el = $s('pen');
+    el.innerHTML = '<h4>Penalty banner</h4>' +
+      '<div class="cm-help">For race control. Pick the driver, set how many laps they have left to serve it, then press the penalty. A red banner shows at the top of the stream straight away (up to three at once). Press Penalty served when they have done it and the green Penalty cleared pop-up shows.</div>' +
+      '<div data-penpick></div>' +
+      '<div class="cm-row" style="margin-top:10px"><b>Laps left to serve</b><span class="cm-chips" data-penchips>' + [1,2,3,4,5,6].map(function(n){ return '<button data-penlaps="' + n + '">' + n + '</button>'; }).join('') + '<input type="number" min="0" max="99" inputmode="numeric" data-penlapsin title="Any other number of laps"></span></div>' +
+      '<div class="cm-row" style="margin-top:12px"><button class="stop big" data-penadd="drive_through" disabled>Drive-through</button><button class="stop big" data-penadd="stop_go" disabled>Stop-go</button><span class="cm-help" data-penneed></span></div>';
+    penPicker = Picker(el.querySelector('[data-penpick]'), { list: function(){ return P.picked; }, max: function(){ return 1; }, replace: true, ordered: false, placeholder: 'Search the driver by name or number (2+ letters)', onChange: syncPen });
+    syncPen();
+  }
+  function syncPen(){
+    var el = $s('pen'); if (!el) return;
+    Array.prototype.forEach.call(el.querySelectorAll('[data-penlaps]'), function(b){ b.classList.toggle('on', Number(b.getAttribute('data-penlaps')) === P.laps); });
+    var inp = el.querySelector('[data-penlapsin]'); if (inp && document.activeElement !== inp) inp.value = P.laps;
+    var ready = P.picked.length > 0 && !busy;
+    Array.prototype.forEach.call(el.querySelectorAll('[data-penadd]'), function(b){ b.disabled = !ready; });
+    var nd = el.querySelector('[data-penneed]'); if (nd) nd.textContent = P.picked.length ? '' : 'Pick a driver first.';
+  }
+
+  /* ---------- the button grid ---------- */
+  var EXT = {
+    info:   { id: 'driverOverviewPanel',   label: 'Driver Info',      sub: 'Search any driver' },
+    watch:  { id: 'commentatorWatchPanel', label: 'Drivers to Watch', sub: 'Pace and potential' },
+    lookup: { id: 'driverLookupPanel',     label: 'Driver Lookup',    sub: 'Browse by tier' },
+    field:  { id: 'fieldReportPanel',      label: 'Field Report',     sub: 'From an entry list' }
+  };
+  var INTERNAL = ['pen', 'deck', 'build', 'iv', 'live', 'mode'];
+  var shown = false;
+  function extEl(k){ return EXT[k] ? document.getElementById(EXT[k].id) : null; }
+  function tile(key, label, sub, state){
+    return '<button class="cm-tile' + (openKey === key ? ' on' : '') + (state ? ' ' + state : '') + '" data-tile="' + key + '" aria-pressed="' + (openKey === key ? 'true' : 'false') + '"><span class="tl">' + esc(label) + '</span><span class="ts">' + esc(sub) + '</span></button>';
+  }
+  function renderGrid(){
+    var el = $s('grid'); if (!el) return;
+    var nPen = (S.penalties || []).length, onAir = S.live && S.live.name ? S.live.name : '';
+    var h = '';
+    h += tile('pen', 'Penalty', nPen ? nPen + ' on screen' : 'Red banner', nPen ? 'red' : '');
+    h += tile('deck', 'Prepared cards', (S.deck || []).length + ' saved', '');
+    h += tile('build', 'Build a card', B.editId ? 'Editing a card' : 'Grid, battle, team', '');
+    h += tile('iv', 'Interview', S.interview ? 'ON AIR' : 'Post race', S.interview ? 'amber' : '');
+    h += tile('live', 'Go live', onAir ? 'On air: ' + onAir : 'Nobody on air', onAir ? 'red' : '');
+    h += tile('mode', 'Stream badge', S.mode === 'raceteam' ? 'Team live feed' : 'Rerun', S.mode === 'raceteam' ? 'amber' : '');
+    Object.keys(EXT).forEach(function(k){ if (extEl(k)) h += tile(k, EXT[k].label, EXT[k].sub, ''); });
+    el.innerHTML = h;
+  }
+  function applyExternal(){
+    if (!shown) return;
+    Object.keys(EXT).forEach(function(k){ var el = extEl(k); if (el) el.style.display = (openKey === k) ? '' : 'none'; });
+  }
+  function applyOpen(scroll){
+    if (openKey && !(INTERNAL.indexOf(openKey) >= 0 || (EXT[openKey] && extEl(openKey)))) openKey = '';
+    INTERNAL.forEach(function(k){ var el = $s(k); if (el) el.hidden = (k !== openKey); });
+    applyExternal(); renderGrid();
+    if (scroll && openKey){ var t = EXT[openKey] ? extEl(openKey) : $s(openKey); if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  }
+  function setOpen(key){
+    openKey = (openKey === key) ? '' : key;
+    try { sessionStorage.setItem('ifwlCommsOpen', openKey); } catch (e) {}
+    applyOpen(true);
+  }
+
+  function renderAll(){ renderMode(); renderLive(); renderScreen(); renderDeck(); renderPenLive(); renderGrid(); }
+  function applyState(d){ ['live','compare','show','interview','mode'].forEach(function(k){ if (k in d) S[k] = d[k] || null; }); if (Array.isArray(d.deck)) S.deck = d.deck; if (Array.isArray(d.comms)) S.comms = d.comms; if (d.me) S.me = d.me; if (Array.isArray(d.penalties)) S.penalties = d.penalties; if ('cleared' in d) S.cleared = d.cleared || null; }
   var interviewWas = null;
   function afterState(){
     var had = !!interviewWas, has = !!S.interview; interviewWas = S.interview;
-    renderMode(); renderLive(); renderScreen(); renderDeck();
+    renderMode(); renderLive(); renderScreen(); renderDeck(); renderPenLive(); renderGrid();
     if (had !== has || (!root.__ivRendered)){ renderIv(); root.__ivRendered = true; }
     else if (has) renderIv();       // on-air buttons follow the server
   }
   function refresh(){
-    return api('commsPanel').then(function(d){ setVisible(true); applyState(d); afterState(); }).catch(function(e){
-      if (e.status === 403 || e.status === 401){ setVisible(false); if (timer){ clearInterval(timer); timer = null; } }
+    return api('commsPanel').then(function(d){ setVisible(true); shown = true; applyState(d); afterState(); applyOpen(false); }).catch(function(e){
+      if (e.status === 403 || e.status === 401){ setVisible(false); shown = false; if (timer){ clearInterval(timer); timer = null; } if (quickTimer){ clearInterval(quickTimer); quickTimer = null; } }
       else say(e.message, true);
     });
   }
@@ -263,12 +377,26 @@ function mount(root){
     if (busy) return Promise.resolve(); busy = true; say('Working...');
     return api(name, { body: body || {} }).then(function(d){ applyState(d); afterState(); say(okMsg || 'Done.'); return d; })
       .catch(function(e){ say(e.message, true); })
-      .then(function(d){ busy = false; syncBuildButtons(); return d; });
+      .then(function(d){ busy = false; syncBuildButtons(); syncPen(); return d; });
   }
 
   /* ---------- events ---------- */
   root.addEventListener('click', function(ev){
     var b = ev.target.closest('button'); if (!b || !root.contains(b)) return;
+    if (b.hasAttribute('data-tile')){ setOpen(b.getAttribute('data-tile')); return; }
+    if (b.hasAttribute('data-penlaps')){ P.laps = Number(b.getAttribute('data-penlaps')); syncPen(); return; }
+    if (b.hasAttribute('data-penadd')){
+      if (!P.picked.length) return;
+      act('commsPenalty', { action: 'add', driverId: P.picked[0].id, kind: b.getAttribute('data-penadd'), laps: P.laps }, 'Penalty banner is on the stream.').then(function(d){ if (d && d.ok){ P.picked = []; if (penPicker) penPicker.render(); syncPen(); } });
+      return;
+    }
+    if (b.hasAttribute('data-pen')){
+      var pa = b.getAttribute('data-pen'), pid = b.getAttribute('data-id');
+      if (pa === 'laps') act('commsPenalty', { action: 'laps', id: pid, delta: Number(b.getAttribute('data-d')) }, 'Laps updated.');
+      else if (pa === 'served') act('commsPenalty', { action: 'served', id: pid }, 'Penalty served: the green Penalty cleared pop-up is on the stream.');
+      else if (pa === 'remove') act('commsPenalty', { action: 'remove', id: pid }, 'Banner removed.');
+      return;
+    }
     if (b.hasAttribute('data-live')){ act('commsSetLive', { id: b.getAttribute('data-live'), live: b.getAttribute('data-on') === '1' }, b.getAttribute('data-on') === '1' ? 'You are live.' : 'Off air.'); return; }
     if (b.getAttribute('data-act') === 'hide'){ act('commsDeckHide', {}, 'Card hidden from the stream.'); return; }
     if (b.hasAttribute('data-mode')){ var m = b.getAttribute('data-mode'); act('commsMode', { mode: m }, m ? 'Badge switched to Race Team Live Feed.' : 'Badge back to rerun.'); return; }
@@ -302,13 +430,28 @@ function mount(root){
     if (b.hasAttribute('data-air')){ act('commsInterview', { mode: 'onair', id: b.getAttribute('data-air') }, b.getAttribute('data-air') ? 'On air now.' : 'Panel hidden.'); return; }
     if (b.hasAttribute('data-ivstop')){ act('commsInterview', { mode: 'stop' }, 'Interview mode off.').then(function(){ IV.entries = []; renderIv(); }); return; }
   });
-  root.addEventListener('input', function(ev){ if (ev.target.hasAttribute && ev.target.hasAttribute('data-title')) B.title = ev.target.value; });
+  root.addEventListener('input', function(ev){
+    var t = ev.target; if (!t.hasAttribute) return;
+    if (t.hasAttribute('data-title')) B.title = t.value;
+    if (t.hasAttribute('data-penlapsin')){ var n = parseInt(t.value, 10); if (isFinite(n)) P.laps = Math.max(0, Math.min(99, n)); syncPen(); }
+  });
   function resetBuild(){ B = { type: B.type, title: '', number: '', entries: [], editId: '' }; renderBuild(); syncBuildButtons(); }
 
-  renderMode(); renderBuild(); syncBuildButtons(); renderIv();
+  function quick(){      // cheap public call (3 s server cache): keeps the on-screen state and penalties fresh for the whole team
+    if (document.hidden || busy || !shown) return;
+    fetch(FN() + '?streamLive=1', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
+      if (!d || !d.ok || busy) return;
+      var sig = JSON.stringify([d.live, d.compare, d.show, d.interview, d.mode, d.penalties]);
+      if (sig === lastSig) return; lastSig = sig;
+      S.comms.forEach(function(c){ c.live = !!(d.live && d.live.id === c.id); });
+      applyState(d); afterState();
+    }).catch(function(){});
+  }
+  renderMode(); renderBuild(); renderPen(); syncBuildButtons(); renderIv(); renderPenLive(); renderGrid(); applyOpen(false);
   refresh();
-  timer = setInterval(function(){ if (!document.hidden && !busy) refresh(); }, 20000);
-  document.addEventListener('visibilitychange', function(){ if (!document.hidden && timer) refresh(); });
+  timer = setInterval(function(){ if (!document.hidden && !busy) refresh(); }, 60000);
+  quickTimer = setInterval(quick, 5000);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden && timer){ refresh(); quick(); } });
 }
 
 function init(){
