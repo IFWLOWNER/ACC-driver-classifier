@@ -297,12 +297,34 @@
     .teamShow.focus .tcol:not(.hl){ opacity:.35 !important; filter:saturate(.4); transform:scale(.92); }
     .teamShow.focus .tcol.hl{ transform:scale(1.14); }
     .teamShow.focus .tcol.hl .tplate{ border-bottom-color:var(--teal); box-shadow:0 0 34px rgba(20,200,176,.4); }
+
+    /* ---------- live penalty banners (race control): top centre, up to 3 stacked, red; green pop-up when served ---------- */
+    #penBar{ position:absolute; z-index:40; left:560px; top:28px; width:720px; display:flex; flex-direction:column; gap:10px; pointer-events:none; }
+    .pen,.penOk{ position:relative; display:flex; align-items:center; gap:14px; height:96px; border-radius:14px; padding:0 22px 0 8px; overflow:hidden; color:#fff; box-shadow:0 10px 28px rgba(0,0,0,.55); }
+    .pen{ background:linear-gradient(90deg,#9d0f18 0%,#d9222c 55%,#a8111a 100%); border:2px solid #ff7a80; }
+    .pen::after{ content:""; position:absolute; inset:0; background:repeating-linear-gradient(115deg,rgba(255,255,255,.07) 0 14px,transparent 14px 28px); pointer-events:none; }
+    .pen > *, .penOk > *{ position:relative; z-index:1; }
+    .pen .bust{ align-self:flex-end; }
+    .pen .penTxt{ flex:1 1 auto; min-width:0; }
+    .pen .penKind{ font-family:var(--orb); font-weight:800; font-size:20px; letter-spacing:.16em; color:#ffe3e4; }
+    .pen .penName{ font-family:Rajdhani,"Segoe UI",Arial,sans-serif; font-weight:700; font-size:38px; line-height:1.05; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 2px 6px rgba(0,0,0,.45); }
+    .pen .penName .num{ font-family:var(--orb); font-size:20px; color:#ffd2d4; margin-right:10px; letter-spacing:.06em; }
+    .pen .penLaps{ flex:0 0 auto; text-align:center; background:rgba(0,0,0,.34); border:2px solid rgba(255,255,255,.45); border-radius:12px; padding:6px 16px; min-width:128px; }
+    .pen .penLaps b{ display:block; font-family:var(--orb); font-weight:900; font-size:44px; line-height:1; }
+    .pen .penLaps span{ display:block; font-family:var(--orb); font-weight:700; font-size:13px; letter-spacing:.16em; margin-top:2px; }
+    .pen .penLaps.now b{ font-size:26px; padding:9px 0 8px; animation:pulse 1s infinite; }
+    .pen .penLaps.flash{ animation:penflash .9s; }
+    @keyframes penflash{ 0%{ background:rgba(255,255,255,.75); color:#7a0a10; } 100%{ background:rgba(0,0,0,.34); } }
+    .penOk{ background:linear-gradient(90deg,#0b7a3c 0%,#19b85a 55%,#0e8a44 100%); border:2px solid #7dffb0; padding:0 26px; justify-content:center; text-align:center; flex-direction:column; gap:2px; }
+    .penOk .okT{ font-family:var(--orb); font-weight:900; font-size:34px; letter-spacing:.14em; }
+    .penOk .okS{ font-family:Rajdhani,"Segoe UI",Arial,sans-serif; font-weight:700; font-size:26px; text-transform:uppercase; color:#e6ffee; }
   </style>
 </head>
 <body>
 <div id="stage">
   <div class="hud"><div class="live rerun" id="liveTag"><i></i><span id="liveTxt">RERUN OF PAST EVENTS</span></div></div>
   <div class="nextChip" id="nextChip"><span class="tg">NEXT RACE</span><span id="nextName"></span><b id="nextCd"></b></div>
+  <div id="penBar"></div>
   <div id="scenes"><div id="pop"></div></div>
   <div class="ticker"><div class="tkLabel">IFWL FEED</div><div class="tkView"><div class="tkTrack" id="tkTrack"></div></div></div>
 </div>
@@ -347,7 +369,7 @@
 
   /* ---- data ---- */
   let feed = null, lastFeedOk = 0;
-  let liveState = { live:null, compare:null, show:null, interview:null, mode:'' };
+  let liveState = { live:null, compare:null, show:null, interview:null, mode:'', penalties:[], cleared:null }; let serverSkew = 0;
   const ph = (t, c, wide) => 'data:image/svg+xml;utf8,' + encodeURIComponent(wide
     ? '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="200"><rect width="900" height="200" fill="#f3f4f8"/><text x="450" y="118" font-family="Arial" font-weight="900" font-size="64" fill="#0b1020" text-anchor="middle">' + t + '</text></svg>'
     : '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect x="12" y="12" width="136" height="136" rx="26" fill="' + c + '" fill-opacity=".25" stroke="' + c + '" stroke-width="6"/><text x="80" y="102" font-family="Arial" font-weight="900" font-size="48" fill="' + c + '" text-anchor="middle">' + t + '</text></svg>');
@@ -395,16 +417,69 @@
     if (t === 'battle') return { seq:1, type:'battle', title:Q.get('title') || '3RD PLACE', total:2, cards:mk(2) };
     if (t === 'team') return { seq:1, type:'team', title:Q.get('title') || 'Red Line Racing', number:Q.get('num') || '12', focusId:Q.get('focus') ? 'd' + (Number(Q.get('focus')) - 1) : '', total:Number(Q.get('n')) || 4, cards:mk(Number(Q.get('n')) || 4) };
     return { seq:1, type:'leaders', title:'LEADERS', total:3, cards:mk(3, ['PRO','AM','BEGINNER']) }; };
+  const DEMO_PEN = () => { const n = Number(Q.get('pen')) || 0; if (!n) return []; const k = 'assets/kit/stock-white.png';
+    return [{ id:'p1', name:'[ 7 ] - GeordieP', avatarUrl:k, photoUrl:'', kind:'drive_through', laps:3, atMs:Date.now() }, { id:'p2', name:'[ 21 ] - Maria Costa', avatarUrl:k, photoUrl:'', kind:'stop_go', laps:1, atMs:Date.now() }, { id:'p3', name:'[ 82 ] - Olly Knapton', avatarUrl:'', photoUrl:'', kind:'stop_go', laps:0, atMs:Date.now() }].slice(0, n); };
   const DEMO_IV = () => { if (!Q.has('iv')) return null; const k = 'assets/kit/stock-white.png', at = Number(Q.get('iv')) || 0;
     const st = (o) => Object.assign({ rating:812, level:'Gold', levelKey:'gold', rank:3, ranked:466, races:14, wins:5, podiums:9, top10:13, best:1, avg:3.4, clean:91, penalties:1, points:2 }, o);
     const cards = DEMO_PEOPLE.slice(0, 3).map((nm, i) => ({ id:'d' + i, name:nm, avatarUrl:k, photoUrl:'', tier:'IFWL-GT-Pro', team:'Red Line Racing', stats:st({ rating:812 - i * 60, rank:3 + i * 8 }) }));
     return { seq:1, season:'SEASON 4', ratingLive:true, onAirId:at ? 'd' + (at - 1) : '', cards }; };
+
+  /* ---- live penalty banners (race control) + green "Penalty cleared" pop-up ---- */
+  const PEN_KIND = { drive_through:'DRIVE-THROUGH PENALTY', stop_go:'STOP-GO PENALTY' };
+  const penEls = new Map();
+  let penOkSeq = null;
+  function penLapsHtml(l){ return l <= 0 ? '<b>SERVE NOW</b>' : '<b>' + esc(l) + '</b><span>' + (l === 1 ? 'LAP LEFT' : 'LAPS LEFT') + '</span>'; }
+  function penHtml(p){
+    const who = person(p.name);
+    return bust({ avatarUrl:p.avatarUrl, photoUrl:p.photoUrl }, 96, '#ffd2d4')
+      + '<div class="penTxt"><div class="penKind">' + esc(PEN_KIND[p.kind] || 'PENALTY') + '</div><div class="penName">' + (who.num ? '<span class="num">#' + esc(who.num) + '</span>' : '') + esc(who.name) + '</div></div>'
+      + '<div class="penLaps' + (p.laps <= 0 ? ' now' : '') + '">' + penLapsHtml(p.laps) + '</div>';
+  }
+  const penBar = () => $('penBar');
+  async function penIn(el){ try{ await el.animate([{ opacity:0, transform:'translateY(-40px) scale(.96)' }, { opacity:1, transform:'none' }], { duration:450, easing:'cubic-bezier(.2,.8,.2,1)', fill:'both' }).finished; }catch(e){} }
+  async function penOut(el){ try{ await el.animate([{ opacity:1, transform:'none' }, { opacity:0, transform:'translateY(-30px) scale(.96)' }], { duration:350, easing:'ease-in', fill:'both' }).finished; }catch(e){} el.remove(); }
+  function syncPenalties(){
+    const bar = penBar(); if (!bar) return;
+    const list = Array.isArray(liveState.penalties) ? liveState.penalties : [];
+    const ids = new Set(list.map((p) => p.id));
+    penEls.forEach((el, id) => { if (!ids.has(id)){ penEls.delete(id); penOut(el); } });
+    list.forEach((p) => {
+      let el = penEls.get(p.id);
+      if (!el){
+        el = document.createElement('div'); el.className = 'pen'; el.dataset.id = p.id; el.dataset.laps = String(p.laps); el.innerHTML = penHtml(p);
+        penEls.set(p.id, el);
+        const ok = bar.querySelector('.penOk'); if (ok) bar.insertBefore(el, ok.nextSibling); else bar.appendChild(el);
+        penIn(el);
+      } else if (el.dataset.laps !== String(p.laps) || el.dataset.kind !== p.kind){
+        const changed = el.dataset.laps !== String(p.laps);
+        el.dataset.laps = String(p.laps);
+        const box = el.querySelector('.penLaps'); if (box){ box.className = 'penLaps' + (p.laps <= 0 ? ' now' : ''); box.innerHTML = penLapsHtml(p.laps); if (changed){ void box.offsetWidth; box.classList.add('flash'); } }
+      }
+      el.dataset.kind = p.kind;
+    });
+    // keep the order the server gave
+    list.forEach((p) => { const el = penEls.get(p.id); if (el && el.parentNode === bar) bar.appendChild(el); });
+    const c = liveState.cleared;
+    if (c){
+      if (penOkSeq === null){ penOkSeq = c.seq; if (Date.now() - skewMs(c.atMs) < 15000) showCleared(c); }     // page just loaded: only show it if it is brand new
+      else if (c.seq !== penOkSeq){ penOkSeq = c.seq; showCleared(c); }
+    } else if (penOkSeq === null) penOkSeq = 0;
+  }
+  const skewMs = (ms) => Number(ms) + serverSkew;
+  async function showCleared(c){
+    const bar = penBar(); if (!bar) return;
+    const who = person(c.name);
+    const el = document.createElement('div'); el.className = 'penOk';
+    el.innerHTML = '<div class="okT">PENALTY CLEARED</div><div class="okS">' + (who.num ? '#' + esc(who.num) + ' ' : '') + esc(who.name) + ' &middot; ' + esc((PEN_KIND[c.kind] || 'PENALTY').replace(' PENALTY', '').toLowerCase()) + ' served</div>';
+    bar.insertBefore(el, bar.firstChild);
+    await penIn(el); await wait(6000); await penOut(el);
+  }
   async function pollLive(){
     try{
-      if (DEMO){ liveState = { live:DEMO_LIVE, compare:Q.has('cmp') ? DEMO_CMP() : null, show:DEMO_SHOW(), interview:DEMO_IV(), mode:Q.get('mode') === 'raceteam' ? 'raceteam' : '' }; }
-      else { const r = await fetch(FN + '?streamLive=1', { cache:'no-store' }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error('bad'); liveState = { live:d.live || null, compare:d.compare || null, show:d.show || null, interview:d.interview || null, mode:d.mode === 'raceteam' ? 'raceteam' : '' }; }
+      if (DEMO){ liveState = { live:DEMO_LIVE, compare:Q.has('cmp') ? DEMO_CMP() : null, show:DEMO_SHOW(), interview:DEMO_IV(), mode:Q.get('mode') === 'raceteam' ? 'raceteam' : '', penalties:DEMO_PEN(), cleared:Q.get('pencleared') ? { seq:1, atMs:Date.now(), name:'[ 7 ] - GeordieP', kind:'drive_through' } : null }; }
+      else { const r = await fetch(FN + '?streamLive=1', { cache:'no-store' }); const d = await r.json(); if (!r.ok || !d.ok) throw new Error('bad'); liveState = { live:d.live || null, compare:d.compare || null, show:d.show || null, interview:d.interview || null, mode:d.mode === 'raceteam' ? 'raceteam' : '', penalties:Array.isArray(d.penalties) ? d.penalties : [], cleared:d.cleared || null }; if (d.now) serverSkew = Date.now() - Number(d.now); }
     }catch(e){ console.warn('live state failed', e); }
-    applyLive(); syncCompare(); syncShow(); syncInterview();
+    applyLive(); syncCompare(); syncShow(); syncInterview(); syncPenalties();
   }
   function applyLive(){
     const L = liveState.live, tag = $('liveTag'), tx = $('liveTxt');
