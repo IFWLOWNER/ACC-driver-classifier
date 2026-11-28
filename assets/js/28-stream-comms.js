@@ -22,6 +22,7 @@ var FN = function(){ return (window.IFWL_AUTH && window.IFWL_AUTH.FUNCTION) || '
 var TOKEN = function(){ try { return (window.IFWL_AUTH && window.IFWL_AUTH.sessionToken && window.IFWL_AUTH.sessionToken()) || ''; } catch (e) { return ''; } };
 var TYPES = {
   grid:    { label: 'Grid line-up', min: 2, max: 20, note: 'Drivers in grid order, two per row. The rows drop in one after another down the screen with a clear background, so keep it to about 10 drivers per card (make a second card for the rest).' },
+  gridreveal: { label: 'Grid reveal (F1 style)', min: 2, max: 20, note: 'Drivers in grid order, pole first. Type a position number in the box or drag a row by the handle to reorder. On the stream the centre bars drop in, then two drivers at a time appear with big pictures (positions 1 and 2 are one screen, 3 and 4 the next). Push the card, then step through the rows from the saved card.' },
   battle:  { label: 'Battle for', min: 2, max: 2, note: 'Exactly two drivers. The title becomes "BATTLE FOR ..." (for example 3RD PLACE or THE LEAD).' },
   compare: { label: 'Driver compare', min: 1, max: 2, note: 'One or two drivers, shown with their average finish and IFWL ranking.' },
   team:    { label: 'Team', min: 1, max: 8, note: 'Team name and car number, then the team\'s drivers in the order you want them shown. Push the whole team, or press a driver\'s name on the saved card to highlight just them (the others dim).' },
@@ -81,6 +82,11 @@ var CSS = '' +
 '.cm .cm-pick{ margin-top:8px; display:grid; gap:6px; }' +
 '.cm .cm-pi{ display:flex; align-items:center; gap:8px; border:1px solid var(--cm-line); border-radius:8px; padding:5px 8px; background:rgba(0,0,0,.18); }' +
 '.cm .cm-pi .n{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }' +
+'.cm .cm-pi .hd{ cursor:grab; opacity:.55; padding:0 4px; user-select:none; font-size:16px; }' +
+'.cm .cm-pi.dragover{ border-color:var(--cm-teal); background:rgba(0,229,200,.14); }' +
+'.cm .cm-pi.dragging{ opacity:.4; }' +
+'.cm .cm-pi input.pn{ width:58px; padding:4px 6px; text-align:center; font-weight:800; }' +
+'.cm .cm-grvrow{ flex:1 1 100%; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }' +
 '.cm .cm-pi .pos{ opacity:.7; width:26px; font-variant-numeric:tabular-nums; }' +
 '.cm .cm-pi input[type=text]{ width:130px; padding:4px 8px; }' +
 '.cm .cm-card{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; border:1px solid var(--cm-line); border-radius:10px; padding:8px 10px; margin-top:8px; background:rgba(0,0,0,.18); }' +
@@ -191,7 +197,7 @@ function mount(root){
       var L = st.list();
       pick.innerHTML = L.map(function(e, i){
         return '<div class="cm-pi" data-i="' + i + '">' +
-          (cfg.ordered ? '<span class="pos">' + (i + 1) + '.</span>' : '') +
+          (cfg.posbox ? '<span class="hd" draggable="true" data-drag="' + i + '" title="Drag to reorder">&#8942;&#8942;</span><input type="number" class="pn" min="1" max="' + L.length + '" value="' + (i + 1) + '" data-pos="' + i + '" title="Grid position">' : cfg.ordered ? '<span class="pos">' + (i + 1) + '.</span>' : '') +
           '<span class="n">' + esc(e.name) + '</span>' +
           (cfg.labels ? '<input type="text" maxlength="30" placeholder="Class name (optional)" value="' + esc(e.label || '') + '" data-lab="' + i + '">' : '') +
           (cfg.ordered ? '<button class="sm" data-up="' + i + '" title="Move up">&#9650;</button><button class="sm" data-dn="' + i + '" title="Move down">&#9660;</button>' : '') +
@@ -206,6 +212,14 @@ function mount(root){
       else if (b.hasAttribute('data-dn')){ i = Number(b.getAttribute('data-dn')); if (i < L.length - 1){ var t2 = L[i]; L[i] = L[i + 1]; L[i + 1] = t2; } }
       renderPick();
     });
+    function moveTo(from, to){ var L = st.list(); to = Math.max(0, Math.min(L.length - 1, to)); if (from === to || from < 0 || from >= L.length) return false; var it = L.splice(from, 1)[0]; L.splice(to, 0, it); return true; }
+    var dragFrom = -1;
+    pick.addEventListener('change', function(ev){ var el = ev.target; if (el.hasAttribute && el.hasAttribute('data-pos')){ var v = Math.round(Number(el.value)); if (!isFinite(v)) v = Number(el.getAttribute('data-pos')) + 1; moveTo(Number(el.getAttribute('data-pos')), v - 1); renderPick(); } });
+    pick.addEventListener('keydown', function(ev){ if (ev.key === 'Enter' && ev.target.hasAttribute && ev.target.hasAttribute('data-pos')){ ev.preventDefault(); ev.target.blur(); } });
+    pick.addEventListener('dragstart', function(ev){ var h = ev.target.closest && ev.target.closest('[data-drag]'); if (!h){ return; } dragFrom = Number(h.getAttribute('data-drag')); var row = h.closest('.cm-pi'); if (row){ row.classList.add('dragging'); try { ev.dataTransfer.setData('text/plain', String(dragFrom)); ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setDragImage(row, 12, 12); } catch (e) {} } });
+    pick.addEventListener('dragover', function(ev){ if (dragFrom < 0) return; var row = ev.target.closest('.cm-pi'); if (!row) return; ev.preventDefault(); pick.querySelectorAll('.dragover').forEach(function(x){ if (x !== row) x.classList.remove('dragover'); }); row.classList.add('dragover'); });
+    pick.addEventListener('drop', function(ev){ if (dragFrom < 0) return; var row = ev.target.closest('.cm-pi'); if (!row) return; ev.preventDefault(); var to = Number(row.getAttribute('data-i')); var f = dragFrom; dragFrom = -1; moveTo(f, to); renderPick(); });
+    pick.addEventListener('dragend', function(){ dragFrom = -1; pick.querySelectorAll('.dragover,.dragging').forEach(function(x){ x.classList.remove('dragover', 'dragging'); }); });
     pick.addEventListener('input', function(ev){ var el = ev.target; if (el.hasAttribute && el.hasAttribute('data-lab')) st.list()[Number(el.getAttribute('data-lab'))].label = el.value; });
     function search(){
       var q = inp.value.trim(); if (q.length < 2){ res.hidden = true; res.innerHTML = ''; return; }
@@ -269,7 +283,17 @@ function mount(root){
     if (c.type === 'thanks') return (o.tiers || []).join(', ') + ' supporters';
     return '';
   }
-  function cardSummary(c){ if (TYPES[c.type] && TYPES[c.type].info) return infoSummary(c); return (c.type === 'team' && c.number ? '#' + c.number + ' - ' : '') + (c.entries || []).map(function(e, i){ return (c.type === 'grid' ? (i + 1) + '. ' : '') + e.name + (e.label ? ' (' + e.label + ')' : ''); }).join(c.type === 'battle' || c.type === 'compare' ? '  vs  ' : ', '); }
+  function cardSummary(c){ if (TYPES[c.type] && TYPES[c.type].info) return infoSummary(c); return (c.type === 'team' && c.number ? '#' + c.number + ' - ' : '') + (c.entries || []).map(function(e, i){ return (c.type === 'grid' || c.type === 'gridreveal' ? (i + 1) + '. ' : '') + e.name + (e.label ? ' (' + e.label + ')' : ''); }).join(c.type === 'battle' || c.type === 'compare' ? '  vs  ' : ', '); }
+  function grvControls(c, isOn){
+    var n = (c.entries || []).length, rows = Math.ceil(n / 2), cur = isOn && S.show && S.show.type === 'gridreveal' ? Number(S.show.row) || 0 : -1, dis = S.interview || !isOn ? ' disabled' : '', h = '', r;
+    var nextRow = cur <= 0 ? rows : cur - 1, nextOff = cur === 1, backRow = cur + 1, backOff = cur <= 0 || cur >= rows;
+    h = '<div class="cm-grvrow"><span class="cm-help" style="margin:0">' + (isOn ? 'Reveal:' : 'Push the card first, then step through:') + '</span>' +
+      '<button class="go sm" data-grv="' + esc(c.id) + '" data-row="' + nextRow + '"' + (dis || (nextOff ? ' disabled' : '')) + '>' + (cur <= 0 ? 'First row (back of grid)' : nextOff ? 'At pole' : 'Next row (towards pole)') + '</button>' +
+      '<button class="sm" data-grv="' + esc(c.id) + '" data-row="' + backRow + '"' + (dis || (backOff ? ' disabled' : '')) + '>Back a row</button>' +
+      '<button class="sm" data-grv="' + esc(c.id) + '" data-row="0"' + dis + '>Bars only</button>';
+    for (r = rows; r >= 1; r--) h += '<button class="sm' + (cur === r ? ' amber' : '') + '" data-grv="' + esc(c.id) + '" data-row="' + r + '"' + dis + '>P' + (2 * r - 1) + (2 * r <= n ? '-' + (2 * r) : '') + '</button>';
+    return h + '</div>';
+  }
   function renderDeck(){
     var el = $s('deck'), on = onScreenId();
     el.innerHTML = '<h4>Prepared cards (shared deck)</h4>' +
@@ -282,6 +306,7 @@ function mount(root){
           '<button class="go" data-push="' + esc(c.id) + '"' + (S.interview ? ' disabled title="Stop interview mode first"' : '') + '>' + (isOn ? 'Push again' : 'Push to stream') + '</button>' +
           '<button class="sm" data-edit="' + esc(c.id) + '">Edit</button>' +
           '<button class="sm" data-del="' + esc(c.id) + '">' + (delId === c.id ? 'Sure?' : 'Delete') + '</button>' +
+          (c.type === 'gridreveal' ? grvControls(c, isOn) : '') +
           (c.type === 'team' ? '<div style="flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="cm-help" style="margin:0">Highlight one driver:</span>' + (c.entries || []).map(function(e){ var f = S.show && S.show.deckId === c.id && S.show.focusId === e.id; return '<button class="sm' + (f ? ' amber' : '') + '" data-focus-card="' + esc(c.id) + '" data-focus-id="' + esc(e.id) + '"' + (S.interview ? ' disabled' : '') + '>' + esc(e.name) + '</button>'; }).join('') + '</div>' : '') + '</div>';
       }).join('') : '<div class="cm-help">Nothing prepared yet. Use "Build a card" below.</div>');
   }
@@ -366,12 +391,12 @@ function mount(root){
       '<button class="amber" data-save="1" disabled>' + (B.editId ? 'Save and push now' : 'Save and push now') + '</button>' + (B.editId ? '<button data-cancel>Cancel edit</button>' : '') +
       '<span class="cm-help" data-need></span></div>';
     gridPicker = null;
-    if (T.max > 0) gridPicker = Picker(el.querySelector('[data-picker]'), { list: function(){ return B.entries; }, max: function(){ return TYPES[B.type].max; }, replace: T.max === 1, ordered: B.type === 'grid' || B.type === 'leaders' || B.type === 'battle' || B.type === 'team', labels: B.type === 'leaders', placeholder: T.max === 1 ? 'Search the driver by name or number (2+ letters)' : '', onChange: function(){ syncBuildButtons(); if (B.type === 'story') loadStories(); } });
+    if (T.max > 0) gridPicker = Picker(el.querySelector('[data-picker]'), { list: function(){ return B.entries; }, max: function(){ return TYPES[B.type].max; }, replace: T.max === 1, ordered: B.type === 'grid' || B.type === 'gridreveal' || B.type === 'leaders' || B.type === 'battle' || B.type === 'team', labels: B.type === 'leaders', posbox: B.type === 'grid' || B.type === 'gridreveal', placeholder: T.max === 1 ? 'Search the driver by name or number (2+ letters)' : '', onChange: function(){ syncBuildButtons(); if (B.type === 'story') loadStories(); } });
     if (isInfo) renderOpts();
   }
   function syncBuildButtons(){
     var el = $s('build'), T = TYPES[B.type], n = B.entries.length, o = B.opts || {}, ok = n >= T.min && n <= T.max, need = '';
-    if (!ok) need = B.type === 'battle' ? 'Add exactly two drivers.' : B.type === 'grid' ? 'Add at least two drivers.' : 'Add at least one driver.';
+    if (!ok) need = B.type === 'battle' ? 'Add exactly two drivers.' : B.type === 'grid' || B.type === 'gridreveal' ? 'Add at least two drivers.' : 'Add at least one driver.';
     else if (B.type === 'story' && !o.kind && !String(o.text || '').trim()){ ok = false; need = 'Pick a storyline or type your own.'; }
     else if (B.type === 'bop' && !o.track){ ok = false; need = 'Pick the track.'; }
     else if (B.type === 'track' && !String(o.track || '').trim()){ ok = false; need = 'Type or pick the track.'; }
@@ -552,7 +577,8 @@ function mount(root){
     if (b.getAttribute('data-act') === 'hide'){ act('commsDeckHide', {}, 'Card hidden from the stream.'); return; }
     if (b.hasAttribute('data-mode')){ var m = b.getAttribute('data-mode'); act('commsMode', { mode: m }, m ? 'Badge switched to Race Team Live Feed.' : 'Badge back to rerun.'); return; }
     if (b.hasAttribute('data-focus-card')){ act('commsDeckPush', { id: b.getAttribute('data-focus-card'), focusId: b.getAttribute('data-focus-id') }, 'Driver highlighted on the stream.'); return; }
-    if (b.hasAttribute('data-push')){ act('commsDeckPush', { id: b.getAttribute('data-push') }, 'Pushed to the stream.'); return; }
+    if (b.hasAttribute('data-grv')){ act('commsDeckPush', { id: b.getAttribute('data-grv'), row: Number(b.getAttribute('data-row')) }, 'Grid row updated on the stream.'); return; }
+    if (b.hasAttribute('data-push')){ var pc = S.deck.filter(function(x){ return x.id === b.getAttribute('data-push'); })[0]; act('commsDeckPush', pc && pc.type === 'gridreveal' ? { id: pc.id, row: 0 } : { id: b.getAttribute('data-push') }, 'Pushed to the stream.'); return; }
     if (b.hasAttribute('data-del')){
       var id = b.getAttribute('data-del');
       if (delId === id){ delId = ''; clearTimeout(delTimer); act('commsDeckDelete', { id: id }, 'Card deleted.').then(function(){ if (B.editId === id){ resetBuild(); } }); }
